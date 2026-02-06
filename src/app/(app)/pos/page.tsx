@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -18,7 +17,7 @@ import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
@@ -433,58 +432,58 @@ export default function POSPage() {
             for (const client of waitingClients) {
                 const requiredSkills = client.requiredSkills || []; const staffSkills = staffMember.skillSet || [];
                 const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
-                if (canPerformService) { handleAssignStaff(client.id, { [client.id]: staffMember.id }); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
+                if (canPerformService) { handleAssignStaff(client, { [client.id]: staffMember.id }); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
             }
         }
         
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
     };
 
-     const handleAssignStaff = (walkInId: string, assignments: Record<string, string>) => {
-        if (!firestore || !selectedTenant) return;
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { assignments: assignments, status: 'notified' });
-        toast({ title: "Staff Assigned", description: "The client has been notified." });
-    };
+    const handleAssignStaff = (walkIn: WalkIn, assignments: Record<string, string>) => {
+      if (!firestore || !selectedTenant || !services) return;
+      
+      const batch = writeBatch(firestore);
+      const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+      
+      const people = [{ id: walkIn.clientId || walkIn.id, name: walkIn.customerName, serviceIds: walkIn.serviceIds }, ...(walkIn.partyMembers || [])];
 
-    const handleStartService = (walkInId: string, personId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        if (!walkIn || !services || !firestore || !selectedTenant) return;
-        const person = [
-            { id: walkIn.clientId || walkIn.id, name: walkIn.customerName, serviceIds: walkIn.serviceIds },
-            ...(walkIn.partyMembers || [])
-        ].find(p => p.id === personId);
+      people.forEach(person => {
+        const staffId = assignments[person.id];
+        if (staffId) {
+          const personServices = person.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+          const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
 
-        if (!person || !walkIn.assignments?.[personId]) {
-            toast({ variant: "destructive", title: "Cannot Start Service", description: "No staff member assigned to this person." });
-            return;
+          const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
+          const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+          
+          const now = new Date();
+
+          const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
+              id: appointmentId,
+              tenantId: selectedTenant.id,
+              clientId: person.id,
+              clientName: person.name,
+              serviceId: person.serviceIds[0],
+              staffId: staffId,
+              status: 'confirmed',
+              source: 'walk-in',
+              isWalkIn: true,
+              startTime: now.toISOString(),
+              endTime: addMinutes(now, duration).toISOString(),
+          };
+          batch.set(appointmentRef, appointmentData);
         }
-
-        const staffId = walkIn.assignments[personId];
-        const personServices = person.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-
-        const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
-
-        const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
-            id: appointmentId,
-            tenantId: selectedTenant.id,
-            clientId: person.id,
-            clientName: person.name,
-            serviceId: person.serviceIds[0], // Simplified
-            staffId: staffId,
-            status: 'servicing',
-            source: 'walk-in',
-            isWalkIn: true,
-            actualStartTime: new Date().toISOString(),
-            startTime: new Date().toISOString(),
-            endTime: new Date(new Date().getTime() + duration * 60000).toISOString(),
-        };
-
-        const appointmentsRef = collection(firestore, 'tenants', selectedTenant.id, 'appointments');
-        setDocumentNonBlocking(doc(appointmentsRef, appointmentId), appointmentData, {});
-
-        toast({ title: 'Service Started!', description: `${person.name}'s service with ${staff?.find(s => s.id === staffId)?.name} has begun.` });
+      });
+      
+      batch.update(walkInRef, { assignments, status: 'assigned' });
+      
+      batch.commit().then(() => {
+        toast({ title: "Staff Assigned", description: "The client has been notified and appointments are on the planner." });
+        setWalkInToAssign(null);
+      }).catch(err => {
+        console.error("Error assigning staff and creating appointments:", err);
+        toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointments."});
+      });
     };
     
     const { subtotal, tax, total } = useMemo(() => {
@@ -611,7 +610,7 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting').length || 0}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
@@ -620,9 +619,12 @@ export default function POSPage() {
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
-                                    onAssignStaff={(walkInId, assignments) => handleAssignStaff(walkInId, assignments)}
+                                    onAssignStaff={(walkInId: string) => {
+                                        const walkIn = walkIns?.find(w => w.id === walkInId);
+                                        if (walkIn) setWalkInToAssign(walkIn);
+                                    }}
                                     onAssignNext={handleAssignNext} 
-                                    onStartService={handleStartService} 
+                                    onStartService={() => {}}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -677,8 +679,9 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignStaff} />
+            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={(walkInId, assignments) => handleAssignStaff(walkInToAssign!, assignments)} />
         </>
     );
 }
 
+    
