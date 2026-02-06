@@ -27,6 +27,7 @@ interface WalkInQueueProps {
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
+    onPrintTicket: (walkInId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -41,6 +42,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     orderedWaitingQueue,
     onReorder,
     assignmentMode,
+    onPrintTicket,
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -111,6 +113,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
                                             onCancel={onCancel}
                                             onMoveToFront={handleMoveToFront}
+                                            onPrintTicket={onPrintTicket}
                                             groupSize={groupSizes.get(walkIn.groupId) || 1}
                                         />
                                     </Reorder.Item>

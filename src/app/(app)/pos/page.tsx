@@ -30,13 +30,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
+import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 
 
 const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
@@ -73,9 +74,12 @@ export default function POSPage() {
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
+    
+    const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
-
+    
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
         return appointmentsFromDB.map(apt => ({
@@ -84,7 +88,7 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
-    
+
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointments || !clients || !services || !staff) return [];
         return appointments
@@ -97,6 +101,77 @@ export default function POSPage() {
                 return { ...apt, client, service, addOnServices, staff: staffMember };
             }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [appointments, clients, services, staff]);
+
+    const handleSelectAppointment = useCallback((appointmentId: string) => {
+        const newSet = new Set(selectedAppointmentIds);
+        if (newSet.has(appointmentId)) {
+            newSet.delete(appointmentId);
+        } else {
+            newSet.add(appointmentId);
+        }
+        setSelectedAppointmentIds(newSet);
+    }, [selectedAppointmentIds]);
+    
+    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
+        setCart(prevCart => {
+            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+            if (existingItem) {
+                return prevCart.map(cartItem => 
+                    cartItem.id === item.id 
+                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
+                    : cartItem
+                );
+            }
+            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
+            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
+        });
+    }, []);
+
+    const handleScan = useCallback((data: string) => {
+      if (!inventory || !appointments) {
+        toast({
+          variant: 'destructive',
+          title: 'Data Not Ready',
+          description: 'Inventory and appointments are still loading. Please try again in a moment.'
+        });
+        return;
+      }
+      let appointmentId: string | undefined;
+
+      if (data.startsWith('clarityflow://checkout/')) {
+        appointmentId = data.split('/').pop();
+      } else if (data.startsWith('clarityflow://walk-in/')) {
+        const walkInId = data.split('/').pop();
+        if (walkInId) {
+          appointmentId = `apt-walkin-${walkInId}`;
+        }
+      } else {
+        const product = inventory.find(p => p.sku === data || p.id === data);
+        if (product) {
+            handleAddToCart(product);
+            toast({
+                title: "Product Added",
+                description: `${product.name} has been added to the sale.`
+            });
+        } else {
+            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Scanned code is not a valid checkout ticket or product.' });
+        }
+        return;
+      }
+      
+      if (!appointmentId) {
+        toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not read ID from QR code.' });
+        return;
+      }
+
+      const appointmentToCheckout = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+      if (appointmentToCheckout) {
+        handleSelectAppointment(appointmentId);
+        toast({ title: "Appointment Added", description: "The client's services have been added to the sale." });
+      } else {
+        toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
+      }
+    }, [inventory, appointments, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
     const inServiceAppointments = useMemo(() => {
         return (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
@@ -447,78 +522,7 @@ export default function POSPage() {
         description: `The service for ${appointmentToStart.clientName} has begun.`
       });
     };
-
-    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
-            if (existingItem) {
-                return prevCart.map(cartItem => 
-                    cartItem.id === item.id 
-                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
-                    : cartItem
-                );
-            }
-            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
-            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
-        });
-    }, []);
-
-    const handleSelectAppointment = useCallback((appointmentId: string) => {
-        const newSet = new Set(selectedAppointmentIds);
-        if (newSet.has(appointmentId)) {
-            newSet.delete(appointmentId);
-        } else {
-            newSet.add(appointmentId);
-        }
-        setSelectedAppointmentIds(newSet);
-    }, [selectedAppointmentIds]);
     
-    const handleScan = useCallback((data: string) => {
-      if (!inventory || !appointments) {
-        toast({
-          variant: 'destructive',
-          title: 'Data Not Ready',
-          description: 'Inventory and appointments are still loading. Please try again in a moment.'
-        });
-        return;
-      }
-      let appointmentId: string | undefined;
-
-      if (data.startsWith('clarityflow://checkout/')) {
-        appointmentId = data.split('/').pop();
-      } else if (data.startsWith('clarityflow://walk-in/')) {
-        const walkInId = data.split('/').pop();
-        if (walkInId) {
-          appointmentId = `apt-walkin-${walkInId}`;
-        }
-      } else {
-        const product = inventory.find(p => p.sku === data || p.id === data);
-        if (product) {
-            handleAddToCart(product);
-            toast({
-                title: "Product Added",
-                description: `${product.name} has been added to the sale.`
-            });
-        } else {
-            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Scanned code is not a valid checkout ticket or product.' });
-        }
-        return;
-      }
-      
-      if (!appointmentId) {
-        toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not read ID from QR code.' });
-        return;
-      }
-
-      const appointmentToCheckout = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-      if (appointmentToCheckout) {
-        handleSelectAppointment(appointmentId);
-        toast({ title: "Appointment Added", description: "The client's services have been added to the sale." });
-      } else {
-        toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
-      }
-    }, [inventory, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
-
     useEffect(() => {
         if (scannedData) {
             handleScan(scannedData);
@@ -725,6 +729,44 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Walk-in Ticket</DialogTitle>
+                    </DialogHeader>
+                    <div id="print-ticket-area">
+                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <div className="hidden print:block print-only">
+                <div id="printable-ticket-pos">
+                    {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                </div>
+            </div>
+            <style jsx global>{`
+                @media print {
+                    body > *:not(.print-only) {
+                        display: none !important;
+                    }
+                    .print-only, .print-only * {
+                        display: block !important;
+                        visibility: visible !important;
+                    }
+                    .print-only {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                    }
+                }
+            `}</style>
         </>
     );
 }

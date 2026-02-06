@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React from 'react';
@@ -7,7 +6,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
@@ -19,10 +18,11 @@ interface WaitingCustomerCardProps {
     onAssign: () => void;
     onCancel: (walkInId: string) => void;
     onMoveToFront: (walkInId: string) => void;
+    onPrintTicket: (walkInId: string) => void;
     groupSize: number;
 }
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, onMoveToFront, groupSize }) => {
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize }) => {
     const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
     const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
     
@@ -80,6 +80,10 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                         <DropdownMenuItem onClick={onAssign}>
                             <UserPlus className="w-4 h-4 mr-2" />
                             Assign Staff
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onPrintTicket(walkIn.id)}>
+                            <Printer className="w-4 h-4 mr-2" />
+                            Print Ticket
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={() => onCancel(walkIn.id)}>
