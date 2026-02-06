@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -646,7 +647,7 @@ export default function WalkInPage() {
                         <Button variant="outline" className="w-full" type="button" onClick={() => setIsAddingPerson(true)}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
                         </Button>
-                    </div>
+                      </div>
                     )}
                   </CardContent>
                   <CardFooter className="flex justify-between">
@@ -830,7 +831,6 @@ export default function WalkInPage() {
             </motion.div>
           </AnimatePresence>
         </Card>
-      </div>
     </div>
     <AddPartyMemberDialog 
         open={isAddingPerson}
