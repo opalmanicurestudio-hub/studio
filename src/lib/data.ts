@@ -100,6 +100,7 @@ export type Staff = {
   breakStartTime?: string; // ISO date string
   status?: 'idle' | 'busy';
   lastServedTimestamp?: string;
+  turnOrder?: number;
   skillSet?: string[];
 };
 

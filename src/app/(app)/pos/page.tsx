@@ -1,11 +1,11 @@
 
+
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog } from '@/lib/data';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { OrderLine } from '@/components/pos/OrderLine';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
@@ -15,12 +15,13 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 export default function POSPage() {
@@ -32,6 +33,35 @@ export default function POSPage() {
     const { selectedTenant } = useTenant();
     const { toast } = useToast();
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
+    
+    // New state for ordered staff
+    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
+
+    // Initialize and sort staff based on turnOrder
+    useEffect(() => {
+        if (staff) {
+            const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+            setOrderedStaff(sorted);
+        }
+    }, [staff]);
+
+    // Handle reordering of staff
+    const handleStaffReorder = (newOrder: Staff[]) => {
+        setOrderedStaff(newOrder);
+
+        if (!firestore || !selectedTenant) return;
+        const batch = writeBatch(firestore);
+        newOrder.forEach((staffMember, index) => {
+            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
+            batch.update(staffRef, { turnOrder: index });
+        });
+        batch.commit().catch(err => {
+            console.error("Failed to save staff order:", err);
+            toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
+            // Revert state on failure
+            setOrderedStaff(staff || []);
+        });
+    };
 
 
     const posAppointments = useMemo(() => {
@@ -168,7 +198,7 @@ export default function POSPage() {
         }
 
         const idleStaff = staff
-            .filter(s => s.status === 'idle' && s.active && !s.onBreak)
+            .filter(s => s.active && !s.onBreak && s.status === 'idle')
             .sort((a, b) => {
                 const timeA = a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
                 const timeB = b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
@@ -226,7 +256,12 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <TeamStatus staff={staff} onStatusChange={handleStatusChangeWithConfirmation} />
+                        <TeamStatus 
+                            staff={orderedStaff} 
+                            onStatusChange={handleStatusChangeWithConfirmation} 
+                            appointments={appointments}
+                            onReorder={handleStaffReorder}
+                        />
                         <OrderLine 
                             appointments={posAppointments}
                             onSelectOrder={handleSelectOrder}
