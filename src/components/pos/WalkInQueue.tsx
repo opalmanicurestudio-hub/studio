@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
@@ -11,10 +12,12 @@ import { AssignStaffDialog } from './AssignStaffDialog';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { Button } from '../ui/button';
 import { Sparkles } from 'lucide-react';
+import { Reorder } from 'framer-motion';
+
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -41,12 +44,24 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
-        const waiting = walkIns?.filter(w => w.status === 'waiting') || [];
-        const notified = walkIns?.filter(w => w.status === 'notified') || [];
-        const inService = walkIns?.filter(w => w.status === 'servicing') || [];
-        const ready = walkIns?.filter(w => w.status === 'ready_for_checkout') || [];
+        const waiting = (walkIns || []).filter(w => w.status === 'waiting');
+        const notified = (walkIns || []).filter(w => w.status === 'notified');
+        const inService = (walkIns || []).filter(w => w.status === 'servicing');
+        const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns]);
+
+    const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
+
+    useEffect(() => {
+        const sorted = [...waitingQueue].sort((a, b) => {
+            const orderA = a.queueOrder || new Date(a.checkInTime).getTime();
+            const orderB = b.queueOrder || new Date(b.checkInTime).getTime();
+            return orderA - orderB;
+        });
+        setOrderedWaitingQueue(sorted);
+    }, [waitingQueue]);
+
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);
@@ -117,6 +132,17 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         
         toast({ title: "Ready for Checkout", description: "The client has been sent to the order line." });
     };
+    
+    const handleReorder = (newOrder: WalkIn[]) => {
+        setOrderedWaitingQueue(newOrder);
+        if (!firestore || !selectedTenant) return;
+
+        const baseOrder = Date.now();
+        newOrder.forEach((walkIn, index) => {
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+            updateDocumentNonBlocking(walkInRef, { queueOrder: baseOrder + index });
+        });
+    };
 
     return (
         <>
@@ -134,9 +160,15 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             Assign Next (Fair Play)
                         </Button>
                     </div>
-                    {waitingQueue.length > 0 ? waitingQueue.map(walkIn => (
-                        <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onAssign={() => handleOpenAssignDialog(walkIn)} onStart={() => handleStartService(walkIn)} />
-                    )) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
+                    {orderedWaitingQueue.length > 0 ? (
+                        <Reorder.Group axis="y" values={orderedWaitingQueue} onReorder={handleReorder} className="space-y-4">
+                            {orderedWaitingQueue.map(walkIn => (
+                                <Reorder.Item key={walkIn.id} value={walkIn}>
+                                    <WaitingCustomerCard walkIn={walkIn} services={services} onAssign={() => handleOpenAssignDialog(walkIn)} onStart={() => handleStartService(walkIn)} />
+                                </Reorder.Item>
+                            ))}
+                        </Reorder.Group>
+                    ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
                 </TabsContent>
                 <TabsContent value="notified" className="mt-4 space-y-4">
                     {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (

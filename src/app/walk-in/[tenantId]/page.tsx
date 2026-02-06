@@ -19,7 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, getDocs, query, where, doc } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant, type Client } from '@/lib/data';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2 } from 'lucide-react';
@@ -45,7 +45,6 @@ import {
 } from '@/components/ui/dialog';
 
 type Step = 'services' | 'consents' | 'details' | 'confirmation';
-type PartyMember = { id: string; name: string; serviceIds: string[] };
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -422,6 +421,7 @@ export default function WalkInPage() {
       status: 'waiting',
       waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
       notes: notes,
+      queueOrder: Date.now(),
     };
     
     if (preferredStaffId !== 'any') {

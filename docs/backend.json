@@ -599,6 +599,7 @@
         "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
         "serviceEndTime": { "type": "string", "format": "date-time", "description": "The time the service actually ended." },
         "status": { "type": "string", "enum": ["waiting", "notified", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
+        "queueOrder": { "type": "number", "description": "A number used for manually reordering the queue." },
         "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
         "notes": { "type": "string" },
         "preferredStaffId": { "type": "string" },
@@ -1189,3 +1190,4 @@
     
 
     
+

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -6,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical } from 'lucide-react';
 
 interface WaitingCustomerCardProps {
     walkIn: WalkIn;
@@ -24,19 +25,24 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
 
     return (
         <Card>
-            <CardContent className="p-4">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="font-semibold flex items-center gap-2">
-                            <User className="w-4 h-4"/>
-                            {walkIn.customerName}
-                            {isGroup && <span className="text-muted-foreground font-normal flex items-center gap-1">(<Users className="w-3 h-3"/>{groupCount})</span>}
-                        </p>
-                        <p className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="w-4 h-4"/>Waiting {waitTime}</p>
-                    </div>
-                     <div className="text-right">
-                        {selectedServices?.map(s => <p key={s.id} className="text-sm">{s.name}</p>)}
-                        <p className="text-xs text-muted-foreground">{walkIn.estimatedDuration} min</p>
+            <CardContent className="p-4 flex items-start gap-1">
+                <div className="cursor-grab text-muted-foreground p-2 -ml-2 mt-5">
+                    <GripVertical className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="font-semibold flex items-center gap-2">
+                                <User className="w-4 h-4"/>
+                                {walkIn.customerName}
+                                {isGroup && <span className="text-muted-foreground font-normal flex items-center gap-1">(<Users className="w-3 h-3"/>{groupCount})</span>}
+                            </p>
+                            <p className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="w-4 h-4"/>Waiting {waitTime}</p>
+                        </div>
+                        <div className="text-right">
+                            {selectedServices?.map(s => <p key={s.id} className="text-sm">{s.name}</p>)}
+                            <p className="text-xs text-muted-foreground">{walkIn.estimatedDuration} min</p>
+                        </div>
                     </div>
                 </div>
             </CardContent>

@@ -400,9 +400,11 @@ export type WalkIn = {
     customerEmail?: string;
     customerBirthday?: string;
     serviceIds: string[];
+    partyMembers?: PartyMember[];
     requiredSkills: string[];
     estimatedDuration: number;
     checkInTime: string; // ISO Date
+    queueOrder?: number;
     notifiedTimestamp?: string; // ISO Date
     serviceStartTime?: string; // ISO Date
     serviceEndTime?: string; // ISO Date
@@ -577,6 +579,12 @@ export type PricingTier = {
     id: string;
     name: string;
     rank: number;
+};
+
+export type PartyMember = { 
+    id: string; 
+    name: string; 
+    serviceIds: string[];
 };
 
 
