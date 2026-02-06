@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -31,7 +32,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { ShoppingCart } from 'lucide-react';
-import { Dialog, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 
 
