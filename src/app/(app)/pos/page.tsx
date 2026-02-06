@@ -11,7 +11,7 @@ import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -22,6 +22,15 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
+import { ShoppingCart } from 'lucide-react';
 
 
 export default function POSPage() {
@@ -36,6 +45,10 @@ export default function POSPage() {
     // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+
+    const isMobile = useIsMobile();
+    const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
+    const [tipAmount, setTipAmount] = useState(0);
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -304,6 +317,29 @@ export default function POSPage() {
         toast({ title: "Staff Assigned", description: "The client has been notified." });
     };
     
+    const { subtotal, tax, total } = useMemo(() => {
+        const sub = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const taxAmount = sub * 0.07;
+        const grandTotal = sub + taxAmount + tipAmount;
+        return { subtotal: sub, tax: taxAmount, total: grandTotal };
+    }, [cart, tipAmount]);
+
+    const checkoutHubProps = {
+        cart, 
+        onCartChange: handleCartChange,
+        clients: clients || [],
+        isGroupCheckout: selectedAppointmentIds.size > 1,
+        payerOptions,
+        selectedClientId,
+        setSelectedClientId,
+        onAddClientClick: () => setIsAddClientOpen(true),
+        subtotal,
+        tax,
+        total,
+        tipAmount,
+        setTipAmount
+    };
+
     return (
         <>
             <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -321,19 +357,28 @@ export default function POSPage() {
                             <TabsContent value="queue" className="flex-1 mt-6"><WalkInQueue walkIns={walkIns} appointments={appointments} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} /></TabsContent>
                         </Tabs>
                     </main>
-                    <aside className="border-l bg-card p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
-                        <CheckoutHub 
-                            cart={cart} onCartChange={handleCartChange} 
-                            clients={clients || []}
-                            isGroupCheckout={selectedAppointmentIds.size > 1}
-                            payerOptions={payerOptions}
-                            selectedClientId={selectedClientId}
-                            setSelectedClientId={setSelectedClientId}
-                            onAddClientClick={() => setIsAddClientOpen(true)}
-                        />
+                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                        <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
             </div>
+            {isMobile && (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
+                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                        <SheetTrigger asChild>
+                            <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}>
+                                <div className="flex justify-between items-center w-full">
+                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length} item(s)</span>
+                                    <span>${total.toFixed(2)}</span>
+                                </div>
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                           <CheckoutHub {...checkoutHubProps} />
+                        </SheetContent>
+                    </Sheet>
+                </div>
+            )}
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
              {confirmation && (
                 <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>

@@ -1,12 +1,12 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign } from 'lucide-react';
 import { type Appointment, type Service, type Client } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -22,6 +22,11 @@ export const CheckoutHub = ({
     selectedClientId,
     setSelectedClientId,
     onAddClientClick,
+    subtotal,
+    tax,
+    total,
+    tipAmount,
+    setTipAmount,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -31,23 +36,16 @@ export const CheckoutHub = ({
     selectedClientId: string | null,
     setSelectedClientId: (id: string | null) => void,
     onAddClientClick: () => void,
+    subtotal: number,
+    tax: number,
+    total: number,
+    tipAmount: number,
+    setTipAmount: (amount: number) => void,
 }) => {
-    const [subtotal, setSubtotal] = useState(0);
-    const [tax, setTax] = useState(0);
-    const [donation, setDonation] = useState(1.00);
-    const [total, setTotal] = useState(0);
     
     const selectedClient = useMemo(() => {
         return clients.find((c: Client) => c.id === selectedClientId);
     }, [selectedClientId, clients]);
-
-    useEffect(() => {
-        const currentSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        const currentTax = currentSubtotal * 0.06; // 6% tax
-        setSubtotal(currentSubtotal);
-        setTax(currentTax);
-        setTotal(currentSubtotal + currentTax + donation);
-    }, [cart, donation]);
 
     const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
         if (newQuantity <= 0) {
@@ -125,7 +123,21 @@ export const CheckoutHub = ({
                 <h3 className="font-semibold mb-2">Payment Summary</h3>
                 <div className="flex justify-between"><p>Subtotal</p><p>${subtotal.toFixed(2)}</p></div>
                 <div className="flex justify-between"><p>Tax</p><p>${tax.toFixed(2)}</p></div>
-                <div className="flex justify-between"><p>Donation</p><p>${donation.toFixed(2)}</p></div>
+                <div className="flex justify-between text-sm items-center">
+                    <p className="text-muted-foreground">Tip</p>
+                    <div className="relative w-24">
+                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                        type="number"
+                        value={tipAmount || ''}
+                        onChange={(e) =>
+                            setTipAmount(parseFloat(e.target.value) || 0)
+                        }
+                        className="h-8 text-right pr-2 pl-7"
+                        placeholder="0.00"
+                        />
+                    </div>
+                </div>
                 <Separator className="my-2" />
                 <div className="flex justify-between font-bold text-lg"><p>Total Payable</p><p>${total.toFixed(2)}</p></div>
             </div>
