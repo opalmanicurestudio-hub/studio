@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -17,8 +18,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
-import { collection, getDocs, query, where, doc } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember } from '@/lib/data';
+import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check } from 'lucide-react';
@@ -407,7 +408,7 @@ export default function WalkInPage() {
       });
       return;
     }
-    if (!/^\S+@\S+\.\S+$/.test(customerEmail)) {
+    if (customerEmail && !/^\S+@\S+\.\S+$/.test(customerEmail)) {
         toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
         return;
     }
@@ -419,35 +420,68 @@ export default function WalkInPage() {
     
     setIsSubmitting(true);
     const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
+    const batch = writeBatch(firestore);
+    
+    const groupId = nanoid();
+    const groupName = partyType === 'group' ? `${customerName}'s Group` : undefined;
+    const checkInTime = new Date().toISOString();
+    const currentTime = Date.now();
 
-    const newWalkIn: any = {
+    // 1. Create walk-in for the primary contact
+    const primaryWalkInId = nanoid();
+    const primaryWalkIn: Omit<WalkIn, 'id'> = {
+      groupId,
+      groupName,
+      isPrimaryContact: true,
       customerName,
       customerPhone,
       customerEmail,
       customerBirthday: customerBirthday?.toISOString(),
       clientId: selectedClientId,
       serviceIds: selectedServices.map(s => s.id),
-      partyMembers,
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
-      estimatedDuration: totalDuration,
-      checkInTime: new Date().toISOString(),
+      estimatedDuration: selectedServices.reduce((acc, s) => acc + s.duration, 0),
+      checkInTime,
       status: 'waiting',
+      preferredStaffId: preferredStaffId !== 'any' ? preferredStaffId : undefined,
       waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
-      notes: notes,
-      queueOrder: Date.now(),
+      notes,
+      queueOrder: currentTime,
     };
-    
-    if (preferredStaffId !== 'any') {
-      newWalkIn.preferredStaffId = preferredStaffId;
-    }
-    
+    const primaryWalkInRef = doc(walkInsRef, primaryWalkInId);
+    batch.set(primaryWalkInRef, { ...primaryWalkIn, id: primaryWalkInId });
+
+    // 2. Create walk-ins for party members
+    partyMembers.forEach((member, index) => {
+      if (member.serviceIds.length === 0) return;
+      
+      const memberWalkInId = nanoid();
+      const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
+      const memberWalkIn: Omit<WalkIn, 'id'> = {
+          groupId,
+          groupName,
+          isPrimaryContact: false,
+          customerName: member.name,
+          serviceIds: member.serviceIds,
+          requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
+          estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
+          checkInTime,
+          status: 'waiting',
+          preferredStaffId: preferredStaffId !== 'any' ? preferredStaffId : undefined,
+          waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
+          queueOrder: currentTime + index + 1,
+      };
+      const memberWalkInRef = doc(walkInsRef, memberWalkInId);
+      batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
+    });
+
     try {
         const q = query(walkInsRef, where("status", "==", "waiting"));
         const querySnapshot = await getDocs(q);
         const newPosition = querySnapshot.size + 1;
         setQueuePosition(newPosition);
 
-        await addDocumentNonBlocking(walkInsRef, newWalkIn);
+        await batch.commit();
         setStep('confirmation');
     } catch (error) {
         console.error("Error adding walk-in:", error);
@@ -787,3 +821,4 @@ export default function WalkInPage() {
     </>
   );
 }
+

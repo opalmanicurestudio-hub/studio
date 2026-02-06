@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -82,7 +83,7 @@ export default function POSPage() {
     }, [appointmentsFromDB]);
     
     const inServiceAppointments = useMemo(() => {
-        return (appointments || []).filter(apt => apt.status === 'servicing');
+        return (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
     }, [appointments]);
 
     // Initialize and sort staff based on turnOrder
@@ -424,66 +425,63 @@ export default function POSPage() {
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
         const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        const waitingClients = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
 
         if (idleStaff.length === 0) { toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' }); return; }
         if (waitingClients.length === 0) { toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' }); return; }
 
-        for (const staffMember of idleStaff) {
-            for (const client of waitingClients) {
+        for (const client of waitingClients) {
+            for (const staffMember of idleStaff) {
                 const requiredSkills = client.requiredSkills || []; const staffSkills = staffMember.skillSet || [];
                 const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
-                if (canPerformService) { handleAssignStaff(client, { [client.id]: staffMember.id }); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
+                if (canPerformService) { 
+                    handleAssignStaff(client, staffMember.id); 
+                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); 
+                    return; 
+                }
             }
         }
         
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
     };
 
-    const handleAssignStaff = (walkIn: WalkIn, assignments: Record<string, string>) => {
+    const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
       if (!firestore || !selectedTenant || !services) return;
       
       const batch = writeBatch(firestore);
       const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
       
-      const people = [{ id: walkIn.clientId || walkIn.id, name: walkIn.customerName, serviceIds: walkIn.serviceIds }, ...(walkIn.partyMembers || [])];
+      const personServices = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+      const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
 
-      people.forEach(person => {
-        const staffId = assignments[person.id];
-        if (staffId) {
-          const personServices = person.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-          const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-
-          const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
-          const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-          
-          const now = new Date();
-
-          const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
-              id: appointmentId,
-              tenantId: selectedTenant.id,
-              clientId: person.id,
-              clientName: person.name,
-              serviceId: person.serviceIds[0],
-              staffId: staffId,
-              status: 'confirmed',
-              source: 'walk-in',
-              isWalkIn: true,
-              startTime: now.toISOString(),
-              endTime: addMinutes(now, duration).toISOString(),
-          };
-          batch.set(appointmentRef, appointmentData);
-        }
-      });
+      const appointmentId = `apt-walkin-${walkIn.id}`;
+      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
       
-      batch.update(walkInRef, { assignments, status: 'assigned' });
+      const now = new Date();
+
+      const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
+          id: appointmentId,
+          tenantId: selectedTenant.id,
+          clientId: walkIn.clientId || walkIn.id,
+          clientName: walkIn.customerName,
+          serviceId: walkIn.serviceIds[0],
+          staffId: staffId,
+          status: 'confirmed',
+          source: 'walk-in',
+          isWalkIn: true,
+          startTime: now.toISOString(),
+          endTime: addMinutes(now, duration).toISOString(),
+      };
+      batch.set(appointmentRef, appointmentData);
+      
+      batch.update(walkInRef, { assignedStaffId: staffId, status: 'assigned' });
       
       batch.commit().then(() => {
-        toast({ title: "Staff Assigned", description: "The client has been notified and appointments are on the planner." });
+        toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
         setWalkInToAssign(null);
       }).catch(err => {
         console.error("Error assigning staff and creating appointments:", err);
-        toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointments."});
+        toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointment."});
       });
     };
 
@@ -502,15 +500,10 @@ export default function POSPage() {
                 
                 batch.update(walkInRef, { status: 'cancelled' });
 
-                if (walkIn && walkIn.assignments) {
-                    const people = [{ id: walkIn.clientId || walkIn.id, name: walkIn.customerName }, ...(walkIn.partyMembers || [])];
-                    people.forEach(person => {
-                        if (walkIn.assignments?.[person.id]) {
-                            const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
-                            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-                            batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
-                        }
-                    });
+                if (walkIn && walkIn.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
                 }
 
                 await batch.commit();
@@ -657,10 +650,7 @@ export default function POSPage() {
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
-                                    onAssignStaff={(walkInId: string) => {
-                                        const walkIn = walkIns?.find(w => w.id === walkInId);
-                                        if (walkIn) setWalkInToAssign(walkIn);
-                                    }}
+                                    onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
                                     onAssignNext={handleAssignNext} 
                                     onCancel={handleCancelWalkIn}
                                 />
@@ -717,7 +707,8 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={(walkInId, assignments) => handleAssignStaff(walkInToAssign!, assignments)} />
+            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
         </>
     );
 }
+

@@ -25,7 +25,7 @@ interface WalkInQueueProps {
     staff: Staff[] | null;
     services: Service[] | null;
     appointments: Appointment[] | null;
-    onAssignStaff: (walkInId: string, assignments: Record<string, string>) => void;
+    onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
 }
@@ -49,7 +49,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.status === 'servicing'); // Updated logic
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing'); // Updated logic
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
@@ -65,13 +65,24 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         setOrderedWaitingQueue(sorted);
     }, [waitingQueue]);
 
+    const groupSizes = useMemo(() => {
+        const sizes = new Map<string, number>();
+        (walkIns || []).forEach(w => {
+            sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
+        });
+        return sizes;
+    }, [walkIns]);
+
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);
     };
     
-    const handleAssignConfirm = (walkInId: string, assignments: Record<string, string>) => {
-        onAssignStaff(walkInId, assignments);
+    const handleAssignConfirm = (walkInId: string, staffId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        if (walkIn && staffId) {
+            onAssignStaff(walkIn, staffId);
+        }
         setWalkInToAssign(null);
     }
     
@@ -81,7 +92,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: new Date().toISOString() });
         
         if (appointment.isWalkIn) {
-            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkInId = appointment.id.replace(/^apt-walkin-(.+?)(?:-.+)?$/, '$1');
             const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
             updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout', serviceEndTime: new Date().toISOString() });
         }
@@ -131,7 +142,8 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             services={services} 
                                             staffList={staff}
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                            onCancel={onCancel} 
+                                            onCancel={onCancel}
+                                            groupSize={groupSizes.get(walkIn.groupId) || 1}
                                         />
                                     </Reorder.Item>
                                 ))}
@@ -152,6 +164,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             staffList={staff}
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
                                             onCancel={onCancel}
+                                            groupSize={groupSizes.get(walkIn.groupId) || 1}
                                         />
                                     </div>
                                 ))}

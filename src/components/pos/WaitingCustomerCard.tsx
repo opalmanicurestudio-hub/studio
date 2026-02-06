@@ -18,24 +18,14 @@ interface WaitingCustomerCardProps {
     staffList: Staff[] | null;
     onAssign: () => void;
     onCancel: (walkInId: string) => void;
+    groupSize: number;
 }
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel }) => {
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, groupSize }) => {
     const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
     const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
     
-    const isGroup = walkIn.partyMembers && walkIn.partyMembers.length > 0;
-    const groupCount = (walkIn.partyMembers?.length || 0) + 1;
-    
-    const people = [
-        { id: walkIn.clientId || walkIn.id, name: walkIn.customerName, serviceIds: walkIn.serviceIds },
-        ...(walkIn.partyMembers || [])
-    ];
-
-    const getAssignedStaff = (personId: string): Staff | undefined => {
-        const staffId = walkIn.assignments?.[personId];
-        return staffList?.find(s => s.id === staffId);
-    };
+    const isGroup = groupSize > 1;
 
     return (
         <Card>
@@ -49,27 +39,25 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                             <p className="font-semibold flex items-center gap-2">
                                 <User className="w-4 h-4"/>
                                 {walkIn.customerName}
-                                {isGroup && <span className="text-muted-foreground font-normal flex items-center gap-1">(<Users className="w-3 h-3"/>{groupCount})</span>}
                             </p>
                             <p className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="w-4 h-4"/>Waiting {waitTime}</p>
+                            {isGroup && (
+                                <Badge variant="secondary" className="mt-1">
+                                    <Users className="w-3 h-3 mr-1" />
+                                    {walkIn.groupName}
+                                </Badge>
+                            )}
                         </div>
                         <div className="text-right">
                             {primaryServices?.map(s => <p key={s.id} className="text-sm">{s.name}</p>)}
                             <p className="text-xs text-muted-foreground">{walkIn.estimatedDuration} min total</p>
                         </div>
                     </div>
-                     {walkIn.assignments && (
+                     {walkIn.assignedStaffId && (
                         <div className="text-xs mt-2 space-y-1">
-                            {Object.entries(walkIn.assignments).map(([personId, staffId]) => {
-                                const person = people.find(p => p.id === personId);
-                                const staff = staffList?.find(s => s.id === staffId);
-                                if (!person || !staff) return null;
-                                return (
-                                    <div key={personId} className="flex items-center gap-2">
-                                        <Badge variant="secondary">{person.name} &rarr; {staff.name}</Badge>
-                                    </div>
-                                )
-                            })}
+                            <div className="flex items-center gap-2">
+                                <Badge variant="secondary">Assigned to: {staffList?.find(s => s.id === walkIn.assignedStaffId)?.name || 'N/A'}</Badge>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -98,3 +86,4 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
         </Card>
     );
 };
+

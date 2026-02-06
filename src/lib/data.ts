@@ -394,26 +394,28 @@ export type Quote = {
 };
 
 export type WalkIn = {
-    id: string;
-    clientId?: string;
-    customerName: string;
-    customerPhone?: string;
-    customerEmail?: string;
-    customerBirthday?: string;
-    serviceIds: string[];
-    partyMembers?: PartyMember[];
-    requiredSkills: string[];
-    estimatedDuration: number;
-    checkInTime: string; // ISO Date
-    queueOrder?: number;
-    notifiedTimestamp?: string; // ISO Date
-    serviceStartTime?: string; // ISO Date
-    serviceEndTime?: string; // ISO Date
-    status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
-    assignments?: { [key: string]: string; };
-    notes?: string;
-    preferredStaffId?: string;
-    waitForPreferredStaff?: boolean;
+  id: string;
+  groupId: string; // Identifier for the group
+  groupName?: string; // Display name for the group
+  isPrimaryContact?: boolean; // To identify the main contact for notifications
+  clientId?: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerBirthday?: string;
+  serviceIds: string[];
+  requiredSkills: string[];
+  estimatedDuration: number;
+  checkInTime: string; // ISO Date
+  queueOrder?: number;
+  notifiedTimestamp?: string; // ISO Date
+  serviceStartTime?: string; // ISO Date
+  serviceEndTime?: string; // ISO Date
+  status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
+  assignedStaffId?: string;
+  notes?: string;
+  preferredStaffId?: string;
+  waitForPreferredStaff?: boolean;
 };
 
 export type StockCorrection = {
@@ -1231,6 +1233,8 @@ export const initialLocations: Location[] = [
 export const walkIns: WalkIn[] = [
     {
         id: 'wi-1',
+        groupId: 'wi-1',
+        isPrimaryContact: true,
         customerName: 'Sarah K.',
         customerPhone: '555-0101',
         customerEmail: 'sarah.k@example.com',
@@ -1246,6 +1250,7 @@ export const walkIns: WalkIn[] = [
     },
     {
         id: 'wi-2',
+        groupId: 'wi-2',
         customerName: 'Mike P.',
         customerPhone: '555-0102',
         serviceIds: ['svc-6'], // Men's haircut
@@ -1258,6 +1263,7 @@ export const walkIns: WalkIn[] = [
     },
     {
         id: 'wi-3',
+        groupId: 'wi-3',
         customerName: 'Jessica L.',
         customerPhone: '555-0103',
         serviceIds: ['svc-7'], // Gel-X Manicure
@@ -1265,7 +1271,7 @@ export const walkIns: WalkIn[] = [
         estimatedDuration: 90,
         checkInTime: new Date(new Date().getTime() - 25 * 60 * 1000).toISOString(),
         status: 'assigned',
-        assignments: { 'wi-3': 'staff-1' },
+        assignedStaffId: 'staff-1',
         serviceStartTime: new Date(new Date().getTime() - 5 * 60 * 1000).toISOString(),
     }
 ];
