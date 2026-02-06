@@ -34,6 +34,7 @@ import {
 import { ShoppingCart, Clock, TrendingUp, Users, DollarSign } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
+import { AssignStaffDialog } from '@/components/pos/AssignStaffDialog';
 
 
 const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
@@ -58,6 +59,7 @@ export default function POSPage() {
     const { toast } = useToast();
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+    const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
     
     // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
@@ -78,6 +80,10 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
+    
+    const inServiceAppointments = useMemo(() => {
+        return (appointments || []).filter(apt => apt.status === 'servicing');
+    }, [appointments]);
 
     // Initialize and sort staff based on turnOrder
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
@@ -419,19 +425,61 @@ export default function POSPage() {
             for (const client of waitingClients) {
                 const requiredSkills = client.requiredSkills || []; const staffSkills = staffMember.skillSet || [];
                 const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
-                if (canPerformService) { handleAssignStaff(client.id, staffMember.id); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
+                if (canPerformService) { handleAssignStaff(client.id, { [client.id]: staffMember.id }); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
             }
         }
         
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
     };
 
-     const handleAssignStaff = (walkInId: string, staffId: string) => {
+     const handleAssignStaff = (walkInId: string, assignments: Record<string, string>) => {
         if (!firestore || !selectedTenant) return;
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified' });
+        updateDocumentNonBlocking(walkInRef, { assignments: assignments, status: 'notified' });
         toast({ title: "Staff Assigned", description: "The client has been notified." });
     };
+
+    const handleStartService = (walkInId: string, personId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        if (!walkIn || !services || !firestore || !selectedTenant) return;
+        const person = [
+            { id: walkIn.clientId || walkIn.id, name: walkIn.customerName, serviceIds: walkIn.serviceIds },
+            ...(walkIn.partyMembers || [])
+        ].find(p => p.id === personId);
+
+        if (!person || !walkIn.assignments?.[personId]) {
+            toast({ variant: "destructive", title: "Cannot Start Service", description: "No staff member assigned to this person." });
+            return;
+        }
+
+        const staffId = walkIn.assignments[personId];
+        const personServices = person.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+
+        const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
+
+        const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
+            id: appointmentId,
+            tenantId: selectedTenant.id,
+            clientId: person.id,
+            clientName: person.name,
+            serviceId: person.serviceIds[0], // Simplified
+            staffId: staffId,
+            status: 'servicing',
+            source: 'walk-in',
+            isWalkIn: true,
+            actualStartTime: new Date().toISOString(),
+            startTime: new Date().toISOString(),
+            endTime: new Date(new Date().getTime() + duration * 60000).toISOString(),
+        };
+
+        const appointmentsRef = collection(firestore, 'tenants', selectedTenant.id, 'appointments');
+        setDocumentNonBlocking(doc(appointmentsRef, appointmentId), appointmentData, {});
+
+        // This would be part of a larger state management solution
+        // to avoid full re-renders of the page on every Firestore update
+        toast({ title: 'Service Started!', description: `${person.name}'s service with ${staff?.find(s => s.id === staffId)?.name} has begun.` });
+    }
     
     const { subtotal, tax, total } = useMemo(() => {
         const sub = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -476,7 +524,7 @@ export default function POSPage() {
       } else {
         toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
       }
-    }, [inventory, readyForCheckoutAppointments, handleSelectAppointment, toast]);
+    }, [inventory, readyForCheckoutAppointments, handleSelectAppointment, toast, handleAddToCart]);
 
     useEffect(() => {
         if (scannedData) {
@@ -560,7 +608,17 @@ export default function POSPage() {
                                 <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
-                            <TabsContent value="queue" className="flex-1 mt-6"><WalkInQueue walkIns={walkIns} appointments={appointments} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} /></TabsContent>
+                            <TabsContent value="queue" className="flex-1 mt-6">
+                                <WalkInQueue 
+                                    walkIns={walkIns} 
+                                    appointments={inServiceAppointments} 
+                                    services={services} 
+                                    staff={staff} 
+                                    onAssignStaff={(walkInId, assignments) => handleAssignStaff(walkInId, assignments)}
+                                    onAssignNext={handleAssignNext} 
+                                    onStartService={handleStartService}
+                                />
+                            </TabsContent>
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
@@ -613,6 +671,8 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignStaff} />
         </>
     )
 }
+```
