@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -75,7 +76,7 @@ export default function POSPage() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
 
-    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('fair_play');
+    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -812,7 +813,6 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
         </>
     );
 }
