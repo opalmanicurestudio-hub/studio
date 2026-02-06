@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -60,7 +59,6 @@ export default function POSPage() {
     const { toast } = useToast();
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
-    const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
     
     // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
@@ -478,7 +476,6 @@ export default function POSPage() {
       
       batch.commit().then(() => {
         toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
-        setWalkInToAssign(null);
       }).catch(err => {
         console.error("Error assigning staff and creating appointments:", err);
         toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointment."});
@@ -560,7 +557,7 @@ export default function POSPage() {
       } else {
         toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
       }
-    }, [inventory, readyForCheckoutAppointments, handleSelectAppointment, toast, handleAddToCart]);
+    }, [inventory, readyForCheckoutAppointments, handleAddToCart, toast]);
 
     useEffect(() => {
         if (scannedData) {
@@ -707,8 +704,6 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
         </>
     );
 }
-
