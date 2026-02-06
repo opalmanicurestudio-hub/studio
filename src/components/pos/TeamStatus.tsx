@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -24,7 +23,7 @@ interface TeamStatusProps {
   onReorder: (newOrder: Staff[]) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange, appointments, services }: {
+const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services }: {
     member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
     isNextUp: boolean,
     onStatusChange: TeamStatusProps['onStatusChange'],
@@ -130,14 +129,14 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange, appoi
         }
         if (member.onBreak) {
             return (
-                 <div className="grid grid-cols-2 gap-2 w-full">
+                 <div className="flex flex-col gap-2 w-full">
                     <Button variant="destructive" size="sm" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
                     <Button variant="outline" size="sm" onClick={() => onStatusChange(member.id, 'break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>
                 </div>
             )
         }
         return (
-            <div className="grid grid-cols-2 gap-2 w-full">
+            <div className="flex flex-col gap-2 w-full">
                 <Button variant="destructive" size="sm" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
                 <Button variant="outline" size="sm" onClick={() => onStatusChange(member.id, 'break_start')}><Coffee className="mr-2 h-4 w-4"/>Start Break</Button>
             </div>
@@ -213,8 +212,16 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange, appoi
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="p-2 border-t mt-auto">
+                <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
                     {renderActionButtons()}
+                    <div className="grid grid-cols-2 gap-2 w-full">
+                        <Button variant="secondary" size="sm" onClick={() => onViewActivity(member)}>
+                            Dashboard
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => onEdit(member)}>
+                            Edit Profile
+                        </Button>
+                    </div>
                 </CardFooter>
             </Card>
         </Reorder.Item>
@@ -268,7 +275,6 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             member={member as Staff & { stats: any; availability: any }}
                             onStatusChange={onStatusChange}
                             isNextUp={member.id === nextUpStaffId}
-                            availability={member.availability}
                             appointments={appointments}
                             services={services}
                         />
