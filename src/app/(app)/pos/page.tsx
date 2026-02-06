@@ -362,6 +362,14 @@ export default function POSPage() {
           lifetimeValue: 0,
           lastAppointment: new Date().toISOString(),
           status: 'active',
+          notes: data.notes,
+          referralCode: referralCode,
+          birthday: data.birthday ? data.birthday.toISOString() : undefined,
+          address: data.address,
+          emergencyContact: data.emergencyContact,
+          intel: {
+            referralSource: data.intel?.referralSource
+          }
         };
         
         addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
@@ -529,7 +537,7 @@ export default function POSPage() {
     useEffect(() => {
         if (scannedData) {
             handleScan(scannedData);
-            setScannedData(null);
+            setScannedData(null); // Reset after processing
         }
     }, [scannedData, handleScan]);
     
@@ -616,7 +624,7 @@ export default function POSPage() {
                                     staff={staff} 
                                     onAssignStaff={(walkInId, assignments) => handleAssignStaff(walkInId, assignments)}
                                     onAssignNext={handleAssignNext} 
-                                    onStartService={handleStartService}
+                                    onStartService={onStartService}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -673,6 +681,6 @@ export default function POSPage() {
             </Dialog>
             <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignStaff} />
         </>
-    )
+    );
 }
-```
+
