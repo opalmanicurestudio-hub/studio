@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -750,7 +749,6 @@ export default function POSPage() {
                             services={services} 
                             onReorder={handleStaffReorder}
                             onMoveToFront={handleStaffMoveToFront}
-                            onMoveToBack={handleStaffMoveToBack}
                             onSetPosition={handleStaffSetPosition}
                             assignmentMode={assignmentMode}
                         />
@@ -768,7 +766,7 @@ export default function POSPage() {
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
-                                    onAssignNext={onAssignNext} 
+                                    onAssignNext={handleAssignNext} 
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
