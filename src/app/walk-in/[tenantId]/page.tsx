@@ -395,11 +395,11 @@ export default function WalkInPage() {
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (!customerName || selectedServices.length === 0 || !firestore || !tenantId) {
+    if (!customerName || (selectedServices.length === 0 && partyMembers.length === 0)) {
       toast({
         variant: 'destructive',
         title: 'Missing Information',
-        description: 'Please enter your name and select at least one service.',
+        description: 'Please enter your name and select at least one service for someone in your party.',
       });
       return;
     }
@@ -551,52 +551,60 @@ export default function WalkInPage() {
               {step === 'services' && (
                 <div>
                   <CardHeader>
-                    <CardTitle>Select Your Services</CardTitle>
-                    <CardDescription>Choose one or more services you'd like today.</CardDescription>
+                    <CardTitle>Build Your Party's Request</CardTitle>
+                    <CardDescription>Select services for each person in your group.</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
-                     <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-4">
-                        <AccordionItem value="main-services">
-                            <AccordionTrigger>Main Services</AccordionTrigger>
-                            <AccordionContent className="space-y-2 pt-2">
-                                {mainServices.map(service => {
-                                    const isSelected = selectedServices.some(s => s.id === service.id);
-                                    const compatibleAddons = addOnServices.filter(addOn => service.compatibleAddOnIds?.includes(addOn.id));
-                                    
-                                    return (
-                                        <div key={service.id} className="border rounded-lg has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all">
-                                            <label htmlFor={service.id} className="flex items-center space-x-4 p-4 cursor-pointer">
-                                                <Checkbox id={service.id} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
-                                                <div className="flex-1">
-                                                    <span className="font-medium">{service.name}</span>
-                                                    <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                                </div>
-                                            </label>
-                                            {isSelected && compatibleAddons.length > 0 && (
-                                                <div className="p-4 pt-0 pl-14">
-                                                    <h4 className="text-sm font-semibold mb-2">Compatible Add-ons</h4>
-                                                    <div className="space-y-2">
-                                                        {compatibleAddons.map(addon => (
-                                                            <label key={addon.id} htmlFor={addon.id} className="flex items-center space-x-3 p-3 rounded-md bg-background cursor-pointer hover:bg-muted/50">
-                                                                <Checkbox id={addon.id} checked={selectedServices.some(s => s.id === addon.id)} onCheckedChange={() => handleServiceToggle(addon)} />
-                                                                <div className="flex-1">
-                                                                    <span className="font-medium text-sm">{addon.name}</span>
-                                                                    <p className="text-xs text-muted-foreground">{addon.duration} min &middot; ${addon.price.toFixed(2)}</p>
-                                                                </div>
-                                                            </label>
-                                                        ))}
+                  <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
+                    <div className="space-y-2">
+                        <Label className="font-semibold text-base">Your Services</Label>
+                        <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
+                            <AccordionItem value="main-services" className="border rounded-md">
+                                <AccordionTrigger className="p-3">Main Services</AccordionTrigger>
+                                <AccordionContent className="space-y-2 px-3 pb-3">
+                                    {mainServices.map(service => {
+                                        const isSelected = selectedServices.some(s => s.id === service.id);
+                                        return (
+                                            <div key={service.id} className="border-b last:border-b-0">
+                                                <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
+                                                    <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
+                                                    <div className="flex-1">
+                                                        <span className="font-medium text-sm">{service.name}</span>
+                                                        <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
                                                     </div>
-                                                </div>
-                                            )}
+                                                </label>
+                                            </div>
+                                        )
+                                    })}
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                    </div>
+
+                    <div className="space-y-4">
+                        <Label className="font-semibold text-base">Party Members</Label>
+                        {partyMembers.length > 0 && (
+                            <div className="space-y-2">
+                                {partyMembers.map(member => {
+                                    const memberServices = services?.filter(s => member.serviceIds.includes(s.id));
+                                    return (
+                                        <div key={member.id} className="p-3 border rounded-md flex items-center justify-between">
+                                            <div>
+                                                <p className="font-medium">{member.name}</p>
+                                                <p className="text-xs text-muted-foreground">{memberServices?.map(s => s.name).join(', ')}</p>
+                                            </div>
+                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemovePartyMember(member.id)}><Trash2 className="w-4 h-4" /></Button>
                                         </div>
                                     )
                                 })}
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
+                            </div>
+                        )}
+                        <Button variant="outline" className="w-full" type="button" onClick={() => setIsAddingPerson(true)}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
+                        </Button>
+                    </div>
                   </CardContent>
                   <CardFooter className="flex justify-end">
-                    <Button onClick={handleServicesNext} disabled={selectedServices.length === 0}>
+                    <Button onClick={handleServicesNext} disabled={selectedServices.length === 0 && partyMembers.length === 0}>
                         Next <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </CardFooter>
@@ -712,29 +720,6 @@ export default function WalkInPage() {
                                     <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
                                 </div>
                             </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h4 className="font-semibold text-lg">Your Party</h4>
-                            {partyMembers.length > 0 && (
-                                <div className="space-y-2">
-                                    {partyMembers.map(member => {
-                                        const memberServices = services?.filter(s => member.serviceIds.includes(s.id));
-                                        return (
-                                            <div key={member.id} className="p-3 border rounded-md flex items-center justify-between">
-                                                <div>
-                                                    <p className="font-medium">{member.name}</p>
-                                                    <p className="text-xs text-muted-foreground">{memberServices?.map(s => s.name).join(', ')}</p>
-                                                </div>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemovePartyMember(member.id)}><Trash2 className="w-4 h-4" /></Button>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            )}
-                            <Button variant="outline" className="w-full" type="button" onClick={() => setIsAddingPerson(true)}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
-                            </Button>
                         </div>
                         
                          <div className="space-y-2">
