@@ -363,7 +363,7 @@ export default function POSPage() {
           lastAppointment: new Date().toISOString(),
           status: 'active',
           notes: data.notes,
-          referralCode: referralCode,
+          referralCode: '', // referral code generation logic is missing here
           birthday: data.birthday ? data.birthday.toISOString() : undefined,
           address: data.address,
           emergencyContact: data.emergencyContact,
@@ -484,10 +484,8 @@ export default function POSPage() {
         const appointmentsRef = collection(firestore, 'tenants', selectedTenant.id, 'appointments');
         setDocumentNonBlocking(doc(appointmentsRef, appointmentId), appointmentData, {});
 
-        // This would be part of a larger state management solution
-        // to avoid full re-renders of the page on every Firestore update
         toast({ title: 'Service Started!', description: `${person.name}'s service with ${staff?.find(s => s.id === staffId)?.name} has begun.` });
-    }
+    };
     
     const { subtotal, tax, total } = useMemo(() => {
         const sub = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -606,8 +604,8 @@ export default function POSPage() {
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
+                            services={services} 
                             onReorder={handleStaffReorder}
-                            services={services || []}
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
@@ -624,7 +622,7 @@ export default function POSPage() {
                                     staff={staff} 
                                     onAssignStaff={(walkInId, assignments) => handleAssignStaff(walkInId, assignments)}
                                     onAssignNext={handleAssignNext} 
-                                    onStartService={onStartService}
+                                    onStartService={handleStartService} 
                                 />
                             </TabsContent>
                         </Tabs>
