@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -28,6 +27,7 @@ export const CheckoutHub = ({
     total,
     tipAmount,
     setTipAmount,
+    showTitle = true,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -43,6 +43,7 @@ export const CheckoutHub = ({
     total: number,
     tipAmount: number,
     setTipAmount: (amount: number) => void,
+    showTitle?: boolean,
 }) => {
     
     const selectedClient = useMemo(() => {
@@ -59,9 +60,11 @@ export const CheckoutHub = ({
     
     return (
         <div className="flex flex-col h-full">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Current Sale</h2>
-            </div>
+            {showTitle && (
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold">Current Sale</h2>
+                </div>
+            )}
              <div className="mb-4">
                 <Label>{isGroupCheckout ? "Primary Payer" : "Client"}</Label>
                 <div className="flex gap-2 mt-2">

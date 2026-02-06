@@ -671,7 +671,12 @@ export default function POSPage() {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                           <CheckoutHub {...checkoutHubProps} />
+                            <SheetHeader className="p-4 pb-2 border-b">
+                                <SheetTitle>Current Sale</SheetTitle>
+                            </SheetHeader>
+                            <div className="p-4 flex-1 overflow-y-auto">
+                                <CheckoutHub {...checkoutHubProps} showTitle={false} />
+                            </div>
                         </SheetContent>
                     </Sheet>
                 </div>
