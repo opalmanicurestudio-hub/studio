@@ -31,7 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, getDay } from 'date-fns';
+import { format, getDay, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -188,6 +188,30 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 };
 
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
+    const [birthDay, setBirthDay] = useState('');
+    const [birthMonth, setBirthMonth] = useState('');
+    const [birthYear, setBirthYear] = useState('');
+
+    useEffect(() => {
+        if (member.birthday) {
+            const date = parseISO(member.birthday);
+            setBirthMonth(String(date.getMonth() + 1));
+            setBirthDay(String(date.getDate()));
+            setBirthYear(String(date.getFullYear()));
+        } else {
+            setBirthMonth(''); setBirthDay(''); setBirthYear('');
+        }
+    }, [member.birthday]);
+
+    useEffect(() => {
+        if (birthYear && birthMonth && birthDay) {
+            const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
+            if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(month) && date.getDate() === parseInt(day)) {
+                onUpdate(member.id, { birthday: date.toISOString() });
+            }
+        }
+    }, [birthDay, birthMonth, birthYear, member.id, onUpdate]);
+
     const toggleService = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
             ? member.serviceIds.filter(id => id !== serviceId)
@@ -202,16 +226,17 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                     value={member.name}
                     onChange={(e) => onUpdate(member.id, { name: e.target.value })}
                     className="text-base font-semibold border-0 shadow-none focus-visible:ring-0 p-0"
+                    placeholder={`Person ${member.id.slice(0,4)}`}
                 />
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>
             </CardHeader>
             <CardContent>
-                <Accordion type="single" collapsible>
-                    <AccordionItem value="services" className="border-none">
-                        <AccordionTrigger className="p-0 hover:no-underline text-sm">
+                <Accordion type="multiple" className="w-full space-y-2">
+                    <AccordionItem value="services" className="border-b-0">
+                        <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">
                             {member.serviceIds.length > 0 ? `${member.serviceIds.length} service(s) selected` : 'Select Services'}
                         </AccordionTrigger>
-                        <AccordionContent className="pt-2">
+                        <AccordionContent className="pt-4">
                              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2">
                                 {services.map(service => (
                                     <ServiceSelectionCard
@@ -223,6 +248,57 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                 ))}
                             </div>
                         </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="details" className="border-b-0">
+                         <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">Contact Details (Optional)</AccordionTrigger>
+                         <AccordionContent className="pt-4 space-y-4">
+                            <div className="space-y-2">
+                                <Label>Phone Number</Label>
+                                <Input type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label>Email Address</Label>
+                                <Input type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label>Birthday</Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <Select value={bMonth} onValueChange={setBirthMonth}>
+                                        <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 12 }, (_, i) => (
+                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                    {format(new Date(2000, i, 1), 'MMMM')}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={bDay} onValueChange={setBirthDay}>
+                                        <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 31 }, (_, i) => (
+                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                    {i + 1}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                     <Select value={bYear} onValueChange={setBirthYear}>
+                                        <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 100 }, (_, i) => {
+                                                const year = new Date().getFullYear() - i;
+                                                return (
+                                                    <SelectItem key={year} value={year.toString()}>
+                                                        {year}
+                                                    </SelectItem>
+                                                );
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
             </CardContent>
@@ -316,7 +392,7 @@ export default function WalkInPage() {
   useEffect(() => {
     if (birthYear && birthMonth && birthDay) {
         const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
-        if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(birthMonth) && date.getDate() === parseInt(birthDay)) {
+        if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(month) && date.getDate() === parseInt(day)) {
             setCustomerBirthday(date);
         } else {
              setCustomerBirthday(undefined);
@@ -462,6 +538,9 @@ export default function WalkInPage() {
           groupName,
           isPrimaryContact: false,
           customerName: member.name,
+          customerPhone: member.phone,
+          customerEmail: member.email,
+          customerBirthday: member.birthday,
           serviceIds: member.serviceIds,
           requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
           estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
@@ -821,4 +900,3 @@ export default function WalkInPage() {
     </>
   );
 }
-

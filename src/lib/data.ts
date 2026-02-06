@@ -588,6 +588,9 @@ export type PartyMember = {
     id: string; 
     name: string; 
     serviceIds: string[];
+    phone?: string;
+    email?: string;
+    birthday?: string;
 };
 
 
