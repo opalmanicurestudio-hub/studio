@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds } from 'date-fns';
 import { Reorder } from 'framer-motion';
@@ -17,6 +17,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
 import Link from 'next/link';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 
 
 interface TeamStatusProps {
@@ -25,14 +26,16 @@ interface TeamStatusProps {
   appointments: Appointment[] | null;
   services: Service[] | null;
   onReorder: (newOrder: Staff[]) => void;
+  onMoveToFront: (staffId: string) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services }: {
+const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services, onMoveToFront }: {
     member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
     isNextUp: boolean,
     onStatusChange: TeamStatusProps['onStatusChange'],
     appointments: Appointment[] | null,
     services: Service[] | null,
+    onMoveToFront: (staffId: string) => void;
 }) => {
     
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -170,6 +173,16 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                                 {status.text}
                             </Badge>
                         )}
+                         <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => onMoveToFront(member.id)}>
+                                    <TrendingUp className="mr-2 h-4 w-4" /> Move to Front
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 flex-1 flex flex-col items-center">
@@ -233,7 +246,7 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
 }
 
 
-export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder }) => {
+export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder, onMoveToFront }) => {
     
     const staffWithAvailability = useMemo(() => {
         return staff?.map(member => {
@@ -281,6 +294,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             isNextUp={member.id === nextUpStaffId}
                             appointments={appointments}
                             services={services}
+                            onMoveToFront={onMoveToFront}
                         />
                     ))}
                 </Reorder.Group>

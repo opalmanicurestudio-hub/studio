@@ -10,7 +10,7 @@ import { InServiceAppointmentCard } from './InServiceCustomerCard'; // Updated i
 import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, TrendingUp } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -24,6 +24,7 @@ interface WalkInQueueProps {
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
+    onStartService: (appointmentId: string) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
@@ -38,6 +39,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onAssignStaff,
     onAssignNext,
     onCancel,
+    onStartService,
     orderedWaitingQueue,
     onReorder,
     assignmentMode,
@@ -74,7 +76,14 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         }
         setWalkInToAssign(null);
     }
-    
+
+    const handleMoveToFront = (walkInId: string) => {
+        const item = orderedWaitingQueue.find(w => w.id === walkInId);
+        if (!item) return;
+        const newOrder = [item, ...orderedWaitingQueue.filter(w => w.id !== walkInId)];
+        onReorder(newOrder);
+    };
+
     const handleSendToCheckout = (appointment: Appointment) => {
         // This logic now lives in the parent POSPage component
     };
@@ -82,11 +91,9 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     return (
         <>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
-                    <TabsTrigger value="notified">Notified <Badge className="ml-2">{notifiedQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="servicing">In Service <Badge className="ml-2">{inServiceQueue.length}</Badge></TabsTrigger>
-                    <TabsTrigger value="ready_for_checkout">Checkout <Badge className="ml-2">{readyForCheckoutQueue.length}</Badge></TabsTrigger>
                 </TabsList>
                 <TabsContent value="waiting" className="mt-4 space-y-4">
                     <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -118,6 +125,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             staffList={staff}
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
                                             onCancel={onCancel}
+                                            onMoveToFront={handleMoveToFront}
                                             groupSize={groupSizes.get(walkIn.groupId) || 1}
                                         />
                                     </Reorder.Item>
@@ -126,27 +134,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
-                </TabsContent>
-                <TabsContent value="notified" className="mt-4 space-y-4">
-                    {notifiedQueue.length > 0 ? (
-                        <ScrollArea>
-                            <div className="flex space-x-4 pb-4">
-                                {notifiedQueue.map(walkIn => (
-                                    <div key={walkIn.id} className="w-72 shrink-0">
-                                        <WaitingCustomerCard 
-                                            walkIn={walkIn} 
-                                            services={services}
-                                            staffList={staff}
-                                            onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                            onCancel={onCancel}
-                                            groupSize={groupSizes.get(walkIn.groupId) || 1}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    ) : <p className="text-center text-muted-foreground p-8">No clients have been notified.</p>}
                 </TabsContent>
                 <TabsContent value="servicing" className="mt-4 space-y-4">
                      {inServiceQueue.length > 0 ? (
@@ -161,10 +148,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                              <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                      ) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
-                </TabsContent>
-                <TabsContent value="ready_for_checkout" className="mt-4 space-y-4">
-                     {/* This tab's content is now managed by CheckoutQueue component */}
-                     <p className="text-center text-muted-foreground p-8">Clients ready for checkout are now shown in the queue above.</p>
                 </TabsContent>
             </Tabs>
             <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />

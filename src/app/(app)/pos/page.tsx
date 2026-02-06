@@ -35,7 +35,6 @@ import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles } from 'lu
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { AssignStaffDialog } from '@/components/pos/AssignStaffDialog';
-import { Reorder } from 'framer-motion';
 
 
 const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
@@ -279,9 +278,18 @@ export default function POSPage() {
         });
         batch.commit().catch(err => {
             console.error("Failed to save staff order:", err);
+            // Revert on failure
+            const sorted = [...(staff || [])].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+            setOrderedStaff(sorted);
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
-            setOrderedStaff(staff || []);
         });
+    };
+
+    const handleStaffMoveToFront = (staffId: string) => {
+        const item = orderedStaff.find(s => s.id === staffId);
+        if (!item) return;
+        const newOrder = [item, ...orderedStaff.filter(s => s.id !== staffId)];
+        handleStaffReorder(newOrder);
     };
 
     const readyForCheckoutAppointments = useMemo(() => {
@@ -479,10 +487,7 @@ export default function POSPage() {
           // Fair Play Logic: Find the first available staff, then find a client they can serve.
           for (const staffMember of idleStaff) {
             for (const client of waitingClients) {
-              const allServiceIds = [
-                ...client.serviceIds,
-                ...(walkIns?.filter(w => w.groupId === client.groupId && w.id !== client.id).flatMap(w => w.serviceIds) || [])
-              ];
+              const allServiceIds = client.serviceIds;
               const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
               const staffSkills = staffMember.skillSet || [];
               const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
@@ -502,10 +507,7 @@ export default function POSPage() {
             if (existingAssignment) continue;
             
             for (const staffMember of idleStaff) {
-                const allServiceIds = [
-                    ...client.serviceIds,
-                    ...(walkIns?.filter(w => w.groupId === client.groupId && w.id !== client.id).flatMap(w => w.serviceIds) || [])
-                ];
+                const allServiceIds = client.serviceIds;
                 const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
                 const staffSkills = staffMember.skillSet || [];
                 const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
@@ -525,8 +527,8 @@ export default function POSPage() {
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
       if (!firestore || !selectedTenant || !services) return;
       
-      const batch = writeBatch(firestore);
       const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'assigned' });
       
       const personServices = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
       const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
@@ -549,16 +551,9 @@ export default function POSPage() {
           startTime: now.toISOString(),
           endTime: addMinutes(now, duration).toISOString(),
       };
-      batch.set(appointmentRef, appointmentData);
-      
-      batch.update(walkInRef, { assignedStaffId: staffId, status: 'assigned' });
-      
-      batch.commit().then(() => {
-        toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
-      }).catch(err => {
-        console.error("Error assigning staff and creating appointments:", err);
-        toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointment."});
-      });
+      setDocumentNonBlocking(appointmentRef, appointmentData, {});
+        
+      toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
@@ -676,6 +671,25 @@ export default function POSPage() {
           };
         }
     }, [isScannerOpen, toast]);
+    
+    const handleStartService = (appointmentId: string) => {
+      const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
+      if (!appointmentToStart || !firestore || !selectedTenant) return;
+      
+      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+      
+      if (appointmentToStart.isWalkIn) {
+        const walkInId = appointmentId.replace('apt-walkin-', '');
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+      }
+
+      toast({
+        title: "Service Started!",
+        description: `The service for ${appointmentToStart.clientName} has begun.`
+      });
+    };
 
     const checkoutHubProps = {
         cart, 
@@ -712,6 +726,7 @@ export default function POSPage() {
                             appointments={appointments} 
                             services={services} 
                             onReorder={handleStaffReorder}
+                            onMoveToFront={handleStaffMoveToFront}
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
@@ -729,6 +744,7 @@ export default function POSPage() {
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
                                     onAssignNext={handleAssignNext} 
                                     onCancel={handleCancelWalkIn}
+                                    onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}
@@ -754,7 +770,7 @@ export default function POSPage() {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                            <SheetHeader className="p-4 pb-2 border-b">
+                            <SheetHeader className="p-4 pb-2 border-b text-left">
                                 <SheetTitle>Current Sale</SheetTitle>
                             </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">

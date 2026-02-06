@@ -7,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2 } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
@@ -18,10 +18,11 @@ interface WaitingCustomerCardProps {
     staffList: Staff[] | null;
     onAssign: () => void;
     onCancel: (walkInId: string) => void;
+    onMoveToFront: (walkInId: string) => void;
     groupSize: number;
 }
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, groupSize }) => {
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, onMoveToFront, groupSize }) => {
     const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
     const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
     
@@ -71,6 +72,11 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-[--radix-dropdown-menu-trigger-width)]">
+                        <DropdownMenuItem onClick={() => onMoveToFront(walkIn.id)}>
+                            <TrendingUp className="w-4 h-4 mr-2" />
+                            Move to Front
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onAssign}>
                             <UserPlus className="w-4 h-4 mr-2" />
                             Assign Staff
@@ -86,4 +92,3 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
         </Card>
     );
 };
-
