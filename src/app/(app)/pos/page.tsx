@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -55,7 +54,8 @@ export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
-    const { firestore, selectedTenant } = useFirebase();
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
     const { toast } = useToast();
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
