@@ -3,11 +3,10 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { OrderLine } from '@/components/pos/OrderLine';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
@@ -22,6 +21,7 @@ import { nanoid } from 'nanoid';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 
 
 export default function POSPage() {
@@ -63,19 +63,25 @@ export default function POSPage() {
         });
     };
 
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointments || !clients || !services || !staff) return [];
+        return appointments
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return {
+                    ...apt,
+                    client,
+                    service,
+                    addOnServices,
+                    staff: staffMember
+                };
+            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+    }, [appointments, clients, services, staff]);
 
-    const posAppointments = useMemo(() => {
-        if (!appointments || !clients || !services) return [];
-        return appointments.map(apt => {
-            const client = clients.find(c => c.id === apt.clientId);
-            const service = services.find(s => s.id === apt.serviceId);
-            return {
-                ...apt,
-                client: client,
-                service: service
-            };
-        }).filter((a): a is Appointment & { client: Client, service: Service } => !!(a.client && a.service));
-    }, [appointments, clients, services]);
 
     const handleSelectOrder = (order: Appointment) => {
         setActiveOrder(order);
@@ -262,8 +268,8 @@ export default function POSPage() {
                             appointments={appointments}
                             onReorder={handleStaffReorder}
                         />
-                        <OrderLine 
-                            appointments={posAppointments}
+                        <CheckoutQueue 
+                            appointments={readyForCheckoutAppointments}
                             onSelectOrder={handleSelectOrder}
                             selectedOrderId={activeOrder?.id}
                         />
