@@ -18,19 +18,24 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart })
   const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
 
   return (
-    <Card className="overflow-hidden hover:shadow-md transition-shadow">
-      <CardContent className="p-3">
-        <div className="relative aspect-square mb-2 rounded-md overflow-hidden bg-muted">
-          {imageUrl && <Image src={imageUrl} alt={item.name} fill className="object-cover" />}
-        </div>
-        <div className="space-y-2">
-          <h4 className="font-semibold text-sm leading-tight truncate">{item.name}</h4>
-          <div className="flex justify-between items-center">
-            <p className="font-bold text-primary">${price?.toFixed(2)}</p>
-            <Button size="icon" className="h-8 w-8" onClick={() => onAddToCart(item)}>
+    <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer" onClick={() => onAddToCart(item)}>
+      <CardContent className="p-0">
+        <div className="relative aspect-square bg-muted">
+          {imageUrl ? (
+            <Image src={imageUrl} alt={item.name} fill className="object-cover" />
+          ) : (
+             <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                {/* Placeholder based on type */}
+                {'price' in item ? 'Service' : 'Product'}
+            </div>
+          )}
+           <Button size="icon" className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 backdrop-blur-sm text-white rounded-full">
               <Plus className="w-4 h-4" />
             </Button>
-          </div>
+        </div>
+        <div className="p-3">
+          <h4 className="font-semibold text-sm leading-tight truncate">{item.name}</h4>
+          <p className="font-bold text-primary mt-1">${price?.toFixed(2)}</p>
         </div>
       </CardContent>
     </Card>
