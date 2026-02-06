@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -22,7 +21,7 @@ import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/fir
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -44,6 +43,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 
 type Step = 'services' | 'consents' | 'confirmation';
 
@@ -374,7 +374,8 @@ export default function WalkInPage() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
-
+  const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
@@ -561,7 +562,17 @@ export default function WalkInPage() {
         setQueuePosition(newPosition);
 
         await batch.commit();
+        
+        const ticketData: WalkInTicketData = {
+            id: primaryWalkInId,
+            name: customerName,
+            services: selectedServices,
+            queuePosition: newPosition,
+            checkInTime: checkInTime,
+        };
+        setTicketToPrint(ticketData);
         setStep('confirmation');
+
     } catch (error) {
         console.error("Error adding walk-in:", error);
         toast({
@@ -593,6 +604,7 @@ export default function WalkInPage() {
     setStep('services');
     setIsSubmitting(false);
     setPartyType(null);
+    setTicketToPrint(null);
   };
   
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || clientsLoading || !hasMounted;
@@ -885,10 +897,15 @@ export default function WalkInPage() {
                           You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
                           We will send a text message to the provided phone number when it's your turn.
                       </p>
-                      <p className="text-sm">Feel free to have a seat!</p>
+                       <div className="pt-6">
+                           <Button className="w-full" onClick={() => setIsPrintDialogOpen(true)}>
+                               <Printer className="mr-2 h-4 w-4" />
+                               Print Ticket
+                           </Button>
+                       </div>
                     </CardContent>
                     <CardFooter>
-                        <Button className="w-full" onClick={resetFlow}>Done</Button>
+                        <Button className="w-full" variant="ghost" onClick={resetFlow}>Done</Button>
                     </CardFooter>
                   </div>
                 )}
@@ -897,6 +914,45 @@ export default function WalkInPage() {
           </form>
         </Card>
     </div>
+    <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+        <DialogContent className="max-w-sm print:hidden">
+            <DialogHeader>
+                <DialogTitle>Walk-in Ticket</DialogTitle>
+            </DialogHeader>
+            <div id="print-ticket-area">
+                {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                <Button onClick={() => window.print()}>
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    <div className="hidden print:block print-only">
+        <div id="printable-ticket">
+            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+        </div>
+    </div>
+
+    <style jsx global>{`
+        @media print {
+            body > *:not(.print-only) {
+            display: none !important;
+            }
+            .print-only, .print-only * {
+            display: block !important;
+            visibility: visible !important;
+            }
+            .print-only {
+            position: absolute;
+            left: 0;
+            top: 0;
+            }
+        }
+    `}</style>
     </>
   );
 }
