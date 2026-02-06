@@ -22,7 +22,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Sheet,
   SheetContent,
@@ -561,7 +561,7 @@ export default function POSPage() {
           name: data.name,
           email: data.email || '',
           phone: data.phone || '',
-          avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+          avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
           lifetimeValue: 0,
           lastAppointment: new Date().toISOString(),
           status: 'active',
@@ -608,7 +608,8 @@ export default function POSPage() {
         tax,
         total,
         tipAmount,
-        setTipAmount
+        setTipAmount,
+        showTitle: false,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
@@ -647,7 +648,7 @@ export default function POSPage() {
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
-                                    onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)}
+                                    onAssignStaff={handleAssignStaff}
                                     onAssignNext={handleAssignNext}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
@@ -660,6 +661,9 @@ export default function POSPage() {
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                         <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold">Current Sale</h2>
+                        </div>
                         <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
@@ -676,11 +680,11 @@ export default function POSPage() {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                           <SheetHeader>
-                               <SheetTitle className="sr-only">Current Sale</SheetTitle>
+                           <SheetHeader className="p-4 border-b">
+                               <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} showTitle={false} />
+                                <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
                     </Sheet>
