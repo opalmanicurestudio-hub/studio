@@ -346,7 +346,13 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <TeamStatus staff={enrichedOrderedStaff} onStatusChange={handleStatusChangeWithConfirmation} appointments={appointments} onReorder={handleStaffReorder} />
+                        <TeamStatus 
+                            staff={enrichedOrderedStaff} 
+                            onStatusChange={handleStatusChangeWithConfirmation} 
+                            appointments={appointments} 
+                            onReorder={handleStaffReorder}
+                            services={services || []}
+                        />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">

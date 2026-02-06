@@ -1,16 +1,16 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { type Staff, type Appointment } from '@/lib/data';
+import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { format, differenceInMinutes, parseISO, isPast, differenceInDays } from 'date-fns';
+import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds } from 'date-fns';
 import { Reorder } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
@@ -19,10 +19,78 @@ interface TeamStatusProps {
   staff: (Staff & { stats?: any })[] | null;
   onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void;
   appointments: Appointment[] | null;
+  services: Service[] | null;
   onReorder: (newOrder: Staff[]) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { member: Staff & { stats: any }, isNextUp: boolean, availability: string | null, onStatusChange: TeamStatusProps['onStatusChange'] }) => {
+const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange, appointments, services }: {
+    member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
+    isNextUp: boolean,
+    onStatusChange: TeamStatusProps['onStatusChange'],
+    appointments: Appointment[] | null,
+    services: Service[] | null,
+}) => {
+    
+    const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+    const [isOvertime, setIsOvertime] = useState(false);
+    const [currentService, setCurrentService] = useState<Service | null>(null);
+
+    useEffect(() => {
+        let timer: NodeJS.Timeout | undefined;
+
+        if (member.status === 'busy' && member.active && !member.onBreak) {
+            const currentApt = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
+            if (currentApt && currentApt.actualStartTime) {
+                const service = services?.find(s => s.id === currentApt.serviceId);
+                setCurrentService(service || null);
+
+                const startTime = parseISO(currentApt.actualStartTime as string);
+                
+                const updateTimer = () => {
+                    const now = new Date();
+                    const diffInSeconds = differenceInSeconds(now, startTime);
+                    
+                    const hours = Math.floor(diffInSeconds / 3600);
+                    const minutes = Math.floor((diffInSeconds % 3600) / 60);
+                    const seconds = diffInSeconds % 60;
+
+                    let elapsedTimeString = '';
+                    if (hours > 0) {
+                      elapsedTimeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    } else {
+                      elapsedTimeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    }
+                    setElapsedTime(elapsedTimeString);
+                    
+                    if (service) {
+                        const elapsedMinutes = diffInSeconds / 60;
+                        setIsOvertime(elapsedMinutes > service.duration);
+                    }
+                };
+
+                updateTimer();
+                timer = setInterval(updateTimer, 1000);
+
+            } else {
+                setElapsedTime(null);
+                setIsOvertime(false);
+                setCurrentService(null);
+            }
+        } else {
+            setElapsedTime(null);
+            setIsOvertime(false);
+            setCurrentService(null);
+        }
+
+        return () => {
+          if (timer) {
+            clearInterval(timer);
+          }
+        };
+
+    }, [member, appointments, services]);
+
+
     const getStatus = () => {
         if (!member.active) return { text: 'Clocked Out', className: 'bg-gray-100 text-gray-800' };
         if (member.onBreak) return { text: 'On Break', className: 'bg-yellow-100 text-yellow-800' };
@@ -83,7 +151,7 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
             whileDrag={{ scale: 1.05, zIndex: 10, boxShadow: '0px 10px 20px rgba(0,0,0,0.2)' }}
             transition={{ duration: 0.1 }}
         >
-            <Card className="text-center flex flex-col h-full cursor-grab active:cursor-grabbing">
+            <Card className={cn("text-center flex flex-col h-full cursor-grab active:cursor-grabbing", isOvertime && "border-destructive ring-2 ring-destructive")}>
                 <GripVertical className="absolute top-1/2 -translate-y-1/2 left-1 text-muted-foreground/50" size={20}/>
                 <CardHeader className="p-3">
                      <div className="flex justify-between items-start">
@@ -91,7 +159,7 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
                             <Badge className="bg-green-500 text-white">Next Up</Badge>
                         ) : (
                             <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn('capitalize', {
-                                'bg-green-100 text-green-800 dark:bg-green-900/50': member.active && !member.onBreak && !isNextUp,
+                                'bg-green-100 text-green-800 dark:bg-green-900/50': member.active && !member.onBreak && !isNextUp && member.status !== 'busy',
                                 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': member.active && member.onBreak,
                                 'bg-red-100 text-red-700 dark:bg-red-900/50': member.status === 'busy',
                             })}>
@@ -107,9 +175,17 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
                     </Avatar>
                     <h3 className="text-sm font-semibold truncate w-full">{member.name}</h3>
                     <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
-                    {availability && (
-                        <p className="text-xs text-blue-500 font-semibold mt-2">{availability}</p>
-                    )}
+
+                     <div className="text-xs text-blue-500 font-semibold mt-2 h-4">
+                        {availability && availability.status !== 'In Service' && <span>{availability.status}</span>}
+                        {elapsedTime && currentService && (
+                            <div className="text-center">
+                                <p className="text-xs text-muted-foreground truncate">{currentService.name}</p>
+                                <p className={cn("text-lg font-mono font-semibold", isOvertime && "text-destructive")}>{elapsedTime}</p>
+                            </div>
+                        )}
+                    </div>
+                    
                     <Separator className="my-3" />
                      <div className="w-full text-left space-y-2 text-xs">
                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${member.stats?.totalSales.toFixed(2)}</span></div>
@@ -144,44 +220,38 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
 }
 
 
-export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, onReorder }) => {
+export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder }) => {
     
+    const staffWithAvailability = useMemo(() => {
+        return staff?.map(member => {
+            let availability: { status: string, serviceName?: string, isOvertime?: boolean, elapsedTime?: string } | null = null;
+            if (member.status === 'busy' && member.active && !member.onBreak) {
+                const now = new Date();
+                const currentAppointment = appointments?.find(apt => apt.staffId === member.id && new Date(apt.startTime) <= now && new Date(apt.endTime) > now);
+                if (currentAppointment) {
+                    const service = services?.find(s => s.id === currentAppointment.serviceId);
+                    const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
+                    if (minutesRemaining <= 0) {
+                        availability = { status: "Finishing up", serviceName: service?.name };
+                    } else {
+                        availability = { status: `Free in ${minutesRemaining} min`, serviceName: service?.name };
+                    }
+                } else {
+                     availability = { status: 'Busy' };
+                }
+            } else if (member.active && !member.onBreak && member.status === 'idle') {
+                availability = { status: 'Idle' };
+            }
+            return { ...member, availability };
+        }) || [];
+    }, [staff, appointments, services]);
+
     const idleStaff = useMemo(() => {
         if (!staff) return [];
         return staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
     }, [staff]);
 
     const nextUpStaffId = idleStaff.length > 0 ? idleStaff[0].id : null;
-
-    const staffWithAvailability = useMemo(() => {
-        return staff?.map(member => {
-            if (member.status !== 'busy' || !member.active || member.onBreak) {
-                return { ...member, availability: null };
-            }
-
-            const now = new Date();
-            const staffAppointments = appointments
-                ?.filter(apt => apt.staffId === member.id && new Date(apt.endTime) > now)
-                .sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-            
-            const currentAppointment = staffAppointments?.find(apt => new Date(apt.startTime) <= now && new Date(apt.endTime) > now);
-
-            if (currentAppointment) {
-                const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
-                if (minutesRemaining <= 0) {
-                     return { ...member, availability: "Finishing up" };
-                }
-                return { ...member, availability: `Free in ${minutesRemaining} min` };
-            }
-            
-            const nextAppointment = staffAppointments?.[0];
-            if (nextAppointment) {
-                 return { ...member, availability: `Starts at ${format(new Date(nextAppointment.startTime), 'h:mm a')}` };
-            }
-
-            return { ...member, availability: null };
-        }) || [];
-    }, [staff, appointments]);
 
     if (!staff) return null;
 
@@ -193,10 +263,12 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                     {staffWithAvailability.map(member => (
                         <StaffMemberCard
                             key={member.id}
-                            member={member as Staff & { stats: any }}
+                            member={member as Staff & { stats: any; availability: any }}
                             onStatusChange={onStatusChange}
                             isNextUp={member.id === nextUpStaffId}
                             availability={member.availability}
+                            appointments={appointments}
+                            services={services}
                         />
                     ))}
                 </Reorder.Group>
