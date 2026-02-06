@@ -27,14 +27,12 @@ interface TeamStatusProps {
   onReorder: (newOrder: Staff[]) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services, onEdit, onViewActivity }: {
+const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services }: {
     member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
     isNextUp: boolean,
     onStatusChange: TeamStatusProps['onStatusChange'],
     appointments: Appointment[] | null,
     services: Service[] | null,
-    onEdit: (member: Staff) => void,
-    onViewActivity: (member: Staff & { stats: any }) => void,
 }) => {
     
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -228,17 +226,6 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                     <div className="w-full flex flex-col gap-2">
                         {renderActionButtons()}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 w-full">
-                        <Button variant="secondary" size="sm" onClick={() => onViewActivity(member)}>
-                            Dashboard
-                        </Button>
-                        <Button variant="secondary" size="sm" onClick={() => onEdit(member)}>
-                            Edit Profile
-                        </Button>
-                    </div>
-                     <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
-                        <Link href={`/staff/${member.id}`}>View Public Profile</Link>
-                    </Button>
                 </CardFooter>
             </Card>
         </Reorder.Item>
@@ -294,8 +281,6 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             isNextUp={member.id === nextUpStaffId}
                             appointments={appointments}
                             services={services}
-                            onViewActivity={() => {}}
-                            onEdit={() => {}}
                         />
                     ))}
                 </Reorder.Group>
