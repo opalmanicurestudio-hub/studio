@@ -1,18 +1,45 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer } from 'lucide-react';
-import { type Appointment, type Service } from '@/lib/data';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus } from 'lucide-react';
+import { type Appointment, type Service, type Client } from '@/lib/data';
+import { ScrollArea } from '../ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '../ui/label';
 
-export const CheckoutHub = ({ order, cart, onCartChange }: { order: Appointment | null, cart: any[], onCartChange: (cart: any[]) => void }) => {
+export const CheckoutHub = ({ 
+    cart, 
+    onCartChange,
+    clients,
+    isGroupCheckout,
+    payerOptions,
+    selectedClientId,
+    setSelectedClientId,
+    onAddClientClick,
+}: { 
+    cart: any[], 
+    onCartChange: (cart: any[]) => void,
+    clients: Client[],
+    isGroupCheckout: boolean,
+    payerOptions: Client[],
+    selectedClientId: string | null,
+    setSelectedClientId: (id: string | null) => void,
+    onAddClientClick: () => void,
+}) => {
     const [subtotal, setSubtotal] = useState(0);
     const [tax, setTax] = useState(0);
     const [donation, setDonation] = useState(1.00);
     const [total, setTotal] = useState(0);
+    
+    const selectedClient = useMemo(() => {
+        return clients.find((c: Client) => c.id === selectedClientId);
+    }, [selectedClientId, clients]);
 
     useEffect(() => {
         const currentSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -33,18 +60,53 @@ export const CheckoutHub = ({ order, cart, onCartChange }: { order: Appointment 
     return (
         <div className="flex flex-col h-full">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">{order ? `Order #${order.id.slice(-5).toUpperCase()}`: "New Sale"}</h2>
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon"><User className="w-5 h-5"/></Button>
-                    <p className="text-sm font-medium">{order ? order.clientName : "Walk-in"}</p>
-                </div>
+                <h2 className="text-xl font-bold">Current Sale</h2>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">Staff: {order?.staffId ? 'Brenda' : 'N/A'}</p>
+             <div className="mb-4">
+                <Label>{isGroupCheckout ? "Primary Payer" : "Client"}</Label>
+                <div className="flex gap-2 mt-2">
+                    <Select
+                        value={isGroupCheckout ? selectedClientId || '' : selectedClientId || 'walk-in'}
+                        onValueChange={(value) => {
+                            if (value === 'walk-in') {
+                                setSelectedClientId(null);
+                            } else {
+                                setSelectedClientId(value);
+                            }
+                        }}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder={isGroupCheckout ? "Select a primary payer" : "Walk-in Customer"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                        {isGroupCheckout ? (
+                            payerOptions.map((c: Client) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))
+                        ) : (
+                            <>
+                                <SelectItem value="walk-in">Walk-in Customer</SelectItem>
+                                {clients.map((c: Client) => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                ))}
+                            </>
+                        )}
+                        </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="icon" onClick={onAddClientClick}><UserPlus className="w-4 h-4" /></Button>
+                </div>
+                {selectedClient && (
+                    <div className="mt-2 text-sm text-muted-foreground">
+                        Paying as: <span className="font-semibold text-foreground">{selectedClient.name}</span>
+                    </div>
+                )}
+            </div>
+
             <Separator />
 
-            <div className="flex-1 my-4 overflow-y-auto pr-2 -mr-2">
+            <ScrollArea className="flex-1 my-4 pr-2 -mr-2">
                 <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-semibold">Ordered Items</h3>
+                    <h3 className="font-semibold">Items</h3>
                     <p className="text-sm font-medium">{cart.reduce((acc, item) => acc + item.quantity, 0)}</p>
                 </div>
                 <div className="space-y-3">
@@ -56,7 +118,7 @@ export const CheckoutHub = ({ order, cart, onCartChange }: { order: Appointment 
                         </div>
                     ))}
                 </div>
-            </div>
+            </ScrollArea>
 
             <Separator />
             <div className="my-4 space-y-2 text-sm">

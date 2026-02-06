@@ -9,11 +9,11 @@ import { CheckoutQueueCard } from './CheckoutQueueCard';
 
 interface CheckoutQueueProps {
   appointments: (Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff })[];
-  onSelectOrder: (order: Appointment) => void;
-  selectedOrderId: string | null;
+  onSelectAppointment: (appointmentId: string) => void;
+  selectedAppointmentIds: Set<string>;
 }
 
-export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSelectOrder, selectedOrderId }) => {
+export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSelectAppointment, selectedAppointmentIds }) => {
 
   return (
     <Card>
@@ -28,8 +28,8 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
               <CheckoutQueueCard
                 key={order.id}
                 appointment={order}
-                isSelected={selectedOrderId === order.id}
-                onSelect={() => onSelectOrder(order)}
+                isSelected={selectedAppointmentIds.has(order.id)}
+                onSelect={() => onSelectAppointment(order.id)}
               />
             ))}
           </div>

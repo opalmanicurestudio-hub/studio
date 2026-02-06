@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -13,7 +13,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -22,22 +22,33 @@ import { differenceInMinutes, parseISO } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
+import { AddClientDialog } from '@/components/clients/AddClientDialog';
 
 
 export default function POSPage() {
-    const { inventory, services, appointments, clients, walkIns, staff } = useInventory();
-    const [activeOrder, setActiveOrder] = useState<Appointment | null>(null);
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
+    const { firestore, selectedTenant } = useFirebase();
     const { toast } = useToast();
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
+    const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    // New state for ordered staff
-    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
+    // State for group checkouts
+    const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+
+    const appointments = useMemo(() => {
+        if (!appointmentsFromDB) return [];
+        return appointmentsFromDB.map(apt => ({
+          ...apt,
+          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+        }));
+    }, [appointmentsFromDB]);
 
     // Initialize and sort staff based on turnOrder
+    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
         if (staff) {
             const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
@@ -45,7 +56,6 @@ export default function POSPage() {
         }
     }, [staff]);
 
-    // Handle reordering of staff
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
 
@@ -58,7 +68,6 @@ export default function POSPage() {
         batch.commit().catch(err => {
             console.error("Failed to save staff order:", err);
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
-            // Revert state on failure
             setOrderedStaff(staff || []);
         });
     };
@@ -72,45 +81,80 @@ export default function POSPage() {
                 const service = services.find(s => s.id === apt.serviceId);
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
-                return {
-                    ...apt,
-                    client,
-                    service,
-                    addOnServices,
-                    staff: staffMember
-                };
+                return { ...apt, client, service, addOnServices, staff: staffMember };
             }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [appointments, clients, services, staff]);
 
-
-    const handleSelectOrder = (order: Appointment) => {
-        setActiveOrder(order);
-        
-        const service = services.find(s => s.id === order.serviceId);
-        const addOns = (order.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean);
-
-        const newCart = [];
-        if (service) {
-             newCart.push({
-                id: service.id,
-                name: service.name,
-                price: service.price,
-                quantity: 1,
-                type: 'service',
-            });
-        }
-        addOns.forEach(addon => {
-            if(addon) {
-                newCart.push({
-                    id: addon.id,
-                    name: addon.name,
-                    price: addon.price,
-                    quantity: 1,
-                    type: 'service',
-                });
+    const payerOptions = useMemo(() => {
+        const clientIds = new Set<string>();
+        selectedAppointmentIds.forEach(aptId => {
+            const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+            if (apt) {
+                clientIds.add(apt.clientId);
             }
         });
-        setCart(newCart);
+        return (clients || []).filter(c => clientIds.has(c.id));
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+    
+    useEffect(() => {
+        const newCart: any[] = [];
+        
+        selectedAppointmentIds.forEach(aptId => {
+            const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+            if (!apt) return;
+            
+            const mainService = services.find(s => s.id === apt.serviceId);
+            if (mainService) {
+                newCart.push({
+                    id: `svc-${apt.id}-${mainService.id}`,
+                    appointmentId: apt.id,
+                    name: mainService.name,
+                    price: mainService.price,
+                    quantity: 1,
+                    type: 'service',
+                    staffId: apt.staffId,
+                });
+            }
+
+            (apt.addOnIds || []).forEach(addOnId => {
+                const addOnService = services.find(s => s.id === addOnId);
+                if (addOnService) {
+                    newCart.push({
+                        id: `svc-${apt.id}-${addOnService.id}`,
+                        appointmentId: apt.id,
+                        name: addOnService.name,
+                        price: addOnService.price,
+                        quantity: 1,
+                        type: 'service',
+                        staffId: apt.staffId,
+                    });
+                }
+            });
+        });
+
+        const nonAppointmentItems = cart.filter(item => !item.appointmentId);
+        setCart([...newCart, ...nonAppointmentItems]);
+        
+        if (payerOptions.length === 1) {
+            setSelectedClientId(payerOptions[0].id);
+        } else if (payerOptions.length === 0 && selectedAppointmentIds.size === 0) {
+            // Keep current client if no appointments are selected
+        } else {
+            setSelectedClientId(null);
+        }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, services]);
+
+
+    const handleSelectAppointment = (appointmentId: string) => {
+        const newSet = new Set(selectedAppointmentIds);
+        if (newSet.has(appointmentId)) {
+            newSet.delete(appointmentId);
+        } else {
+            newSet.add(appointmentId);
+        }
+        setSelectedAppointmentIds(newSet);
     };
 
     const handleAddToCart = (item: InventoryItem | Service) => {
@@ -124,7 +168,7 @@ export default function POSPage() {
                 );
             }
             const price = 'msrp' in item ? (item.msrp || item.costPerUnit || 0) : item.price;
-            return [...prevCart, { ...item, quantity: 1, price }];
+            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
         });
     };
 
@@ -132,6 +176,27 @@ export default function POSPage() {
         setCart(newCart);
     }
     
+    const handleAddClient = (data: ClientFormData) => {
+        if (!firestore || !selectedTenant) return;
+    
+        const newClient: Omit<Client, 'id'> = {
+          name: data.name,
+          email: data.email || '',
+          phone: data.phone || '',
+          avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+          lifetimeValue: 0,
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+        };
+        
+        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+    
+        toast({
+          title: "Client Added",
+          description: `${data.name} has been added to your client list.`,
+        });
+      }
+
     const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         if (!firestore || !staff || !selectedTenant) return;
         const tenantId = selectedTenant.id;
@@ -147,15 +212,9 @@ export default function POSPage() {
         let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
 
         switch (action) {
-            case 'clock_in':
-                staffUpdate = { active: true };
-                break;
-            case 'clock_out':
-                staffUpdate = { active: false, onBreak: false, status: 'idle' };
-                break;
-            case 'break_start':
-                staffUpdate = { onBreak: true, breakStartTime: now };
-                break;
+            case 'clock_in': staffUpdate = { active: true }; break;
+            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
             case 'break_end':
                 if(staffMember.breakStartTime) {
                     const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
@@ -173,80 +232,29 @@ export default function POSPage() {
         const staffMember = staff?.find(s => s.id === staffId);
         if (!staffMember) return;
   
-        const titles = {
-            clock_in: 'Confirm Clock In',
-            clock_out: 'Confirm Clock Out',
-            break_start: 'Confirm Start Break',
-            break_end: 'Confirm End Break',
-        };
-         const descriptions = {
-            clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
-            clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
-            break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
-            break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
-        };
+        const titles = { clock_in: 'Confirm Clock In', clock_out: 'Confirm Clock Out', break_start: 'Confirm Start Break', break_end: 'Confirm End Break' };
+         const descriptions = { clock_in: `Are you sure you want to clock in ${staffMember.name}?`, clock_out: `Are you sure you want to clock out ${staffMember.name}?`, break_start: `Are you sure you want to start a break for ${staffMember.name}?`, break_end: `Are you sure you want to end the break for ${staffMember.name}?` };
         
-        setConfirmation({
-            isOpen: true,
-            title: titles[action],
-            description: descriptions[action],
-            onConfirm: () => {
-                handleStatusChange(staffId, action);
-                setConfirmation(null);
-            }
-        });
+        setConfirmation({ isOpen: true, title: titles[action], description: descriptions[action], onConfirm: () => { handleStatusChange(staffId, action); setConfirmation(null); }});
     };
 
     const handleAssignNext = () => {
-        if (!staff || !walkIns || !services) {
-            toast({ title: "Data not loaded", description: "Please wait a moment and try again." });
-            return;
-        }
+        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+        const waitingClients = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
 
-        const idleStaff = staff
-            .filter(s => s.active && !s.onBreak && s.status === 'idle')
-            .sort((a, b) => {
-                const timeA = a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
-                const timeB = b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
-                return timeA - timeB; // Sorts oldest first
-            });
-
-        const waitingClients = walkIns
-            .filter(w => w.status === 'waiting')
-            .sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-
-        if (idleStaff.length === 0) {
-            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
-            return;
-        }
-
-        if (waitingClients.length === 0) {
-            toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
-            return;
-        }
+        if (idleStaff.length === 0) { toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' }); return; }
+        if (waitingClients.length === 0) { toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' }); return; }
 
         for (const staffMember of idleStaff) {
             for (const client of waitingClients) {
-                const requiredSkills = client.requiredSkills || [];
-                const staffSkills = staffMember.skillSet || [];
-
+                const requiredSkills = client.requiredSkills || []; const staffSkills = staffMember.skillSet || [];
                 const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
-
-                if (canPerformService) {
-                    // Found a match!
-                    handleAssignStaff(client.id, staffMember.id);
-                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                    return; // Exit after assigning
-                }
+                if (canPerformService) { handleAssignStaff(client.id, staffMember.id); toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); return; }
             }
         }
         
-        // If we get here, no suitable match was found
-        toast({
-            variant: 'destructive',
-            title: 'No Suitable Match',
-            description: "Couldn't find an available staff member with the required skills for the next client in queue.",
-        });
+        toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
     };
 
      const handleAssignStaff = (walkInId: string, staffId: string) => {
@@ -262,66 +270,36 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <TeamStatus 
-                            staff={orderedStaff} 
-                            onStatusChange={handleStatusChangeWithConfirmation} 
-                            appointments={appointments}
-                            onReorder={handleStaffReorder}
-                        />
-                        <CheckoutQueue 
-                            appointments={readyForCheckoutAppointments}
-                            onSelectOrder={handleSelectOrder}
-                            selectedOrderId={activeOrder?.id}
-                        />
-                        
+                        <TeamStatus staff={orderedStaff} onStatusChange={handleStatusChangeWithConfirmation} appointments={appointments} onReorder={handleStaffReorder} />
+                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">
-                                    Walk-in Queue
-                                    <Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge>
-                                </TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge></TabsTrigger>
                             </TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6">
-                                <RetailCatalog 
-                                    services={services || []}
-                                    inventory={inventory || []}
-                                    onAddToCart={handleAddToCart}
-                                />
-                            </TabsContent>
-                            <TabsContent value="queue" className="flex-1 mt-6">
-                                <WalkInQueue 
-                                    walkIns={walkIns}
-                                    appointments={appointments}
-                                    services={services}
-                                    staff={staff}
-                                    onAssignStaff={handleAssignStaff}
-                                    onAssignNext={handleAssignNext}
-                                />
-                            </TabsContent>
+                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
+                            <TabsContent value="queue" className="flex-1 mt-6"><WalkInQueue walkIns={walkIns} appointments={appointments} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} /></TabsContent>
                         </Tabs>
-
                     </main>
                     <aside className="border-l bg-card p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
                         <CheckoutHub 
-                            order={activeOrder}
-                            cart={cart}
-                            onCartChange={handleCartChange}
+                            cart={cart} onCartChange={handleCartChange} 
+                            clients={clients || []}
+                            isGroupCheckout={selectedAppointmentIds.size > 1}
+                            payerOptions={payerOptions}
+                            selectedClientId={selectedClientId}
+                            setSelectedClientId={setSelectedClientId}
+                            onAddClientClick={() => setIsAddClientOpen(true)}
                         />
                     </aside>
                 </div>
             </div>
+            <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
              {confirmation && (
                 <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
                     <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
-                            <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction>
-                        </AlertDialogFooter>
+                        <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
+                        <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
             )}
