@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -18,7 +17,7 @@ import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
@@ -26,7 +25,7 @@ import { AddClientDialog } from '@/components/clients/AddClientDialog';
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore, selectedTenant } = useFirebase();
@@ -55,6 +54,47 @@ export default function POSPage() {
             setOrderedStaff(sorted);
         }
     }, [staff]);
+
+     const enrichedOrderedStaff = useMemo(() => {
+        if (!orderedStaff || !appointments || !transactions) return orderedStaff;
+        
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        return orderedStaff.map(member => {
+        const staffAppointmentsToday = (appointments || []).filter(apt =>
+            apt.staffId === member.id &&
+            new Date(apt.startTime) >= todayStart &&
+            new Date(apt.startTime) <= todayEnd
+        );
+        
+        const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
+        
+        const staffTransactionsToday = (transactions || []).filter(t => {
+            if (t.staffId !== member.id) return false;
+            const transactionDate = new Date(t.date);
+            return transactionDate >= todayStart && transactionDate <= todayEnd;
+        });
+
+        const totalSales = staffTransactionsToday
+            .filter(t => t.type === 'income')
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        const tips = staffTransactionsToday.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+
+        const consumptionValue = 0; // Simplified for now, this would require stockCorrections and inventory context
+
+        return {
+            ...member,
+            stats: {
+            totalSales,
+            tips,
+            consumptionValue,
+            completedServices: completedAppointmentsCount,
+            }
+        };
+        });
+    }, [orderedStaff, appointments, transactions]);
 
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
@@ -270,7 +310,7 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <TeamStatus staff={orderedStaff} onStatusChange={handleStatusChangeWithConfirmation} appointments={appointments} onReorder={handleStaffReorder} />
+                        <TeamStatus staff={enrichedOrderedStaff} onStatusChange={handleStatusChangeWithConfirmation} appointments={appointments} onReorder={handleStaffReorder} />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">

@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -9,19 +8,21 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { format, differenceInMinutes, parseISO } from 'date-fns';
+import { format, differenceInMinutes, parseISO, isPast, differenceInDays } from 'date-fns';
 import { Reorder } from 'framer-motion';
+import { formatPhoneNumber } from 'react-phone-number-input';
+import { Separator } from '../ui/separator';
 
 interface TeamStatusProps {
-  staff: Staff[] | null;
+  staff: (Staff & { stats?: any })[] | null;
   onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void;
   appointments: Appointment[] | null;
   onReorder: (newOrder: Staff[]) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { member: Staff, isNextUp: boolean, availability: string | null, onStatusChange: TeamStatusProps['onStatusChange'] }) => {
+const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { member: Staff & { stats: any }, isNextUp: boolean, availability: string | null, onStatusChange: TeamStatusProps['onStatusChange'] }) => {
     const getStatus = () => {
         if (!member.active) return { text: 'Clocked Out', className: 'bg-gray-100 text-gray-800' };
         if (member.onBreak) return { text: 'On Break', className: 'bg-yellow-100 text-yellow-800' };
@@ -30,6 +31,29 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
     };
 
     const status = getStatus();
+
+    const licenseInfo = useMemo(() => {
+        if (!member.compliance?.licenseExpiry) return null;
+        try {
+            const licenseExpiry = parseISO(member.compliance.licenseExpiry);
+            if (licenseExpiry) {
+                const daysUntil = differenceInDays(licenseExpiry, new Date());
+                const expired = isPast(licenseExpiry);
+                const expiringSoon = daysUntil <= 30 && !expired;
+
+                return {
+                    isExpired: expired,
+                    isExpiringSoon: expiringSoon,
+                    daysUntilExpiry: daysUntil,
+                    expiryDate: licenseExpiry,
+                };
+            }
+        } catch (e) {
+            console.error("Invalid date format for license expiry:", member.compliance.licenseExpiry);
+        }
+        return null;
+    }, [member.compliance?.licenseExpiry]);
+
 
     const renderActionButtons = () => {
         if (!member.active) {
@@ -55,14 +79,14 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
         <Reorder.Item
             value={member}
             id={member.id}
-            className="w-48 shrink-0 relative"
+            className="w-56 shrink-0 relative"
             whileDrag={{ scale: 1.05, zIndex: 10, boxShadow: '0px 10px 20px rgba(0,0,0,0.2)' }}
             transition={{ duration: 0.1 }}
         >
             <Card className="text-center flex flex-col h-full cursor-grab active:cursor-grabbing">
                 <GripVertical className="absolute top-1/2 -translate-y-1/2 left-1 text-muted-foreground/50" size={20}/>
                 <CardHeader className="p-3">
-                    <div className="flex justify-between items-start">
+                     <div className="flex justify-between items-start">
                         {isNextUp ? (
                             <Badge className="bg-green-500 text-white">Next Up</Badge>
                         ) : (
@@ -78,13 +102,37 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange }: { m
                 </CardHeader>
                 <CardContent className="p-3 pt-0 flex-1 flex flex-col items-center">
                     <Avatar className="w-16 h-16 mx-auto mb-2">
-                        <AvatarImage src={member.avatarUrl} alt={member.name} />
+                        <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
                         <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
                     </Avatar>
                     <h3 className="text-sm font-semibold truncate w-full">{member.name}</h3>
                     <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
                     {availability && (
                         <p className="text-xs text-blue-500 font-semibold mt-2">{availability}</p>
+                    )}
+                    <Separator className="my-3" />
+                     <div className="w-full text-left space-y-2 text-xs">
+                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${member.stats?.totalSales.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Tips</span><span className="font-semibold">${member.stats?.tips.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Services</span><span className="font-semibold">{member.stats?.completedServices}</span></div>
+                    </div>
+                     <div className="text-xs text-muted-foreground mt-2 space-y-1 text-center w-full">
+                        <div className="flex items-center justify-center gap-2">
+                            <a href={`mailto:${member.email}`} className="p-1 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                            </a>
+                            <a href={`tel:${member.phone}`} className="p-1 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                            </a>
+                        </div>
+                    </div>
+                    {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
+                        <div className="mt-2 text-left p-2 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
+                            <ShieldAlert className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring'}</p>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto">
@@ -145,7 +193,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                     {staffWithAvailability.map(member => (
                         <StaffMemberCard
                             key={member.id}
-                            member={member}
+                            member={member as Staff & { stats: any }}
                             onStatusChange={onStatusChange}
                             isNextUp={member.id === nextUpStaffId}
                             availability={member.availability}
