@@ -1,12 +1,11 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
-import { InServiceCustomerCard } from './InServiceCustomerCard';
+import { InServiceAppointmentCard } from './InServiceCustomerCard'; // Updated import
 import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
@@ -46,10 +45,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (walkIns || []).filter(w => w.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.status === 'servicing'); // Updated logic
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
-    }, [walkIns]);
+    }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
 
@@ -117,16 +116,19 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         toast({ title: "Service Started", description: "The appointment has been created on the planner." });
     };
 
-    const handleSendToCheckout = (walkIn: WalkIn) => {
+    const handleSendToCheckout = (appointment: Appointment) => {
         if (!firestore || !selectedTenant) return;
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', `apt-walkin-${walkIn.id}`);
-
-        updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout', serviceEndTime: new Date().toISOString() });
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
         updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: new Date().toISOString() });
         
-        if (walkIn.assignedStaffId) {
-            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+        if (appointment.isWalkIn) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout', serviceEndTime: new Date().toISOString() });
+        }
+        
+        if (appointment.staffId) {
+            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointment.staffId);
             updateDocumentNonBlocking(staffRef, { status: 'idle' });
         }
         
@@ -176,18 +178,13 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     )) : <p className="text-center text-muted-foreground p-8">No clients have been notified.</p>}
                 </TabsContent>
                 <TabsContent value="servicing" className="mt-4 space-y-4">
-                     {inServiceQueue.length > 0 ? inServiceQueue.map(walkIn => (
-                        <InServiceCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(walkIn)} />
+                     {inServiceQueue.length > 0 ? inServiceQueue.map(appointment => (
+                        <InServiceAppointmentCard key={appointment.id} appointment={appointment} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(appointment)} />
                     )) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
                 </TabsContent>
                 <TabsContent value="ready_for_checkout" className="mt-4 space-y-4">
-                     {readyForCheckoutQueue.length > 0 ? (
-                        readyForCheckoutQueue.map(walkIn => (
-                             <InServiceCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onSendToCheckout={() => {}} />
-                        ))
-                    ) : (
-                        <p className="text-center text-muted-foreground p-8">No clients are ready for checkout.</p>
-                    )}
+                     {/* This tab's content is now managed by CheckoutQueue component */}
+                     <p className="text-center text-muted-foreground p-8">Clients ready for checkout are now shown in the queue above.</p>
                 </TabsContent>
             </Tabs>
             <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
