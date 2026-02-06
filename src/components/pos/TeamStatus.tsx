@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -176,14 +177,15 @@ const StaffMemberCard = ({ member, isNextUp, availability, onStatusChange, appoi
                     <h3 className="text-sm font-semibold truncate w-full">{member.name}</h3>
                     <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
 
-                     <div className="text-xs text-blue-500 font-semibold mt-2 h-4">
-                        {availability && availability.status !== 'In Service' && <span>{availability.status}</span>}
-                        {elapsedTime && currentService && (
-                            <div className="text-center">
+                     <div className="text-xs font-semibold mt-2 flex min-h-[52px] flex-col items-center justify-center text-center">
+                        {elapsedTime && currentService ? (
+                            <div>
                                 <p className="text-xs text-muted-foreground truncate">{currentService.name}</p>
-                                <p className={cn("text-lg font-mono font-semibold", isOvertime && "text-destructive")}>{elapsedTime}</p>
+                                <p className={cn("text-lg font-mono font-semibold", isOvertime ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
                             </div>
-                        )}
+                        ) : availability && availability.status ? (
+                            <span className="text-lg text-blue-500">{availability.status}</span>
+                        ) : null}
                     </div>
                     
                     <Separator className="my-3" />
