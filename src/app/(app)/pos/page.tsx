@@ -31,9 +31,23 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
+
+
+const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      {icon}
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{value}</div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </CardContent>
+  </Card>
+);
 
 
 export default function POSPage() {
@@ -164,6 +178,53 @@ export default function POSPage() {
         });
     }, [orderedStaff, appointments, transactions, activityLogs]);
 
+    const kpiData = useMemo(() => {
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        const walkInsToday = (walkIns || []).filter(w => {
+            const checkInDate = parseISO(w.checkInTime);
+            return checkInDate >= todayStart && checkInDate <= todayEnd;
+        });
+
+        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
+        const waitTimes = completedWalkIns.map(w => differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime)));
+        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
+
+        const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
+        const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
+
+        const totalInServiceMinutes = enrichedOrderedStaff.reduce((total, staff) => {
+            const staffAppointmentsToday = (appointments || []).filter(apt =>
+                apt.staffId === staff.id &&
+                apt.status === 'completed' &&
+                new Date(apt.startTime) >= todayStart &&
+                new Date(apt.startTime) <= todayEnd
+            );
+            return total + staffAppointmentsToday.reduce((acc, apt) => {
+                 if (apt.actualStartTime && apt.actualEndTime) {
+                    return acc + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
+                 }
+                 const service = services.find(s => s.id === apt.serviceId);
+                 return acc + (service?.duration || 0);
+            }, 0);
+        }, 0);
+
+        const totalServiceRevenue = (transactions || []).filter(t => {
+            const transactionDate = new Date(t.date);
+            return t.category === 'Service Revenue' && transactionDate >= todayStart && transactionDate <= todayEnd;
+        }).reduce((acc, t) => acc + t.amount, 0);
+
+        const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
+
+        return {
+            avgWaitTime,
+            walkInConversionRate: conversionRate,
+            totalWalkIns: walkInsToday.length,
+            revenuePerServiceHour,
+        };
+    }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
+
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
 
@@ -275,7 +336,7 @@ export default function POSPage() {
                     : cartItem
                 );
             }
-            const price = 'msrp' in item ? (item.msrp || item.costPerUnit || 0) : item.price;
+            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
             return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
         });
     };
@@ -479,6 +540,12 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock />} description="Today's average wait for walk-ins." />
+                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp />} description="Walk-ins that resulted in a service." />
+                            <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users />} description="Total number of walk-in parties." />
+                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign />} description="Revenue per hour of active service." />
+                        </div>
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
