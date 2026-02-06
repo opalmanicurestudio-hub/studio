@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 
 interface CheckoutQueueCardProps {
   appointment: Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff };
@@ -43,7 +44,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                     />
                     <div className="flex-1 space-y-1">
                         <p className="font-semibold">{client.name}</p>
-                        <p className="text-sm text-muted-foreground">{service.name}{addOnServices.length > 0 ? ` + ${addOnServices.length}` : ''}</p>
+                        <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'h:mm a')}</p>
                     </div>
                     <div className="text-right">
                          <Avatar className="w-8 h-8">
