@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -591,58 +590,9 @@ export default function WalkInPage() {
                   <div>
                     <CardHeader>
                       <CardTitle>{partyType === 'group' ? "Build Your Party's Request" : "Select Your Services"}</CardTitle>
-                      <CardDescription>Select the services needed and enter the primary contact's info.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
-                      {/* Services for primary person */}
-                      <div className="space-y-2">
-                          <Label className="font-semibold text-base">Your Services</Label>
-                          <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
-                              <AccordionItem value="main-services" className="border rounded-md">
-                                  <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
-                                  <AccordionContent className="space-y-2 px-3 pb-3">
-                                      {mainServices.map(service => {
-                                          const isSelected = selectedServices.some(s => s.id === service.id);
-                                          return (
-                                              <div key={service.id} className="border-b last:border-b-0">
-                                                  <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
-                                                      <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
-                                                      <div className="flex-1">
-                                                          <span className="font-medium text-sm">{service.name}</span>
-                                                          <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                                      </div>
-                                                  </label>
-                                              </div>
-                                          )
-                                      })}
-                                  </AccordionContent>
-                              </AccordionItem>
-                          </Accordion>
-                      </div>
-
-                      {/* Party members */}
-                      {partyType === 'group' && (
-                        <div className="space-y-4">
-                          <Label className="font-semibold text-base">Your Group</Label>
-                          <div className="space-y-4">
-                              {partyMembers.map(member => (
-                                  <PartyMemberEditor
-                                      key={member.id}
-                                      member={member}
-                                      onUpdate={handleUpdatePartyMember}
-                                      onRemove={handleRemovePartyMember}
-                                      services={mainServices}
-                                  />
-                              ))}
-                          </div>
-                          <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
-                              <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
-                          </Button>
-                        </div>
-                      )}
-
-                      {/* Primary Contact Info */}
-                      <div className="space-y-4 pt-6 border-t">
+                      <div className="space-y-4 pb-6 border-b">
                           <h4 className="font-semibold text-lg">Primary Contact Information</h4>
                            {selectedClientId && (
                               <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
@@ -701,6 +651,51 @@ export default function WalkInPage() {
                               </div>
                           </div>
                       </div>
+
+                      <div className="space-y-2">
+                          <Label className="font-semibold text-base">Your Services</Label>
+                          <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
+                              <AccordionItem value="main-services" className="border rounded-md">
+                                  <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
+                                  <AccordionContent className="space-y-2 px-3 pb-3">
+                                      {mainServices.map(service => {
+                                          const isSelected = selectedServices.some(s => s.id === service.id);
+                                          return (
+                                              <div key={service.id} className="border-b last:border-b-0">
+                                                  <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
+                                                      <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
+                                                      <div className="flex-1">
+                                                          <span className="font-medium text-sm">{service.name}</span>
+                                                          <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                                      </div>
+                                                  </label>
+                                              </div>
+                                          )
+                                      })}
+                                  </AccordionContent>
+                              </AccordionItem>
+                          </Accordion>
+                      </div>
+
+                      {partyType === 'group' && (
+                        <div className="space-y-4">
+                          <Label className="font-semibold text-base">Your Group</Label>
+                          <div className="space-y-4">
+                              {partyMembers.map(member => (
+                                  <PartyMemberEditor
+                                      key={member.id}
+                                      member={member}
+                                      onUpdate={handleUpdatePartyMember}
+                                      onRemove={handleRemovePartyMember}
+                                      services={mainServices}
+                                  />
+                              ))}
+                          </div>
+                          <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
+                              <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
+                          </Button>
+                        </div>
+                      )}
 
                     </CardContent>
                     <CardFooter className="flex justify-between">
@@ -784,4 +779,3 @@ export default function WalkInPage() {
     </>
   );
 }
-
