@@ -9,16 +9,12 @@ import { WaitingCustomerCard } from './WaitingCustomerCard';
 import { InServiceAppointmentCard } from './InServiceCustomerCard'; // Updated import
 import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { useTenant } from '@/context/TenantContext';
-import { useToast } from '@/hooks/use-toast';
-import { collection, doc, writeBatch } from 'firebase/firestore';
-import { nanoid } from 'nanoid';
 import { Button } from '../ui/button';
 import { Sparkles } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -28,6 +24,10 @@ interface WalkInQueueProps {
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
+    orderedWaitingQueue: WalkIn[];
+    onReorder: (newOrder: WalkIn[]) => void;
+    assignmentMode: 'fair_play' | 'ordered_list';
+    onAssignmentModeChange: (mode: 'fair_play' | 'ordered_list') => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -38,41 +38,30 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onAssignStaff,
     onAssignNext,
     onCancel,
+    orderedWaitingQueue,
+    onReorder,
+    assignmentMode,
+    onAssignmentModeChange
 }) => {
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const { toast } = useToast();
-
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
-    const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
-        const waiting = (walkIns || []).filter(w => w.status === 'waiting');
+    const { notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing'); // Updated logic
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+        return { notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
-
-    const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
-
-    useEffect(() => {
-        const sorted = [...waitingQueue].sort((a, b) => {
-            const orderA = a.queueOrder || new Date(a.checkInTime).getTime();
-            const orderB = b.queueOrder || new Date(b.checkInTime).getTime();
-            return orderA - orderB;
-        });
-        setOrderedWaitingQueue(sorted);
-    }, [waitingQueue]);
 
     const groupSizes = useMemo(() => {
         const sizes = new Map<string, number>();
         (walkIns || []).forEach(w => {
-            sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
+            if (w.groupId) {
+                sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
+            }
         });
         return sizes;
     }, [walkIns]);
-
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);
@@ -87,54 +76,40 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     }
     
     const handleSendToCheckout = (appointment: Appointment) => {
-        if (!firestore || !selectedTenant) return;
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
-        updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: new Date().toISOString() });
-        
-        if (appointment.isWalkIn) {
-            const walkInId = appointment.id.replace(/^apt-walkin-(.+?)(?:-.+)?$/, '$1');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout', serviceEndTime: new Date().toISOString() });
-        }
-        
-        if (appointment.staffId) {
-            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointment.staffId);
-            updateDocumentNonBlocking(staffRef, { status: 'idle' });
-        }
-        
-        toast({ title: "Ready for Checkout", description: "The client has been sent to the order line." });
-    };
-    
-    const handleReorder = (newOrder: WalkIn[]) => {
-        setOrderedWaitingQueue(newOrder);
-        if (!firestore || !selectedTenant) return;
-
-        const baseOrder = Date.now();
-        newOrder.forEach((walkIn, index) => {
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-            updateDocumentNonBlocking(walkInRef, { queueOrder: baseOrder + index });
-        });
+        // This logic now lives in the parent POSPage component
     };
 
     return (
         <>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{waitingQueue.length}</Badge></TabsTrigger>
+                    <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="notified">Notified <Badge className="ml-2">{notifiedQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="servicing">In Service <Badge className="ml-2">{inServiceQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="ready_for_checkout">Checkout <Badge className="ml-2">{readyForCheckoutQueue.length}</Badge></TabsTrigger>
                 </TabsList>
                 <TabsContent value="waiting" className="mt-4 space-y-4">
-                    <div className="flex justify-end">
-                        <Button onClick={onAssignNext}>
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div className="w-full sm:w-64">
+                            <Label htmlFor="assignment-mode" className="text-xs font-medium">Assignment Mode</Label>
+                            <Select value={assignmentMode} onValueChange={onAssignmentModeChange as (value: string) => void}>
+                                <SelectTrigger id="assignment-mode">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="fair_play">Automatic (Fair Play)</SelectItem>
+                                    <SelectItem value="ordered_list">Manual (Ordered List)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <Button onClick={onAssignNext} className="w-full sm:w-auto">
                             <Sparkles className="mr-2 h-4 w-4" />
-                            Assign Next (Fair Play)
+                            Assign Next
                         </Button>
                     </div>
                      {orderedWaitingQueue.length > 0 ? (
                         <ScrollArea>
-                            <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={handleReorder} className="flex space-x-4 pb-4">
+                            <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={onReorder} className="flex space-x-4 pb-4">
                                 {orderedWaitingQueue.map(walkIn => (
                                     <Reorder.Item key={walkIn.id} value={walkIn} className="w-72 shrink-0">
                                         <WaitingCustomerCard 
@@ -179,7 +154,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             <div className="flex space-x-4 pb-4">
                                 {inServiceQueue.map(appointment => (
                                     <div key={appointment.id} className="w-72 shrink-0">
-                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(appointment)} />
+                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => {}} />
                                     </div>
                                 ))}
                             </div>

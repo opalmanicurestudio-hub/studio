@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -30,10 +31,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { AssignStaffDialog } from '@/components/pos/AssignStaffDialog';
+import { Reorder } from 'framer-motion';
 
 
 const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
@@ -70,6 +72,8 @@ export default function POSPage() {
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
+
+    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('fair_play');
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -229,6 +233,40 @@ export default function POSPage() {
             revenuePerServiceHour,
         };
     }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
+    
+    const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
+        const waiting = (walkIns || []).filter(w => w.status === 'waiting');
+        const notified = (walkIns || []).filter(w => w.status === 'notified');
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+    }, [walkIns, appointments]);
+
+    const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
+    useEffect(() => {
+        const sorted = [...waitingQueue].sort((a, b) => {
+            const orderA = a.queueOrder || new Date(a.checkInTime).getTime();
+            const orderB = b.queueOrder || new Date(b.checkInTime).getTime();
+            return orderA - orderB;
+        });
+        setOrderedWaitingQueue(sorted);
+    }, [waitingQueue]);
+
+    const handleReorder = (newOrder: WalkIn[]) => {
+        setOrderedWaitingQueue(newOrder);
+        if (!firestore || !selectedTenant) return;
+
+        const baseOrder = Date.now();
+        const batch = writeBatch(firestore);
+        newOrder.forEach((walkIn, index) => {
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+            batch.update(walkInRef, { queueOrder: baseOrder + index });
+        });
+        batch.commit().catch(err => {
+            console.error("Failed to save reorder", err);
+            toast({ variant: 'destructive', title: "Reorder Failed", description: "Could not save the new queue order."});
+        });
+    };
 
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
@@ -422,24 +460,65 @@ export default function POSPage() {
 
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
+    
         const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
-
-        if (idleStaff.length === 0) { toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' }); return; }
-        if (waitingClients.length === 0) { toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' }); return; }
-
-        for (const client of waitingClients) {
-            for (const staffMember of idleStaff) {
-                const requiredSkills = client.requiredSkills || []; const staffSkills = staffMember.skillSet || [];
-                const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
-                if (canPerformService) { 
-                    handleAssignStaff(client, staffMember.id); 
-                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` }); 
-                    return; 
-                }
-            }
+        
+        if (idleStaff.length === 0) {
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          return;
         }
         
+        const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
+        
+        if (waitingClients.length === 0) {
+          toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
+          return;
+        }
+    
+        if (assignmentMode === 'fair_play') {
+          // Fair Play Logic: Find the first available staff, then find a client they can serve.
+          for (const staffMember of idleStaff) {
+            for (const client of waitingClients) {
+              const allServiceIds = [
+                ...client.serviceIds,
+                ...(walkIns?.filter(w => w.groupId === client.groupId && w.id !== client.id).flatMap(w => w.serviceIds) || [])
+              ];
+              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+              const staffSkills = staffMember.skillSet || [];
+              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+    
+              const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+              if (canPerformService && !existingAssignment) {
+                handleAssignStaff(client, staffMember.id);
+                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                return;
+              }
+            }
+          }
+        } else { // 'ordered_list'
+          // Ordered List Logic: Find the first client in the queue, then find a staff who can serve them.
+          for (const client of waitingClients) {
+            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+            if (existingAssignment) continue;
+            
+            for (const staffMember of idleStaff) {
+                const allServiceIds = [
+                    ...client.serviceIds,
+                    ...(walkIns?.filter(w => w.groupId === client.groupId && w.id !== client.id).flatMap(w => w.serviceIds) || [])
+                ];
+                const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                const staffSkills = staffMember.skillSet || [];
+                const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+    
+              if (canPerformService) {
+                handleAssignStaff(client, staffMember.id);
+                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                return;
+              }
+            }
+          }
+        }
+    
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
     };
 
@@ -537,7 +616,7 @@ export default function POSPage() {
             handleAddToCart(product);
             toast({
                 title: "Product Added",
-                description: `${product.name} has been added to the cart.`
+                description: `${product.name} has been added to the sale.`
             });
         } else {
             toast({ variant: 'destructive', title: 'Invalid Code', description: 'Scanned code is not a valid checkout ticket or product.' });
@@ -557,7 +636,7 @@ export default function POSPage() {
       } else {
         toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
       }
-    }, [inventory, readyForCheckoutAppointments, handleAddToCart, toast]);
+    }, [inventory, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
     useEffect(() => {
         if (scannedData) {
@@ -638,7 +717,7 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting').length || 0}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{waitingQueue.length}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
@@ -650,6 +729,10 @@ export default function POSPage() {
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
                                     onAssignNext={handleAssignNext} 
                                     onCancel={handleCancelWalkIn}
+                                    orderedWaitingQueue={orderedWaitingQueue}
+                                    onReorder={handleReorder}
+                                    assignmentMode={assignmentMode}
+                                    onAssignmentModeChange={setAssignmentMode}
                                 />
                             </TabsContent>
                         </Tabs>
