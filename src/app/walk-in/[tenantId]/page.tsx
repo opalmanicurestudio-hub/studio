@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -160,67 +159,57 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
-const AddPartyMemberDialog = ({ open, onOpenChange, onSave, services }: { open: boolean, onOpenChange: (open: boolean) => void, onSave: (member: PartyMember) => void, services: Service[] }) => {
-    const [name, setName] = useState('');
-    const [selectedServices, setSelectedServices] = useState<Service[]>([]);
-
-    const handleServiceToggle = (service: Service) => {
-        setSelectedServices(prev =>
-        prev.some(s => s.id === service.id)
-            ? prev.filter(s => s.id !== service.id)
-            : [...prev, service]
-        );
+const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
+    const toggleService = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [...member.serviceIds, serviceId];
+        onUpdate(member.id, { serviceIds: newServiceIds });
     };
 
-    const handleSave = () => {
-        if (name.trim() && selectedServices.length > 0) {
-            onSave({
-                id: nanoid(),
-                name: name.trim(),
-                serviceIds: selectedServices.map(s => s.id)
-            });
-            onOpenChange(false);
-        }
-    }
-
-    useEffect(() => {
-        if (open) {
-            setName('');
-            setSelectedServices([]);
-        }
-    }, [open]);
-
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Add Party Member</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="party-member-name">Name</Label>
-                        <Input id="party-member-name" value={name} onChange={e => setName(e.target.value)} placeholder="Enter name" />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Services</Label>
-                        <ScrollArea className="h-48 border rounded-md p-2">
-                           {services.map(service => (
-                               <label key={service.id} htmlFor={`party-${service.id}`} className="flex items-center space-x-2 p-1.5 rounded-md hover:bg-muted cursor-pointer">
-                                  <Checkbox id={`party-${service.id}`} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} />
-                                  <span className="text-sm font-normal flex-1">{service.name}</span>
-                               </label>
-                           ))}
-                        </ScrollArea>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSave} disabled={!name.trim() || selectedServices.length === 0}>Add to Party</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <Input
+                    value={member.name}
+                    onChange={(e) => onUpdate(member.id, { name: e.target.value })}
+                    className="text-base font-semibold border-0 shadow-none focus-visible:ring-0 p-0"
+                />
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>
+            </CardHeader>
+            <CardContent>
+                <Accordion type="single" collapsible>
+                    <AccordionItem value="services" className="border-none">
+                        <AccordionTrigger className="p-0 hover:no-underline text-sm">
+                            {member.serviceIds.length > 0 ? `${member.serviceIds.length} service(s) selected` : 'Select Services'}
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-2">
+                             <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                                {services.map(service => (
+                                    <div key={service.id} className="border-b last:border-b-0">
+                                        <label htmlFor={`member-${member.id}-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
+                                            <Checkbox
+                                                id={`member-${member.id}-${service.id}`}
+                                                checked={member.serviceIds.includes(service.id)}
+                                                onCheckedChange={() => toggleService(service.id)}
+                                                className="h-5 w-5"
+                                            />
+                                            <div className="flex-1">
+                                                <span className="font-medium text-sm">{service.name}</span>
+                                                <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                ))}
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </CardContent>
+        </Card>
     )
-}
+};
+
 
 export default function WalkInPage() {
   const { firestore } = useFirebase();
@@ -289,7 +278,6 @@ export default function WalkInPage() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
-  const [isAddingPerson, setIsAddingPerson] = useState(false);
 
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
@@ -357,11 +345,14 @@ export default function WalkInPage() {
     );
   };
   
-   const handleSavePartyMember = (member: PartyMember) => {
-    setPartyMembers(prev => [...prev, member]);
-    setIsAddingPerson(false);
+  const handleAddPartyMember = () => {
+      setPartyMembers(prev => [...prev, { id: nanoid(), name: `Person ${prev.length + 2}`, serviceIds: [] }]);
   };
 
+  const handleUpdatePartyMember = (id: string, updates: Partial<PartyMember>) => {
+      setPartyMembers(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
+  };
+  
   const handleRemovePartyMember = (memberId: string) => {
     setPartyMembers(prev => prev.filter(m => m.id !== memberId));
   };
@@ -604,7 +595,7 @@ export default function WalkInPage() {
                         <Label className="font-semibold text-base">Your Services</Label>
                         <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
                             <AccordionItem value="main-services" className="border rounded-md">
-                                <AccordionTrigger className="p-3">Main Services</AccordionTrigger>
+                                <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
                                 <AccordionContent className="space-y-2 px-3 pb-3">
                                     {mainServices.map(service => {
                                         const isSelected = selectedServices.some(s => s.id === service.id);
@@ -627,25 +618,20 @@ export default function WalkInPage() {
 
                     {partyType === 'group' && (
                       <div className="space-y-4">
-                        <Label className="font-semibold text-base">Party Members</Label>
-                        {partyMembers.length > 0 && (
-                            <div className="space-y-2">
-                                {partyMembers.map(member => {
-                                    const memberServices = services?.filter(s => member.serviceIds.includes(s.id));
-                                    return (
-                                        <div key={member.id} className="p-3 border rounded-md flex items-center justify-between">
-                                            <div>
-                                                <p className="font-medium">{member.name}</p>
-                                                <p className="text-xs text-muted-foreground">{memberServices?.map(s => s.name).join(', ')}</p>
-                                            </div>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemovePartyMember(member.id)}><Trash2 className="w-4 h-4" /></Button>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        )}
-                        <Button variant="outline" className="w-full" type="button" onClick={() => setIsAddingPerson(true)}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
+                        <Label className="font-semibold text-base">Your Group</Label>
+                        <div className="space-y-4">
+                            {partyMembers.map(member => (
+                                <PartyMemberEditor
+                                    key={member.id}
+                                    member={member}
+                                    onUpdate={handleUpdatePartyMember}
+                                    onRemove={handleRemovePartyMember}
+                                    services={mainServices}
+                                />
+                            ))}
+                        </div>
+                        <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
                         </Button>
                       </div>
                     )}
@@ -832,12 +818,6 @@ export default function WalkInPage() {
           </AnimatePresence>
         </Card>
     </div>
-    <AddPartyMemberDialog 
-        open={isAddingPerson}
-        onOpenChange={setIsAddingPerson}
-        onSave={handleSavePartyMember}
-        services={mainServices}
-    />
     </>
   );
 }
