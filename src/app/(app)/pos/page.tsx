@@ -84,7 +84,7 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
-
+    
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointments || !clients || !services || !staff) return [];
         return appointments
@@ -97,7 +97,7 @@ export default function POSPage() {
                 return { ...apt, client, service, addOnServices, staff: staffMember };
             }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [appointments, clients, services, staff]);
-    
+
     const inServiceAppointments = useMemo(() => {
         return (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
     }, [appointments]);
@@ -474,6 +474,14 @@ export default function POSPage() {
     }, [selectedAppointmentIds]);
     
     const handleScan = useCallback((data: string) => {
+      if (!inventory || !appointments) {
+        toast({
+          variant: 'destructive',
+          title: 'Data Not Ready',
+          description: 'Inventory and appointments are still loading. Please try again in a moment.'
+        });
+        return;
+      }
       let appointmentId: string | undefined;
 
       if (data.startsWith('clarityflow://checkout/')) {
@@ -655,7 +663,6 @@ export default function POSPage() {
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}
-                                    onAssignmentModeChange={setAssignmentMode}
                                 />
                             </TabsContent>
                         </Tabs>

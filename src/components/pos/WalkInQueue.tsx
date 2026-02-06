@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -28,7 +27,6 @@ interface WalkInQueueProps {
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
-    onAssignmentModeChange: (mode: 'fair_play' | 'ordered_list') => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -43,7 +41,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     orderedWaitingQueue,
     onReorder,
     assignmentMode,
-    onAssignmentModeChange
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -96,19 +93,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     <TabsTrigger value="servicing">In Service <Badge className="ml-2">{inServiceQueue.length}</Badge></TabsTrigger>
                 </TabsList>
                 <TabsContent value="waiting" className="mt-4 space-y-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <div className="w-full sm:w-64">
-                            <Label htmlFor="assignment-mode" className="text-xs font-medium">Assignment Mode</Label>
-                            <Select value={assignmentMode} onValueChange={onAssignmentModeChange as (value: string) => void}>
-                                <SelectTrigger id="assignment-mode">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="fair_play">Automatic (Fair Play)</SelectItem>
-                                    <SelectItem value="ordered_list">Turn Order</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+                    <div className="flex justify-end items-center gap-4">
                         <Button onClick={onAssignNext} className="w-full sm:w-auto">
                             <Sparkles className="mr-2 h-4 w-4" />
                             Assign Next
