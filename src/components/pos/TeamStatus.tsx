@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -8,13 +9,15 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds } from 'date-fns';
 import { Reorder } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
 import Link from 'next/link';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
 
 interface TeamStatusProps {
   staff: (Staff & { stats?: any })[] | null;
@@ -179,31 +182,47 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                     <h3 className="text-sm font-semibold truncate w-full">{member.name}</h3>
                     <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
 
-                     <div className="text-xs font-semibold mt-2 flex flex-col items-center justify-center text-center min-h-[52px]">
+                    <div className="text-xs font-semibold mt-2 flex flex-col items-center justify-center text-center min-h-[36px]">
                         {elapsedTime && currentService ? (
                             <div>
                                 <p className="text-xs text-muted-foreground truncate">{currentService.name}</p>
                                 <p className={cn("text-lg font-mono font-semibold", isOvertime ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
                             </div>
                         ) : member.availability && member.availability.status ? (
-                            <span className="text-lg text-blue-500">{member.availability.status}</span>
+                            <span className="text-base text-blue-500">{member.availability.status}</span>
                         ) : null}
                     </div>
                     
-                    <Separator className="my-3" />
-                     <div className="w-full text-left space-y-2 text-xs">
-                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${member.stats?.totalSales.toFixed(2)}</span></div>
-                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Tips</span><span className="font-semibold">${member.stats?.tips.toFixed(2)}</span></div>
-                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Services</span><span className="font-semibold">{member.stats?.completedServices}</span></div>
-                    </div>
-                    {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
-                        <div className="mt-2 text-left p-2 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
-                            <ShieldAlert className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                            <div>
-                                <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring'}</p>
-                            </div>
-                        </div>
-                    )}
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="details" className="border-none">
+                            <AccordionTrigger className="py-1 px-2 text-xs text-muted-foreground hover:no-underline rounded-md hover:bg-accent w-full justify-center">
+                                Details
+                            </AccordionTrigger>
+                            <AccordionContent className="pt-2">
+                                 <Separator className="mb-3" />
+                                <div className="w-full text-left space-y-2 text-xs">
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${member.stats?.totalSales.toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${member.stats?.tips.toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Consumption</span><span className="font-semibold">${member.stats?.consumptionValue.toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${member.stats?.earnings.toFixed(2)}</span></div>
+                                </div>
+                                {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
+                                    <div className="mt-2 text-left p-2 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
+                                        <ShieldAlert className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring'}</p>
+                                            <p>
+                                                {licenseInfo.isExpired 
+                                                ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                                                : `Expires in ${licenseInfo.daysUntilExpiry} days.`
+                                                }
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
                     <div className="w-full flex flex-col gap-2">
@@ -286,4 +305,3 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     );
 };
 
-    
