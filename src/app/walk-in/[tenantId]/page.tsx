@@ -267,6 +267,7 @@ export default function WalkInPage() {
 
   const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
+  const [partyType, setPartyType] = useState<'individual' | 'group' | null>(null);
   const [step, setStep] = useState<Step>('services');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -466,6 +467,7 @@ export default function WalkInPage() {
     setPartyMembers([]);
     setStep('services');
     setIsSubmitting(false);
+    setPartyType(null);
   };
   
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || clientsLoading || !hasMounted;
@@ -523,11 +525,53 @@ export default function WalkInPage() {
           </div>
       )
   }
+  
+  if (!partyType) {
+    return (
+      <div className="w-full max-w-2xl mx-auto">
+        <header className="mb-8 text-center">
+          <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
+            <ClarityFlowLogo />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
+          <p className="text-muted-foreground mt-2">Ready to be seen? Let's get you checked in.</p>
+        </header>
+        <div className="text-center mb-6">
+            <h2 className="text-2xl font-semibold">Who are we serving today?</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card
+            className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center"
+            onClick={() => setPartyType('individual')}
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setPartyType('individual')}
+          >
+            <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+              <User className="w-16 h-16 mx-auto mb-4 text-primary" />
+              <h3 className="text-2xl font-semibold">Just Me</h3>
+              <p className="text-muted-foreground mt-1">I'm checking in for myself.</p>
+            </CardContent>
+          </Card>
+          <Card
+            className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center"
+            onClick={() => setPartyType('group')}
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setPartyType('group')}
+          >
+            <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+              <Users className="w-16 h-16 mx-auto mb-4 text-primary" />
+              <h3 className="text-2xl font-semibold">My Group</h3>
+              <p className="text-muted-foreground mt-1">I'm checking in for myself and others.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
-    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
-      <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full max-w-2xl mx-auto">
         <header className="mb-8 text-center">
           <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
             <ClarityFlowLogo />
@@ -551,8 +595,8 @@ export default function WalkInPage() {
               {step === 'services' && (
                 <div>
                   <CardHeader>
-                    <CardTitle>Build Your Party's Request</CardTitle>
-                    <CardDescription>Select services for each person in your group.</CardDescription>
+                    <CardTitle>{partyType === 'group' ? "Build Your Party's Request" : "Select Your Services"}</CardTitle>
+                    <CardDescription>Select the services needed for each person.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
                     <div className="space-y-2">
@@ -580,7 +624,8 @@ export default function WalkInPage() {
                         </Accordion>
                     </div>
 
-                    <div className="space-y-4">
+                    {partyType === 'group' && (
+                      <div className="space-y-4">
                         <Label className="font-semibold text-base">Party Members</Label>
                         {partyMembers.length > 0 && (
                             <div className="space-y-2">
@@ -602,8 +647,12 @@ export default function WalkInPage() {
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
                         </Button>
                     </div>
+                    )}
                   </CardContent>
-                  <CardFooter className="flex justify-end">
+                  <CardFooter className="flex justify-between">
+                    <Button variant="ghost" onClick={() => setPartyType(null)}>
+                        <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                    </Button>
                     <Button onClick={handleServicesNext} disabled={selectedServices.length === 0 && partyMembers.length === 0}>
                         Next <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
