@@ -18,6 +18,7 @@ import { Separator } from '../ui/separator';
 import Link from 'next/link';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 
 interface TeamStatusProps {
@@ -168,7 +169,16 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                         <span className="sr-only">st</span>
                     </div>
                 )}
-                <GripVertical className="absolute top-1/2 -translate-y-1/2 left-1 text-muted-foreground/50" size={20}/>
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <GripVertical className="absolute top-1/2 -translate-y-1/2 left-1 text-muted-foreground/50" size={20}/>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Drag to reorder</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
                 <CardHeader className="p-3">
                      <div className="flex justify-between items-start">
                         {isNextUp && assignmentMode === 'fair_play' ? (

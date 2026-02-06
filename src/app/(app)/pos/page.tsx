@@ -35,6 +35,10 @@ import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles } from 'lu
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { AssignStaffDialog } from '@/components/pos/AssignStaffDialog';
+import { Label } from '@/components/ui/label';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Search } from 'lucide-react';
 
 
 const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
@@ -727,22 +731,44 @@ export default function POSPage() {
                             services={services} 
                             onReorder={handleStaffReorder}
                             onMoveToFront={handleStaffMoveToFront}
+                            assignmentMode={assignmentMode}
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{waitingQueue.length}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
+                                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
+                                    <div className="w-full sm:w-64">
+                                        <Label htmlFor="assignment-mode" className="text-xs font-medium">Assignment Mode</Label>
+                                        <Select value={assignmentMode} onValueChange={onAssignmentModeChange as (value: string) => void}>
+                                            <SelectTrigger id="assignment-mode">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="fair_play">Automatic (Fair Play)</SelectItem>
+                                                <SelectItem value="ordered_list">Manual (Turn Order)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {assignmentMode === 'ordered_list' ? 'Drag staff cards to set turn order.' : 'Assigns longest idle, skilled staff.'}
+                                        </p>
+                                    </div>
+                                    <Button onClick={onAssignNext} className="w-full sm:w-auto">
+                                        <Sparkles className="mr-2 h-4 w-4" />
+                                        Assign Next
+                                    </Button>
+                                </div>
                                 <WalkInQueue 
                                     walkIns={walkIns} 
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
-                                    onAssignNext={handleAssignNext} 
+                                    onAssignNext={onAssignNext} 
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
