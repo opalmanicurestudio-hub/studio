@@ -22,6 +22,7 @@ export const CheckoutHub = ({
     selectedClientId,
     setSelectedClientId,
     onAddClientClick,
+    onScanClick,
     subtotal,
     tax,
     total,
@@ -36,6 +37,7 @@ export const CheckoutHub = ({
     selectedClientId: string | null,
     setSelectedClientId: (id: string | null) => void,
     onAddClientClick: () => void,
+    onScanClick: () => void,
     subtotal: number,
     tax: number,
     total: number,
@@ -92,6 +94,7 @@ export const CheckoutHub = ({
                         </SelectContent>
                     </Select>
                     <Button variant="outline" size="icon" onClick={onAddClientClick}><UserPlus className="w-4 h-4" /></Button>
+                    <Button variant="outline" size="icon" onClick={onScanClick}><Scan className="w-4 h-4" /></Button>
                 </div>
                 {selectedClient && (
                     <div className="mt-2 text-sm text-muted-foreground">

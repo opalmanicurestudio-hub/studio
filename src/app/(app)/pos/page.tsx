@@ -31,6 +31,8 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { ShoppingCart } from 'lucide-react';
+import { Dialog, DialogDescription } from '@/components/ui/dialog';
+import { Html5Qrcode } from 'html5-qrcode';
 
 
 export default function POSPage() {
@@ -49,6 +51,9 @@ export default function POSPage() {
     const isMobile = useIsMobile();
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [tipAmount, setTipAmount] = useState(0);
+
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scannedData, setScannedData] = useState<string | null>(null);
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -324,6 +329,83 @@ export default function POSPage() {
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
     }, [cart, tipAmount]);
 
+    const handleScan = useCallback((data: string) => {
+      let appointmentId: string | undefined;
+
+      if (data.startsWith('clarityflow://checkout/')) {
+        appointmentId = data.split('/').pop();
+      } else if (data.startsWith('clarityflow://walk-in/')) {
+        const walkInId = data.split('/').pop();
+        if (walkInId) {
+          appointmentId = `apt-walkin-${walkInId}`;
+        }
+      } else {
+        const product = inventory.find(p => p.sku === data || p.id === data);
+        if (product) {
+            handleAddToCart(product);
+            toast({
+                title: "Product Added",
+                description: `${product.name} has been added to the cart.`
+            });
+        } else {
+            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Scanned code is not a valid checkout ticket or product.' });
+        }
+        return;
+      }
+      
+      if (!appointmentId) {
+        toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not read ID from QR code.' });
+        return;
+      }
+
+      const appointmentToCheckout = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+      if (appointmentToCheckout) {
+        handleSelectAppointment(appointmentId);
+        toast({ title: "Appointment Added", description: "The client's services have been added to the sale." });
+      } else {
+        toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
+      }
+    }, [inventory, readyForCheckoutAppointments, handleSelectAppointment, toast]);
+
+    useEffect(() => {
+        if (scannedData) {
+            handleScan(scannedData);
+            setScannedData(null);
+        }
+    }, [scannedData, handleScan]);
+    
+    useEffect(() => {
+        let html5QrCode: Html5Qrcode | undefined;
+        if (isScannerOpen) {
+          const timer = setTimeout(() => {
+            const element = document.getElementById('qr-reader-pos');
+            if (element) {
+                html5QrCode = new Html5Qrcode('qr-reader-pos');
+                const onScanSuccess = (decodedText: string) => {
+                    if (html5QrCode?.isScanning) {
+                        html5QrCode.stop().catch(console.error);
+                    }
+                    setScannedData(decodedText);
+                    setIsScannerOpen(false);
+                };
+                const onScanFailure = () => { /* ignore */ };
+                
+                html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
+                  .catch(err => {
+                    toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera.' });
+                    setIsScannerOpen(false);
+                  });
+            }
+          }, 300);
+          return () => {
+              clearTimeout(timer);
+              if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => console.error("Failed to stop QR scanner.", err));
+              }
+          };
+        }
+    }, [isScannerOpen, toast]);
+
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -333,6 +415,7 @@ export default function POSPage() {
         selectedClientId,
         setSelectedClientId,
         onAddClientClick: () => setIsAddClientOpen(true),
+        onScanClick: () => setIsScannerOpen(true),
         subtotal,
         tax,
         total,
@@ -394,6 +477,25 @@ export default function POSPage() {
                     </AlertDialogContent>
                 </AlertDialog>
             )}
+            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+              <DialogContent className="sm:max-w-md p-0">
+                <DialogHeader className="p-4 pb-0">
+                  <DialogTitle>Scan QR Code</DialogTitle>
+                  <DialogDescription>
+                    Position the code inside the frame to add to sale or checkout.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="p-4 relative">
+                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
+                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                      <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                  </div>
+                </div>
+                <DialogFooter className="p-4 pt-0">
+                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
         </>
     )
 }
