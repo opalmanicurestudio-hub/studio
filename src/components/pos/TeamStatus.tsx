@@ -201,10 +201,10 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                             <AccordionContent className="pt-2">
                                  <Separator className="mb-3" />
                                 <div className="w-full text-left space-y-2 text-xs">
-                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${member.stats?.totalSales.toFixed(2)}</span></div>
-                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${member.stats?.tips.toFixed(2)}</span></div>
-                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Consumption</span><span className="font-semibold">${member.stats?.consumptionValue.toFixed(2)}</span></div>
-                                    <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${member.stats?.earnings.toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Sales</span><span className="font-semibold">${(member.stats?.totalSales || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${(member.stats?.tips || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Consumption</span><span className="font-semibold">${(member.stats?.consumptionValue || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${(member.stats?.earnings || 0).toFixed(2)}</span></div>
                                 </div>
                                 {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
                                     <div className="mt-2 text-left p-2 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
@@ -304,4 +304,3 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
         </div>
     );
 };
-

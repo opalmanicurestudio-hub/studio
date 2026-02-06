@@ -37,7 +37,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore, selectedTenant } = useFirebase();
@@ -75,45 +75,94 @@ export default function POSPage() {
     }, [staff]);
 
      const enrichedOrderedStaff = useMemo(() => {
-        if (!orderedStaff || !appointments || !transactions) return orderedStaff;
+        if (!orderedStaff || !appointments || !transactions || !activityLogs) return orderedStaff;
         
         const todayStart = startOfDay(new Date());
         const todayEnd = endOfDay(new Date());
 
         return orderedStaff.map(member => {
-        const staffAppointmentsToday = (appointments || []).filter(apt =>
-            apt.staffId === member.id &&
-            new Date(apt.startTime) >= todayStart &&
-            new Date(apt.startTime) <= todayEnd
-        );
-        
-        const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
-        
-        const staffTransactionsToday = (transactions || []).filter(t => {
-            if (t.staffId !== member.id) return false;
-            const transactionDate = new Date(t.date);
-            return transactionDate >= todayStart && transactionDate <= todayEnd;
-        });
+            const staffAppointmentsToday = (appointments || []).filter(apt =>
+                apt.staffId === member.id &&
+                new Date(apt.startTime) >= todayStart &&
+                new Date(apt.startTime) <= todayEnd
+            );
+            
+            const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
+            
+            const staffTransactionsToday = (transactions || []).filter(t => {
+                if (t.staffId !== member.id) return false;
+                const transactionDate = new Date(t.date);
+                return transactionDate >= todayStart && transactionDate <= todayEnd;
+            });
 
-        const totalSales = staffTransactionsToday
-            .filter(t => t.type === 'income')
-            .reduce((acc, t) => acc + t.amount, 0);
+            const serviceRevenue = staffTransactionsToday
+                .filter(t => t.category === 'Service Revenue')
+                .reduce((acc, t) => acc + t.amount, 0);
 
-        const tips = staffTransactionsToday.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+            const retailSales = staffTransactionsToday
+                .filter(t => t.category === 'Retail')
+                .reduce((acc, t) => acc + t.amount, 0);
 
-        const consumptionValue = 0; // Simplified for now, this would require stockCorrections and inventory context
-
-        return {
-            ...member,
-            stats: {
-            totalSales,
-            tips,
-            consumptionValue,
-            completedServices: completedAppointmentsCount,
+            const totalSales = serviceRevenue + retailSales;
+            const tips = staffTransactionsToday.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+            const consumptionValue = 0; // Simplified for now
+            
+            let earnings = 0;
+            if (member.payStructure === 'commission') {
+                earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
+            } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+                const staffLogs = activityLogs.filter(log => {
+                    if (log.staffId !== member.id) return false;
+                    const logDate = new Date(log.timestamp);
+                    return logDate >= todayStart && logDate <= todayEnd;
+                });
+                
+                const sortedLogs = staffLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                let totalMinutesWorked = 0;
+                let clockInTime: Date | null = null;
+                let totalBreakMinutes = 0;
+                
+                for (const log of sortedLogs) {
+                    const logTime = new Date(log.timestamp);
+                    if (log.type === 'clock_in') {
+                        if (clockInTime) {
+                            totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
+                        }
+                        clockInTime = logTime;
+                        totalBreakMinutes = 0;
+                    } else if (log.type === 'clock_out' && clockInTime) {
+                        let sessionEnd = logTime;
+                        if (sessionEnd > todayEnd) sessionEnd = todayEnd;
+                        totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+                        clockInTime = null;
+                    } else if (log.type === 'break_end' && log.durationMinutes) {
+                        totalBreakMinutes += log.durationMinutes;
+                    }
+                }
+                if(clockInTime) {
+                    const endOfRange = todayEnd < new Date() ? todayEnd : new Date();
+                    totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
+                }
+                
+                const hoursWorked = totalMinutesWorked / 60;
+                earnings = hoursWorked * member.hourlyRate;
             }
-        };
+
+            const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
+            earnings += tips + retailCommission;
+
+            return {
+                ...member,
+                stats: {
+                    totalSales,
+                    tips,
+                    consumptionValue,
+                    completedServices: completedAppointmentsCount,
+                    earnings,
+                }
+            };
         });
-    }, [orderedStaff, appointments, transactions]);
+    }, [orderedStaff, appointments, transactions, activityLogs]);
 
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
@@ -411,7 +460,7 @@ export default function POSPage() {
         cart, 
         onCartChange: handleCartChange,
         clients: clients || [],
-        isGroupCheckout: selectedAppointmentIds.size > 1,
+        isGroupCheckout: selectedAppointmentIds.size > 0,
         payerOptions,
         selectedClientId,
         setSelectedClientId,
