@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -26,7 +27,7 @@ interface WalkInQueueProps {
     appointments: Appointment[] | null;
     onAssignStaff: (walkInId: string, assignments: Record<string, string>) => void;
     onAssignNext: () => void;
-    onStartService: (walkInId: string, personId: string) => void;
+    onCancel: (walkInId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -36,7 +37,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     appointments, 
     onAssignStaff,
     onAssignNext,
-    onStartService,
+    onCancel,
 }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -130,7 +131,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             services={services} 
                                             staffList={staff}
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                            onStartService={onStartService} 
+                                            onCancel={onCancel} 
                                         />
                                     </Reorder.Item>
                                 ))}
@@ -150,7 +151,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             services={services}
                                             staffList={staff}
                                             onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                            onStartService={onStartService} 
+                                            onCancel={onCancel}
                                         />
                                     </div>
                                 ))}

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -485,6 +486,43 @@ export default function POSPage() {
         toast({ variant: "destructive", title: "Assignment Failed", description: "Could not create placeholder appointments."});
       });
     };
+
+    const handleCancelWalkIn = (walkInId: string) => {
+        if (!firestore || !selectedTenant) return;
+        
+        setConfirmation({
+            isOpen: true,
+            title: 'Are you sure?',
+            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder appointment on the planner will also be cancelled. This action cannot be undone.',
+            onConfirm: async () => {
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                const walkIn = walkIns?.find(w => w.id === walkInId);
+                
+                const batch = writeBatch(firestore);
+                
+                batch.update(walkInRef, { status: 'cancelled' });
+
+                if (walkIn && walkIn.assignments) {
+                    const people = [{ id: walkIn.clientId || walkIn.id, name: walkIn.customerName }, ...(walkIn.partyMembers || [])];
+                    people.forEach(person => {
+                        if (walkIn.assignments?.[person.id]) {
+                            const appointmentId = `apt-walkin-${walkIn.id}-${person.id}`;
+                            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+                            batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
+                        }
+                    });
+                }
+
+                await batch.commit();
+
+                toast({
+                    title: "Walk-in Cancelled",
+                    description: "The client has been removed from the queue."
+                });
+                setConfirmation(null);
+            }
+        });
+    };
     
     const { subtotal, tax, total } = useMemo(() => {
         const sub = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -624,7 +662,7 @@ export default function POSPage() {
                                         if (walkIn) setWalkInToAssign(walkIn);
                                     }}
                                     onAssignNext={handleAssignNext} 
-                                    onStartService={() => {}}
+                                    onCancel={handleCancelWalkIn}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -683,5 +721,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    

@@ -7,8 +7,8 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical } from 'lucide-react';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../ui/dropdown-menu';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 
@@ -17,10 +17,10 @@ interface WaitingCustomerCardProps {
     services: Service[] | null;
     staffList: Staff[] | null;
     onAssign: () => void;
-    onStartService: (walkInId: string, personId: string) => void;
+    onCancel: (walkInId: string) => void;
 }
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onStartService }) => {
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel }) => {
     const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
     const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
     
@@ -74,33 +74,24 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                     )}
                 </div>
             </CardContent>
-            <CardFooter className="p-2 border-t grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={onAssign}><UserPlus className="w-4 h-4 mr-2" />Assign</Button>
-                <DropdownMenu>
+            <CardFooter className="p-2 border-t">
+                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button disabled={!walkIn.assignments || Object.keys(walkIn.assignments).length === 0}><Play className="w-4 h-4 mr-2" />Start Service</Button>
+                        <Button variant="outline" className="w-full">
+                            Actions
+                            <ChevronDown className="w-4 h-4 ml-auto" />
+                        </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        {people.map(person => {
-                            const assignedStaff = getAssignedStaff(person.id);
-                            return (
-                                <DropdownMenuItem 
-                                    key={person.id} 
-                                    disabled={!assignedStaff}
-                                    onSelect={() => onStartService(walkIn.id, person.id)}
-                                >
-                                    <div className="flex items-center justify-between w-full">
-                                        <span>Start for {person.name}</span>
-                                        {assignedStaff && (
-                                             <div className="flex items-center gap-1 text-xs text-muted-foreground ml-2">
-                                                <Avatar className="w-4 h-4"><AvatarImage src={assignedStaff.avatarUrl} /><AvatarFallback>{assignedStaff.name.charAt(0)}</AvatarFallback></Avatar>
-                                                <span>{assignedStaff.name.split(' ')[0]}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </DropdownMenuItem>
-                            )
-                        })}
+                    <DropdownMenuContent align="end" className="w-[--radix-dropdown-menu-trigger-width)]">
+                        <DropdownMenuItem onClick={onAssign}>
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Assign Staff
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => onCancel(walkIn.id)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Cancel Walk-in
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </CardFooter>
