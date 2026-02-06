@@ -296,6 +296,25 @@ export default function POSPage() {
         handleStaffReorder(newOrder);
     };
 
+    const handleStaffMoveToBack = (staffId: string) => {
+        const item = orderedStaff.find(s => s.id === staffId);
+        if (!item) return;
+        const newOrder = [...orderedStaff.filter(s => s.id !== staffId), item];
+        handleStaffReorder(newOrder);
+    };
+
+    const handleStaffSetPosition = (staffId: string, newPosition: number) => {
+        const item = orderedStaff.find(s => s.id === staffId);
+        if (!item) return;
+        const itemsWithout = orderedStaff.filter(s => s.id !== staffId);
+        
+        // Ensure position is within bounds
+        const finalPosition = Math.max(1, Math.min(newPosition, orderedStaff.length));
+        
+        itemsWithout.splice(finalPosition - 1, 0, item);
+        handleStaffReorder(itemsWithout);
+    };
+
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointments || !clients || !services || !staff) return [];
         return appointments
@@ -534,7 +553,7 @@ export default function POSPage() {
       const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
       updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'assigned' });
       
-      const personServices = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+      const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
       const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
 
       const appointmentId = `apt-walkin-${walkIn.id}`;
@@ -731,6 +750,8 @@ export default function POSPage() {
                             services={services} 
                             onReorder={handleStaffReorder}
                             onMoveToFront={handleStaffMoveToFront}
+                            onMoveToBack={handleStaffMoveToBack}
+                            onSetPosition={handleStaffSetPosition}
                             assignmentMode={assignmentMode}
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
@@ -747,7 +768,7 @@ export default function POSPage() {
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
-                                    onAssignNext={handleAssignNext} 
+                                    onAssignNext={onAssignNext} 
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
@@ -775,7 +796,7 @@ export default function POSPage() {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                            <SheetHeader className="p-4 pb-2 border-b text-left">
+                           <SheetHeader className="p-4 pb-2 border-b text-left">
                                 <SheetTitle>Current Sale</SheetTitle>
                             </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
