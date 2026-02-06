@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -17,6 +16,7 @@ import { nanoid } from 'nanoid';
 import { Button } from '../ui/button';
 import { Sparkles } from 'lucide-react';
 import { Reorder } from 'framer-motion';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 
 interface WalkInQueueProps {
@@ -120,38 +120,58 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             Assign Next (Fair Play)
                         </Button>
                     </div>
-                    {orderedWaitingQueue.length > 0 ? (
-                        <Reorder.Group axis="y" values={orderedWaitingQueue} onReorder={handleReorder} className="space-y-4">
-                            {orderedWaitingQueue.map(walkIn => (
-                                <Reorder.Item key={walkIn.id} value={walkIn}>
-                                    <WaitingCustomerCard 
-                                        walkIn={walkIn} 
-                                        services={services} 
-                                        staffList={staff}
-                                        onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                        onStartService={onStartService} 
-                                    />
-                                </Reorder.Item>
-                            ))}
-                        </Reorder.Group>
+                     {orderedWaitingQueue.length > 0 ? (
+                        <ScrollArea>
+                            <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={handleReorder} className="flex space-x-4 pb-4">
+                                {orderedWaitingQueue.map(walkIn => (
+                                    <Reorder.Item key={walkIn.id} value={walkIn} className="w-72 shrink-0">
+                                        <WaitingCustomerCard 
+                                            walkIn={walkIn} 
+                                            services={services} 
+                                            staffList={staff}
+                                            onAssign={() => handleOpenAssignDialog(walkIn)} 
+                                            onStartService={onStartService} 
+                                        />
+                                    </Reorder.Item>
+                                ))}
+                            </Reorder.Group>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
                 </TabsContent>
                 <TabsContent value="notified" className="mt-4 space-y-4">
-                    {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
-                         <WaitingCustomerCard 
-                            key={walkIn.id} 
-                            walkIn={walkIn} 
-                            services={services}
-                            staffList={staff}
-                            onAssign={() => handleOpenAssignDialog(walkIn)} 
-                            onStartService={onStartService} 
-                        />
-                    )) : <p className="text-center text-muted-foreground p-8">No clients have been notified.</p>}
+                    {notifiedQueue.length > 0 ? (
+                        <ScrollArea>
+                            <div className="flex space-x-4 pb-4">
+                                {notifiedQueue.map(walkIn => (
+                                    <div key={walkIn.id} className="w-72 shrink-0">
+                                        <WaitingCustomerCard 
+                                            walkIn={walkIn} 
+                                            services={services}
+                                            staffList={staff}
+                                            onAssign={() => handleOpenAssignDialog(walkIn)} 
+                                            onStartService={onStartService} 
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    ) : <p className="text-center text-muted-foreground p-8">No clients have been notified.</p>}
                 </TabsContent>
                 <TabsContent value="servicing" className="mt-4 space-y-4">
-                     {inServiceQueue.length > 0 ? inServiceQueue.map(appointment => (
-                        <InServiceAppointmentCard key={appointment.id} appointment={appointment} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(appointment)} />
-                    )) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
+                     {inServiceQueue.length > 0 ? (
+                        <ScrollArea>
+                            <div className="flex space-x-4 pb-4">
+                                {inServiceQueue.map(appointment => (
+                                    <div key={appointment.id} className="w-72 shrink-0">
+                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(appointment)} />
+                                    </div>
+                                ))}
+                            </div>
+                             <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
                 </TabsContent>
                 <TabsContent value="ready_for_checkout" className="mt-4 space-y-4">
                      {/* This tab's content is now managed by CheckoutQueue component */}
