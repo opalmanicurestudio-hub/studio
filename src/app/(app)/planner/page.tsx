@@ -1280,7 +1280,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1317,7 +1317,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1549,7 +1549,7 @@ export default function PlannerPageWrapper() {
   return (
     <Suspense fallback={
         <div className="flex h-screen w-full flex-col">
-            <AppHeader title="Planner" />
+            <AppHeader />
             <div className="flex items-center justify-center flex-1">
                 <Loader className="h-8 w-8 animate-spin" />
             </div>
