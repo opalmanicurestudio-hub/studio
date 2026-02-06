@@ -570,23 +570,37 @@
     "WalkIn": {
       "title": "Walk-In Queue Entry",
       "type": "object",
-      "description": "Represents a single customer in the smart walk-in queue.",
+      "description": "Represents a single customer or a group in the smart walk-in queue.",
       "properties": {
         "id": { "type": "string" },
-        "clientId": { "type": "string", "description": "The ID of an existing client, if applicable." },
-        "customerName": { "type": "string", "description": "The name of the walk-in customer." },
+        "clientId": { "type": "string", "description": "The ID of an existing client, if they are the primary contact." },
+        "customerName": { "type": "string", "description": "The name of the primary contact for the walk-in." },
         "customerPhone": { "type": "string", "description": "Phone number for SMS updates." },
         "customerEmail": { "type": "string", "description": "Email address of the walk-in customer.", "format": "email" },
         "customerBirthday": { "type": "string", "description": "Birthday of the walk-in customer.", "format": "date" },
-        "serviceIds": { "type": "array", "items": { "type": "string" } },
+        "serviceIds": { "type": "array", "items": { "type": "string" }, "description": "Services for the primary contact." },
+        "partyMembers": {
+          "type": "array",
+          "description": "Additional members in the walk-in party.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "serviceIds": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["id", "name", "serviceIds"]
+          }
+        },
         "requiredSkills": { "type": "array", "items": { "type": "string" } },
-        "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services." },
+        "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services for the entire group." },
         "checkInTime": { "type": "string", "format": "date-time" },
         "notifiedTimestamp": { "type": "string", "format": "date-time", "description": "Timestamp for when the client was notified it's their turn." },
         "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
         "serviceEndTime": { "type": "string", "format": "date-time", "description": "The time the service actually ended." },
         "status": { "type": "string", "enum": ["waiting", "notified", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
-        "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
+        "queueOrder": { "type": "number", "description": "A number used for manually reordering the queue." },
+        "assignments": { "type": "object", "description": "Map of person ID to assigned staff ID." },
         "notes": { "type": "string" },
         "preferredStaffId": { "type": "string" },
         "waitForPreferredStaff": { "type": "boolean", "description": "Whether the client wants to wait for their preferred staff member." }
@@ -1176,3 +1190,4 @@
     
 
     
+

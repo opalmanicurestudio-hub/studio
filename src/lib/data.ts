@@ -410,7 +410,7 @@ export type WalkIn = {
     serviceStartTime?: string; // ISO Date
     serviceEndTime?: string; // ISO Date
     status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
-    assignedStaffId?: string;
+    assignments?: { [key: string]: string; }; // Map of person ID to staff ID
     notes?: string;
     preferredStaffId?: string;
     waitForPreferredStaff?: boolean;
@@ -1265,7 +1265,7 @@ export const walkIns: WalkIn[] = [
         estimatedDuration: 90,
         checkInTime: new Date(new Date().getTime() - 25 * 60 * 1000).toISOString(),
         status: 'assigned',
-        assignedStaffId: 'staff-1', // Assigned to Brenda
+        assignments: { 'wi-3': 'staff-1' },
         serviceStartTime: new Date(new Date().getTime() - 5 * 60 * 1000).toISOString(),
     }
 ];
@@ -1282,3 +1282,4 @@ export { nanoid };
 
 
     
+
