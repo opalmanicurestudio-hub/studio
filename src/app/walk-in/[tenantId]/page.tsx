@@ -21,7 +21,7 @@ import { collection, getDocs, query, where, doc } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -159,6 +159,33 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
+const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Service; isSelected: boolean; onToggle: () => void; }) => {
+    return (
+        <Card
+            onClick={onToggle}
+            className={cn(
+                "cursor-pointer hover:shadow-lg transition-shadow overflow-hidden",
+                isSelected && "ring-2 ring-primary"
+            )}
+        >
+            <CardContent className="p-3">
+                <div className="flex items-start gap-3">
+                     <div className={cn(
+                        "w-6 h-6 rounded-md border flex items-center justify-center mt-1 flex-shrink-0",
+                        isSelected ? "bg-primary border-primary" : "bg-transparent"
+                    )}>
+                        {isSelected && <Check className="w-4 h-4 text-primary-foreground" />}
+                    </div>
+                    <div className="flex-1">
+                        <h4 className="font-semibold leading-tight">{service.name}</h4>
+                        <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
     const toggleService = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
@@ -184,22 +211,14 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                             {member.serviceIds.length > 0 ? `${member.serviceIds.length} service(s) selected` : 'Select Services'}
                         </AccordionTrigger>
                         <AccordionContent className="pt-2">
-                             <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                             <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2">
                                 {services.map(service => (
-                                    <div key={service.id} className="border-b last:border-b-0">
-                                        <label htmlFor={`member-${member.id}-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
-                                            <Checkbox
-                                                id={`member-${member.id}-${service.id}`}
-                                                checked={member.serviceIds.includes(service.id)}
-                                                onCheckedChange={() => toggleService(service.id)}
-                                                className="h-5 w-5"
-                                            />
-                                            <div className="flex-1">
-                                                <span className="font-medium text-sm">{service.name}</span>
-                                                <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                            </div>
-                                        </label>
-                                    </div>
+                                    <ServiceSelectionCard
+                                        key={service.id}
+                                        service={service}
+                                        isSelected={member.serviceIds.includes(service.id)}
+                                        onToggle={() => toggleService(service.id)}
+                                    />
                                 ))}
                             </div>
                         </AccordionContent>
@@ -654,27 +673,16 @@ export default function WalkInPage() {
 
                       <div className="space-y-2">
                           <Label className="font-semibold text-base">Your Services</Label>
-                          <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
-                              <AccordionItem value="main-services" className="border rounded-md">
-                                  <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
-                                  <AccordionContent className="space-y-2 px-3 pb-3">
-                                      {mainServices.map(service => {
-                                          const isSelected = selectedServices.some(s => s.id === service.id);
-                                          return (
-                                              <div key={service.id} className="border-b last:border-b-0">
-                                                  <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
-                                                      <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
-                                                      <div className="flex-1">
-                                                          <span className="font-medium text-sm">{service.name}</span>
-                                                          <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                                      </div>
-                                                  </label>
-                                              </div>
-                                          )
-                                      })}
-                                  </AccordionContent>
-                              </AccordionItem>
-                          </Accordion>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {mainServices.map(service => (
+                                  <ServiceSelectionCard
+                                      key={service.id}
+                                      service={service}
+                                      isSelected={selectedServices.some(s => s.id === service.id)}
+                                      onToggle={() => handleServiceToggle(service)}
+                                  />
+                              ))}
+                          </div>
                       </div>
 
                       {partyType === 'group' && (
