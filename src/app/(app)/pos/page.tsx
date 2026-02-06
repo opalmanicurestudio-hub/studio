@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -741,34 +740,13 @@ export default function POSPage() {
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
-                                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                                    <div className="w-full sm:w-64">
-                                        <Label htmlFor="assignment-mode" className="text-xs font-medium">Assignment Mode</Label>
-                                        <Select value={assignmentMode} onValueChange={onAssignmentModeChange as (value: string) => void}>
-                                            <SelectTrigger id="assignment-mode">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="fair_play">Automatic (Fair Play)</SelectItem>
-                                                <SelectItem value="ordered_list">Manual (Turn Order)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {assignmentMode === 'ordered_list' ? 'Drag staff cards to set turn order.' : 'Assigns longest idle, skilled staff.'}
-                                        </p>
-                                    </div>
-                                    <Button onClick={onAssignNext} className="w-full sm:w-auto">
-                                        <Sparkles className="mr-2 h-4 w-4" />
-                                        Assign Next
-                                    </Button>
-                                </div>
                                 <WalkInQueue 
                                     walkIns={walkIns} 
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
-                                    onAssignNext={onAssignNext} 
+                                    onAssignNext={handleAssignNext} 
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
@@ -834,6 +812,7 @@ export default function POSPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
         </>
     );
 }
