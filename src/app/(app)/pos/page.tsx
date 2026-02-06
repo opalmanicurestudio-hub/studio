@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -417,6 +415,63 @@ export default function POSPage() {
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
     }, [cart, tipAmount]);
 
+    const handleStartService = (appointmentId: string) => {
+      const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
+      if (!appointmentToStart || !firestore || !selectedTenant) return;
+      
+      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+      
+      if (appointmentToStart.isWalkIn) {
+        const walkInId = appointmentId.replace('apt-walkin-', '');
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+      }
+
+      toast({
+        title: "Service Started!",
+        description: `The service for ${appointmentToStart.clientName} has begun.`
+      });
+    };
+
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointments || !clients || !services || !staff) return [];
+        return appointments
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return { ...apt, client, service, addOnServices, staff: staffMember };
+            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+    }, [appointments, clients, services, staff]);
+
+    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
+        setCart(prevCart => {
+            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+            if (existingItem) {
+                return prevCart.map(cartItem => 
+                    cartItem.id === item.id 
+                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
+                    : cartItem
+                );
+            }
+            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
+            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
+        });
+    }, []);
+
+    const handleSelectAppointment = useCallback((appointmentId: string) => {
+        const newSet = new Set(selectedAppointmentIds);
+        if (newSet.has(appointmentId)) {
+            newSet.delete(appointmentId);
+        } else {
+            newSet.add(appointmentId);
+        }
+        setSelectedAppointmentIds(newSet);
+    }, [selectedAppointmentIds]);
+
     const handleScan = useCallback((data: string) => {
       let appointmentId: string | undefined;
 
@@ -492,65 +547,8 @@ export default function POSPage() {
               }
           };
         }
-    }, [isScannerOpen, toast]);
+    }, [isScannerOpen, toast, handleScan]);
     
-    const handleStartService = (appointmentId: string) => {
-      const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-      if (!appointmentToStart || !firestore || !selectedTenant) return;
-      
-      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-      
-      if (appointmentToStart.isWalkIn) {
-        const walkInId = appointmentId.replace('apt-walkin-', '');
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
-      }
-
-      toast({
-        title: "Service Started!",
-        description: `The service for ${appointmentToStart.clientName} has begun.`
-      });
-    };
-
-    const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff) return [];
-        return appointments
-            .filter(apt => apt.status === 'ready_for_checkout')
-            .map(apt => {
-                const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === apt.serviceId);
-                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-                const staffMember = staff.find(s => s.id === apt.staffId);
-                return { ...apt, client, service, addOnServices, staff: staffMember };
-            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
-    }, [appointments, clients, services, staff]);
-
-    const handleSelectAppointment = (appointmentId: string) => {
-        const newSet = new Set(selectedAppointmentIds);
-        if (newSet.has(appointmentId)) {
-            newSet.delete(appointmentId);
-        } else {
-            newSet.add(appointmentId);
-        }
-        setSelectedAppointmentIds(newSet);
-    };
-
-    const handleAddToCart = (item: InventoryItem | Service) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
-            if (existingItem) {
-                return prevCart.map(cartItem => 
-                    cartItem.id === item.id 
-                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
-                    : cartItem
-                );
-            }
-            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
-            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
-        });
-    };
-
     const handleCartChange = (newCart: any[]) => {
         setCart(newCart);
     }
@@ -584,6 +582,17 @@ export default function POSPage() {
         });
       }
 
+    const payerOptions = useMemo(() => {
+        const clientIds = new Set<string>();
+        selectedAppointmentIds.forEach(aptId => {
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          if (apt) {
+            clientIds.add(apt.clientId);
+          }
+        });
+        return (clients || []).filter(c => clientIds.has(c.id));
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+    
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -600,20 +609,22 @@ export default function POSPage() {
         tipAmount,
         setTipAmount
     };
+    
+    const handleStatusChangeWithConfirmation = () => {};
 
     return (
-        <>
-            <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
-                <AppHeader />
-                <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock />} description="Today's average wait for walk-ins." />
-                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp />} description="Walk-ins that resulted in a service." />
-                            <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users />} description="Total number of walk-in parties." />
-                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign />} description="Revenue per hour of active service." />
-                        </div>
-                        <TeamStatus 
+        &lt;&gt;
+            &lt;div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950"&gt;
+                &lt;AppHeader /&gt;
+                &lt;div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden"&gt;
+                    &lt;main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6"&gt;
+                        &lt;div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"&gt;
+                            &lt;KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon=&lt;Clock /&gt; description="Today's average wait for walk-ins." /&gt;
+                            &lt;KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon=&lt;TrendingUp /&gt; description="Walk-ins that resulted in a service." /&gt;
+                            &lt;KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon=&lt;Users /&gt; description="Total number of walk-in parties." /&gt;
+                            &lt;KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon=&lt;DollarSign /&gt; description="Revenue per hour of active service." /&gt;
+                        &lt;/div&gt;
+                        &lt;TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
@@ -621,84 +632,85 @@ export default function POSPage() {
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
-                        />
-                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
-                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                            <TabsList className="grid w-full grid-cols-2">
-                                <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
-                            <TabsContent value="queue" className="flex-1 mt-6">
-                                <WalkInQueue 
+                        /&gt;
+                        &lt;CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} /&gt;
+                        &lt;Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col"&gt;
+                            &lt;TabsList className="grid w-full grid-cols-2"&gt;
+                                &lt;TabsTrigger value="catalog"&gt;Retail Catalog&lt;/TabsTrigger&gt;
+                                &lt;TabsTrigger value="queue"&gt;Walk-in Queue&lt;Badge className="ml-2"&gt;{orderedWaitingQueue.length}&lt;/Badge&gt;&lt;/TabsTrigger&gt;
+                            &lt;/TabsList&gt;
+                            &lt;TabsContent value="catalog" className="flex-1 mt-6"&gt;&lt;RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /&gt;&lt;/TabsContent&gt;
+                            &lt;TabsContent value="queue" className="flex-1 mt-6"&gt;
+                                &lt;WalkInQueue 
                                     walkIns={walkIns} 
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
-                                    onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)}
+                                    onAssignStaff={(walkIn, staffId) =&gt; handleAssignStaff(walkIn, staffId)}
+                                    onAssignNext={handleAssignNext}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
-                                />
-                            </TabsContent>
-                        </Tabs>
-                    </main>
-                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
-                        <CheckoutHub {...checkoutHubProps} />
-                    </aside>
-                </div>
-            </div>
-            {isMobile && (
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
-                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild>
-                            <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}>
-                                <div className="flex justify-between items-center w-full">
-                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length} item(s)</span>
-                                    <span>${total.toFixed(2)}</span>
-                                </div>
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                           <SheetHeader>
-                               <SheetTitle className="sr-only">Current Sale</SheetTitle>
-                           </SheetHeader>
-                            <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} showTitle={false} />
-                            </div>
-                        </SheetContent>
-                    </Sheet>
-                </div>
+                                /&gt;
+                            &lt;/TabsContent&gt;
+                        &lt;/Tabs&gt;
+                    &lt;/main&gt;
+                    &lt;aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"&gt;
+                        &lt;CheckoutHub {...checkoutHubProps} /&gt;
+                    &lt;/aside&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            {isMobile &amp;&amp; (
+                &lt;div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden"&gt;
+                    &lt;Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}&gt;
+                        &lt;SheetTrigger asChild&gt;
+                            &lt;Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}&gt;
+                                &lt;div className="flex justify-between items-center w-full"&gt;
+                                    &lt;span&gt;&lt;ShoppingCart className="inline-block mr-2" /&gt;{cart.length} item(s)&lt;/span&gt;
+                                    &lt;span&gt;${total.toFixed(2)}&lt;/span&gt;
+                                &lt;/div&gt;
+                            &lt;/Button&gt;
+                        &lt;/SheetTrigger&gt;
+                        &lt;SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col"&gt;
+                           &lt;SheetHeader&gt;
+                               &lt;SheetTitle className="sr-only"&gt;Current Sale&lt;/SheetTitle&gt;
+                           &lt;/SheetHeader&gt;
+                            &lt;div className="p-4 flex-1 overflow-y-auto"&gt;
+                                &lt;CheckoutHub {...checkoutHubProps} showTitle={false} /&gt;
+                            &lt;/div&gt;
+                        &lt;/SheetContent&gt;
+                    &lt;/Sheet&gt;
+                &lt;/div&gt;
             )}
-            <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
-             {confirmation && (
-                <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
+            &lt;AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} /&gt;
+             {confirmation &amp;&amp; (
+                &lt;AlertDialog open={confirmation.isOpen} onOpenChange={() =&gt; setConfirmation(null)}&gt;
+                    &lt;AlertDialogContent&gt;
+                        &lt;AlertDialogHeader&gt;&lt;AlertDialogTitle&gt;{confirmation.title}&lt;/AlertDialogTitle&gt;&lt;AlertDialogDescription&gt;{confirmation.description}&lt;/AlertDialogDescription&gt;&lt;/AlertDialogHeader&gt;
+                        &lt;AlertDialogFooter&gt;&lt;AlertDialogCancel onClick={() =&gt; setConfirmation(null)}&gt;Cancel&lt;/AlertDialogCancel&gt;&lt;AlertDialogAction onClick={confirmation.onConfirm}&gt;Confirm&lt;/AlertDialogAction&gt;&lt;/AlertDialogFooter&gt;
+                    &lt;/AlertDialogContent&gt;
+                &lt;/AlertDialog&gt;
             )}
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-              <DialogContent className="sm:max-w-md p-0">
-                <DialogHeader className="p-4 pb-0">
-                  <DialogTitle>Scan QR Code</DialogTitle>
-                  <DialogDescription>
+            &lt;Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}&gt;
+              &lt;DialogContent className="sm:max-w-md p-0"&gt;
+                &lt;DialogHeader className="p-4 pb-0"&gt;
+                  &lt;DialogTitle&gt;Scan QR Code&lt;/DialogTitle&gt;
+                  &lt;DialogDescription&gt;
                     Position the code inside the frame to add to sale or checkout.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="p-4 relative">
-                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
-                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                      <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-                  </div>
-                </div>
-                <DialogFooter className="p-4 pt-0">
-                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-        </>
+                  &lt;/DialogDescription&gt;
+                &lt;/DialogHeader&gt;
+                &lt;div className="p-4 relative"&gt;
+                  &lt;div id="qr-reader-pos" className="w-full rounded-md bg-muted" /&gt;
+                  &lt;div className="absolute inset-4 flex items-center justify-center pointer-events-none"&gt;
+                      &lt;div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+                &lt;DialogFooter className="p-4 pt-0"&gt;
+                  &lt;Button variant="outline" onClick={() =&gt; setIsScannerOpen(false)} type="button"&gt;Cancel&lt;/Button&gt;
+                &lt;/DialogFooter&gt;
+              &lt;/DialogContent&gt;
+            &lt;/Dialog&gt;
+        &lt;/&gt;
     );
 }
