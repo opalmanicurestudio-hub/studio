@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -23,8 +24,9 @@ interface WalkInQueueProps {
     staff: Staff[] | null;
     services: Service[] | null;
     appointments: Appointment[] | null;
-    onAssignStaff: (walkInId: string, staffId: string) => void;
+    onAssignStaff: (walkInId: string, assignments: Record<string, string>) => void;
     onAssignNext: () => void;
+    onStartService: (walkInId: string, personId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -34,6 +36,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     appointments, 
     onAssignStaff,
     onAssignNext,
+    onStartService,
 }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -66,56 +69,11 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         setWalkInToAssign(walkIn);
     };
     
-    const handleAssignConfirm = (walkInId: string, staffId: string) => {
-        onAssignStaff(walkInId, staffId);
+    const handleAssignConfirm = (walkInId: string, assignments: Record<string, string>) => {
+        onAssignStaff(walkInId, assignments);
         setWalkInToAssign(null);
     }
-
-    const handleStartService = (walkIn: WalkIn) => {
-        if (!firestore || !selectedTenant || !services) return;
-        
-        const appointmentId = `apt-walkin-${walkIn.id}`;
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-
-        const serviceDetails = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-        const totalDuration = serviceDetails.reduce((acc, s) => acc + s.duration, 0);
-
-        const newAppointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date} = {
-            tenantId: selectedTenant.id,
-            clientId: walkIn.clientId || `walkin-${walkIn.id}`,
-            clientName: walkIn.customerName,
-            clientEmail: walkIn.customerEmail,
-            clientPhone: walkIn.customerPhone,
-            serviceId: serviceDetails[0]?.id || '', // Assuming one service for now
-            addOnIds: serviceDetails.slice(1).map(s => s.id),
-            staffId: walkIn.assignedStaffId,
-            startTime: new Date(),
-            endTime: new Date(new Date().getTime() + totalDuration * 60000),
-            actualStartTime: new Date().toISOString(),
-            status: 'servicing',
-            source: 'walk-in',
-            isWalkIn: true,
-        };
-        
-        const newAppointment = {
-            ...newAppointmentData,
-            id: appointmentId,
-            startTime: newAppointmentData.startTime.toISOString(),
-            endTime: newAppointmentData.endTime.toISOString(),
-        }
-
-        addDocumentNonBlocking(appointmentRef, newAppointment);
-        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
-        
-        if (walkIn.assignedStaffId) {
-            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-            updateDocumentNonBlocking(staffRef, { status: 'busy' });
-        }
-
-        toast({ title: "Service Started", description: "The appointment has been created on the planner." });
-    };
-
+    
     const handleSendToCheckout = (appointment: Appointment) => {
         if (!firestore || !selectedTenant) return;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
@@ -166,7 +124,13 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                         <Reorder.Group axis="y" values={orderedWaitingQueue} onReorder={handleReorder} className="space-y-4">
                             {orderedWaitingQueue.map(walkIn => (
                                 <Reorder.Item key={walkIn.id} value={walkIn}>
-                                    <WaitingCustomerCard walkIn={walkIn} services={services} onAssign={() => handleOpenAssignDialog(walkIn)} onStart={() => handleStartService(walkIn)} />
+                                    <WaitingCustomerCard 
+                                        walkIn={walkIn} 
+                                        services={services} 
+                                        staffList={staff}
+                                        onAssign={() => handleOpenAssignDialog(walkIn)} 
+                                        onStartService={onStartService} 
+                                    />
                                 </Reorder.Item>
                             ))}
                         </Reorder.Group>
@@ -174,7 +138,14 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                 </TabsContent>
                 <TabsContent value="notified" className="mt-4 space-y-4">
                     {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
-                         <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onAssign={() => handleOpenAssignDialog(walkIn)} onStart={() => handleStartService(walkIn)} />
+                         <WaitingCustomerCard 
+                            key={walkIn.id} 
+                            walkIn={walkIn} 
+                            services={services}
+                            staffList={staff}
+                            onAssign={() => handleOpenAssignDialog(walkIn)} 
+                            onStartService={onStartService} 
+                        />
                     )) : <p className="text-center text-muted-foreground p-8">No clients have been notified.</p>}
                 </TabsContent>
                 <TabsContent value="servicing" className="mt-4 space-y-4">

@@ -410,7 +410,7 @@ export type WalkIn = {
     serviceStartTime?: string; // ISO Date
     serviceEndTime?: string; // ISO Date
     status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
-    assignments?: { [key: string]: string; }; // Map of person ID to staff ID
+    assignments?: { [key: string]: string; };
     notes?: string;
     preferredStaffId?: string;
     waitForPreferredStaff?: boolean;
@@ -1282,4 +1282,3 @@ export { nanoid };
 
 
     
-
