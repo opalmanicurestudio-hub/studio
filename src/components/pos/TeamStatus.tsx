@@ -27,15 +27,18 @@ interface TeamStatusProps {
   services: Service[] | null;
   onReorder: (newOrder: Staff[]) => void;
   onMoveToFront: (staffId: string) => void;
+  assignmentMode: 'fair_play' | 'ordered_list';
 }
 
-const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services, onMoveToFront }: {
+const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services, onMoveToFront, assignmentMode, turnOrder }: {
     member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
     isNextUp: boolean,
     onStatusChange: TeamStatusProps['onStatusChange'],
     appointments: Appointment[] | null,
     services: Service[] | null,
     onMoveToFront: (staffId: string) => void;
+    assignmentMode: 'fair_play' | 'ordered_list';
+    turnOrder: number;
 }) => {
     
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -159,10 +162,16 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
             transition={{ duration: 0.1 }}
         >
             <Card className={cn("text-center flex flex-col h-full cursor-grab active:cursor-grabbing", isOvertime && "border-destructive ring-2 ring-destructive")}>
+                 {assignmentMode === 'ordered_list' && (
+                    <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center border-2 border-background shadow-md">
+                        {turnOrder}
+                        <span className="sr-only">st</span>
+                    </div>
+                )}
                 <GripVertical className="absolute top-1/2 -translate-y-1/2 left-1 text-muted-foreground/50" size={20}/>
                 <CardHeader className="p-3">
                      <div className="flex justify-between items-start">
-                        {isNextUp ? (
+                        {isNextUp && assignmentMode === 'fair_play' ? (
                             <Badge className="bg-green-500 text-white">Next Up</Badge>
                         ) : (
                             <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn('capitalize', {
@@ -246,7 +255,7 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
 }
 
 
-export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder, onMoveToFront }) => {
+export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder, onMoveToFront, assignmentMode }) => {
     
     const staffWithAvailability = useMemo(() => {
         return staff?.map(member => {
@@ -286,7 +295,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             <h2 className="text-xl font-bold mb-4">Team Status & Turn Order</h2>
             <ScrollArea>
                 <Reorder.Group axis="x" values={staff} onReorder={onReorder} className="flex space-x-4 pb-4">
-                    {staffWithAvailability.map(member => (
+                    {staffWithAvailability.map((member, index) => (
                         <StaffMemberCard
                             key={member.id}
                             member={member as Staff & { stats: any; availability: any }}
@@ -295,6 +304,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             appointments={appointments}
                             services={services}
                             onMoveToFront={onMoveToFront}
+                            assignmentMode={assignmentMode}
+                            turnOrder={index + 1}
                         />
                     ))}
                 </Reorder.Group>

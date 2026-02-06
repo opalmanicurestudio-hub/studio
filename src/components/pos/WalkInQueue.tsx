@@ -105,7 +105,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="fair_play">Automatic (Fair Play)</SelectItem>
-                                    <SelectItem value="ordered_list">Manual (Ordered List)</SelectItem>
+                                    <SelectItem value="ordered_list">Turn Order</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
