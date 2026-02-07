@@ -48,13 +48,38 @@ interface StaffDetailsSheetProps {
   consentForms: ConsentForm[];
 }
 
+const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
+    <Card className="bg-background">
+        <CardContent className="p-3">
+             <div className="flex justify-between items-start gap-2">
+                <div className="flex-1 space-y-1">
+                    <p className="font-medium text-sm leading-tight capitalize flex items-center gap-2">
+                        {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
+                        {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
+                        {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
+                        {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                        {log.type.replace('_', ' ')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{format(log.timestamp, 'PPP p')}</p>
+                </div>
+                {log.durationMinutes && (
+                    <div className="text-right flex-shrink-0">
+                        <p className="font-semibold text-sm">{log.durationMinutes} min</p>
+                        <p className="text-xs text-muted-foreground">Duration</p>
+                    </div>
+                )}
+            </div>
+        </CardContent>
+    </Card>
+);
+
 const TransactionCard = ({ transaction, service, timeVariance }: { transaction: Transaction, service?: Service, timeVariance: number | null }) => (
     <Card className="bg-background">
         <CardContent className="p-3">
             <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
                     <p className="font-medium text-sm leading-tight">{transaction.description}</p>
-                    <p className="text-xs text-muted-foreground">{format(transaction.date, 'MMM d, yyyy')}</p>
+                    <p className="text-xs text-muted-foreground">{format(transaction.date, 'MMM d, yyyy h:mm a')}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                     <p className={cn('font-mono font-semibold', transaction.type === 'income' ? 'text-green-500' : 'text-red-500')}>
@@ -240,36 +265,46 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             onChange={(e) => setActivitySearch(e.target.value)}
                         />
                     </div>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Date & Time</TableHead>
-                                <TableHead>Action</TableHead>
-                                <TableHead className="text-right">Duration</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
+                    {isMobile ? (
+                        <div className="space-y-3">
                             {filteredActivityLogs.length > 0 ? (
-                                filteredActivityLogs.map(log => (
-                                    <TableRow key={log.id}>
-                                        <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
-                                        <TableCell className="capitalize flex items-center gap-2">
-                                            {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
-                                            {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
-                                            {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
-                                            {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
-                                            {log.type.replace('_', ' ')}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)
                             ) : (
-                                <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
+                                <p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>
                             )}
-                        </TableBody>
-                    </Table>
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date & Time</TableHead>
+                                    <TableHead>Action</TableHead>
+                                    <TableHead className="text-right">Duration</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredActivityLogs.length > 0 ? (
+                                    filteredActivityLogs.map(log => (
+                                        <TableRow key={log.id}>
+                                            <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
+                                            <TableCell className="capitalize flex items-center gap-2">
+                                                {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
+                                                {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
+                                                {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
+                                                {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                                                {log.type.replace('_', ' ')}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    )}
                   </TabsContent>
                   <TabsContent value="transactions" className="mt-4">
                      <div className="relative my-4">
@@ -281,41 +316,42 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             onChange={(e) => setTransactionSearch(e.target.value)}
                         />
                     </div>
-                    <div className="hidden md:block">
-                      <Table>
-                          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                              {filteredTransactions.length > 0 ? (
-                              filteredTransactions.map(t => (
-                                  <TableRow key={t.id}>
-                                  <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
-                                  <TableCell>{t.description}</TableCell>
-                                  <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                  <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
-                                  </TableRow>
-                              ))
-                              ) : (
-                              <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
-                              )}
-                          </TableBody>
-                      </Table>
-                    </div>
-                     <div className="md:hidden space-y-3">
-                      {filteredTransactions.length > 0 ? (
-                        filteredTransactions.map(t => {
-                            const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                            const service = services.find(s => s.id === appointment?.serviceId);
-                            let timeVariance = null;
-                            if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                timeVariance = actualDuration - service.duration;
-                            }
-                            return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                        })
-                      ) : (
-                          <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
-                      )}
-                    </div>
+                    {isMobile ? (
+                        <div className="space-y-3">
+                          {filteredTransactions.length > 0 ? (
+                            filteredTransactions.map(t => {
+                                const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                                const service = services.find(s => s.id === appointment?.serviceId);
+                                let timeVariance = null;
+                                if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                    const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
+                                    timeVariance = actualDuration - service.duration;
+                                }
+                                return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                            })
+                          ) : (
+                              <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
+                          )}
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {filteredTransactions.length > 0 ? (
+                                filteredTransactions.map(t => (
+                                    <TableRow key={t.id}>
+                                    <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                                    <TableCell>{t.description}</TableCell>
+                                    <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                                    <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                                    </TableRow>
+                                ))
+                                ) : (
+                                <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    )}
                   </TabsContent>
                    <TabsContent value="effectiveness" className="mt-4">
                     <Card><CardContent className="p-4 space-y-4">
@@ -398,3 +434,5 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     </>
   );
 };
+
+    
