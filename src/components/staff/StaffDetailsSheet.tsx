@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -259,13 +260,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
-          <SheetHeader className="p-4 border-b text-left">
+          <SheetHeader className="p-4 border-b text-left flex-shrink-0">
             <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
             <SheetDescription>
               Performance breakdown for {dateRangeString}.
             </SheetDescription>
           </SheetHeader>
-          <div className="flex items-center justify-between px-4 py-2 border-b">
+          <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
             <Popover>
               <PopoverTrigger asChild>
                 <Button id="date" variant={"outline"} size="sm" className={cn("w-[240px] justify-start text-left font-normal", !dateRange && "text-muted-foreground")}>
@@ -278,10 +279,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
               </PopoverContent>
             </Popover>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <ScrollArea className="flex-1 min-h-0">
             {content}
-          </div>
-          <SheetFooter className="p-4 border-t bg-background">
+          </ScrollArea>
+          <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
             <Button variant="outline" className="w-full" onClick={handlePrint}>
               <Printer className="mr-2 h-4 w-4" />
               Print Report
