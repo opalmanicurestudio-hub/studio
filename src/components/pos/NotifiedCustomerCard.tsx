@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -11,7 +10,7 @@ import { User, Clock, CheckCircle, SkipForward, Play, XCircle, MoreHorizontal, U
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface NotifiedCustomerCardProps {
     walkIn: WalkIn;
@@ -69,27 +68,36 @@ export const NotifiedCustomerCard: React.FC<NotifiedCustomerCardProps> = ({ walk
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-2 grid grid-cols-[1fr,auto] gap-2 border-t">
-                <Button size="sm" onClick={() => onStartService(`apt-walkin-${walkIn.id}`)}>
+            <CardFooter className="p-2 flex items-center gap-2 border-t">
+                <Button size="sm" className="flex-1" onClick={() => onStartService(`apt-walkin-${walkIn.id}`)}>
                     <Play className="w-4 h-4 mr-2" /> Start Service
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onReturnToQueue(walkIn.id)}>
-                            <Users className="w-4 h-4 mr-2" /> Return to Queue
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onSkip(walkIn.id)}>
-                            <SkipForward className="w-4 h-4 mr-2" /> Skip (No-Show)
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => onCancel(walkIn.id)}>
-                            <XCircle className="w-4 h-4 mr-2" /> Cancel Walk-in
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => onReturnToQueue(walkIn.id)}>
+                                <Users className="w-4 h-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Return to Queue</p></TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => onSkip(walkIn.id)}>
+                                <SkipForward className="w-4 h-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Skip (No-Show)</p></TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onCancel(walkIn.id)}>
+                                <XCircle className="w-4 h-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Cancel Walk-in</p></TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </CardFooter>
         </Card>
     );
