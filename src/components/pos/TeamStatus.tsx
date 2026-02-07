@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -118,15 +117,51 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const handleMoveUp = (staffId: string) => handleMove(staffId, 'up');
     const handleMoveDown = (staffId: string) => handleMove(staffId, 'down');
 
-    const staffWithAvailability = useMemo(() => {
-        return staff?.map(member => {
+    const { nextAvailableIn, hasIdleStaff } = useMemo(() => {
+        if (!staff || !appointments) return { nextAvailableIn: null, hasIdleStaff: false };
+
+        const idleStaff = staff.some(s => s.active && !s.onBreak && s.status === 'idle');
+
+        if (idleStaff) {
+            return { nextAvailableIn: 0, hasIdleStaff: true }; // Available now
+        }
+
+        const busyStaffEndTimes = staff
+            .filter(s => s.active && !s.onBreak && s.status === 'busy')
+            .map(s => {
+                const now = new Date();
+                // Find current appointment
+                const currentAppointment = appointments.find(apt => 
+                    apt.staffId === s.id && 
+                    apt.status === 'servicing' &&
+                    apt.endTime > now
+                );
+                return currentAppointment ? currentAppointment.endTime : null;
+            })
+            .filter((endTime): endTime is Date => endTime !== null);
+        
+        if (busyStaffEndTimes.length === 0) {
+            return { nextAvailableIn: null, hasIdleStaff: false }; // No one is busy, but also no one is idle. So no one is available.
+        }
+
+        const nextFreeTime = new Date(Math.min(...busyStaffEndTimes.map(d => d.getTime())));
+        const minutesUntilFree = differenceInMinutes(nextFreeTime, new Date());
+
+        const result = minutesUntilFree > 1 ? minutesUntilFree : 1;
+
+        return { nextAvailableIn: result, hasIdleStaff: false };
+    }, [staff, appointments]);
+
+    const enrichedOrderedStaff = useMemo(() => {
+        if (!staff || !appointments || !services) return [];
+        return staff.map(member => {
             let availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null = null;
             if (member.status === 'busy' && member.active && !member.onBreak) {
                 const now = new Date();
-                const currentAppointment = appointments?.find(apt => apt.staffId === member.id && new Date(apt.startTime) <= now && new Date(apt.endTime) > now);
+                const currentAppointment = appointments.find(apt => apt.staffId === member.id && apt.status === 'servicing');
                 if (currentAppointment) {
-                    const service = services?.find(s => s.id === currentAppointment.serviceId);
-                    const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
+                    const service = services.find(s => s.id === currentAppointment.serviceId);
+                    const minutesRemaining = differenceInMinutes(currentAppointment.endTime, now);
                     if (minutesRemaining <= 0) {
                         availability = { status: "Finishing up", serviceName: service?.name };
                     } else {
@@ -139,7 +174,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 availability = { status: 'Idle' };
             }
             return { ...member, availability };
-        }) || [];
+        });
     }, [staff, appointments, services]);
     
     const nextUpStaffId = useMemo(() => {
@@ -160,7 +195,12 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <div>
                         <CardTitle>Team Status</CardTitle>
-                        <CardDescription>Current availability and assignment mode.</CardDescription>
+                         <CardDescription>
+                            {hasIdleStaff ? "A staff member is available now." : 
+                             nextAvailableIn !== null ? `Next available in ~${nextAvailableIn} min.` : 
+                             "No staff currently available."
+                            }
+                        </CardDescription>
                     </div>
                     <div className="w-full sm:w-56">
                         <Label htmlFor="assignment-mode" className="text-xs font-medium sr-only">Assignment Mode</Label>
@@ -179,7 +219,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             </CardHeader>
             <CardContent>
                 <div className="space-y-3">
-                    {staffWithAvailability.map((member, index) => (
+                    {enrichedOrderedStaff.map((member, index) => (
                         <StaffMemberCard
                             key={member.id}
                             member={member}
@@ -189,7 +229,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             onMoveUp={handleMoveUp}
                             onMoveDown={handleMoveDown}
                             isFirst={index === 0}
-                            isLast={index === staffWithAvailability.length - 1}
+                            isLast={index === enrichedOrderedStaff.length - 1}
                             assignmentMode={assignmentMode}
                         />
                     ))}
