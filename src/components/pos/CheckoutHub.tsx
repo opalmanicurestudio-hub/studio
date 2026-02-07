@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -5,12 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign } from 'lucide-react';
-import { type Appointment, type Service, type Client } from '@/lib/data';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award } from 'lucide-react';
+import { type Appointment, type Service, type Client, type Discount } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
+import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
+import { useInventory } from '@/context/InventoryContext';
 
 export const CheckoutHub = ({ 
     cart, 
@@ -27,6 +30,11 @@ export const CheckoutHub = ({
     total,
     tipAmount,
     setTipAmount,
+    onCheckout,
+    appliedDiscountCode,
+    setAppliedDiscountCode,
+    discount,
+    membershipDiscount,
     showTitle = true,
 }: { 
     cart: any[], 
@@ -43,8 +51,21 @@ export const CheckoutHub = ({
     total: number,
     tipAmount: number,
     setTipAmount: (amount: number) => void,
+    onCheckout: () => void;
+    appliedDiscountCode: string | undefined;
+    setAppliedDiscountCode: (code: string | undefined) => void;
+    discount: number;
+    membershipDiscount: number;
     showTitle?: boolean,
 }) => {
+    
+    const { discounts: allDiscounts } = useInventory();
+    const [promoCode, setPromoCode] = useState('');
+    const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
+
+    useEffect(() => {
+        setPromoCode(appliedDiscountCode || '');
+    }, [appliedDiscountCode]);
     
     const selectedClient = useMemo(() => {
         return clients.find((c: Client) => c.id === selectedClientId);
@@ -57,6 +78,10 @@ export const CheckoutHub = ({
             onCartChange(cart.map(item => item.id === itemId ? { ...item, quantity: newQuantity } : item));
         }
     };
+
+    const cartServiceIds = useMemo(() => {
+        return cart.filter(item => item.type === 'service').map(item => item.id.split('-')[1]);
+    }, [cart]);
     
     return (
         <div className="flex flex-col h-full">
@@ -128,6 +153,18 @@ export const CheckoutHub = ({
             <div className="my-4 space-y-2 text-sm">
                 <h3 className="font-semibold mb-2">Payment Summary</h3>
                 <div className="flex justify-between"><p>Subtotal</p><p>${subtotal.toFixed(2)}</p></div>
+                 {discount > 0 && (
+                <div className="flex justify-between text-sm text-primary font-medium">
+                    <span>Promo Code Discount:</span>
+                    <span>-${discount.toFixed(2)}</span>
+                </div>
+                )}
+                {membershipDiscount > 0 && (
+                <div className="flex justify-between text-sm text-primary font-medium">
+                    <span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span>
+                    <span>-${membershipDiscount.toFixed(2)}</span>
+                </div>
+                )}
                 <div className="flex justify-between"><p>Tax</p><p>${tax.toFixed(2)}</p></div>
                 <div className="flex justify-between text-sm items-center">
                     <p className="text-muted-foreground">Tip</p>
@@ -160,8 +197,9 @@ export const CheckoutHub = ({
 
             <div className="mt-auto pt-4 flex gap-2">
                 <Button variant="outline" className="flex-1"><Printer /> Print</Button>
-                <Button className="flex-1">Place Order</Button>
+                <Button className="flex-1" onClick={onCheckout}>Place Order</Button>
             </div>
+            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={allDiscounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
         </div>
     );
 };

@@ -32,7 +32,7 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
     <Card>
       <CardHeader>
         <CardTitle>Checkout Queue</CardTitle>
-        <CardDescription>Clients who are ready to pay.</CardDescription>
+        <CardDescription>Clients who are ready to pay. You can select multiple for a group checkout.</CardDescription>
         <div className="relative pt-2">
             <Search className="absolute left-3 top-1/2 -translate-y-[-4px] h-4 w-4 text-muted-foreground" />
             <Input
