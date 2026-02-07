@@ -1088,6 +1088,62 @@ function PlannerPageContent() {
     setStartConfirmAppointment(null);
   };
 
+  const onUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
+    if (!firestore || !tenantId || !appointments || !clients || !selectedTenant) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    
+    let updateData: Partial<Appointment> = { status };
+    
+    if (status === 'cancelled') {
+        const appointment = appointments.find(apt => apt.id === appointmentId);
+        const client = clients?.find(c => c.id === appointment?.clientId);
+        
+        if (appointment && client) {
+            const timeDiffHours = differenceInHours(appointment.startTime, new Date());
+            const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
+
+            if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
+                const fee = selectedTenant.cancellationFee || 25; 
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+                
+                const newFee = {
+                    feeId: nanoid(),
+                    appointmentId: appointment.id,
+                    appointmentDate: appointment.startTime.toISOString(),
+                    feeAmount: fee,
+                    reason: 'Late Cancellation'
+                };
+
+                updateDocumentNonBlocking(clientRef, { 
+                    outstandingBalance: increment(fee),
+                    unpaidFees: arrayUnion(newFee)
+                });
+                
+                updateData.cancellationReason = 'client_request';
+                updateData.cancellationFeeApplied = fee;
+
+                toast({
+                    title: "Late Cancellation Fee Applied",
+                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
+                });
+            }
+        }
+    }
+
+    updateDocumentNonBlocking(appointmentRef, updateData);
+
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
+    }
+
+    toast({
+        title: "Status Updated",
+        description: `Appointment status changed to ${status}.`
+    });
+  };
+
 
   if (isDataLoading) {
     return (
@@ -1283,7 +1339,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={this.onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1320,7 +1376,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={this.onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1562,3 +1618,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
