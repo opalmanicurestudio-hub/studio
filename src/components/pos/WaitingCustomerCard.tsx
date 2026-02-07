@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -10,6 +11,7 @@ import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface WaitingCustomerCardProps {
     walkIn: WalkIn;
@@ -64,35 +66,44 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                 </div>
             </CardContent>
             <CardFooter className="p-2 border-t">
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full">
-                            Actions
-                            <ChevronDown className="w-4 h-4 ml-auto" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[--radix-dropdown-menu-trigger-width)]">
-                        <DropdownMenuItem onClick={() => onMoveToFront(walkIn.id)}>
-                            <TrendingUp className="w-4 h-4 mr-2" />
-                            Move to Front
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={onAssign}>
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Assign Staff
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onPrintTicket(walkIn.id)}>
-                            <Printer className="w-4 h-4 mr-2" />
-                            Print Ticket
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => onCancel(walkIn.id)}>
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Cancel Walk-in
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <TooltipProvider>
+                    <div className="flex justify-around w-full">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => onMoveToFront(walkIn.id)}>
+                                    <TrendingUp className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Move to Front</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={onAssign}>
+                                    <UserPlus className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Assign Staff</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => onPrintTicket(walkIn.id)}>
+                                    <Printer className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Print Ticket</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onCancel(walkIn.id)}>
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Cancel Walk-in</p></TooltipContent>
+                        </Tooltip>
+                    </div>
+                </TooltipProvider>
             </CardFooter>
         </Card>
     );
 };
+
