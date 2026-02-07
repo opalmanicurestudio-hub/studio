@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -367,8 +368,8 @@ function PlannerPageContent() {
     }
   }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
-   const itemsByColumnRaw = useMemo(() => {
-    const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
+   const itemsByColumn = useMemo(() => {
+    const map = new Map<string, (Appointment | Event | (any & {isPlaceholder?: boolean}))[]>();
     
     const columnsToProcess = activeView === 'staff' ? (staff || []) : (resources || []);
 
@@ -428,13 +429,47 @@ function PlannerPageContent() {
             }
           }
       });
+      
+    // Process notified walk-ins as placeholder appointments
+    (walkIns || [])
+      .filter(w => w.status === 'notified' && w.notifiedTimestamp && w.assignedStaffId)
+      .forEach(walkIn => {
+        const staffId = walkIn.assignedStaffId;
+        if (staffId && map.has(staffId)) {
+            const startTime = parseISO(walkIn.notifiedTimestamp!);
+            // Only show if it's for the current day
+            if (isSameDay(startTime, currentDate)) {
+                const endTime = addMinutes(startTime, walkIn.estimatedDuration);
+                
+                // Create a placeholder appointment-like object
+                const placeholderAppointment = {
+                    id: `apt-walkin-${walkIn.id}`,
+                    isPlaceholder: true, // Key to differentiate
+                    isWalkIn: true,
+                    tenantId: tenantId,
+                    clientId: walkIn.clientId || walkIn.id,
+                    clientName: walkIn.customerName,
+                    clientEmail: walkIn.customerEmail,
+                    clientPhone: walkIn.customerPhone,
+                    serviceId: walkIn.serviceIds[0], // Simplified for now
+                    addOnIds: walkIn.serviceIds.slice(1),
+                    staffId: staffId,
+                    startTime: startTime,
+                    endTime: endTime,
+                    status: 'confirmed', // To make it render like a normal upcoming appointment
+                    source: 'walk-in',
+                };
+                map.get(staffId)!.push({ ...placeholderAppointment, itemType: 'appointment' });
+            }
+        }
+      });
 
     map.forEach(items => {
         items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
     });
 
     return map;
-  }, [currentDate, appointments, events, staff, resources, activeView, services]);
+  }, [currentDate, appointments, events, staff, resources, activeView, services, walkIns, tenantId]);
   
   const itemsByColumn = useMemo(() => {
     if(!itemsByColumnRaw) return new Map(); 
@@ -1050,35 +1085,74 @@ function PlannerPageContent() {
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading || checkInsLoading;
   
   const onStartService = (appointmentId: string) => {
-    const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-    if (appointmentToStart) {
-        setStartConfirmAppointment(appointmentToStart);
+    let itemToStart: Appointment | undefined;
+    for (const items of itemsByColumn.values()) {
+        const found = items.find(item => item.id === appointmentId);
+        if (found && 'status' in found) { // It's an Appointment-like object
+            itemToStart = found as Appointment;
+            break;
+        }
+    }
+    
+    if (itemToStart) {
+        setStartConfirmAppointment(itemToStart);
     }
   };
   
   const confirmStartService = () => {
     if (!startConfirmAppointment || !firestore || !tenantId) return;
-    const nowISO = new Date().toISOString();
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
-    
-    if (startConfirmAppointment.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', startConfirmAppointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status: 'servicing', tenantId: tenantId });
-    }
 
-    if (startConfirmAppointment.staffId) {
-      const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', startConfirmAppointment.staffId);
-      updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-    }
-
-    if (startConfirmAppointment.isWalkIn) {
+    if ((startConfirmAppointment as any).isPlaceholder) {
         const walkInId = startConfirmAppointment.id.replace('apt-walkin-', '');
-        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInDocRef, {
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        
+        const nowISO = new Date().toISOString();
+
+        const { isPlaceholder, ...restOfAppointment } = startConfirmAppointment as any;
+
+        const dataToSave = {
+            ...restOfAppointment,
+            status: 'servicing',
+            actualStartTime: nowISO,
+            startTime: startConfirmAppointment.startTime.toISOString(),
+            endTime: startConfirmAppointment.endTime.toISOString(),
+        };
+        
+        setDocumentNonBlocking(appointmentRef, dataToSave, {});
+        
+        updateDocumentNonBlocking(walkInRef, {
             status: 'servicing',
             serviceStartTime: nowISO,
         });
+
+        if (startConfirmAppointment.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', startConfirmAppointment.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+    } else {
+        const nowISO = new Date().toISOString();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+        
+        if (startConfirmAppointment.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', startConfirmAppointment.checkInToken);
+            updateDocumentNonBlocking(checkInRef, { status: 'servicing', tenantId: tenantId });
+        }
+
+        if (startConfirmAppointment.staffId) {
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', startConfirmAppointment.staffId);
+          updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+
+        if (startConfirmAppointment.isWalkIn) {
+            const walkInId = startConfirmAppointment.id.replace('apt-walkin-', '');
+            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInDocRef, {
+                status: 'servicing',
+                serviceStartTime: nowISO,
+            });
+        }
     }
 
     toast({
@@ -1216,8 +1290,7 @@ function PlannerPageContent() {
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem asChild>
-                                                    <Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                                <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </TooltipTrigger>
@@ -1308,7 +1381,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1551,4 +1624,3 @@ export default function PlannerPageWrapper() {
   )
 }
 
-    

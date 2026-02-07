@@ -473,31 +473,8 @@ export default function POSPage() {
       
       const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
       updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
-      
-      const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-      const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-
-      const appointmentId = `apt-walkin-${walkIn.id}`;
-      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-      
-      const now = new Date();
-
-      const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
-          id: appointmentId,
-          tenantId: selectedTenant.id,
-          clientId: walkIn.clientId || walkIn.id,
-          clientName: walkIn.customerName,
-          serviceId: walkIn.serviceIds[0],
-          staffId: staffId,
-          status: 'confirmed',
-          source: 'walk-in',
-          isWalkIn: true,
-          startTime: now.toISOString(),
-          endTime: addMinutes(now, duration).toISOString(),
-      };
-      setDocumentNonBlocking(appointmentRef, appointmentData, {});
         
-      toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
+      toast({ title: "Staff Assigned", description: "The client has been notified." });
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
@@ -509,19 +486,7 @@ export default function POSPage() {
             description: 'This will remove the client from the queue. If they have already been assigned, their placeholder appointment on the planner will also be cancelled. This action cannot be undone.',
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                const walkIn = walkIns?.find(w => w.id === walkInId);
-                
-                const batch = writeBatch(firestore);
-                
-                batch.update(walkInRef, { status: 'cancelled' });
-
-                if (walkIn && walkIn.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkIn.id}`;
-                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
-                }
-
-                await batch.commit();
+                updateDocumentNonBlocking(walkInRef, { status: 'cancelled' });
 
                 toast({
                     title: "Walk-in Cancelled",
@@ -549,10 +514,6 @@ export default function POSPage() {
                 batch.update(walkInRef, { status: 'skipped' });
 
                 if (walkIn.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkIn.id}`;
-                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
-
                     const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
                     batch.update(staffRef, { status: 'idle' });
                 }
@@ -587,7 +548,7 @@ export default function POSPage() {
         
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             if (!aptData || !aptData.service) return acc;
-            const mainServicePrice = aptData.service?.price || 0;
+            const mainServicePrice = redeemedOffer?.id === aptData.service?.id ? 0 : aptData.service?.price || 0;
             const addOnsPrice = (aptData.addOnServices || [])
                 .reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
