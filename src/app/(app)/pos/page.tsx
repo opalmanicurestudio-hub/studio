@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -509,15 +510,19 @@ export default function POSPage() {
         });
     };
     
-    const { retailTotalForDiscount, subtotal, tax, total } = useMemo(() => {
+    const { retailTotalForDiscount, subtotal, tax, total, redeemedOffer } = useMemo(() => {
         const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
+        const mainServicesInCart = appointmentsData.map(d => d.service).filter(Boolean) as Service[];
+        const client = clients.find(c => c.id === selectedClientId);
 
         const servicesSubtotal = Array.from(selectedAppointmentIds).reduce((acc, aptId) => {
             const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
             if (!aptData) return acc;
             
             const mainServicePrice = aptData.service?.price || 0;
-            const addOnsPrice = (aptData.appointment.addOnIds || [])
+            const addOnsPrice = (aptData.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return acc + mainServicePrice + addOnsPrice;
@@ -528,8 +533,8 @@ export default function POSPage() {
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal };
-    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments, services, tipAmount, discount, membershipDiscount]);
+        return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
+    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments, services, tipAmount, discount, membershipDiscount, clients, selectedClientId, appointmentsData]);
 
 
     const totalItemsInCart = useMemo(() => {
@@ -541,7 +546,7 @@ export default function POSPage() {
         const serviceItemsCount = appointmentData.reduce((acc, aptData) => {
             let count = 0;
             if (aptData.service) count += 1;
-            count += (aptData.appointment.addOnIds || []).length;
+            count += (aptData.addOnIds || []).length;
             return acc + count;
         }, 0);
 
@@ -667,6 +672,11 @@ export default function POSPage() {
         setTipAmount,
         onCheckout: () => {},
         showTitle: false,
+        appliedDiscountCode,
+        setAppliedDiscountCode,
+        discount,
+        membershipDiscount,
+        isSubmitting,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
