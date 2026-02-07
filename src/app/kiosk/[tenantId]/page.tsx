@@ -191,37 +191,57 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
     
     // Separate state for each part of the date, initialized from the prop
-    const [month, setMonth] = useState(() => member.birthday ? String(parseISO(member.birthday).getMonth() + 1) : '');
-    const [day, setDay] = useState(() => member.birthday ? String(parseISO(member.birthday).getDate()) : '');
-    const [year, setYear] = useState(() => member.birthday ? String(parseISO(member.birthday).getFullYear()) : '');
+    const [month, setMonth] = useState<string>(() => {
+      try {
+        return member.birthday ? String(parseISO(member.birthday).getMonth() + 1) : '';
+      } catch { return ''; }
+    });
+    const [day, setDay] = useState<string>(() => {
+      try {
+        return member.birthday ? String(parseISO(member.birthday).getDate()) : '';
+      } catch { return ''; }
+    });
+    const [year, setYear] = useState<string>(() => {
+      try {
+        return member.birthday ? String(parseISO(member.birthday).getFullYear()) : '';
+      } catch { return ''; }
+    });
 
     // Effect to sync local state if the prop changes from an external source
     useEffect(() => {
+      try {
         if (member.birthday) {
-            try {
-                const date = parseISO(member.birthday);
-                setMonth(String(date.getMonth() + 1));
-                setDay(String(date.getDate()));
-                setYear(String(date.getFullYear()));
-            } catch (e) {
-                // Reset if the date prop is invalid
-                setMonth('');
-                setDay('');
-                setYear('');
-            }
+            const date = parseISO(member.birthday);
+            setMonth(String(date.getMonth() + 1));
+            setDay(String(date.getDate()));
+            setYear(String(date.getFullYear()));
         } else {
             setMonth('');
             setDay('');
             setYear('');
         }
+      } catch (e) {
+        // Handle invalid date string gracefully
+        setMonth('');
+        setDay('');
+        setYear('');
+      }
     }, [member.birthday]);
 
-    // Effect to call the parent's `onUpdate` when a full date is formed
-    useEffect(() => {
-        if (year && month && day) {
-            const y = parseInt(year, 10);
-            const m = parseInt(month, 10) - 1;
-            const d = parseInt(day, 10);
+    const handleDatePartChange = (part: 'day' | 'month' | 'year', value: string) => {
+        let newDay = day, newMonth = month, newYear = year;
+        if (part === 'day') newDay = value;
+        if (part === 'month') newMonth = value;
+        if (part === 'year') newYear = value;
+        
+        setDay(newDay);
+        setMonth(newMonth);
+        setYear(newYear);
+
+        if (newYear && newMonth && newDay) {
+            const y = parseInt(newYear, 10);
+            const m = parseInt(newMonth, 10) - 1;
+            const d = parseInt(newDay, 10);
 
             if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
                 const newDate = new Date(y, m, d);
@@ -231,20 +251,15 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                     if (newDate.toISOString() !== member.birthday) {
                         onUpdate(member.id, { birthday: newDate.toISOString() });
                     }
-                } else {
-                    // An invalid date was formed, clear the birthday
-                    if (member.birthday !== undefined) {
-                        onUpdate(member.id, { birthday: undefined });
-                    }
+                } else if (member.birthday) {
+                    onUpdate(member.id, { birthday: undefined });
                 }
             }
-        } else if (!year && !month && !day) { // If all fields are cleared
-             if (member.birthday !== undefined) {
-                onUpdate(member.id, { birthday: undefined });
-             }
+        } else if (member.birthday) { // If any part is cleared, clear the whole date
+            onUpdate(member.id, { birthday: undefined });
         }
-    }, [day, month, year, onUpdate, member.id, member.birthday]);
-
+    };
+    
     const toggleService = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
             ? member.serviceIds.filter(id => id !== serviceId)
@@ -296,7 +311,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                              <div className="space-y-2">
                                 <Label>Birthday</Label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <Select value={month} onValueChange={setMonth}>
+                                    <Select value={month} onValueChange={(v) => handleDatePartChange('month', v)}>
                                         <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 12 }, (_, i) => (
@@ -306,7 +321,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <Select value={day} onValueChange={setDay}>
+                                    <Select value={day} onValueChange={(v) => handleDatePartChange('day', v)}>
                                         <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 31 }, (_, i) => (
@@ -316,7 +331,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                     <Select value={year} onValueChange={setYear}>
+                                     <Select value={year} onValueChange={(v) => handleDatePartChange('year', v)}>
                                         <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 100 }, (_, i) => {
@@ -398,7 +413,6 @@ export default function WalkInPage() {
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
   const [notes, setNotes] = useState('');
-  const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [waitForPreferred, setWaitForPreferred] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
@@ -409,6 +423,8 @@ export default function WalkInPage() {
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
@@ -862,6 +878,37 @@ export default function WalkInPage() {
                           </Button>
                         </div>
                       )}
+                      
+                       <div className="space-y-4 pt-6 border-t">
+                          <h4 className="font-semibold text-lg">Preferences & Notes</h4>
+                          <div className="space-y-2">
+                              <Label htmlFor="preferred-staff">Preferred Staff</Label>
+                              <Select value={preferredStaffId} onValueChange={setPreferredStaffId}>
+                                  <SelectTrigger id="preferred-staff">
+                                      <SelectValue placeholder="Select a staff member" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                      <SelectItem value="any">Any Available</SelectItem>
+                                      {staff?.map(s => (
+                                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                              </Select>
+                          </div>
+                          {preferredStaffId !== 'any' && (
+                              <div className="flex items-center justify-between rounded-lg border p-4">
+                                  <div className="space-y-0.5">
+                                      <Label htmlFor="wait-for-preferred">Wait for {staff?.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                                      <p className="text-xs text-muted-foreground">If they are busy, your wait may be longer.</p>
+                                  </div>
+                                  <Switch id="wait-for-preferred" checked={waitForPreferred} onCheckedChange={setWaitForPreferred} />
+                              </div>
+                          )}
+                          <div className="space-y-2">
+                              <Label htmlFor="notes">Notes for Staff</Label>
+                              <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., celebrating an anniversary, prefers not to talk much." />
+                          </div>
+                      </div>
 
                     </CardContent>
                     <CardFooter className="flex justify-between">
