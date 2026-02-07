@@ -510,17 +510,17 @@ export default function POSPage() {
         });
     };
     
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as (Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff })[];
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
     const { retailTotalForDiscount, subtotal, tax, total, redeemedOffer } = useMemo(() => {
         const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
-        const mainServicesInCart = appointmentsData.map(d => d.service).filter(Boolean) as Service[];
         const client = clients.find(c => c.id === selectedClientId);
 
-        const servicesSubtotal = Array.from(selectedAppointmentIds).reduce((acc, aptId) => {
-            const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
-            if (!aptData) return acc;
-            
+        const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             const mainServicePrice = aptData.service?.price || 0;
             const addOnsPrice = (aptData.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
@@ -534,16 +534,12 @@ export default function POSPage() {
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
         return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
-    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments, services, tipAmount, discount, membershipDiscount, clients, selectedClientId, appointmentsData]);
-
+    }, [cart, appointmentsData, services, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-        const appointmentData = Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff } => !!a);
-
-        const serviceItemsCount = appointmentData.reduce((acc, aptData) => {
+        
+        const serviceItemsCount = appointmentsData.reduce((acc, aptData) => {
             let count = 0;
             if (aptData.service) count += 1;
             count += (aptData.addOnIds || []).length;
@@ -551,7 +547,7 @@ export default function POSPage() {
         }, 0);
 
         return retailItemsCount + serviceItemsCount;
-    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments]);
+    }, [cart, appointmentsData]);
 
     const handleStartService = (appointmentId: string) => {
       const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
@@ -966,3 +962,4 @@ export default function POSPage() {
         </>
     );
 }
+
