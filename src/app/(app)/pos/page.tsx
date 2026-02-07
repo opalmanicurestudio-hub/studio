@@ -123,7 +123,17 @@ export default function POSPage() {
             newSet.add(appointmentId);
         }
         setSelectedAppointmentIds(newSet);
-    }, [selectedAppointmentIds]);
+
+        if (newSet.size === 1) {
+            const singleAppointmentId = Array.from(newSet)[0];
+            const appointment = readyForCheckoutAppointments.find(a => a.id === singleAppointmentId);
+            if (appointment) {
+                setSelectedClientId(appointment.clientId);
+            }
+        } else {
+            setSelectedClientId(null);
+        }
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
@@ -511,18 +521,16 @@ export default function POSPage() {
     };
     
     const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as (Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff })[];
+        return Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; } => !!a);
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
 
-    const { retailTotalForDiscount, subtotal, tax, total, redeemedOffer } = useMemo(() => {
+    const { subtotal, tax, total, redeemedOffer } = useMemo(() => {
         const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
-        const client = clients.find(c => c.id === selectedClientId);
-
+        
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
-            if (!aptData || !aptData.service) return acc;
-            const mainServicePrice = offerApplied?.id === aptData.service.id ? 0 : aptData.service.price || 0;
+            const mainServicePrice = aptData.service?.price || 0;
             const addOnsPrice = (aptData.addOnServices || [])
                 .reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
@@ -533,7 +541,7 @@ export default function POSPage() {
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
+        return { subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
 
     const totalItemsInCart = useMemo(() => {
@@ -644,18 +652,17 @@ export default function POSPage() {
 
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
-        selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
-          if (apt) {
+        appointmentsData.forEach(apt => {
             clientIds.add(apt.clientId);
-          }
         });
         return (clients || []).filter(c => clientIds.has(c.id));
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+    }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
+        appointmentsData,
+        onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
         isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions,
@@ -675,8 +682,6 @@ export default function POSPage() {
         membershipDiscount,
         showTitle: false,
         isSubmitting,
-        appointmentsData,
-        onSelectAppointment: handleSelectAppointment,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
@@ -707,12 +712,11 @@ export default function POSPage() {
 
     try {
       // 1. Update appointments and staff
-      for (const aptId of selectedAppointmentIds) {
-        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptId);
+      for (const aptData of appointmentsData) {
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
         batch.update(appointmentRef, { status: 'completed' });
 
-        const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
-        if (aptData?.staffId) {
+        if (aptData.staffId) {
           const staffRef = doc(firestore, `tenants/${tenantId}/staff`, aptData.staffId);
           batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
         }
@@ -737,7 +741,7 @@ export default function POSPage() {
       }
       
       // 3. Create a master transaction record
-      const primaryAppointmentId = selectedAppointmentIds.size > 0 ? selectedAppointmentIds.values().next().value : undefined;
+      const primaryAppointmentId = selectedAppointmentIds.size > 0 ? Array.from(selectedAppointmentIds)[0] : undefined;
       
       const newTransaction: Omit<Transaction, 'id'> = {
         date: new Date().toISOString(),
@@ -768,7 +772,7 @@ export default function POSPage() {
 
       // 5. Update Discount Usage
       if(appliedDiscountCode) {
-          const discountRef = doc(firestore, `tenants/${tenantId}/discounts`, appliedDiscountCode);
+          const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
           batch.update(discountRef, { 
               usageCount: increment(1),
               usedByClientIds: payerClient ? arrayUnion(payerClient.id) : undefined
@@ -963,4 +967,3 @@ export default function POSPage() {
         </>
     );
 }
-
