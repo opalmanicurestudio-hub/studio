@@ -78,6 +78,7 @@ export default function POSPage() {
     const isMobile = useIsMobile();
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [tipAmount, setTipAmount] = useState(0);
+    const [paymentTab, setPaymentTab] = useState('card');
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
@@ -658,34 +659,6 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const checkoutHubProps = {
-        cart, 
-        onCartChange: handleCartChange,
-        appointmentsData,
-        onSelectAppointment: handleSelectAppointment,
-        clients: clients || [],
-        isGroupCheckout: selectedAppointmentIds.size > 1,
-        payerOptions,
-        selectedClientId,
-        setSelectedClientId,
-        onAddClientClick: () => setIsAddClientOpen(true),
-        onScanClick: () => setIsScannerOpen(true),
-        subtotal,
-        tax,
-        total,
-        tipAmount,
-        setTipAmount,
-        onCheckout: () => {},
-        appliedDiscountCode,
-        setAppliedDiscountCode,
-        discount,
-        membershipDiscount,
-        showTitle: false,
-        isSubmitting,
-    };
-    
-    const handleStatusChangeWithConfirmation = () => {};
-
     const handleFinalizeCheckout = async () => {
     if (!firestore || !tenantId) return;
     if (cart.length === 0 && selectedAppointmentIds.size === 0) {
@@ -741,7 +714,8 @@ export default function POSPage() {
       }
       
       // 3. Create a master transaction record
-      const primaryAppointmentId = selectedAppointmentIds.size > 0 ? Array.from(selectedAppointmentIds)[0] : undefined;
+      const primaryAppointmentId = appointmentsData.length > 0 ? appointmentsData[0].id : undefined;
+      const paymentMethodDisplay = paymentTab.charAt(0).toUpperCase() + paymentTab.slice(1);
       
       const newTransaction: Omit<Transaction, 'id'> = {
         date: new Date().toISOString(),
@@ -752,7 +726,7 @@ export default function POSPage() {
         context: 'Business',
         category: 'Sales',
         amount: total,
-        paymentMethod: 'Card', // This should be dynamic later
+        paymentMethod: paymentMethodDisplay,
         tipAmount,
         discountAmount: discount + membershipDiscount,
         appliedDiscountCode: appliedDiscountCode,
@@ -797,6 +771,36 @@ export default function POSPage() {
       setIsSubmitting(false);
     }
   };
+    
+    const checkoutHubProps = {
+        cart, 
+        onCartChange: handleCartChange,
+        appointmentsData,
+        onSelectAppointment: handleSelectAppointment,
+        clients: clients || [],
+        isGroupCheckout: selectedAppointmentIds.size > 1,
+        payerOptions,
+        selectedClientId,
+        setSelectedClientId,
+        onAddClientClick: () => setIsAddClientOpen(true),
+        onScanClick: () => setIsScannerOpen(true),
+        subtotal,
+        tax,
+        total,
+        tipAmount,
+        setTipAmount,
+        onCheckout: handleFinalizeCheckout,
+        appliedDiscountCode,
+        setAppliedDiscountCode,
+        discount,
+        membershipDiscount,
+        showTitle: false,
+        isSubmitting,
+        paymentTab,
+        setPaymentTab,
+    };
+    
+    const handleStatusChangeWithConfirmation = () => {};
 
     return (
         <>
@@ -872,7 +876,7 @@ export default function POSPage() {
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
-                        <CheckoutHub {...{...checkoutHubProps, onCheckout: handleFinalizeCheckout, isSubmitting}} />
+                        <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
             </div>
@@ -892,7 +896,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...{...checkoutHubProps, onCheckout: handleFinalizeCheckout, isSubmitting}} />
+                                <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
                     </Sheet>

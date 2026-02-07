@@ -40,6 +40,8 @@ export const CheckoutHub = ({
     membershipDiscount,
     showTitle = true,
     isSubmitting,
+    paymentTab,
+    setPaymentTab,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -64,6 +66,8 @@ export const CheckoutHub = ({
     membershipDiscount: number;
     showTitle?: boolean,
     isSubmitting: boolean;
+    paymentTab: string;
+    setPaymentTab: (tab: string) => void;
 }) => {
     
     const { discounts: allDiscounts } = useInventory();
@@ -87,8 +91,10 @@ export const CheckoutHub = ({
     };
 
     const cartServiceIds = useMemo(() => {
-        return cart.filter(item => item.type === 'service').map(item => item.id.split('-')[1]);
-    }, [cart]);
+        const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
+        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
+        return [...new Set([...appointmentServiceIds, ...cartServices])];
+    }, [cart, appointmentsData]);
     
     return (
         <div className="flex flex-col h-full">
@@ -225,9 +231,9 @@ export const CheckoutHub = ({
             <div className="mt-4">
                 <h3 className="font-semibold mb-2">Payment Method</h3>
                 <div className="grid grid-cols-3 gap-2">
-                    <Button variant="outline" className="flex-col h-16"><Banknote /><span className="mt-1">Cash</span></Button>
-                    <Button variant="outline" className="flex-col h-16 ring-2 ring-primary"><CreditCard /><span className="mt-1">Card</span></Button>
-                    <Button variant="outline" className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
+                    <Button variant={paymentTab === 'cash' ? 'default' : 'outline'} onClick={() => setPaymentTab('cash')} className="flex-col h-16"><Banknote /><span className="mt-1">Cash</span></Button>
+                    <Button variant={paymentTab === 'card' ? 'default' : 'outline'} onClick={() => setPaymentTab('card')} className="flex-col h-16"><CreditCard /><span className="mt-1">Card</span></Button>
+                    <Button variant={paymentTab === 'scan' ? 'default' : 'outline'} onClick={() => setPaymentTab('scan')} className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
                 </div>
             </div>
 
