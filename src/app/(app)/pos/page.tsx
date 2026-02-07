@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -510,7 +509,7 @@ export default function POSPage() {
         if (!aptData) return acc;
         
         const mainServicePrice = aptData.service?.price || 0;
-        const addOnsPrice = (aptData.appointment.addOnIds || [])
+        const addOnsPrice = (aptData.addOnIds || [])
             .map(id => services.find(s => s.id === id)?.price || 0)
             .reduce((a, b) => a + b, 0);
         return acc + mainServicePrice + addOnsPrice;
@@ -530,7 +529,7 @@ export default function POSPage() {
             
             let count = 0;
             if(aptData.service) count += 1;
-            count += (aptData.appointment.addOnIds || []).length;
+            count += (aptData.addOnIds || []).length;
             return acc + count;
         }, 0);
         return retailItemsCount + serviceItemsCount;
@@ -831,4 +830,3 @@ export default function POSPage() {
         </>
     );
 }
-
