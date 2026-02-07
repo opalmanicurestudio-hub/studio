@@ -483,7 +483,7 @@ export default function POSPage() {
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
-            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder appointment on the planner will also be cancelled. This action cannot be undone.',
+            description: 'This will remove the client from the queue. This action cannot be undone.',
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 updateDocumentNonBlocking(walkInRef, { status: 'cancelled' });
@@ -545,8 +545,8 @@ export default function POSPage() {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 batch.update(walkInRef, { 
                     status: 'waiting',
-                    assignedStaffId: null,
-                    notifiedTimestamp: null,
+                    assignedStaffId: undefined,
+                    notifiedTimestamp: undefined,
                     queueOrder: Date.now(), // Put them at the end of the queue
                 });
     
@@ -757,10 +757,10 @@ export default function POSPage() {
 
     return (
         <>
-            <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+            <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                    <main className="flex-1 flex flex-col overflow-auto gap-6 px-4 md:px-6 lg:px-8 pt-4 md:pt-6 lg:pt-8 pb-28 lg:pb-8">
                         {/* KPI Cards for Desktop */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
@@ -926,3 +926,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
