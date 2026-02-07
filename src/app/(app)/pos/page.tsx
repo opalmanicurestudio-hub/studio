@@ -115,12 +115,6 @@ export default function POSPage() {
                 return { ...apt, client, service, addOnServices, staff: staffMember };
             }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [appointments, clients, services, staff]);
-    
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
 
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         const newSet = new Set(selectedAppointmentIds);
@@ -138,8 +132,8 @@ export default function POSPage() {
             if (appointment) {
                 setSelectedClientId(appointment.clientId);
             }
-        } else {
-             setSelectedClientId(null);
+        } else if (newSet.size === 0) {
+            setSelectedClientId(null);
         }
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
     
@@ -528,24 +522,40 @@ export default function POSPage() {
         });
     };
     
-     const { subtotal, tax, total, retailTotalForDiscount } = useMemo(() => {
-        const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const { subtotal, tax, total, redeemedOffer } = useMemo(() => {
         let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
         
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             if (!aptData || !aptData.service) return acc;
-            const mainServicePrice = redeemedOffer?.id === aptData.service.id ? 0 : aptData.service.price || 0;
-            const addOnsPrice = (aptData.addOnServices || []).reduce((sum, s) => sum + s.price, 0);
+            
+            const mainServicePrice = aptData.service?.price || 0;
+            const addOnsPrice = (aptData.addOnServices || [])
+                .reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
         }, 0);
+        
+        const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         
         const sub = retailSubtotal + servicesSubtotal;
         const finalDiscount = discount + membershipDiscount;
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
+        return { subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
+
+    const retailTotalForDiscount = useMemo(() => {
+        return cart.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            return acc + (item.quantity * (product?.msrp || 0));
+        }, 0);
+    }, [cart, inventory]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -661,7 +671,7 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const handleFinalizeCheckout = async () => {
+     const handleFinalizeCheckout = async () => {
         if (!firestore || !tenantId) return;
         if (cart.length === 0 && selectedAppointmentIds.size === 0) {
             toast({
@@ -749,7 +759,7 @@ export default function POSPage() {
 
             // 5. Update Discount Usage
             if(appliedDiscountCode) {
-                const discountData = allDiscounts.find(d => d.id === appliedDiscountCode);
+                const discountData = discounts.find(d => d.id === appliedDiscountCode);
                 if (discountData) {
                     const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
                     const updatePayload: any = { usageCount: increment(1) };
@@ -805,7 +815,7 @@ export default function POSPage() {
         isSubmitting,
         paymentTab,
         setPaymentTab,
-        discounts: allDiscounts,
+        discounts: discounts,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
