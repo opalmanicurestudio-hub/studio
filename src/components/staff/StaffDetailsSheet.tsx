@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -14,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog, type ConsentForm } from '@/lib/data';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
 import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer, ShieldAlert } from 'lucide-react';
@@ -189,71 +188,71 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   ];
 
   const content = (
-      <div className="p-4 space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</p></CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</p></CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</p></CardContent></Card>
-                <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</p></CardContent></Card>
-            </div>
-             <Tabs defaultValue="activity" className="w-full">
-                <ScrollArea>
-                    <TabsList>
-                        <TabsTrigger value="activity">Activity Log</TabsTrigger>
-                        <TabsTrigger value="transactions">Transactions</TabsTrigger>
-                        <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
-                        <TabsTrigger value="profile">Profile</TabsTrigger>
-                    </TabsList>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-                <TabsContent value="activity" className="mt-4">
-                    <div className="relative mb-4">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
-                    </div>
-                    <div className="space-y-3">
-                        {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
-                    </div>
-                </TabsContent>
-                <TabsContent value="transactions" className="mt-4">
-                    <div className="relative mb-4">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
-                    </div>
-                    <div className="space-y-3">
-                        {filteredTransactions.length > 0 ? (
-                            filteredTransactions.map(t => {
-                                const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                                const service = services.find(s => s.id === appointment?.serviceId);
-                                let timeVariance = null;
-                                if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                    const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                    timeVariance = actualDuration - service.duration;
-                                }
-                                return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                            })
-                        ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
-                    </div>
-                </TabsContent>
-                <TabsContent value="effectiveness" className="mt-4">
-                    <Card><CardContent className="p-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                           {performanceKpis.map(kpi => (
-                               <div key={kpi.label} className="p-3 rounded-lg bg-muted/50">
-                                   <div className="text-sm font-medium text-muted-foreground">{kpi.label}</div>
-                                   <div className={cn("text-2xl font-bold", kpi.label === "Avg Time Variance" && (parseFloat(kpi.value) > 0 ? 'text-destructive' : 'text-green-500'))}>{kpi.value}</div>
-                               </div>
-                           ))}
-                        </div>
-                    </CardContent></Card>
-                 </TabsContent>
-                 <TabsContent value="profile" className="mt-4 space-y-4">
-                    <Card><CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>Email:</strong> {staffMember.email}</p><p><strong>Phone:</strong> {staffMember.phone}</p>{staffMember.emergencyContact?.name && (<div className="pt-2 border-t"><p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p><p className="pl-4">{staffMember.emergencyContact.phone}</p></div>)}</CardContent></Card>
-                    <Card><CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p><p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p><div className="space-y-2 pt-2"><h4 className="font-medium">Documents</h4>{(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (<div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>)) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}</div><div className="space-y-2 pt-2"><h4 className="font-medium">Assigned Forms</h4>{(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {const form = consentForms.find(f => f.id === formId); return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;}) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}</div></CardContent></Card>
-                    <Card><CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader><CardContent className="text-sm space-y-2">{staffServices.map(s => (<div key={s.id} className="flex justify-between"><span>{s.name}</span><span className="font-semibold">${s.price.toFixed(2)}</span></div>))}</CardContent></Card>
-                 </TabsContent>
-            </Tabs>
-        </div>
+    <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</p></CardContent></Card>
+          </div>
+           <Tabs defaultValue="activity" className="w-full">
+              <ScrollArea>
+                  <TabsList>
+                      <TabsTrigger value="activity">Activity Log</TabsTrigger>
+                      <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                      <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
+                      <TabsTrigger value="profile">Profile</TabsTrigger>
+                  </TabsList>
+                  <ScrollBar orientation="horizontal" />
+              </ScrollArea>
+              <TabsContent value="activity" className="mt-4">
+                  <div className="relative mb-4">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
+                  </div>
+                  <div className="space-y-3">
+                      {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
+                  </div>
+              </TabsContent>
+              <TabsContent value="transactions" className="mt-4">
+                  <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
+                  </div>
+                  <div className="space-y-3">
+                      {filteredTransactions.length > 0 ? (
+                          filteredTransactions.map(t => {
+                              const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                              const service = services.find(s => s.id === appointment?.serviceId);
+                              let timeVariance = null;
+                              if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                  const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
+                                  timeVariance = actualDuration - service.duration;
+                              }
+                              return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                          })
+                      ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
+                  </div>
+              </TabsContent>
+              <TabsContent value="effectiveness" className="mt-4">
+                  <Card><CardContent className="p-4 space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                         {performanceKpis.map(kpi => (
+                             <div key={kpi.label} className="p-3 rounded-lg bg-muted/50">
+                                 <div className="text-sm font-medium text-muted-foreground">{kpi.label}</div>
+                                 <div className={cn("text-2xl font-bold", kpi.label === "Avg Time Variance" && (parseFloat(kpi.value) > 0 ? 'text-destructive' : 'text-green-500'))}>{kpi.value}</div>
+                             </div>
+                         ))}
+                      </div>
+                  </CardContent></Card>
+               </TabsContent>
+               <TabsContent value="profile" className="mt-4 space-y-4">
+                  <Card><CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>Email:</strong> {staffMember.email}</p><p><strong>Phone:</strong> {staffMember.phone}</p>{staffMember.emergencyContact?.name && (<div className="pt-2 border-t"><p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p><p className="pl-4">{staffMember.emergencyContact.phone}</p></div>)}</CardContent></Card>
+                  <Card><CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p><p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p><div className="space-y-2 pt-2"><h4 className="font-medium">Documents</h4>{(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (<div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>)) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}</div><div className="space-y-2 pt-2"><h4 className="font-medium">Assigned Forms</h4>{(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {const form = consentForms.find(f => f.id === formId); return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;}) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}</div></CardContent></Card>
+                  <Card><CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader><CardContent className="text-sm space-y-2">{staffServices.map(s => (<div key={s.id} className="flex justify-between"><span>{s.name}</span><span className="font-semibold">${s.price.toFixed(2)}</span></div>))}</CardContent></Card>
+               </TabsContent>
+          </Tabs>
+      </div>
   );
 
   return (
@@ -269,7 +268,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
           <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
             <Popover>
               <PopoverTrigger asChild>
-                <Button id="date" variant={"outline"} size="sm" className={cn("w-[240px] justify-start text-left font-normal", !dateRange && "text-muted-foreground")}>
+                <Button id="date" variant={"outline"} size="sm" className={cn("w-auto justify-start text-left font-normal", !dateRange && "text-muted-foreground")}>
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dateRange?.from ? (dateRange.to ? (<>{format(dateRange.from, "LLL dd, yyyy")} - {format(dateRange.to, "LLL dd, yyyy")}</>) : (format(dateRange.from, "LLL dd, yyyy"))) : (<span>Pick a date range</span>)}
                 </Button>
@@ -280,7 +279,9 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
             </Popover>
           </div>
           <ScrollArea className="flex-1 min-h-0">
-            {content}
+              <div className="p-4">
+                {content}
+              </div>
           </ScrollArea>
           <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
             <Button variant="outline" className="w-full" onClick={handlePrint}>
@@ -296,3 +297,4 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     </>
   );
 };
+```
