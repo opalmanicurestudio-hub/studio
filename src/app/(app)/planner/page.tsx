@@ -836,7 +836,7 @@ function PlannerPageContent() {
         const appointment = appointments.find(apt => apt.id === appointmentId);
         const client = clients?.find(c => c.id === appointment?.clientId);
         
-        if (appointment && client) {
+        if (appointment && client && selectedTenant) {
             const timeDiffHours = differenceInHours(appointment.startTime, new Date());
             const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
 
@@ -1271,7 +1271,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1308,7 +1308,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1550,3 +1550,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
