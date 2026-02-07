@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -131,6 +131,7 @@ export default function POSPage() {
         }
         setSelectedAppointmentIds(newSet);
 
+        // Auto-select client if only one is selected
         if (newSet.size === 1) {
             const singleAppointmentId = Array.from(newSet)[0];
             const appointment = readyForCheckoutAppointments.find(a => a.id === singleAppointmentId);
@@ -138,7 +139,7 @@ export default function POSPage() {
                 setSelectedClientId(appointment.clientId);
             }
         } else {
-            setSelectedClientId(null);
+             setSelectedClientId(null);
         }
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
     
@@ -527,15 +528,14 @@ export default function POSPage() {
         });
     };
     
-    const { subtotal, tax, total } = useMemo(() => {
+     const { subtotal, tax, total, retailTotalForDiscount } = useMemo(() => {
         const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        
         let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
         
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
-            const mainServicePrice = aptData.service?.price || 0;
-            const addOnsPrice = (aptData.addOnServices || [])
-                .reduce((sum, s) => sum + s.price, 0);
+            if (!aptData || !aptData.service) return acc;
+            const mainServicePrice = redeemedOffer?.id === aptData.service.id ? 0 : aptData.service.price || 0;
+            const addOnsPrice = (aptData.addOnServices || []).reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -544,8 +544,8 @@ export default function POSPage() {
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { subtotal: sub, tax: taxAmount, total: grandTotal };
-    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount]);
+        return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
+    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -720,8 +720,7 @@ export default function POSPage() {
             const primaryAppointmentId = appointmentsData.length > 0 ? appointmentsData[0].id : undefined;
             const paymentMethodDisplay = paymentTab.charAt(0).toUpperCase() + paymentTab.slice(1);
             
-            const newTransaction: Omit<Transaction, 'id'> = {
-                date: new Date().toISOString(),
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `POS Checkout for ${payerClient?.name || 'Walk-in'}`,
                 clientOrVendor: payerClient?.name || 'Walk-in Customer',
                 clientId: payerClient?.id,
@@ -729,7 +728,7 @@ export default function POSPage() {
                 context: 'Business',
                 category: 'Sales',
                 amount: total,
-                paymentMethod: paymentMethodDisplay,
+                paymentMethod: paymentTab,
                 hasReceipt: true,
                 tipAmount,
                 discountAmount: discount + membershipDiscount,
@@ -737,7 +736,7 @@ export default function POSPage() {
                 appointmentId: primaryAppointmentId,
             };
             const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(transactionRef, newTransaction);
+            batch.set(transactionRef, { ...newTransaction, date: new Date().toISOString() });
 
             // 4. Update Client LTV
             if (payerClient) {
@@ -750,11 +749,15 @@ export default function POSPage() {
 
             // 5. Update Discount Usage
             if(appliedDiscountCode) {
-                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-                batch.update(discountRef, { 
-                    usageCount: increment(1),
-                    usedByClientIds: payerClient ? arrayUnion(payerClient.id) : undefined
-                });
+                const discountData = allDiscounts.find(d => d.id === appliedDiscountCode);
+                if (discountData) {
+                    const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+                    const updatePayload: any = { usageCount: increment(1) };
+                    if (discountData.limitOnePerCustomer && payerClient) {
+                        updatePayload.usedByClientIds = arrayUnion(payerClient.id);
+                    }
+                    batch.update(discountRef, updatePayload);
+                }
             }
             
             await batch.commit();
@@ -802,6 +805,7 @@ export default function POSPage() {
         isSubmitting,
         paymentTab,
         setPaymentTab,
+        discounts: allDiscounts,
     };
     
     const handleStatusChangeWithConfirmation = () => {};

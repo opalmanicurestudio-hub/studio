@@ -42,6 +42,7 @@ export const CheckoutHub = ({
     isSubmitting,
     paymentTab,
     setPaymentTab,
+    discounts,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -68,9 +69,9 @@ export const CheckoutHub = ({
     isSubmitting: boolean;
     paymentTab: string;
     setPaymentTab: (tab: string) => void;
+    discounts: Discount[];
 }) => {
     
-    const { discounts: allDiscounts } = useInventory();
     const [promoCode, setPromoCode] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
 
@@ -243,7 +244,8 @@ export const CheckoutHub = ({
                     {isSubmitting ? <Loader className="animate-spin" /> : 'Place Order'}
                 </Button>
             </div>
-            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={allDiscounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
+            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
         </div>
     );
 };
+
