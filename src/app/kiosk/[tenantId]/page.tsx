@@ -192,8 +192,6 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 };
 
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
-    
-    // Separate state for each part of the date, initialized from the prop
     const getInitialDatePart = (part: 'month' | 'day' | 'year') => {
         try {
             if (!member.birthday) return '';
@@ -206,24 +204,23 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
             return '';
         }
     };
-
+    
     const [month, setMonth] = useState(getInitialDatePart('month'));
     const [day, setDay] = useState(getInitialDatePart('day'));
     const [year, setYear] = useState(getInitialDatePart('year'));
-
-    // Effect to handle prop changes from parent (e.g. reset)
+    
     useEffect(() => {
         setMonth(getInitialDatePart('month'));
         setDay(getInitialDatePart('day'));
         setYear(getInitialDatePart('year'));
     }, [member.birthday]);
-    
-    const handleDatePartChange = useCallback((part: 'day' | 'month' | 'year', value: string) => {
-        let newDay = day, newMonth = month, newYear = year;
-        if (part === 'day') { setDay(value); newDay = value; }
-        if (part === 'month') { setMonth(value); newMonth = value; }
-        if (part === 'year') { setYear(value); newYear = value; }
 
+    const handleDatePartChange = useCallback((part: 'month' | 'day' | 'year', value: string) => {
+        let newMonth = month, newDay = day, newYear = year;
+        if (part === 'month') { newMonth = value; setMonth(value); }
+        if (part === 'day') { newDay = value; setDay(value); }
+        if (part === 'year') { newYear = value; setYear(value); }
+        
         if (newYear && newMonth && newDay) {
             const y = parseInt(newYear, 10);
             const m = parseInt(newMonth, 10) - 1;
@@ -231,9 +228,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
 
             if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
                 const newDate = new Date(y, m, d);
-                // Check if the date is valid (e.g. not Feb 30)
                 if (newDate.getFullYear() === y && newDate.getMonth() === m && newDate.getDate() === d) {
-                     // Only update if it's a new date string to prevent loops
                     if (newDate.toISOString() !== member.birthday) {
                         onUpdate(member.id, { birthday: newDate.toISOString() });
                     }
@@ -241,7 +236,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                     onUpdate(member.id, { birthday: undefined });
                 }
             }
-        } else if (member.birthday) { // If any part is cleared, clear the whole date
+        } else if (member.birthday) {
             onUpdate(member.id, { birthday: undefined });
         }
     }, [day, month, year, member.id, member.birthday, onUpdate]);
@@ -543,7 +538,7 @@ export default function WalkInPage() {
     const primaryWalkInId = nanoid();
     const primaryWalkIn: Omit<WalkIn, 'id'> = {
       groupId,
-      groupName,
+      ...groupName && { groupName },
       isPrimaryContact: true,
       customerName,
       customerPhone,
@@ -555,7 +550,7 @@ export default function WalkInPage() {
       estimatedDuration: selectedServices.reduce((acc, s) => acc + s.duration, 0),
       checkInTime,
       status: 'waiting',
-      preferredStaffId: preferredStaffId !== 'any' ? preferredStaffId : undefined,
+      ...(preferredStaffId !== 'any' && { preferredStaffId: preferredStaffId }),
       waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
       notes,
       queueOrder: currentTime,
@@ -571,7 +566,7 @@ export default function WalkInPage() {
       const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
       const memberWalkIn: Omit<WalkIn, 'id'> = {
           groupId,
-          groupName,
+          ...groupName && { groupName },
           isPrimaryContact: false,
           customerName: member.name,
           customerPhone: member.phone,
@@ -582,7 +577,7 @@ export default function WalkInPage() {
           estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
           checkInTime,
           status: 'waiting',
-          preferredStaffId: preferredStaffId !== 'any' ? preferredStaffId : undefined,
+          ...(preferredStaffId !== 'any' && { preferredStaffId: preferredStaffId }),
           waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
           queueOrder: currentTime + index + 1,
       };
