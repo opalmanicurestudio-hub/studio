@@ -194,7 +194,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                     <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId}>
-                        <Link href={tenantId ? `/walk-in/${tenantId}` : '#'} target="_blank">
+                        <Link href={tenantId ? `/kiosk/${tenantId}` : '#'} target="_blank">
                             <Users />
                             <span>Walk-in Kiosk</span>
                         </Link>
