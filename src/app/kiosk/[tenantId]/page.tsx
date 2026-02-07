@@ -194,52 +194,35 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
     
     // Separate state for each part of the date, initialized from the prop
-    const [month, setMonth] = useState<string>(() => {
-      try {
-        return member.birthday ? String(parseISO(member.birthday).getMonth() + 1) : '';
-      } catch { return ''; }
-    });
-    const [day, setDay] = useState<string>(() => {
-      try {
-        return member.birthday ? String(parseISO(member.birthday).getDate()) : '';
-      } catch { return ''; }
-    });
-    const [year, setYear] = useState<string>(() => {
-      try {
-        return member.birthday ? String(parseISO(member.birthday).getFullYear()) : '';
-      } catch { return ''; }
-    });
-
-    // Effect to sync local state if the prop changes from an external source
-    useEffect(() => {
-      try {
-        if (member.birthday) {
+    const getInitialDatePart = (part: 'month' | 'day' | 'year') => {
+        try {
+            if (!member.birthday) return '';
             const date = parseISO(member.birthday);
-            setMonth(String(date.getMonth() + 1));
-            setDay(String(date.getDate()));
-            setYear(String(date.getFullYear()));
-        } else {
-            setMonth('');
-            setDay('');
-            setYear('');
+            if (part === 'month') return String(date.getMonth() + 1);
+            if (part === 'day') return String(date.getDate());
+            if (part === 'year') return String(date.getFullYear());
+            return '';
+        } catch {
+            return '';
         }
-      } catch (e) {
-        // Handle invalid date string gracefully
-        setMonth('');
-        setDay('');
-        setYear('');
-      }
-    }, [member.birthday]);
+    };
 
-    const handleDatePartChange = (part: 'day' | 'month' | 'year', value: string) => {
+    const [month, setMonth] = useState(getInitialDatePart('month'));
+    const [day, setDay] = useState(getInitialDatePart('day'));
+    const [year, setYear] = useState(getInitialDatePart('year'));
+
+    // Effect to handle prop changes from parent (e.g. reset)
+    useEffect(() => {
+        setMonth(getInitialDatePart('month'));
+        setDay(getInitialDatePart('day'));
+        setYear(getInitialDatePart('year'));
+    }, [member.birthday]);
+    
+    const handleDatePartChange = useCallback((part: 'day' | 'month' | 'year', value: string) => {
         let newDay = day, newMonth = month, newYear = year;
-        if (part === 'day') newDay = value;
-        if (part === 'month') newMonth = value;
-        if (part === 'year') newYear = value;
-        
-        setDay(newDay);
-        setMonth(newMonth);
-        setYear(newYear);
+        if (part === 'day') { setDay(value); newDay = value; }
+        if (part === 'month') { setMonth(value); newMonth = value; }
+        if (part === 'year') { setYear(value); newYear = value; }
 
         if (newYear && newMonth && newDay) {
             const y = parseInt(newYear, 10);
@@ -261,7 +244,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
         } else if (member.birthday) { // If any part is cleared, clear the whole date
             onUpdate(member.id, { birthday: undefined });
         }
-    };
+    }, [day, month, year, member.id, member.birthday, onUpdate]);
     
     const toggleService = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
@@ -565,7 +548,7 @@ export default function WalkInPage() {
       customerName,
       customerPhone,
       customerEmail,
-      customerBirthday: customerBirthday?.toISOString(),
+      ...(customerBirthday && { customerBirthday: customerBirthday.toISOString() }),
       clientId: selectedClientId,
       serviceIds: selectedServices.map(s => s.id),
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
@@ -593,7 +576,7 @@ export default function WalkInPage() {
           customerName: member.name,
           customerPhone: member.phone,
           customerEmail: member.email,
-          customerBirthday: member.birthday,
+          ...(member.birthday && { customerBirthday: member.birthday }),
           serviceIds: member.serviceIds,
           requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
           estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
