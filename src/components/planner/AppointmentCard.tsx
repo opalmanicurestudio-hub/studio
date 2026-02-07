@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -444,8 +445,6 @@ const AppointmentDetails = ({
   );
 };
 
-// ... (rest of the component)
-// ... (The rest of the component remains the same, so it's omitted for brevity)
 interface AppointmentCardProps {
   appointment: Appointment;
   client: Client;
@@ -821,5 +820,3 @@ export function AppointmentCard({
     </div>
   );
 };
-
-    
