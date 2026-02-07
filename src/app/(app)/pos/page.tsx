@@ -124,18 +124,7 @@ export default function POSPage() {
             newSet.add(appointmentId);
         }
         setSelectedAppointmentIds(newSet);
-
-        // Auto-select client if only one is selected
-        if (newSet.size === 1) {
-            const singleAppointmentId = Array.from(newSet)[0];
-            const appointment = readyForCheckoutAppointments.find(a => a.id === singleAppointmentId);
-            if (appointment) {
-                setSelectedClientId(appointment.clientId);
-            }
-        } else if (newSet.size === 0) {
-            setSelectedClientId(null);
-        }
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+    }, [selectedAppointmentIds]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
@@ -527,9 +516,17 @@ export default function POSPage() {
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; } => !!a);
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+    
+    useEffect(() => {
+        if (appointmentsData.length === 1) {
+            setSelectedClientId(appointmentsData[0].clientId);
+        } else if (appointmentsData.length === 0) {
+            setSelectedClientId(null);
+        }
+    }, [appointmentsData]);
 
     const { subtotal, tax, total, redeemedOffer } = useMemo(() => {
-        let offerApplied: { type: 'membership' | 'package', id: string } | null = null;
+        const offerApplied: { type: 'membership' | 'package', id: string } | null = null;
         
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             if (!aptData || !aptData.service) return acc;
@@ -730,7 +727,7 @@ export default function POSPage() {
             const primaryAppointmentId = appointmentsData.length > 0 ? appointmentsData[0].id : undefined;
             const paymentMethodDisplay = paymentTab.charAt(0).toUpperCase() + paymentTab.slice(1);
             
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+            const newTransactionData: Partial<Omit<Transaction, 'id' | 'date'>> = {
                 description: `POS Checkout for ${payerClient?.name || 'Walk-in'}`,
                 clientOrVendor: payerClient?.name || 'Walk-in Customer',
                 clientId: payerClient?.id,
@@ -742,11 +739,14 @@ export default function POSPage() {
                 hasReceipt: true,
                 tipAmount,
                 discountAmount: discount + membershipDiscount,
-                appliedDiscountCode,
                 appointmentId: primaryAppointmentId,
             };
+            if (appliedDiscountCode) {
+                newTransactionData.appliedDiscountCode = appliedDiscountCode;
+            }
+
             const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(transactionRef, { ...newTransaction, date: new Date().toISOString() });
+            batch.set(transactionRef, { ...newTransactionData, date: new Date().toISOString() });
 
             // 4. Update Client LTV
             if (payerClient) {
