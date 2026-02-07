@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -195,12 +196,6 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <div>
                         <CardTitle>Team Status</CardTitle>
-                         <CardDescription>
-                            {hasIdleStaff ? "A staff member is available now." : 
-                             nextAvailableIn !== null ? `Next available in ~${nextAvailableIn} min.` : 
-                             "No staff currently available."
-                            }
-                        </CardDescription>
                     </div>
                     <div className="w-full sm:w-56">
                         <Label htmlFor="assignment-mode" className="text-xs font-medium sr-only">Assignment Mode</Label>
@@ -218,13 +213,21 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 </div>
             </CardHeader>
             <CardContent>
+                <div className="p-4 bg-muted/50 rounded-lg text-center mb-6">
+                    <p className="text-sm font-medium text-muted-foreground">Next Available Staff</p>
+                    <p className="text-3xl font-bold text-primary">
+                        {hasIdleStaff ? "Now" : 
+                         nextAvailableIn !== null ? `~${nextAvailableIn} min` : 
+                         "N/A"
+                        }
+                    </p>
+                </div>
                 <div className="space-y-3">
                     {enrichedOrderedStaff.map((member, index) => (
                         <StaffMemberCard
                             key={member.id}
                             member={member}
                             isNextUp={member.id === nextUpStaffId}
-                            onStatusChange={onStatusChange}
                             turnOrder={index + 1}
                             onMoveUp={handleMoveUp}
                             onMoveDown={handleMoveDown}

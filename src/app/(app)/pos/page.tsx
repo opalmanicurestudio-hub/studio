@@ -39,13 +39,17 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 
-const KpiCard = ({ title, value, icon, description }: { title: string; value: string; icon: React.ReactNode, description: string; }) => (
+const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
       <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      {icon}
+      <div className={cn("p-2 rounded-lg", iconBgColor)}>
+        {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+      </div>
     </CardHeader>
     <CardContent>
       <div className="text-2xl font-bold">{value}</div>
@@ -633,12 +637,27 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock />} description="Today's average wait for walk-ins." />
-                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp />} description="Walk-ins that resulted in a service." />
-                            <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users />} description="Total number of walk-in parties." />
-                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign />} description="Revenue per hour of active service." />
+                        {/* KPI Cards for Desktop */}
+                        <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                           <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
+                           <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
+                           <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
+                           <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
                         </div>
+
+                        {/* KPI Cards for Mobile */}
+                        <div className="md:hidden">
+                            <ScrollArea>
+                                <div className="flex space-x-4 pb-4">
+                                    <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
+                                </div>
+                                <ScrollBar orientation="horizontal" />
+                            </ScrollArea>
+                        </div>
+                        
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
