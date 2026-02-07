@@ -1,3 +1,4 @@
+
 'use client';
 
 import React from 'react';
@@ -6,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, addMinutes } from 'date-fns';
 import { User, Clock, CheckCircle } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface InServiceAppointmentCardProps {
     appointment: Appointment;
@@ -30,9 +32,15 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
         <Card className={isReady ? "border-green-500" : ""}>
             <CardContent className="p-4">
                  <div className="flex justify-between items-start">
-                    <div>
+                    <div className="space-y-2">
                         <p className="font-semibold flex items-center gap-2"><User className="w-4 h-4"/>{appointment.clientName}</p>
-                        <p className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="w-4 h-4"/>With {assignedStaff?.name || 'N/A'}</p>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="w-6 h-6">
+                            <AvatarImage src={assignedStaff?.avatarUrl} alt={assignedStaff?.name || ''} />
+                            <AvatarFallback>{assignedStaff?.name.charAt(0) || '?'}</AvatarFallback>
+                          </Avatar>
+                          <span className="text-sm text-muted-foreground">With {assignedStaff?.name || 'N/A'}</span>
+                        </div>
                     </div>
                      <div className="text-right">
                         {allServices?.map(s => <p key={s.id} className="text-sm">{s.name}</p>)}
