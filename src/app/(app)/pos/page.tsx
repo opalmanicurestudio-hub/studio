@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData } from '@/lib/data';
@@ -437,7 +438,7 @@ export default function POSPage() {
       if (!firestore || !selectedTenant || !services) return;
       
       const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'assigned' });
+      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
       
       const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
       const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
@@ -667,6 +668,19 @@ export default function POSPage() {
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}
+                                    onPrintTicket={(walkInId: string) => {
+                                        const walkIn = walkIns?.find(w => w.id === walkInId);
+                                        if (walkIn) {
+                                            setTicketToPrint({
+                                                id: walkIn.id,
+                                                name: walkIn.customerName,
+                                                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
+                                                queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
+                                                checkInTime: walkIn.checkInTime,
+                                            });
+                                            setIsPrintDialogOpen(true);
+                                        }
+                                    }}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -754,19 +768,20 @@ export default function POSPage() {
             <style jsx global>{`
                 @media print {
                     body > *:not(.print-only) {
-                        display: none !important;
+                    display: none !important;
                     }
                     .print-only, .print-only * {
-                        display: block !important;
-                        visibility: visible !important;
+                    display: block !important;
+                    visibility: visible !important;
                     }
                     .print-only {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
+                    position: absolute;
+                    left: 0;
+                    top: 0;
                     }
                 }
             `}</style>
         </>
     );
 }
+
