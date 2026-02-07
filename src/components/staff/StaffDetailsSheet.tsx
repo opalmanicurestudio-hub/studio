@@ -15,7 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog, type ConsentForm } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
 import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer, ShieldAlert } from 'lucide-react';
 import { Button, buttonVariants } from '../ui/button';
 import {
@@ -54,7 +54,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
             <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
                     <p className="font-medium text-sm leading-tight">{transaction.description}</p>
-                    <p className="text-xs text-muted-foreground">{format(new Date(transaction.date), 'MMM d, yyyy')}</p>
+                    <p className="text-xs text-muted-foreground">{format(transaction.date, 'MMM d, yyyy')}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                     <p className={cn('font-mono font-semibold', transaction.type === 'income' ? 'text-green-500' : 'text-red-500')}>
@@ -119,7 +119,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
     return activityLogs.filter(log => {
       if(log.staffId !== staffMember.id) return false;
-      const logDate = new Date(log.timestamp);
+      const logDate = log.timestamp;
       if (fromDate && logDate < fromDate) return false;
       if (toDate && logDate > toDate) return false;
       if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
@@ -134,12 +134,12 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     
     return transactions.filter(t => {
       if(t.staffId !== staffMember.id) return false;
-      const transactionDate = new Date(t.date);
+      const transactionDate = t.date;
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
-    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a,b) => b.date.getTime() - a.date.getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
     
   const dateRangeString = dateRange?.from && dateRange.to
@@ -252,7 +252,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             {filteredActivityLogs.length > 0 ? (
                                 filteredActivityLogs.map(log => (
                                     <TableRow key={log.id}>
-                                        <TableCell>{format(new Date(log.timestamp), 'PPP p')}</TableCell>
+                                        <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
                                         <TableCell className="capitalize flex items-center gap-2">
                                             {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
                                             {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
@@ -288,7 +288,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                               {filteredTransactions.length > 0 ? (
                               filteredTransactions.map(t => (
                                   <TableRow key={t.id}>
-                                  <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
+                                  <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
                                   <TableCell>{t.description}</TableCell>
                                   <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
                                   <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
@@ -307,7 +307,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             const service = services.find(s => s.id === appointment?.serviceId);
                             let timeVariance = null;
                             if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime as string), parseISO(appointment.actualStartTime as string));
+                                const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
                                 timeVariance = actualDuration - service.duration;
                             }
                             return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />

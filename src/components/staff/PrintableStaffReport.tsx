@@ -5,10 +5,11 @@ import React from 'react';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog } from '@/lib/data';
 import { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Clock, Coffee, TrendingUp, DollarSign } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface PrintableStaffReportProps {
   staffMember: (Staff & { stats: any });
@@ -19,13 +20,13 @@ interface PrintableStaffReportProps {
   appointments: Appointment[];
 }
 
-export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableStaffReportProps>(({
-  staffMember,
-  dateRange,
-  activityLogs,
-  transactions,
-  services,
-  appointments
+export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableStaffReportProps>(({ 
+    staffMember, 
+    dateRange, 
+    activityLogs, 
+    transactions, 
+    services, 
+    appointments
 }, ref) => {
     
     const dateRangeString = dateRange?.from && dateRange.to
@@ -33,7 +34,23 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
     : 'All Time';
 
   return (
-    <div ref={ref} className="p-8 bg-white text-black font-sans">
+    <div ref={ref} className="p-8 bg-white text-black font-sans text-sm">
+      <style jsx global>{`
+        @media print {
+            @page {
+                size: A4;
+                margin: 1in;
+            }
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .break-before-page {
+                page-break-before: always;
+            }
+        }
+      `}</style>
+
       <header className="mb-8 text-center">
         <h1 className="text-3xl font-bold">{staffMember.name}</h1>
         <p className="text-lg font-semibold">Performance Report</p>
