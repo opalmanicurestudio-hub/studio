@@ -48,12 +48,16 @@ import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/P
 
 type Step = 'services' | 'consents' | 'confirmation';
 
-const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
+const StaffSelectionCard = ({ staff }: { staff: Staff | { id: string, name: string, avatarUrl: string } }) => {
     const isAnyStaff = staff.id === 'any';
     return (
-        <label htmlFor={`staff-${staff.id}`} className="block cursor-pointer">
-            <Card className={`transition-all ${isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50'}`}>
-                <CardContent className="p-4 flex flex-col items-center gap-3">
+        <div>
+            <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="peer sr-only" />
+            <Label
+                htmlFor={`staff-${staff.id}`}
+                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary"
+            >
+                <div className="flex flex-col items-center gap-3">
                     <Avatar className="w-16 h-16">
                         {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
                         <AvatarFallback className="text-muted-foreground">
@@ -61,10 +65,9 @@ const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { 
                         </AvatarFallback>
                     </Avatar>
                     <p className="font-semibold text-sm text-center">{staff.name}</p>
-                    <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" />
-                </CardContent>
-            </Card>
-        </label>
+                </div>
+            </Label>
+        </div>
     );
 };
 
@@ -882,18 +885,16 @@ export default function WalkInPage() {
                        <div className="space-y-4 pt-6 border-t">
                           <h4 className="font-semibold text-lg">Preferences & Notes</h4>
                           <div className="space-y-2">
-                              <Label htmlFor="preferred-staff">Preferred Staff</Label>
-                              <Select value={preferredStaffId} onValueChange={setPreferredStaffId}>
-                                  <SelectTrigger id="preferred-staff">
-                                      <SelectValue placeholder="Select a staff member" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                      <SelectItem value="any">Any Available</SelectItem>
-                                      {staff?.map(s => (
-                                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                      ))}
-                                  </SelectContent>
-                              </Select>
+                            <Label>Preferred Staff</Label>
+                            <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                                {staff?.map(s => (
+                                    <StaffSelectionCard
+                                        key={s.id}
+                                        staff={s}
+                                    />
+                                ))}
+                            </RadioGroup>
                           </div>
                           {preferredStaffId !== 'any' && (
                               <div className="flex items-center justify-between rounded-lg border p-4">
