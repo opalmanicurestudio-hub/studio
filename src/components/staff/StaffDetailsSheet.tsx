@@ -78,7 +78,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
             <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
                     <p className="font-medium text-sm leading-tight">{transaction.description}</p>
-                    <p className="text-xs text-muted-foreground">{format(new Date(transaction.date), 'MMM d, yyyy h:mm a')}</p>
+                    <p className="text-xs text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, yyyy h:mm a')}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                     <p className={cn('font-mono font-semibold', transaction.type === 'income' ? 'text-green-500' : 'text-red-500')}>
@@ -163,7 +163,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       const transactionDate = t.date;
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
-      if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
+      if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.clientOrVendor.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
     }).sort((a,b) => b.date.getTime() - a.date.getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
