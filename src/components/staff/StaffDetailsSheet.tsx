@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -183,13 +184,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? 'bottom' : 'right'} className="w-full sm:max-w-2xl p-0 flex flex-col">
-        <SheetHeader className="p-6">
+        <SheetHeader className="p-6 pb-4 border-b">
           <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
           <SheetDescription>
             Performance breakdown for {dateRangeString}.
           </SheetDescription>
         </SheetHeader>
-        <div className="flex items-center justify-between px-6 pb-4 border-b">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
             <Popover>
                 <PopoverTrigger asChild>
                     <Button
@@ -266,13 +267,15 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         />
                     </div>
                     {isMobile ? (
-                        <div className="space-y-3">
-                            {filteredActivityLogs.length > 0 ? (
-                                filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)
-                            ) : (
-                                <p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>
-                            )}
-                        </div>
+                        <ScrollArea className="h-96">
+                            <div className="space-y-3 pr-4">
+                                {filteredActivityLogs.length > 0 ? (
+                                    filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)
+                                ) : (
+                                    <p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>
+                                )}
+                            </div>
+                        </ScrollArea>
                     ) : (
                         <Table>
                             <TableHeader>
@@ -317,22 +320,24 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         />
                     </div>
                     {isMobile ? (
-                        <div className="space-y-3">
-                          {filteredTransactions.length > 0 ? (
-                            filteredTransactions.map(t => {
-                                const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                                const service = services.find(s => s.id === appointment?.serviceId);
-                                let timeVariance = null;
-                                if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                    const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                    timeVariance = actualDuration - service.duration;
-                                }
-                                return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                            })
-                          ) : (
-                              <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
-                          )}
-                        </div>
+                        <ScrollArea className="h-96">
+                            <div className="space-y-3 pr-4">
+                              {filteredTransactions.length > 0 ? (
+                                filteredTransactions.map(t => {
+                                    const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                                    const service = services.find(s => s.id === appointment?.serviceId);
+                                    let timeVariance = null;
+                                    if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                        const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
+                                        timeVariance = actualDuration - service.duration;
+                                    }
+                                    return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                                })
+                              ) : (
+                                  <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
+                              )}
+                            </div>
+                        </ScrollArea>
                     ) : (
                         <Table>
                             <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
@@ -434,5 +439,3 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     </>
   );
 };
-
-    
