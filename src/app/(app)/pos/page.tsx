@@ -503,11 +503,38 @@ export default function POSPage() {
     };
     
     const { subtotal, tax, total } = useMemo(() => {
-        const sub = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        const servicesSubtotal = Array.from(selectedAppointmentIds).reduce((acc, aptId) => {
+        const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
+        if (!aptData) return acc;
+        
+        const mainServicePrice = aptData.service?.price || 0;
+        const addOnsPrice = (aptData.appointment.addOnIds || [])
+            .map(id => services.find(s => s.id === id)?.price || 0)
+            .reduce((a, b) => a + b, 0);
+        return acc + mainServicePrice + addOnsPrice;
+        }, 0);
+
+        const sub = retailSubtotal + servicesSubtotal;
         const taxAmount = sub * 0.07;
         const grandTotal = sub + taxAmount + tipAmount;
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
-    }, [cart, tipAmount]);
+    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments, services, tipAmount]);
+
+    const totalItemsInCart = useMemo(() => {
+        const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+        const serviceItemsCount = Array.from(selectedAppointmentIds).reduce((acc, aptId) => {
+            const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
+            if (!aptData) return acc;
+            
+            let count = 0;
+            if(aptData.service) count += 1;
+            count += (aptData.appointment.addOnIds || []).length;
+            return acc + count;
+        }, 0);
+        return retailItemsCount + serviceItemsCount;
+    }, [cart, selectedAppointmentIds, readyForCheckoutAppointments]);
 
     const handleStartService = (appointmentId: string) => {
       const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
@@ -626,6 +653,7 @@ export default function POSPage() {
         total,
         tipAmount,
         setTipAmount,
+        onCheckout: () => {},
         showTitle: false,
     };
     
@@ -716,9 +744,9 @@ export default function POSPage() {
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                         <SheetTrigger asChild>
-                            <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}>
+                             <Button className="w-full h-14 text-lg" size="lg" disabled={totalItemsInCart === 0}>
                                 <div className="flex justify-between items-center w-full">
-                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length} item(s)</span>
+                                    <span><ShoppingCart className="inline-block mr-2" />{totalItemsInCart} item(s)</span>
                                     <span>${total.toFixed(2)}</span>
                                 </div>
                             </Button>
