@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -206,7 +207,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
     useEffect(() => {
         if (birthYear && birthMonth && birthDay) {
             const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
-            if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(month) && date.getDate() === parseInt(day)) {
+            if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(birthMonth) && date.getDate() === parseInt(birthDay)) {
                 onUpdate(member.id, { birthday: date.toISOString() });
             }
         }
@@ -263,7 +264,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                              <div className="space-y-2">
                                 <Label>Birthday</Label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <Select value={bMonth} onValueChange={setBirthMonth}>
+                                    <Select value={birthMonth} onValueChange={setBirthMonth}>
                                         <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 12 }, (_, i) => (
@@ -273,7 +274,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <Select value={bDay} onValueChange={setBirthDay}>
+                                    <Select value={birthDay} onValueChange={setBirthDay}>
                                         <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 31 }, (_, i) => (
@@ -283,7 +284,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                     <Select value={bYear} onValueChange={setBirthYear}>
+                                     <Select value={birthYear} onValueChange={setBirthYear}>
                                         <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 100 }, (_, i) => {
@@ -393,7 +394,7 @@ export default function WalkInPage() {
   useEffect(() => {
     if (birthYear && birthMonth && birthDay) {
         const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
-        if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(month) && date.getDate() === parseInt(day)) {
+        if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(birthMonth) && date.getDate() === parseInt(birthDay)) {
             setCustomerBirthday(date);
         } else {
              setCustomerBirthday(undefined);
