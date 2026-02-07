@@ -229,7 +229,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                   const service = services.find(s => s.id === appointment?.serviceId);
                                   let timeVariance = null;
                                   if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                      const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime as string), parseISO(appointment.actualStartTime as string));
+                                      const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
                                       timeVariance = actualDuration - service.duration;
                                   }
                                   return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
