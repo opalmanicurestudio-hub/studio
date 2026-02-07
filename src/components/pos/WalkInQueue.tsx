@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -14,6 +15,7 @@ import { Reorder } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -28,6 +30,7 @@ interface WalkInQueueProps {
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
     onPrintTicket: (walkInId: string) => void;
+    onSkip: (walkInId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -43,6 +46,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onReorder,
     assignmentMode,
     onPrintTicket,
+    onSkip,
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -90,8 +94,9 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     return (
         <>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
+                    <TabsTrigger value="notified">Notified <Badge className="ml-2">{notifiedQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="servicing">In Service <Badge className="ml-2">{inServiceQueue.length}</Badge></TabsTrigger>
                 </TabsList>
                 <TabsContent value="waiting" className="mt-4 space-y-4">
@@ -122,6 +127,27 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
+                </TabsContent>
+                <TabsContent value="notified" className="mt-4 space-y-4">
+                    {notifiedQueue.length > 0 ? (
+                        <ScrollArea>
+                            <div className="flex space-x-4 pb-4">
+                                {notifiedQueue.map(walkIn => (
+                                    <div key={walkIn.id} className="w-72 shrink-0">
+                                        <NotifiedCustomerCard 
+                                            walkIn={walkIn} 
+                                            services={services} 
+                                            staff={staff}
+                                            onStartService={onStartService}
+                                            onSkip={onSkip}
+                                            onCancel={onCancel}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    ) : <p className="text-center text-muted-foreground p-8">No clients have been notified yet.</p>}
                 </TabsContent>
                 <TabsContent value="servicing" className="mt-4 space-y-4">
                      {inServiceQueue.length > 0 ? (

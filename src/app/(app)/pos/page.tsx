@@ -532,6 +532,42 @@ export default function POSPage() {
         });
     };
     
+    const handleSkipWalkIn = async (walkInId: string) => {
+        if (!firestore || !selectedTenant || !walkIns || !staff) return;
+
+        const walkIn = walkIns.find(w => w.id === walkInId);
+        if (!walkIn) return;
+
+        setConfirmation({
+            isOpen: true,
+            title: 'Are you sure?',
+            description: `This will skip ${walkIn.customerName}'s turn and free up the assigned staff member. The client will need to be re-added to the queue.`,
+            onConfirm: async () => {
+                const batch = writeBatch(firestore);
+
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                batch.update(walkInRef, { status: 'skipped' });
+
+                if (walkIn.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+
+                    const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+                    batch.update(staffRef, { status: 'idle' });
+                }
+
+                await batch.commit();
+
+                toast({
+                    title: "Client Skipped",
+                    description: `${walkIn.customerName} has been skipped.`,
+                });
+                setConfirmation(null);
+            }
+        });
+    };
+
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -683,7 +719,9 @@ export default function POSPage() {
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         appointmentsData.forEach(apt => {
-            clientIds.add(apt.clientId);
+          if(apt.client) {
+            clientIds.add(apt.client.id);
+          }
         });
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
@@ -910,6 +948,7 @@ export default function POSPage() {
                                             setIsPrintDialogOpen(true);
                                         }
                                     }}
+                                    onSkip={handleSkipWalkIn}
                                 />
                             </TabsContent>
                         </Tabs>
