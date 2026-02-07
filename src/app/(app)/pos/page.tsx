@@ -14,7 +14,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -545,8 +545,8 @@ export default function POSPage() {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 batch.update(walkInRef, { 
                     status: 'waiting',
-                    assignedStaffId: undefined,
-                    notifiedTimestamp: undefined,
+                    assignedStaffId: deleteField(),
+                    notifiedTimestamp: deleteField(),
                     queueOrder: Date.now(), // Put them at the end of the queue
                 });
     
@@ -624,22 +624,23 @@ export default function POSPage() {
     }, [cart, appointmentsData]);
 
     const handleStartService = (appointmentId: string) => {
-      const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-      if (!appointmentToStart || !firestore || !selectedTenant) return;
-      
-      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-      
-      if (appointmentToStart.isWalkIn) {
-        const walkInId = appointmentId.replace('apt-walkin-', '');
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
-      }
+        if (!firestore || !selectedTenant) return;
+        
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+        
+        const appointment = appointments?.find(apt => apt.id === appointmentId);
+        
+        if (appointment && appointment.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+        }
 
-      toast({
-        title: "Service Started!",
-        description: `The service for ${appointmentToStart.clientName} has begun.`
-      });
+        toast({
+            title: "Service Started!",
+            description: `The service for ${appointment?.clientName || 'the client'} has begun.`
+        });
     };
     
     useEffect(() => {
@@ -926,5 +927,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
