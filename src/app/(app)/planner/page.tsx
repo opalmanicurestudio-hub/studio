@@ -368,7 +368,7 @@ function PlannerPageContent() {
     }
   }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
-   const itemsByColumn = useMemo(() => {
+   const itemsByColumnRaw = useMemo(() => {
     const map = new Map<string, (Appointment | Event | (any & {isPlaceholder?: boolean}))[]>();
     
     const columnsToProcess = activeView === 'staff' ? (staff || []) : (resources || []);
@@ -472,7 +472,7 @@ function PlannerPageContent() {
   }, [currentDate, appointments, events, staff, resources, activeView, services, walkIns, tenantId]);
   
   const itemsByColumn = useMemo(() => {
-    if(!itemsByColumnRaw) return new Map(); 
+    if (!itemsByColumnRaw) return new Map();
     const map = new Map<string, (Appointment | Event)[]>();
     
     const columnsToUse = activeView === 'staff' ? staff : resources;
@@ -1381,7 +1381,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1624,3 +1624,4 @@ export default function PlannerPageWrapper() {
   )
 }
 
+    
