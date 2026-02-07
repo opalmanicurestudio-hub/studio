@@ -210,29 +210,33 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
                   </div>
-                  <div className="space-y-3">
-                      {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
-                  </div>
+                  <ScrollArea className="h-96">
+                    <div className="space-y-3 pr-4">
+                        {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
+                    </div>
+                  </ScrollArea>
               </TabsContent>
               <TabsContent value="transactions" className="mt-4">
                   <div className="relative mb-4">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
                   </div>
-                  <div className="space-y-3">
-                      {filteredTransactions.length > 0 ? (
-                          filteredTransactions.map(t => {
-                              const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                              const service = services.find(s => s.id === appointment?.serviceId);
-                              let timeVariance = null;
-                              if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                  const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                  timeVariance = actualDuration - service.duration;
-                              }
-                              return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                          })
-                      ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
-                  </div>
+                   <ScrollArea className="h-96">
+                      <div className="space-y-3 pr-4">
+                          {filteredTransactions.length > 0 ? (
+                              filteredTransactions.map(t => {
+                                  const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                                  const service = services.find(s => s.id === appointment?.serviceId);
+                                  let timeVariance = null;
+                                  if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                      const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime as string), parseISO(appointment.actualStartTime as string));
+                                      timeVariance = actualDuration - service.duration;
+                                  }
+                                  return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                              })
+                          ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
+                      </div>
+                   </ScrollArea>
               </TabsContent>
               <TabsContent value="effectiveness" className="mt-4">
                   <Card><CardContent className="p-4 space-y-4">
@@ -297,4 +301,3 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     </>
   );
 };
-```
