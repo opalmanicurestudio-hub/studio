@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader } from 'lucide-react';
-import { type Appointment, type Service, type Client, type Discount } from '@/lib/data';
+import { type Appointment, type Service, type Client, type Discount, type Staff } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -18,6 +19,8 @@ import { useInventory } from '@/context/InventoryContext';
 export const CheckoutHub = ({ 
     cart, 
     onCartChange,
+    appointmentsData,
+    onSelectAppointment,
     clients,
     isGroupCheckout,
     payerOptions,
@@ -40,6 +43,8 @@ export const CheckoutHub = ({
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
+    appointmentsData: (Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff })[],
+    onSelectAppointment: (appointmentId: string) => void,
     clients: Client[],
     isGroupCheckout: boolean,
     payerOptions: Client[],
@@ -136,19 +141,48 @@ export const CheckoutHub = ({
             <Separator />
 
             <ScrollArea className="flex-1 my-4 pr-2 -mr-2">
-                <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-semibold">Items</h3>
-                    <p className="text-sm font-medium">{cart.reduce((acc, item) => acc + item.quantity, 0)}</p>
-                </div>
-                <div className="space-y-3">
-                    {cart.map(item => (
-                        <div key={item.id} className="flex items-center gap-2">
-                            <p className="flex-1 text-sm">{item.quantity}x {item.name}</p>
-                            <p className="font-semibold text-sm">${(item.price * item.quantity).toFixed(2)}</p>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                        </div>
-                    ))}
-                </div>
+                 {/* RETAIL ITEMS */}
+                {cart.length > 0 && (
+                    <div className="space-y-3">
+                        {cart.map(item => (
+                            <div key={item.id} className="flex items-center gap-2">
+                                <p className="flex-1 text-sm">{item.quantity}x {item.name}</p>
+                                <p className="font-semibold text-sm">${(item.price * item.quantity).toFixed(2)}</p>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                
+                {/* SEPARATOR */}
+                {cart.length > 0 && appointmentsData.length > 0 && <Separator className="my-3" />}
+
+                {/* SERVICE ITEMS */}
+                {appointmentsData.length > 0 && (
+                     <div className="space-y-3">
+                        {appointmentsData.map(aptData => (
+                             <div key={aptData.id} className="text-sm p-2 rounded-md bg-muted/50">
+                                {isGroupCheckout && (
+                                    <p className="font-semibold text-xs text-muted-foreground flex items-center gap-2 mb-2 pb-2 border-b">
+                                        <Avatar className="w-5 h-5"><AvatarImage src={aptData.client.avatarUrl} /><AvatarFallback>{aptData.client.name.charAt(0)}</AvatarFallback></Avatar>
+                                        {aptData.client.name}
+                                    </p>
+                                )}
+                                <div className="flex items-center gap-2">
+                                    <p className="flex-1 font-medium">{aptData.service.name}</p>
+                                    <p className="font-semibold">${(aptData.service.price || 0).toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(aptData.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                                </div>
+                                {aptData.addOnServices.map(addon => (
+                                    <div key={addon.id} className="flex items-center gap-2 pl-4">
+                                        <p className="flex-1 text-xs text-muted-foreground">+ {addon.name}</p>
+                                        <p className="font-semibold text-xs">${(addon.price || 0).toFixed(2)}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </ScrollArea>
 
             <Separator />

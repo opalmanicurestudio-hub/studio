@@ -521,10 +521,10 @@ export default function POSPage() {
         const client = clients.find(c => c.id === selectedClientId);
 
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
-            const mainServicePrice = aptData.service?.price || 0;
-            const addOnsPrice = (aptData.addOnIds || [])
-                .map(id => services.find(s => s.id === id)?.price || 0)
-                .reduce((a, b) => a + b, 0);
+            if (!aptData || !aptData.service) return acc;
+            const mainServicePrice = redeemedOffer?.id === aptData.service.id ? 0 : aptData.service.price || 0;
+            const addOnsPrice = (aptData.addOnServices || [])
+                .reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -534,7 +534,7 @@ export default function POSPage() {
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
         return { retailTotalForDiscount: retailSubtotal, subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
-    }, [cart, appointmentsData, services, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
+    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -542,7 +542,7 @@ export default function POSPage() {
         const serviceItemsCount = appointmentsData.reduce((acc, aptData) => {
             let count = 0;
             if (aptData.service) count += 1;
-            count += (aptData.addOnIds || []).length;
+            count += (aptData.addOnServices || []).length;
             return acc + count;
         }, 0);
 
@@ -667,12 +667,14 @@ export default function POSPage() {
         tipAmount,
         setTipAmount,
         onCheckout: () => {},
-        showTitle: false,
         appliedDiscountCode,
         setAppliedDiscountCode,
         discount,
         membershipDiscount,
+        showTitle: false,
         isSubmitting,
+        appointmentsData,
+        onSelectAppointment: handleSelectAppointment,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
@@ -864,9 +866,6 @@ export default function POSPage() {
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
-                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold">Current Sale</h2>
-                        </div>
                         <CheckoutHub {...{...checkoutHubProps, onCheckout: handleFinalizeCheckout, isSubmitting}} />
                     </aside>
                 </div>
