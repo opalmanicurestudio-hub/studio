@@ -76,6 +76,7 @@ import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, de
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
+import { type Tenant } from '@/lib/data';
 
 const BillItemRow = ({
   bill,
@@ -500,19 +501,28 @@ const FinancialProfileManager = ({
 };
 
 
-const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { lifestyleTotal: number; businessTotal: number; totalHours: number; }) => {
+const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestore, selectedTenant }: { lifestyleTotal: number; businessTotal: number; totalHours: number; firestore: any, selectedTenant: Tenant | null }) => {
     const { toast } = useToast();
     const totalCosts = lifestyleTotal + businessTotal;
     const tmhr = totalHours > 0 ? totalCosts / totalHours : 0;
     
     const handleSetDefaultRate = () => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('tmhr', tmhr.toFixed(2));
+        if (!selectedTenant || !firestore) {
             toast({
-                title: 'Default Rate Saved',
-                description: `Your TMHR of $${tmhr.toFixed(2)}/hr has been set as the default.`,
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Cannot save rate. No business selected.',
             });
+            return;
         }
+
+        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+        updateDocumentNonBlocking(tenantRef, { tmhr });
+
+        toast({
+            title: 'Default Rate Saved',
+            description: `Your TMHR of $${tmhr.toFixed(2)}/hr has been set as the default for this business.`,
+        });
     };
 
     return (
@@ -807,7 +817,13 @@ export default function FinancialFoundationPage() {
                                   setRenamingProfileId={setRenamingProfileId}
                                   onDeleteProfile={handleDeleteProfile}
                               />
-                            <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
+                            <TmhrBreakdownCard 
+                                lifestyleTotal={lifestyleTotal} 
+                                businessTotal={businessTotal} 
+                                totalHours={totalBillableHours}
+                                firestore={firestore}
+                                selectedTenant={selectedTenant}
+                            />
                         </div>
                         <div className="lg:col-span-1">
                             <TabsContent value="lifestyle" className="m-0">

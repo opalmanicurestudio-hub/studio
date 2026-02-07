@@ -57,6 +57,10 @@
             "enum": ["none", "pro"],
             "description": "The subscription tier of the tenant."
         },
+        "tmhr": {
+            "type": "number",
+            "description": "The user's calculated True Minimum Hourly Rate."
+        },
         "queueSkipTimeMinutes": {
             "type": "number",
             "description": "Number of minutes a client has to claim their spot before being skipped."
@@ -1188,4 +1192,5 @@
     
 
     
+
 

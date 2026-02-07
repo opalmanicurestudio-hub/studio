@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
+import { useTenant } from '@/context/TenantContext';
 
 const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number; }) => {
     const { inventory } = useInventory();
@@ -244,18 +245,18 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
     const { services, appointments } = useInventory();
+    const { selectedTenant } = useTenant();
     const service = useMemo(() => services.find(s => s.id === id), [services, id]);
     const [tmhr, setTmhr] = useState(0);
     const { toast } = useToast();
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-        const storedTmhr = localStorage.getItem('tmhr');
-        if (storedTmhr) {
-            setTmhr(parseFloat(storedTmhr));
+        if (selectedTenant && typeof selectedTenant.tmhr === 'number') {
+            setTmhr(selectedTenant.tmhr);
+        } else {
+            setTmhr(50); // Fallback if not set
         }
-        }
-    }, []);
+    }, [selectedTenant]);
 
     const servicePerformance = useMemo(() => {
         if (!service) return null;

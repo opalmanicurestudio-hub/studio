@@ -110,9 +110,12 @@ function PlannerPageContent() {
   const [tmhr, setTmhr] = useState(0);
 
   useEffect(() => {
-    const storedTmhr = localStorage.getItem('tmhr');
-    setTmhr(parseFloat(storedTmhr || '50'));
-  }, []);
+    if (selectedTenant && typeof selectedTenant.tmhr === 'number') {
+        setTmhr(selectedTenant.tmhr);
+    } else {
+        setTmhr(50); // Fallback to a default if not set on tenant
+    }
+  }, [selectedTenant]);
 
   const checkInsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
@@ -1280,7 +1283,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1317,7 +1320,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}

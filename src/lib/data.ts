@@ -500,6 +500,16 @@ export type Tenant = {
   referrerReward?: number;
   newClientDiscount?: number;
   smsNotificationMessage?: string;
+  twilioAccountSid?: string;
+  twilioAuthToken?: string;
+  twilioPhoneNumber?: string;
+  pricingTiers?: {
+    apprentice?: string;
+    junior?: string;
+    senior?: string;
+    master?: string;
+  };
+  tmhr?: number;
 };
 
 export type Resource = {
