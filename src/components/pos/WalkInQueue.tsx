@@ -31,6 +31,7 @@ interface WalkInQueueProps {
     assignmentMode: 'fair_play' | 'ordered_list';
     onPrintTicket: (walkInId: string) => void;
     onSkip: (walkInId: string) => void;
+    onReturnToQueue: (walkInId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -47,6 +48,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     assignmentMode,
     onPrintTicket,
     onSkip,
+    onReturnToQueue,
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -141,6 +143,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             onStartService={onStartService}
                                             onSkip={onSkip}
                                             onCancel={onCancel}
+                                            onReturnToQueue={onReturnToQueue}
                                         />
                                     </div>
                                 ))}

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -6,10 +7,11 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, SkipForward, Play, XCircle } from 'lucide-react';
+import { User, Clock, CheckCircle, SkipForward, Play, XCircle, MoreHorizontal, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 
 interface NotifiedCustomerCardProps {
     walkIn: WalkIn;
@@ -18,9 +20,10 @@ interface NotifiedCustomerCardProps {
     onStartService: (appointmentId: string) => void;
     onSkip: (walkInId: string) => void;
     onCancel: (walkInId: string) => void;
+    onReturnToQueue: (walkInId: string) => void;
 }
 
-export const NotifiedCustomerCard: React.FC<NotifiedCustomerCardProps> = ({ walkIn, services, staff, onStartService, onSkip, onCancel }) => {
+export const NotifiedCustomerCard: React.FC<NotifiedCustomerCardProps> = ({ walkIn, services, staff, onStartService, onSkip, onCancel, onReturnToQueue }) => {
     const { selectedTenant } = useTenant();
     const [timeSinceNotified, setTimeSinceNotified] = useState('');
     const [isOverTime, setIsOverTime] = useState(false);
@@ -66,18 +69,28 @@ export const NotifiedCustomerCard: React.FC<NotifiedCustomerCardProps> = ({ walk
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-2 grid grid-cols-2 gap-2 border-t">
-                <Button variant="outline" size="sm" onClick={() => onSkip(walkIn.id)}>
-                    <SkipForward className="w-4 h-4 mr-2" /> Skip Turn
-                </Button>
+            <CardFooter className="p-2 grid grid-cols-[1fr,auto] gap-2 border-t">
                 <Button size="sm" onClick={() => onStartService(`apt-walkin-${walkIn.id}`)}>
                     <Play className="w-4 h-4 mr-2" /> Start Service
                 </Button>
-                 <Button variant="ghost" size="sm" className="col-span-2 text-destructive" onClick={() => onCancel(walkIn.id)}>
-                    <XCircle className="w-4 h-4 mr-2" /> Cancel
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onReturnToQueue(walkIn.id)}>
+                            <Users className="w-4 h-4 mr-2" /> Return to Queue
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onSkip(walkIn.id)}>
+                            <SkipForward className="w-4 h-4 mr-2" /> Skip (No-Show)
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => onCancel(walkIn.id)}>
+                            <XCircle className="w-4 h-4 mr-2" /> Cancel Walk-in
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </CardFooter>
         </Card>
     );
 };
-

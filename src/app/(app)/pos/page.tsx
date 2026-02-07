@@ -506,7 +506,7 @@ export default function POSPage() {
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
-            description: `This will skip ${walkIn.customerName}'s turn and free up the assigned staff member. The client will need to be re-added to the queue.`,
+            description: `This will mark ${walkIn.customerName} as a "skipped" no-show and remove them from the active queue. This action cannot be undone.`,
             onConfirm: async () => {
                 const batch = writeBatch(firestore);
 
@@ -523,6 +523,43 @@ export default function POSPage() {
                 toast({
                     title: "Client Skipped",
                     description: `${walkIn.customerName} has been skipped.`,
+                });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleReturnToQueue = async (walkInId: string) => {
+        if (!firestore || !selectedTenant || !walkIns || !staff) return;
+    
+        const walkIn = walkIns.find(w => w.id === walkInId);
+        if (!walkIn) return;
+    
+        setConfirmation({
+            isOpen: true,
+            title: `Return ${walkIn.customerName} to Queue?`,
+            description: `This will move the client back to the 'Waiting' list and free up the assigned staff member.`,
+            onConfirm: async () => {
+                const batch = writeBatch(firestore);
+    
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                batch.update(walkInRef, { 
+                    status: 'waiting',
+                    assignedStaffId: null,
+                    notifiedTimestamp: null,
+                    queueOrder: Date.now(), // Put them at the end of the queue
+                });
+    
+                if (walkIn.assignedStaffId) {
+                    const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+                    batch.update(staffRef, { status: 'idle' });
+                }
+    
+                await batch.commit();
+    
+                toast({
+                    title: "Returned to Queue",
+                    description: `${walkIn.customerName} is now back in the waiting list.`,
                 });
                 setConfirmation(null);
             }
@@ -687,128 +724,6 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-     const handleFinalizeCheckout = async () => {
-        if (!firestore || !tenantId) return;
-        if (cart.length === 0 && selectedAppointmentIds.size === 0) {
-            toast({
-                variant: 'destructive',
-                title: 'Empty Sale',
-                description: 'Please add items or select an appointment to checkout.',
-            });
-            return;
-        }
-
-        const payerClient = clients.find(c => c.id === selectedClientId);
-        if (!payerClient && (selectedAppointmentIds.size > 0 || cart.length > 0)) {
-            toast({
-                variant: "destructive",
-                title: "No Payer Selected",
-                description: "Please select a client to pay for the sale.",
-            });
-            return;
-        }
-
-        setIsSubmitting(true);
-        const batch = writeBatch(firestore);
-
-        try {
-            // 1. Update appointments and staff
-            for (const aptData of appointmentsData) {
-                const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
-                
-                batch.update(appointmentRef, { status: 'completed' });
-
-                if (aptData.staffId) {
-                    const staffRef = doc(firestore, `tenants/${tenantId}/staff`, aptData.staffId);
-                    batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
-                }
-            }
-
-            // 2. Update inventory and create stock corrections for retail items
-            for (const item of cart) {
-                if(item.type === 'product') {
-                    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                    batch.update(productRef, { totalStock: increment(-item.quantity) });
-
-                    const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                    const stockCorrection: Omit<StockCorrection, 'id'> = {
-                        productId: item.id,
-                        date: new Date().toISOString(),
-                        change: -item.quantity,
-                        unit: item.unit || 'units',
-                        reason: 'Retail Sale via POS',
-                    };
-                    batch.set(correctionRef, stockCorrection);
-                }
-            }
-            
-            // 3. Create a master transaction record
-            const primaryAppointmentId = appointmentsData.length > 0 ? appointmentsData[0].id : undefined;
-            const paymentMethodDisplay = paymentTab.charAt(0).toUpperCase() + paymentTab.slice(1);
-            
-            const newTransactionData: Partial<Omit<Transaction, 'id' | 'date'>> = {
-                description: `POS Checkout for ${payerClient?.name || 'Walk-in'}`,
-                clientOrVendor: payerClient?.name || 'Walk-in Customer',
-                clientId: payerClient?.id,
-                type: 'income',
-                context: 'Business',
-                category: 'Sales',
-                amount: total,
-                paymentMethod: paymentTab,
-                hasReceipt: true,
-                tipAmount,
-                discountAmount: discount + membershipDiscount,
-                appointmentId: primaryAppointmentId,
-            };
-
-            if (appliedDiscountCode) {
-                newTransactionData.appliedDiscountCode = appliedDiscountCode;
-            }
-
-            const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(transactionRef, { ...newTransactionData, date: new Date().toISOString() });
-
-            // 4. Update Client LTV
-            if (payerClient) {
-                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
-                batch.update(clientRef, { 
-                    lifetimeValue: increment(subtotal),
-                    lastAppointment: new Date().toISOString()
-                });
-            }
-
-            // 5. Update Discount Usage
-            if(appliedDiscountCode) {
-                const discountData = discounts.find(d => d.id === appliedDiscountCode);
-                if (discountData) {
-                    const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-                    const updatePayload: any = { usageCount: increment(1) };
-                    if (discountData.limitOnePerCustomer && payerClient) {
-                        updatePayload.usedByClientIds = arrayUnion(payerClient.id);
-                    }
-                    batch.update(discountRef, updatePayload);
-                }
-            }
-            
-            await batch.commit();
-
-            toast({ title: 'Checkout Successful!', description: 'Transaction has been recorded.' });
-
-            // Reset state
-            setCart([]);
-            setSelectedAppointmentIds(new Set());
-            setSelectedClientId(null);
-            setTipAmount(0);
-            setPromoCode('');
-
-        } catch (error) {
-            console.error('Checkout failed:', error);
-            toast({ variant: 'destructive', title: 'Checkout Failed', description: 'An error occurred while saving the transaction.' });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-    
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -826,7 +741,7 @@ export default function POSPage() {
         total,
         tipAmount,
         setTipAmount,
-        onCheckout: handleFinalizeCheckout,
+        onCheckout: () => {},
         appliedDiscountCode,
         setAppliedDiscountCode,
         discount,
@@ -910,6 +825,7 @@ export default function POSPage() {
                                         }
                                     }}
                                     onSkip={handleSkipWalkIn}
+                                    onReturnToQueue={handleReturnToQueue}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -1010,4 +926,3 @@ export default function POSPage() {
         </>
     );
 }
-
