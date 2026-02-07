@@ -522,7 +522,7 @@ export default function POSPage() {
 
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             if (!aptData || !aptData.service) return acc;
-            const mainServicePrice = redeemedOffer?.id === aptData.service.id ? 0 : aptData.service.price || 0;
+            const mainServicePrice = offerApplied?.id === aptData.service.id ? 0 : aptData.service.price || 0;
             const addOnsPrice = (aptData.addOnServices || [])
                 .reduce((sum, s) => sum + s.price, 0);
             return acc + mainServicePrice + addOnsPrice;
@@ -542,7 +542,9 @@ export default function POSPage() {
         const serviceItemsCount = appointmentsData.reduce((acc, aptData) => {
             let count = 0;
             if (aptData.service) count += 1;
-            count += (aptData.addOnServices || []).length;
+            if (aptData.addOnServices) {
+                count += aptData.addOnServices.length;
+            }
             return acc + count;
         }, 0);
 
