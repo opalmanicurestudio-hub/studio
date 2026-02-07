@@ -1087,74 +1087,6 @@ function PlannerPageContent() {
     });
     setStartConfirmAppointment(null);
   };
-
-  const onUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId || !appointments || !clients || !selectedTenant) return;
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    
-    let updateData: Partial<Appointment> = { status };
-    
-    if (status === 'cancelled') {
-        const appointment = appointments.find(apt => apt.id === appointmentId);
-        const client = clients?.find(c => c.id === appointment?.clientId);
-        
-        if (appointment && client) {
-            const timeDiffHours = differenceInHours(appointment.startTime, new Date());
-            const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
-
-            if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
-                const fee = selectedTenant.cancellationFee || 25; 
-                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-                
-                const newFee = {
-                    feeId: nanoid(),
-                    appointmentId: appointment.id,
-                    appointmentDate: appointment.startTime.toISOString(),
-                    feeAmount: fee,
-                    reason: 'Late Cancellation'
-                };
-
-                updateDocumentNonBlocking(clientRef, { 
-                    outstandingBalance: increment(fee),
-                    unpaidFees: arrayUnion(newFee)
-                });
-                
-                updateData.cancellationReason = 'client_request';
-                updateData.cancellationFeeApplied = fee;
-
-                toast({
-                    title: "Late Cancellation Fee Applied",
-                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
-                });
-            }
-        }
-    }
-
-    updateDocumentNonBlocking(appointmentRef, updateData);
-
-    const appointment = appointments.find(apt => apt.id === appointmentId);
-    if (appointment?.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
-    }
-
-    toast({
-        title: "Status Updated",
-        description: `Appointment status changed to ${status}.`
-    });
-  };
-
-
-  if (isDataLoading) {
-    return (
-      <div className="flex h-screen w-full flex-col">
-        <AppHeader />
-        <div className="flex items-center justify-center flex-1">
-          <Loader className="h-8 w-8 animate-spin" />
-        </div>
-      </div>
-    );
-  }
   
   return (
     <div className="flex h-screen w-full flex-col">
@@ -1263,14 +1195,14 @@ function PlannerPageContent() {
                             <TooltipProvider>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild>
-                                    <Button variant="outline" size="icon" className="relative" onClick={()={() => setIsBillsSheetOpen(true)}>
+                                    <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
                                         <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
                                         {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                                         <span className="sr-only">Bills Due Today</span>
                                     </Button>
                                 </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
-                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={()={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <DropdownMenu>
@@ -1618,5 +1550,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
