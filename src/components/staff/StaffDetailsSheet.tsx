@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -182,266 +181,209 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     return null;
   }
 
+  const desktopTabsContent = (
+    <>
+      <TabsContent value="activity" className="mt-4">
+        <div className="relative my-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
+        </div>
+        <ScrollArea className="h-96">
+          <Table>
+            <TableHeader><TableRow><TableHead>Date & Time</TableHead><TableHead>Action</TableHead><TableHead className="text-right">Duration</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {filteredActivityLogs.length > 0 ? (
+                filteredActivityLogs.map(log => (
+                  <TableRow key={log.id}>
+                    <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
+                    <TableCell className="capitalize flex items-center gap-2">{log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}{log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}{log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}{log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}{log.type.replace('_', ' ')}</TableCell>
+                    <TableCell className="text-right">{log.durationMinutes ? `${log.durationMinutes} min` : '—'}</TableCell>
+                  </TableRow>
+                ))
+              ) : (<TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>)}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent value="transactions" className="mt-4">
+        <div className="relative my-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
+        </div>
+        <ScrollArea className="h-96">
+          <Table>
+            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {filteredTransactions.length > 0 ? (
+                filteredTransactions.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                    <TableCell>{t.description}</TableCell>
+                    <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                    <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                  </TableRow>
+                ))
+              ) : (<TableRow><TableCell colSpan={4} className="text-center h-24">No transactions found.</TableCell></TableRow>)}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent value="effectiveness" className="mt-4">
+        <Card><CardContent className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="text-sm font-medium text-muted-foreground">Utilization Rate</div>
+                    <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="text-sm font-medium text-muted-foreground">Avg. Ticket Size</div>
+                    <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="text-sm font-medium text-muted-foreground">Retail Attach Rate</div>
+                    <div className="text-2xl font-bold">{staffMember.stats.retailAttachmentRate.toFixed(1)}%</div>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="text-sm font-medium text-muted-foreground">Avg Time Variance</div>
+                    <div className={cn('text-2xl font-bold', staffMember.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
+                        {staffMember.stats.avgVariance > 0 ? '+' : ''}{staffMember.stats.avgVariance.toFixed(1)} min
+                    </div>
+                </div>
+            </div>
+        </CardContent></Card>
+      </TabsContent>
+      <TabsContent value="profile" className="mt-4 space-y-4">
+        <Card><CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>Email:</strong> {staffMember.email}</p><p><strong>Phone:</strong> {staffMember.phone}</p>{staffMember.emergencyContact?.name && (<div className="pt-2 border-t"><p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p><p className="pl-4">{staffMember.emergencyContact.phone}</p></div>)}</CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p><p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p><div className="space-y-2 pt-2"><h4 className="font-medium">Documents</h4>{(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (<div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>)) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}</div><div className="space-y-2 pt-2"><h4 className="font-medium">Assigned Forms</h4>{(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {const form = consentForms.find(f => f.id === formId); return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;}) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}</div></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader><CardContent className="text-sm space-y-2">{staffServices.map(s => (<div key={s.id} className="flex justify-between"><span>{s.name}</span><span className="font-semibold">${s.price.toFixed(2)}</span></div>))}</CardContent></Card>
+      </TabsContent>
+    </>
+  );
+
   return (
     <>
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className="w-full sm:max-w-2xl p-0 flex flex-col">
-        <SheetHeader className="p-6 pb-4 border-b">
-          <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
-          <SheetDescription>
-            Performance breakdown for {dateRangeString}.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+          <SheetHeader className="p-6 pb-4 border-b text-left">
+            <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
+            <SheetDescription>
+              Performance breakdown for {dateRangeString}.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex items-center justify-between px-6 py-4 border-b">
             <Popover>
-                <PopoverTrigger asChild>
-                    <Button
-                        id="date"
-                        variant={"outline"}
-                        className={cn(
-                        "w-[260px] justify-start text-left font-normal",
-                        !dateRange && "text-muted-foreground"
-                        )}
-                    >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateRange?.from ? (
-                        dateRange.to ? (
-                            <>
-                            {format(dateRange.from, "LLL dd, yyyy")} -{" "}
-                            {format(dateRange.to, "LLL dd, yyyy")}
-                            </>
-                        ) : (
-                            format(dateRange.from, "LLL dd, yyyy")
-                        )
-                        ) : (
-                        <span>Pick a date range</span>
-                        )}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        initialFocus
-                        mode="range"
-                        defaultMonth={dateRange?.from}
-                        selected={dateRange}
-                        onSelect={setDateRange}
-                        numberOfMonths={2}
-                    />
-                </PopoverContent>
+              <PopoverTrigger asChild>
+                <Button id="date" variant={"outline"} className={cn("w-[260px] justify-start text-left font-normal", !dateRange && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (dateRange.to ? (<>{format(dateRange.from, "LLL dd, yyyy")} - {format(dateRange.to, "LLL dd, yyyy")}</>) : (format(dateRange.from, "LLL dd, yyyy"))) : (<span>Pick a date range</span>)}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2} />
+              </PopoverContent>
             </Popover>
-             <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4" />Print Report</Button>
-        </div>
-        <ScrollArea className="flex-1">
-            <div className="px-6 pb-6 space-y-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                    <Card>
-                        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader>
-                        <CardContent><p className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</p></CardContent>
-                    </Card>
-                     <Card>
-                        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader>
-                        <CardContent><p className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</p></CardContent>
-                    </Card>
-                     <Card>
-                        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader>
-                        <CardContent><p className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</p></CardContent>
-                    </Card>
-                     <Card className="bg-primary/5 border-primary/20">
-                        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader>
-                        <CardContent><p className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</p></CardContent>
-                    </Card>
-                </div>
-                <Tabs defaultValue="activity" className="w-full">
-                  <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="activity">Activity Log</TabsTrigger>
-                    <TabsTrigger value="transactions">Transactions</TabsTrigger>
-                    <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
-                    <TabsTrigger value="profile">Profile</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="activity" className="mt-4">
-                     <div className="relative my-4">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Search activities (e.g., clock in)..."
-                            className="pl-9"
-                            value={activitySearch}
-                            onChange={(e) => setActivitySearch(e.target.value)}
-                        />
-                    </div>
-                    {isMobile ? (
-                        <ScrollArea className="h-96">
-                            <div className="space-y-3 pr-4">
-                                {filteredActivityLogs.length > 0 ? (
-                                    filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)
-                                ) : (
-                                    <p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>
-                                )}
+            <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4" />Print Report</Button>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</p></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</p></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</p></CardContent></Card>
+                <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</p></CardContent></Card>
+              </div>
+
+              {isMobile ? (
+                  <Accordion type="single" collapsible className="w-full space-y-4">
+                      <AccordionItem value="activity" className="border rounded-lg">
+                          <AccordionTrigger className="p-4 text-base font-semibold">Activity Log</AccordionTrigger>
+                          <AccordionContent className="p-4 pt-0">
+                                <div className="relative my-4">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
+                                </div>
+                                <div className="space-y-3">
+                                  {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
+                                </div>
+                          </AccordionContent>
+                      </AccordionItem>
+                      <AccordionItem value="transactions" className="border rounded-lg">
+                          <AccordionTrigger className="p-4 text-base font-semibold">Transactions</AccordionTrigger>
+                          <AccordionContent className="p-4 pt-0">
+                             <div className="relative my-4">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
                             </div>
-                        </ScrollArea>
-                    ) : (
-                        <ScrollArea className="h-96">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date & Time</TableHead>
-                                        <TableHead>Action</TableHead>
-                                        <TableHead className="text-right">Duration</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredActivityLogs.length > 0 ? (
-                                        filteredActivityLogs.map(log => (
-                                            <TableRow key={log.id}>
-                                                <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
-                                                <TableCell className="capitalize flex items-center gap-2">
-                                                    {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
-                                                    {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
-                                                    {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
-                                                    {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
-                                                    {log.type.replace('_', ' ')}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    ) : (
-                                        <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </ScrollArea>
-                    )}
-                  </TabsContent>
-                  <TabsContent value="transactions" className="mt-4">
-                     <div className="relative my-4">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Search by description or category..."
-                            className="pl-9"
-                            value={transactionSearch}
-                            onChange={(e) => setTransactionSearch(e.target.value)}
-                        />
-                    </div>
-                    {isMobile ? (
-                        <ScrollArea className="h-96">
-                            <div className="space-y-3 pr-4">
+                            <div className="space-y-3">
                               {filteredTransactions.length > 0 ? (
-                                filteredTransactions.map(t => {
-                                    const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                                    const service = services.find(s => s.id === appointment?.serviceId);
-                                    let timeVariance = null;
-                                    if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                        const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                        timeVariance = actualDuration - service.duration;
-                                    }
-                                    return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                                })
-                              ) : (
-                                  <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
-                              )}
+                                  filteredTransactions.map(t => {
+                                      const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                                      const service = services.find(s => s.id === appointment?.serviceId);
+                                      let timeVariance = null;
+                                      if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                          const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
+                                          timeVariance = actualDuration - service.duration;
+                                      }
+                                      return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                                  })
+                              ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
                             </div>
-                        </ScrollArea>
-                    ) : (
-                        <ScrollArea className="h-96">
-                            <Table>
-                                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
-                                <TableBody>
-                                    {filteredTransactions.length > 0 ? (
-                                    filteredTransactions.map(t => (
-                                        <TableRow key={t.id}>
-                                        <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
-                                        <TableCell>{t.description}</TableCell>
-                                        <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                        <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
-                                        </TableRow>
-                                    ))
-                                    ) : (
-                                    <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </ScrollArea>
-                    )}
-                  </TabsContent>
-                   <TabsContent value="effectiveness" className="mt-4">
-                    <Card><CardContent className="p-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-3 rounded-lg bg-muted/50">
-                                <div className="text-sm font-medium text-muted-foreground">Utilization Rate</div>
-                                <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
-                            </div>
-                            <div className="p-3 rounded-lg bg-muted/50">
-                                <div className="text-sm font-medium text-muted-foreground">Avg. Ticket Size</div>
-                                <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
-                            </div>
-                            <div className="p-3 rounded-lg bg-muted/50">
-                                <div className="text-sm font-medium text-muted-foreground">Retail Attach Rate</div>
-                                <div className="text-2xl font-bold">{staffMember.stats.retailAttachmentRate.toFixed(1)}%</div>
-                            </div>
-                             <div className="p-3 rounded-lg bg-muted/50">
-                                <div className="text-sm font-medium text-muted-foreground">Avg Time Variance</div>
-                                <div className={cn('text-2xl font-bold', staffMember.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
-                                    {staffMember.stats.avgVariance > 0 ? '+' : ''}{staffMember.stats.avgVariance.toFixed(1)} min
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent></Card>
-                  </TabsContent>
-                   <TabsContent value="profile" className="mt-4 space-y-4">
-                        <Card>
-                            <CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader>
-                            <CardContent className="text-sm space-y-2">
-                                <p><strong>Email:</strong> {staffMember.email}</p>
-                                <p><strong>Phone:</strong> {staffMember.phone}</p>
-                                {staffMember.emergencyContact?.name && (
-                                    <div className="pt-2 border-t">
-                                        <p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p>
-                                        <p className="pl-4">{staffMember.emergencyContact.phone}</p>
+                          </AccordionContent>
+                      </AccordionItem>
+                      <AccordionItem value="effectiveness" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 text-base font-semibold">Effectiveness</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                            <Card className="border-none shadow-none"><CardContent className="p-0 pt-4 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-3 rounded-lg bg-muted/50">
+                                        <div className="text-sm font-medium text-muted-foreground">Utilization Rate</div>
+                                        <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
                                     </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                         <Card>
-                            <CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader>
-                            <CardContent className="text-sm space-y-2">
-                                <p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p>
-                                <p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p>
-                                <div className="space-y-2 pt-2">
-                                    <h4 className="font-medium">Documents</h4>
-                                    {(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (
-                                        <div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>
-                                    )) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}
-                                </div>
-                                 <div className="space-y-2 pt-2">
-                                    <h4 className="font-medium">Assigned Forms</h4>
-                                     {(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {
-                                        const form = consentForms.find(f => f.id === formId);
-                                        return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;
-                                     }) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader>
-                            <CardContent className="text-sm space-y-2">
-                                {staffServices.map(s => (
-                                    <div key={s.id} className="flex justify-between">
-                                        <span>{s.name}</span>
-                                        <span className="font-semibold">${s.price.toFixed(2)}</span>
+                                    <div className="p-3 rounded-lg bg-muted/50">
+                                        <div className="text-sm font-medium text-muted-foreground">Avg. Ticket Size</div>
+                                        <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
                                     </div>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                </Tabs>
+                                    <div className="p-3 rounded-lg bg-muted/50">
+                                        <div className="text-sm font-medium text-muted-foreground">Retail Attach Rate</div>
+                                        <div className="text-2xl font-bold">{staffMember.stats.retailAttachmentRate.toFixed(1)}%</div>
+                                    </div>
+                                    <div className="p-3 rounded-lg bg-muted/50">
+                                        <div className="text-sm font-medium text-muted-foreground">Avg Time Variance</div>
+                                        <div className={cn('text-2xl font-bold', staffMember.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
+                                            {staffMember.stats.avgVariance > 0 ? '+' : ''}{staffMember.stats.avgVariance.toFixed(1)} min
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardContent></Card>
+                        </AccordionContent>
+                      </AccordionItem>
+                      <AccordionItem value="profile" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 text-base font-semibold">Profile</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0 space-y-4">
+                           <Card className="border-none shadow-none"><CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>Email:</strong> {staffMember.email}</p><p><strong>Phone:</strong> {staffMember.phone}</p>{staffMember.emergencyContact?.name && (<div className="pt-2 border-t"><p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p><p className="pl-4">{staffMember.emergencyContact.phone}</p></div>)}</CardContent></Card>
+                            <Card className="border-none shadow-none"><CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p><p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p><div className="space-y-2 pt-2"><h4 className="font-medium">Documents</h4>{(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (<div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>)) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}</div><div className="space-y-2 pt-2"><h4 className="font-medium">Assigned Forms</h4>{(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {const form = consentForms.find(f => f.id === formId); return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;}) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}</div></CardContent></Card>
+                            <Card className="border-none shadow-none"><CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader><CardContent className="text-sm space-y-2">{staffServices.map(s => (<div key={s.id} className="flex justify-between"><span>{s.name}</span><span className="font-semibold">${s.price.toFixed(2)}</span></div>))}</CardContent></Card>
+                        </AccordionContent>
+                      </AccordionItem>
+                  </Accordion>
+              ) : (
+                  <Tabs defaultValue="activity" className="w-full">
+                      <TabsList className="grid w-full grid-cols-4">
+                        <TabsTrigger value="activity">Activity Log</TabsTrigger>
+                        <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                        <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
+                        <TabsTrigger value="profile">Profile</TabsTrigger>
+                      </TabsList>
+                      {desktopTabsContent}
+                  </Tabs>
+              )}
             </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-    <div className="hidden print:block">
-      <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={services} appointments={appointments} />
-    </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+      <div className="hidden print:block">
+        <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={services} appointments={appointments} />
+      </div>
     </>
   );
 };
