@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -189,45 +190,60 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
     
-    const { month, day, year } = useMemo(() => {
+    // Separate state for each part of the date, initialized from the prop
+    const [month, setMonth] = useState(() => member.birthday ? String(parseISO(member.birthday).getMonth() + 1) : '');
+    const [day, setDay] = useState(() => member.birthday ? String(parseISO(member.birthday).getDate()) : '');
+    const [year, setYear] = useState(() => member.birthday ? String(parseISO(member.birthday).getFullYear()) : '');
+
+    // Effect to sync local state if the prop changes from an external source
+    useEffect(() => {
         if (member.birthday) {
             try {
                 const date = parseISO(member.birthday);
-                return {
-                    month: String(date.getMonth() + 1),
-                    day: String(date.getDate()),
-                    year: String(date.getFullYear()),
-                };
+                setMonth(String(date.getMonth() + 1));
+                setDay(String(date.getDate()));
+                setYear(String(date.getFullYear()));
             } catch (e) {
-                return { month: '', day: '', year: '' };
+                // Reset if the date prop is invalid
+                setMonth('');
+                setDay('');
+                setYear('');
             }
+        } else {
+            setMonth('');
+            setDay('');
+            setYear('');
         }
-        return { month: '', day: '', year: '' };
     }, [member.birthday]);
 
-    const handleDateChange = (part: 'month' | 'day' | 'year', value: string) => {
-        const currentParts = { month, day, year };
-        const newParts = { ...currentParts, [part]: value };
-
-        if (newParts.year && newParts.month && newParts.day) {
-            const y = parseInt(newParts.year, 10);
-            const m = parseInt(newParts.month, 10) - 1;
-            const d = parseInt(newParts.day, 10);
+    // Effect to call the parent's `onUpdate` when a full date is formed
+    useEffect(() => {
+        if (year && month && day) {
+            const y = parseInt(year, 10);
+            const m = parseInt(month, 10) - 1;
+            const d = parseInt(day, 10);
 
             if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
                 const newDate = new Date(y, m, d);
                 // Check if the date is valid (e.g. not Feb 30)
                 if (newDate.getFullYear() === y && newDate.getMonth() === m && newDate.getDate() === d) {
-                     onUpdate(member.id, { birthday: newDate.toISOString() });
+                     // Only update if it's a new date string to prevent loops
+                    if (newDate.toISOString() !== member.birthday) {
+                        onUpdate(member.id, { birthday: newDate.toISOString() });
+                    }
                 } else {
-                    onUpdate(member.id, { birthday: undefined });
+                    // An invalid date was formed, clear the birthday
+                    if (member.birthday !== undefined) {
+                        onUpdate(member.id, { birthday: undefined });
+                    }
                 }
             }
-        } else if (!newParts.year && !newParts.month && !newParts.day) {
-            onUpdate(member.id, { birthday: undefined });
+        } else if (!year && !month && !day) { // If all fields are cleared
+             if (member.birthday !== undefined) {
+                onUpdate(member.id, { birthday: undefined });
+             }
         }
-    };
-
+    }, [day, month, year, onUpdate, member.id, member.birthday]);
 
     const toggleService = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
@@ -280,7 +296,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                              <div className="space-y-2">
                                 <Label>Birthday</Label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <Select value={month} onValueChange={(v) => handleDateChange('month', v)}>
+                                    <Select value={month} onValueChange={setMonth}>
                                         <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 12 }, (_, i) => (
@@ -290,7 +306,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <Select value={day} onValueChange={(v) => handleDateChange('day', v)}>
+                                    <Select value={day} onValueChange={setDay}>
                                         <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 31 }, (_, i) => (
@@ -300,14 +316,14 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                     <Select value={year} onValueChange={(v) => handleDateChange('year', v)}>
+                                     <Select value={year} onValueChange={setYear}>
                                         <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
                                         <SelectContent>
                                             {Array.from({ length: 100 }, (_, i) => {
-                                                const year = new Date().getFullYear() - i;
+                                                const yearValue = new Date().getFullYear() - i;
                                                 return (
-                                                    <SelectItem key={year} value={year.toString()}>
-                                                        {year}
+                                                    <SelectItem key={yearValue} value={yearValue.toString()}>
+                                                        {yearValue}
                                                     </SelectItem>
                                                 );
                                             })}
