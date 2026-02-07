@@ -42,6 +42,7 @@ import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/P
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -93,6 +94,8 @@ export default function POSPage() {
     const [discount, setDiscount] = useState(0);
     const [membershipDiscount, setMembershipDiscount] = useState(0);
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
+    const router = useRouter();
+    const searchParams = useSearchParams();
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -125,6 +128,24 @@ export default function POSPage() {
         }
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
+    
+    useEffect(() => {
+        const checkoutId = searchParams.get('checkout_id');
+        if (checkoutId && readyForCheckoutAppointments.length > 0) {
+          const appointmentExists = readyForCheckoutAppointments.some(apt => apt.id === checkoutId);
+          if (appointmentExists && !selectedAppointmentIds.has(checkoutId)) {
+            setSelectedAppointmentIds(new Set([checkoutId]));
+            const appointment = readyForCheckoutAppointments.find(apt => apt.id === checkoutId);
+            if (appointment) {
+                setSelectedClientId(appointment.clientId);
+            }
+            // Optional: remove the query param from URL without reloading
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.delete('checkout_id');
+            router.replace(newUrl.toString(), { scroll: false });
+          }
+        }
+    }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
@@ -525,12 +546,11 @@ export default function POSPage() {
         }
     }, [appointmentsData]);
 
-    const { subtotal, tax, total, redeemedOffer } = useMemo(() => {
+    const { subtotal, tax, total } = useMemo(() => {
         const offerApplied: { type: 'membership' | 'package', id: string } | null = null;
         
         const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
             if (!aptData || !aptData.service) return acc;
-            
             const mainServicePrice = aptData.service?.price || 0;
             const addOnsPrice = (aptData.addOnServices || [])
                 .reduce((sum, s) => sum + s.price, 0);
@@ -544,7 +564,7 @@ export default function POSPage() {
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { subtotal: sub, tax: taxAmount, total: grandTotal, redeemedOffer: offerApplied };
+        return { subtotal: sub, tax: taxAmount, total: grandTotal };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
 
     const retailTotalForDiscount = useMemo(() => {
@@ -741,6 +761,7 @@ export default function POSPage() {
                 discountAmount: discount + membershipDiscount,
                 appointmentId: primaryAppointmentId,
             };
+
             if (appliedDiscountCode) {
                 newTransactionData.appliedDiscountCode = appliedDiscountCode;
             }
@@ -815,7 +836,7 @@ export default function POSPage() {
         isSubmitting,
         paymentTab,
         setPaymentTab,
-        discounts: discounts,
+        discounts: discounts || [],
     };
     
     const handleStatusChangeWithConfirmation = () => {};

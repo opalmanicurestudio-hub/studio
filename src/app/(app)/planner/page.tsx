@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -9,7 +8,7 @@ import { type Event, type EventChecklistItem, type StockCorrection, type Staff, 
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -92,6 +91,7 @@ function PlannerPageContent() {
   const { firestore, user, isUserLoading } = useFirebase();
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
   const tenantId = selectedTenant?.id;
+  const router = useRouter();
   
   const { 
       inventory,
@@ -473,8 +473,7 @@ function PlannerPageContent() {
       });
       return;
     }
-    setSelectedAppointment(appointment);
-    setIsCheckoutOpen(true);
+    router.push(`/pos?checkout_id=${appointment.id}`);
   };
 
   const handleEditClick = (appointment: Appointment) => {
@@ -725,7 +724,7 @@ function PlannerPageContent() {
             clientOrVendor: 'N/A',
             type: 'expense' as const,
             context: newEvent.type === 'business' ? 'Business' : 'Personal',
-            category: newEvent.type === 'business' ? 'Business Travel' : 'Personal Travel',
+            category: newEvent.type === 'business' ? 'Business Travel' : 'Other',
             amount: newEvent.cost,
             paymentMethod: 'Unknown',
             hasReceipt: false,
@@ -1124,7 +1123,7 @@ function PlannerPageContent() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                         <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
-                                        <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                        <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
@@ -1227,7 +1226,7 @@ function PlannerPageContent() {
                                                     <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                                    <Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </TooltipTrigger>
@@ -1382,9 +1381,9 @@ function PlannerPageContent() {
             }
             setIsAddAppointmentOpen(isOpen);
         }}
+        onConfirm={handleAddAppointment}
         client={clientForNewApt}
         appointmentToRebook={appointmentToRebook}
-        onConfirm={handleAddAppointment}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 
@@ -1560,5 +1559,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    

@@ -139,7 +139,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
-    });
+    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
     
   const dateRangeString = dateRange?.from && dateRange.to
@@ -281,23 +281,41 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             onChange={(e) => setTransactionSearch(e.target.value)}
                         />
                     </div>
-                     <Table>
-                        <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
-                        <TableBody>
-                            {filteredTransactions.length > 0 ? (
-                            filteredTransactions.map(t => (
-                                <TableRow key={t.id}>
-                                <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
-                                <TableCell>{t.description}</TableCell>
-                                <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
-                                </TableRow>
-                            ))
-                            ) : (
-                            <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                    <div className="hidden md:block">
+                      <Table>
+                          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                              {filteredTransactions.length > 0 ? (
+                              filteredTransactions.map(t => (
+                                  <TableRow key={t.id}>
+                                  <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
+                                  <TableCell>{t.description}</TableCell>
+                                  <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                                  <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                                  </TableRow>
+                              ))
+                              ) : (
+                              <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
+                              )}
+                          </TableBody>
+                      </Table>
+                    </div>
+                     <div className="md:hidden space-y-3">
+                      {filteredTransactions.length > 0 ? (
+                        filteredTransactions.map(t => {
+                            const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                            const service = services.find(s => s.id === appointment?.serviceId);
+                            let timeVariance = null;
+                            if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime as string), parseISO(appointment.actualStartTime as string));
+                                timeVariance = actualDuration - service.duration;
+                            }
+                            return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                        })
+                      ) : (
+                          <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
+                      )}
+                    </div>
                   </TabsContent>
                    <TabsContent value="effectiveness" className="mt-4">
                     <Card><CardContent className="p-4 space-y-4">

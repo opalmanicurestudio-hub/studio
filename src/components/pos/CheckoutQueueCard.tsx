@@ -2,7 +2,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { CardContent } from '@/components/ui/card';
 import { type Appointment, type Service, type Client, type Staff } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -10,6 +10,8 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { AlertTriangle, FlaskConical } from 'lucide-react';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface CheckoutQueueCardProps {
   appointment: Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff };
@@ -18,11 +20,31 @@ interface CheckoutQueueCardProps {
 }
 
 export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointment, isSelected, onSelect }) => {
-  const { client, service, addOnServices, staff } = appointment;
+  const { client, service, addOnServices, staff, checkoutState } = appointment;
 
   if (!client || !service) {
     return null; // Or a skeleton/error state
   }
+
+  const hasAdditionalCharges = useMemo(() => {
+    if (!service || !checkoutState?.actualDuration) return false;
+    const scheduledDuration = service.duration || 0;
+    return checkoutState.actualDuration > scheduledDuration;
+  }, [service, checkoutState]);
+
+  const hasModifiedFormula = useMemo(() => {
+    if (!service || !checkoutState?.formula) return false;
+    if (!service.products) return checkoutState.formula.length > 0;
+    if (service.products.length !== checkoutState.formula.length) return true;
+    
+    const serviceProductMap = new Map(service.products.map(p => [p.id, p.quantityUsed]));
+    for (const formulaItem of checkoutState.formula) {
+        if (!serviceProductMap.has(formulaItem.id) || serviceProductMap.get(formulaItem.id) !== formulaItem.quantity) {
+            return true;
+        }
+    }
+    return false;
+  }, [service, checkoutState]);
 
   const totalPrice = (service.price || 0) + addOnServices.reduce((acc, s) => acc + s.price, 0);
 
@@ -44,7 +66,23 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                         className="mt-1"
                     />
                     <div className="flex-1 space-y-1">
-                        <p className="font-semibold">{client.name}</p>
+                        <p className="font-semibold flex items-center gap-2">
+                            {client.name}
+                            <TooltipProvider>
+                                {hasAdditionalCharges && (
+                                    <Tooltip>
+                                        <TooltipTrigger><AlertTriangle className="h-4 w-4 text-orange-500" /></TooltipTrigger>
+                                        <TooltipContent><p>Additional time charges may apply.</p></TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {hasModifiedFormula && (
+                                    <Tooltip>
+                                        <TooltipTrigger><FlaskConical className="h-4 w-4 text-blue-500" /></TooltipTrigger>
+                                        <TooltipContent><p>Product formula was modified.</p></TooltipContent>
+                                    </Tooltip>
+                                )}
+                            </TooltipProvider>
+                        </p>
                         <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'h:mm a')}</p>
                     </div>
                     <div className="text-right">
