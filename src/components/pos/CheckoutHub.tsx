@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -36,6 +36,7 @@ export const CheckoutHub = ({
     discount,
     membershipDiscount,
     showTitle = true,
+    isSubmitting,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -57,6 +58,7 @@ export const CheckoutHub = ({
     discount: number;
     membershipDiscount: number;
     showTitle?: boolean,
+    isSubmitting: boolean;
 }) => {
     
     const { discounts: allDiscounts } = useInventory();
@@ -197,7 +199,9 @@ export const CheckoutHub = ({
 
             <div className="mt-auto pt-4 flex gap-2">
                 <Button variant="outline" className="flex-1"><Printer /> Print</Button>
-                <Button className="flex-1" onClick={onCheckout}>Place Order</Button>
+                <Button className="flex-1" onClick={onCheckout} disabled={isSubmitting}>
+                    {isSubmitting ? <Loader className="animate-spin" /> : 'Place Order'}
+                </Button>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={allDiscounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
         </div>
