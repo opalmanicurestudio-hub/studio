@@ -143,14 +143,16 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    return activityLogs.filter(log => {
-      if(log.staffId !== staffMember.id) return false;
-      const logDate = log.timestamp;
-      if (fromDate && logDate < fromDate) return false;
-      if (toDate && logDate > toDate) return false;
-      if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
-      return true;
-    });
+    return activityLogs
+      .filter(log => {
+        if (log.staffId !== staffMember.id) return false;
+        const logDate = log.timestamp;
+        if (fromDate && logDate < fromDate) return false;
+        if (toDate && logDate > toDate) return false;
+        if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
+        return true;
+      })
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }, [activityLogs, staffMember, activitySearch, dateRange]);
   
   const filteredTransactions = useMemo(() => {
@@ -277,36 +279,38 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             </div>
                         </ScrollArea>
                     ) : (
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Date & Time</TableHead>
-                                    <TableHead>Action</TableHead>
-                                    <TableHead className="text-right">Duration</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredActivityLogs.length > 0 ? (
-                                    filteredActivityLogs.map(log => (
-                                        <TableRow key={log.id}>
-                                            <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
-                                            <TableCell className="capitalize flex items-center gap-2">
-                                                {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
-                                                {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
-                                                {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
-                                                {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
-                                                {log.type.replace('_', ' ')}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
+                        <ScrollArea className="h-96">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Date & Time</TableHead>
+                                        <TableHead>Action</TableHead>
+                                        <TableHead className="text-right">Duration</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredActivityLogs.length > 0 ? (
+                                        filteredActivityLogs.map(log => (
+                                            <TableRow key={log.id}>
+                                                <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
+                                                <TableCell className="capitalize flex items-center gap-2">
+                                                    {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
+                                                    {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
+                                                    {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
+                                                    {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                                                    {log.type.replace('_', ' ')}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
                     )}
                   </TabsContent>
                   <TabsContent value="transactions" className="mt-4">
@@ -339,23 +343,25 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             </div>
                         </ScrollArea>
                     ) : (
-                        <Table>
-                            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
-                            <TableBody>
-                                {filteredTransactions.length > 0 ? (
-                                filteredTransactions.map(t => (
-                                    <TableRow key={t.id}>
-                                    <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
-                                    <TableCell>{t.description}</TableCell>
-                                    <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                    <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
-                                    </TableRow>
-                                ))
-                                ) : (
-                                <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
+                        <ScrollArea className="h-96">
+                            <Table>
+                                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                                <TableBody>
+                                    {filteredTransactions.length > 0 ? (
+                                    filteredTransactions.map(t => (
+                                        <TableRow key={t.id}>
+                                        <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                                        <TableCell>{t.description}</TableCell>
+                                        <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                                        <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                                        </TableRow>
+                                    ))
+                                    ) : (
+                                    <TableRow><TableCell colSpan={4} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
                     )}
                   </TabsContent>
                    <TabsContent value="effectiveness" className="mt-4">
