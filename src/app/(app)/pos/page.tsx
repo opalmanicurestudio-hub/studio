@@ -12,8 +12,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -61,7 +61,8 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
+    const { memberships, packages, discounts } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -569,10 +570,9 @@ export default function POSPage() {
             title: `Return ${walkIn.customerName} to Queue?`,
             description: `This will move the client back to the 'Waiting' list and free up the assigned staff member.`,
             onConfirm: async () => {
-                const batch = writeBatch(firestore);
-    
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                batch.update(walkInRef, { 
+                
+                await updateDocumentNonBlocking(walkInRef, { 
                     status: 'waiting',
                     assignedStaffId: deleteField(),
                     notifiedTimestamp: deleteField(),
@@ -581,10 +581,8 @@ export default function POSPage() {
     
                 if (walkIn.assignedStaffId) {
                     const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-                    batch.update(staffRef, { status: 'idle' });
+                    await updateDocumentNonBlocking(staffRef, { status: 'idle' });
                 }
-    
-                await batch.commit();
     
                 toast({
                     title: "Returned to Queue",
@@ -657,7 +655,7 @@ export default function POSPage() {
             setMembershipDiscount(0);
         }
     }, [selectedClient, retailTotalForDiscount, memberships]);
-
+    
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
         
@@ -685,39 +683,29 @@ export default function POSPage() {
             return;
         }
         
-        const batch = writeBatch(firestore);
-    
         const appointmentId = `apt-walkin-${walkIn.id}`;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
         
         const now = new Date();
         const nowISO = now.toISOString();
 
-        const dataToSave = {
+        updateDocumentNonBlocking(appointmentRef, {
             status: 'servicing',
             actualStartTime: nowISO,
-        };
-        
-        updateDocumentNonBlocking(appointmentRef, dataToSave);
-    
+        });
+
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-        batch.update(staffDocRef, { status: 'busy' });
+        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
         
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-    
-        batch.commit().then(() => {
-            toast({
-                title: "Service Started!",
-                description: `The service for ${walkIn.customerName} has begun.`
-            });
-        }).catch(error => {
-            console.error("Error starting service:", error);
-            toast({
-                variant: 'destructive',
-                title: "Error",
-                description: "Failed to start service.",
-            });
+        updateDocumentNonBlocking(walkInRef, { 
+            status: 'servicing',
+            serviceStartTime: nowISO,
+        });
+
+        toast({
+            title: "Service Started!",
+            description: `The service for ${walkIn.customerName} has begun.`
         });
     };
     
@@ -1014,3 +1002,4 @@ export default function POSPage() {
         </>
     );
 }
+`
