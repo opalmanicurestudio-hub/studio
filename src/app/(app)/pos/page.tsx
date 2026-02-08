@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -30,7 +31,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -43,6 +44,8 @@ import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Progress } from '@/components/ui/progress';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -819,9 +822,6 @@ export default function POSPage() {
     
     const handleCheckout = async () => {
         setIsSubmitting(true);
-        // This is a placeholder for a full checkout flow.
-        // It would involve creating transactions, updating inventory, etc.
-        // The atomic updates happen here.
 
         await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network request
 
@@ -830,11 +830,15 @@ export default function POSPage() {
           clientName: selectedClient?.name || 'Walk-in Customer',
           date: new Date(),
           items: [
-            ...appointmentsData.flatMap(d => [d.service, ...d.addOnServices].filter(Boolean).map(s => ({name: s!.name, quantity: 1, price: s!.price }))),
+            ...appointmentsData.flatMap(d => {
+                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                return [...mainService, ...addOns];
+            }),
             ...cart.map(item => ({name: item.name, quantity: item.quantity, price: inventory.find(p => p.id === item.id)?.msrp || 0})),
           ],
           subtotal: subtotal,
-          discount: discount + membershipDiscount,
+          discount: totalDiscount,
           tax: tax,
           tip: tipAmount,
           total: total,
@@ -896,6 +900,7 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
     return (
         <>
@@ -1049,7 +1054,7 @@ export default function POSPage() {
                 </DialogContent>
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print-content">
+                <DialogContent className="max-w-sm print:hidden">
                     <DialogHeader className="print:hidden">
                         <DialogTitle>Print Receipt?</DialogTitle>
                         <DialogDescription>
@@ -1098,4 +1103,3 @@ export default function POSPage() {
     );
 }
 
-    
