@@ -397,6 +397,7 @@ export default function WalkInPage() {
   const [waitForPreferred, setWaitForPreferred] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
+  const [resetProgress, setResetProgress] = useState(100);
 
   const [potentialMatches, setPotentialMatches] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -483,6 +484,58 @@ export default function WalkInPage() {
   const handleRemovePartyMember = (memberId: string) => {
     setPartyMembers(prev => prev.filter(m => m.id !== memberId));
   };
+
+  const resetFlow = useCallback(() => {
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerEmail('');
+    setCustomerBirthday(undefined);
+    setBirthMonth('');
+    setBirthDay('');
+    setBirthYear('');
+    setSelectedServices([]);
+    setPreferredStaffId('any');
+    setNotes('');
+    setWaitForPreferred(false);
+    setCompletedForms(new Set());
+    setSelectedClientId(null);
+    setPartyMembers([]);
+    setStep('services');
+    setIsSubmitting(false);
+    setPartyType(null);
+    setTicketToPrint(null);
+  }, []);
+  
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    let progressInterval: NodeJS.Timeout;
+
+    if (step === 'confirmation') {
+      const DURATION = 15000; // 15 seconds
+      setResetProgress(100);
+
+      timer = setTimeout(() => {
+        resetFlow();
+      }, DURATION);
+
+      const intervalDuration = 100;
+      progressInterval = setInterval(() => {
+        setResetProgress(prev => {
+          if (prev <= 0) {
+            clearInterval(progressInterval);
+            return 0;
+          }
+          const newProgress = prev - (intervalDuration / DURATION) * 100;
+          return newProgress;
+        });
+      }, intervalDuration);
+    }
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(progressInterval);
+    };
+  }, [step, resetFlow]);
 
 
   const { totalDuration, totalPrice } = useMemo(() => {
@@ -615,27 +668,6 @@ export default function WalkInPage() {
   };
 
   const progressValue = step === 'services' ? 33 : step === 'consents' ? 66 : 100;
-  
-  const resetFlow = () => {
-    setCustomerName('');
-    setCustomerPhone('');
-    setCustomerEmail('');
-    setCustomerBirthday(undefined);
-    setBirthMonth('');
-    setBirthDay('');
-    setBirthYear('');
-    setSelectedServices([]);
-    setPreferredStaffId('any');
-    setNotes('');
-    setWaitForPreferred(false);
-    setCompletedForms(new Set());
-    setSelectedClientId(null);
-    setPartyMembers([]);
-    setStep('services');
-    setIsSubmitting(false);
-    setPartyType(null);
-    setTicketToPrint(null);
-  };
   
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || clientsLoading || !hasMounted;
   
@@ -963,8 +995,12 @@ export default function WalkInPage() {
                            </Button>
                        </div>
                     </CardContent>
-                    <CardFooter>
+                    <CardFooter className="flex flex-col gap-4">
                         <Button className="w-full" variant="ghost" onClick={resetFlow}>Done</Button>
+                         <div className="w-full text-center">
+                            <p className="text-xs text-muted-foreground">Resetting for the next guest...</p>
+                            <Progress value={resetProgress} className="h-1 mt-2" />
+                        </div>
                     </CardFooter>
                   </div>
                 )}
