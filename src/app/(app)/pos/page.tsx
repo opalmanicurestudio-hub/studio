@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -13,8 +13,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -62,7 +62,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -107,16 +107,30 @@ export default function POSPage() {
     }, [appointmentsFromDB]);
 
     const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff) return [];
-        return appointments
-            .filter(apt => apt.status === 'ready_for_checkout')
-            .map(apt => {
-                const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === apt.serviceId);
-                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-                const staffMember = staff.find(s => s.id === apt.staffId);
-                return { ...apt, client, service, addOnServices, staff: staffMember };
-            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+      if (!appointments || !clients || !services || !staff) return [];
+      return appointments
+        .filter(apt => apt.status === 'ready_for_checkout')
+        .map(apt => {
+          let client = clients.find(c => c.id === apt.clientId);
+          // If a client isn't found but there's a name on the appointment, create a temporary client object for display.
+          if (!client && apt.clientName) {
+            client = {
+              id: apt.clientId,
+              name: apt.clientName,
+              email: apt.clientEmail || '',
+              phone: apt.clientPhone || '',
+              avatarUrl: '',
+              lifetimeValue: 0,
+              lastAppointment: ''
+            };
+          }
+
+          const service = services.find(s => s.id === apt.serviceId);
+          const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+          const staffMember = staff.find(s => s.id === apt.staffId);
+          return { ...apt, client, service, addOnServices, staff: staffMember };
+        })
+        .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [appointments, clients, services, staff]);
 
     const handleSelectAppointment = useCallback((appointmentId: string) => {
@@ -450,9 +464,7 @@ export default function POSPage() {
             const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
             if (existingAssignment) continue;
     
-            // Correctly iterate through staff in their UI-defined order
             for (const staffMember of orderedStaff) {
-              // Check if this staff member is actually available
               if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
                 continue;
               }
@@ -465,7 +477,7 @@ export default function POSPage() {
               if (canPerformService) {
                 handleAssignStaff(client, staffMember.id);
                 toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return; // Exit after successful assignment
+                return;
               }
             }
           }
@@ -622,7 +634,7 @@ export default function POSPage() {
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
-    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId, services, inventory, redeemedOffer]);
+    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, services, inventory, redeemedOffer]);
 
     const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -663,59 +675,61 @@ export default function POSPage() {
     }, [cart, appointmentsData]);
 
     const handleStartService = (walkInId: string) => {
-      if (!firestore || !selectedTenant || !services || !walkIns) {
-          toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
-          return;
-      }
-  
-      const walkIn = walkIns.find(w => w.id === walkInId);
-      if (!walkIn || !walkIn.assignedStaffId) {
-          toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
-          return;
-      }
-      
-      const batch = writeBatch(firestore);
-  
-      const appointmentId = `apt-walkin-${walkIn.id}`;
-      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-      
-      const now = new Date();
-      const nowISO = now.toISOString();
+        if (!firestore || !selectedTenant || !services || !walkIns) {
+            toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
+            return;
+        }
+    
+        const walkIn = walkIns.find(w => w.id === walkInId);
+        if (!walkIn || !walkIn.assignedStaffId) {
+            toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
+            return;
+        }
+        
+        const batch = writeBatch(firestore);
+    
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        
+        const now = new Date();
+        const nowISO = now.toISOString();
 
-      setDocumentNonBlocking(appointmentRef, {
-          id: appointmentId,
-          tenantId: selectedTenant.id,
-          clientId: walkIn.clientId || walkIn.id,
-          clientName: walkIn.customerName,
-          serviceId: walkIn.serviceIds[0],
-          staffId: walkIn.assignedStaffId,
-          status: 'servicing',
-          source: 'walk-in',
-          isWalkIn: true,
-          startTime: now.toISOString(),
-          endTime: addMinutes(now, walkIn.estimatedDuration).toISOString(),
-          actualStartTime: nowISO,
-      }, { merge: true });
-  
-      const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-      batch.update(staffDocRef, { status: 'busy' });
-      
-      const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-      batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-  
-      batch.commit().then(() => {
-          toast({
-              title: "Service Started!",
-              description: `The service for ${walkIn.customerName} has begun.`
-          });
-      }).catch(error => {
-          console.error("Error starting service:", error);
-          toast({
-              variant: 'destructive',
-              title: "Error",
-              description: "Failed to start service.",
-          });
-      });
+        const appointmentToSave = {
+            id: appointmentId,
+            tenantId: selectedTenant.id,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            serviceId: walkIn.serviceIds[0],
+            staffId: walkIn.assignedStaffId,
+            status: 'servicing' as const,
+            source: 'walk-in' as const,
+            isWalkIn: true,
+            startTime: now.toISOString(),
+            endTime: addMinutes(now, walkIn.estimatedDuration).toISOString(),
+            actualStartTime: nowISO,
+        };
+        
+        setDocumentNonBlocking(appointmentRef, appointmentToSave, { merge: true });
+    
+        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+        batch.update(staffDocRef, { status: 'busy' });
+        
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+    
+        batch.commit().then(() => {
+            toast({
+                title: "Service Started!",
+                description: `The service for ${walkIn.customerName} has begun.`
+            });
+        }).catch(error => {
+            console.error("Error starting service:", error);
+            toast({
+                variant: 'destructive',
+                title: "Error",
+                description: "Failed to start service.",
+            });
+        });
     };
     
     useEffect(() => {
