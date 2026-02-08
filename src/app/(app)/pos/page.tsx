@@ -22,7 +22,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import {
   Sheet,
   SheetContent,
@@ -61,8 +61,8 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
-    const { memberships, packages, discounts } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, memberships } = useInventory();
+    const { packages, discounts } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -796,7 +796,7 @@ export default function POSPage() {
         const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
         return [...new Set([...appointmentServiceIds, ...cartServices])];
     }, [cart, appointmentsData]);
-
+    
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -1002,4 +1002,3 @@ export default function POSPage() {
         </>
     );
 }
-`
