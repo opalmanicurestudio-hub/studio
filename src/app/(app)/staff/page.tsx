@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -547,5 +546,3 @@ export default function StaffPage() {
     </div>
   );
 }
-
-```
