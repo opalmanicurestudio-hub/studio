@@ -411,31 +411,32 @@ export default function POSPage() {
     };
     
     const handleAssignNext = () => {
-        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
-    
-        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        
-        if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+        if (!staff || !walkIns || !services) {
+          toast({ title: "Data not loaded", description: "Please wait a moment and try again." });
           return;
         }
-        
+    
         const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
-        
         if (waitingClients.length === 0) {
           toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
           return;
         }
     
         if (assignmentMode === 'fair_play') {
-          // Fair Play Logic: Find the first available staff, then find a client they can serve.
+          const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+          
+          if (idleStaff.length === 0) {
+            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+            return;
+          }
+          
           for (const staffMember of idleStaff) {
             for (const client of waitingClients) {
               const allServiceIds = client.serviceIds;
               const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
               const staffSkills = staffMember.skillSet || [];
               const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-    
+        
               const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
               if (canPerformService && !existingAssignment) {
                 handleAssignStaff(client, staffMember.id);
@@ -445,28 +446,33 @@ export default function POSPage() {
             }
           }
         } else { // 'ordered_list'
-          // Ordered List Logic: Find the first client in the queue, then find a staff who can serve them.
           for (const client of waitingClients) {
             const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
             if (existingAssignment) continue;
-            
-            for (const staffMember of idleStaff) {
-                const allServiceIds = client.serviceIds;
-                const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-                const staffSkills = staffMember.skillSet || [];
-                const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+    
+            // Correctly iterate through staff in their UI-defined order
+            for (const staffMember of orderedStaff) {
+              // Check if this staff member is actually available
+              if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
+                continue;
+              }
+    
+              const allServiceIds = client.serviceIds;
+              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+              const staffSkills = staffMember.skillSet || [];
+              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
     
               if (canPerformService) {
                 handleAssignStaff(client, staffMember.id);
                 toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return;
+                return; // Exit after successful assignment
               }
             }
           }
         }
     
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
-    };
+      };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
         if (!firestore || !selectedTenant || !services) return;
