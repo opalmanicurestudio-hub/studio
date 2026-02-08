@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -6,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -14,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Label } from '../ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 
 export const CheckoutHub = ({ 
     cart, 
@@ -60,7 +62,7 @@ export const CheckoutHub = ({
     tax: number,
     total: number,
     tipAmount: number,
-    setTipAmount: (amount: number) => void,
+    setTipAmount: (amount: number) => void;
     onCheckout: (details: { paymentMethod: string; amountTendered?: number }) => void;
     appliedDiscountCode: string | undefined;
     setAppliedDiscountCode: (code: string | undefined) => void;
@@ -103,9 +105,19 @@ export const CheckoutHub = ({
     const totalDiscount = discount + membershipDiscount;
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
-    const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
+    const quickCashAmounts = useMemo(() => {
+        if (total <= 0) return [];
+        const suggestions = new Set<number>();
+        // Suggest the next highest $5, $10, or $20
+        suggestions.add(Math.ceil(total / 5) * 5);
+        suggestions.add(Math.ceil(total / 10) * 10);
+        suggestions.add(Math.ceil(total / 20) * 20);
 
-    const quickCashAmounts = [Math.ceil(total / 5) * 5, Math.ceil(total / 10) * 10, Math.ceil(total / 20) * 20, Math.ceil(total / 50) * 50].filter((v, i, a) => a.indexOf(v) === i && v > total);
+        return Array.from(suggestions)
+          .filter(amount => amount > total && amount !== Infinity)
+          .sort((a,b) => a - b)
+          .slice(0, 3);
+    }, [total]);
 
 
     return (
@@ -247,30 +259,87 @@ export const CheckoutHub = ({
                     <Button variant={paymentTab === 'card' ? 'default' : 'outline'} onClick={() => setPaymentTab('card')} className="flex-col h-16"><CreditCard /><span className="mt-1">Card</span></Button>
                     <Button variant={paymentTab === 'scan' ? 'default' : 'outline'} onClick={() => setPaymentTab('scan')} className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
                 </div>
-                 {paymentTab === 'cash' && (
+                {paymentTab === 'cash' && (
                     <div className="mt-4 space-y-4">
                         <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">Quick Tender</Label>
+                            <div className="grid grid-cols-4 gap-2">
+                                <Button variant="secondary" onClick={() => setAmountTendered(total)}>Exact</Button>
+                                {quickCashAmounts.map(amount => (
+                                    <Button key={amount} variant="secondary" onClick={() => setAmountTendered(amount)}>
+                                        ${amount}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
                             <Label htmlFor="amount-tendered">Amount Tendered</Label>
-                             <div className="relative">
-                                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="amount-tendered" type="number" placeholder="0.00" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8"/>
+                            <div className="relative">
+                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                <Input
+                                    id="amount-tendered"
+                                    type="number"
+                                    placeholder="0.00"
+                                    value={amountTendered || ''}
+                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
+                                    className="pl-10 text-2xl font-bold h-14 text-right pr-4"
+                                />
                             </div>
                         </div>
-                        <div className="grid grid-cols-4 gap-2">
-                            {denominations.map(amount => (
-                                <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(prev => prev + amount)}>
-                                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
-                                </Button>
-                            ))}
-                            <Button variant="outline" size="sm" onClick={() => setAmountTendered(0)} className="col-span-4">Clear</Button>
-                        </div>
-                        {amountTendered > 0 && (
-                            <div className="p-3 bg-muted rounded-md text-center">
-                                <p className="text-sm text-muted-foreground">Change Due</p>
-                                <p className="text-2xl font-bold text-primary">${changeDue > 0 ? changeDue.toFixed(2) : '0.00'}</p>
-                                {changeDue > 0 && <Button variant="link" size="xs" onClick={() => { setTipAmount(tipAmount + changeDue); setAmountTendered(amountTendered - changeDue); }}>Keep the change as a tip</Button>}
-                            </div>
-                        )}
+                        
+                        <Accordion type="single" collapsible>
+                            <AccordionItem value="denominations" className="border-0">
+                                <AccordionTrigger className="text-xs p-0 hover:no-underline text-muted-foreground">Add Denominations</AccordionTrigger>
+                                <AccordionContent className="pt-2">
+                                    <div className="space-y-3">
+                                        <div>
+                                            <Label className="text-xs text-muted-foreground">Bills</Label>
+                                            <div className="grid grid-cols-3 gap-2 mt-1">
+                                                {[100, 50, 20, 10, 5, 1].map(amount => (
+                                                    <Button key={amount} variant="outline" className="h-12 text-lg" onClick={() => setAmountTendered(prev => prev + amount)}>
+                                                        ${amount}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <Label className="text-xs text-muted-foreground">Coins</Label>
+                                            <div className="grid grid-cols-4 gap-2 mt-1">
+                                                {[0.25, 0.10, 0.05, 0.01].map(amount => (
+                                                    <Button key={amount} variant="outline" className="h-12" onClick={() => setAmountTendered(prev => prev + amount)}>
+                                                        {amount * 100}¢
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <Button variant="ghost" size="sm" onClick={() => setAmountTendered(0)} className="w-full text-muted-foreground">Clear Tendered</Button>
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+
+                        {amountTendered > total ? (
+                            <Card className="bg-primary/5 border-primary/20">
+                                <CardContent className="p-4 text-center">
+                                    <p className="text-sm font-medium text-primary">Change Due</p>
+                                    <p className="text-4xl font-bold text-primary">${changeDue > 0 ? changeDue.toFixed(2) : '0.00'}</p>
+                                    {changeDue > 0 && (
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            className="mt-2"
+                                            onClick={() => {
+                                                setTipAmount(tipAmount + changeDue);
+                                                setAmountTendered(amountTendered - changeDue);
+                                            }}
+                                        >
+                                            <Gift className="mr-2 h-4 w-4" /> Add to Tip
+                                        </Button>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        ) : null}
                     </div>
                 )}
             </div>
