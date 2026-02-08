@@ -12,8 +12,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -459,27 +459,27 @@ export default function POSPage() {
             }
           }
         } else { // 'ordered_list'
-          for (const client of waitingClients) {
-            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-            if (existingAssignment) continue;
-    
-            for (const staffMember of orderedStaff) {
-              if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
-                continue;
+            for (const client of waitingClients) {
+                const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+                if (existingAssignment) continue;
+        
+                for (const staffMember of orderedStaff) {
+                  if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
+                    continue;
+                  }
+        
+                  const allServiceIds = client.serviceIds;
+                  const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                  const staffSkills = staffMember.skillSet || [];
+                  const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+        
+                  if (canPerformService) {
+                    handleAssignStaff(client, staffMember.id);
+                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                    return;
+                  }
+                }
               }
-    
-              const allServiceIds = client.serviceIds;
-              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-              const staffSkills = staffMember.skillSet || [];
-              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-    
-              if (canPerformService) {
-                handleAssignStaff(client, staffMember.id);
-                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return;
-              }
-            }
-          }
         }
     
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
@@ -693,22 +693,12 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        const appointmentToSave: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {id: string, startTime: string, endTime: string} = {
-            id: appointmentId,
-            tenantId: selectedTenant.id,
-            clientId: walkIn.clientId || walkIn.id,
-            clientName: walkIn.customerName,
-            serviceId: walkIn.serviceIds[0],
-            staffId: walkIn.assignedStaffId,
-            status: 'servicing' as const,
-            source: 'walk-in' as const,
-            isWalkIn: true,
-            startTime: now.toISOString(),
-            endTime: addMinutes(now, walkIn.estimatedDuration).toISOString(),
+        const dataToSave = {
+            status: 'servicing',
             actualStartTime: nowISO,
         };
         
-        setDocumentNonBlocking(appointmentRef, appointmentToSave, { merge: true });
+        updateDocumentNonBlocking(appointmentRef, dataToSave);
     
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
         batch.update(staffDocRef, { status: 'busy' });
@@ -1024,4 +1014,5 @@ export default function POSPage() {
         </>
     );
 }
+
     
