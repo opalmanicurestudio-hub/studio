@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -778,7 +776,7 @@ export default function POSPage() {
                 tipAmount: tipAmount,
                 appointmentId: appointmentsData.map(a => a.id).join(', '),
                 discountAmount: totalDiscount,
-                ...(appliedDiscountCode && { appliedDiscountCode }),
+                appliedDiscountCode: appliedDiscountCode,
             };
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
         }
@@ -1007,7 +1005,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart, 
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1018,8 +1016,8 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax,
-        total,
+        tax: mockTax,
+        total: grandTotal,
         tipAmount,
         setTipAmount,
         onCheckout: handleConfirmAndClose,
@@ -1031,7 +1029,7 @@ export default function POSPage() {
         isSubmitting,
         paymentTab,
         setPaymentTab,
-        discounts,
+        discounts: discounts || [],
         amountTendered,
         setAmountTendered,
     };
@@ -1069,7 +1067,7 @@ export default function POSPage() {
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
-                            services={services} 
+                            services={services || []} 
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
@@ -1129,7 +1127,7 @@ export default function POSPage() {
                              <Button className="w-full h-14 text-lg" size="lg" disabled={totalItemsInCart === 0}>
                                 <div className="flex justify-between items-center w-full">
                                     <span><ShoppingCart className="inline-block mr-2" />{totalItemsInCart} item(s)</span>
-                                    <span>${total.toFixed(2)}</span>
+                                    <span>${grandTotal.toFixed(2)}</span>
                                 </div>
                             </Button>
                         </SheetTrigger>
@@ -1238,4 +1236,4 @@ export default function POSPage() {
         </>
     );
 }
-
+    
