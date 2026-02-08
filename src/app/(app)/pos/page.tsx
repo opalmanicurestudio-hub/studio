@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -659,7 +660,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.appointment.addOnIds || [])
+            const addOnsPrice = (data.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
@@ -709,7 +710,7 @@ export default function POSPage() {
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-                const allServicesInAppointment = [currentService, ...selectedAddOns.filter(a => currentAppointment.addOnIds?.includes(a.id))];
+                const allServicesInAppointment = [currentService, ...currentAppointment.addOnServices];
                 
                 const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
 
@@ -764,7 +765,7 @@ export default function POSPage() {
             const serviceRevenue = appointmentsData.reduce((total, data) => {
                 if (!data || !data.service) return total;
                 const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-                const addOnsPrice = (data.appointment.addOnIds || [])
+                const addOnsPrice = (data.addOnIds || [])
                     .map(id => services.find(s => s.id === id)?.price || 0)
                     .reduce((a, b) => a + b, 0);
                 return total + mainServicePrice + addOnsPrice;
@@ -825,7 +826,7 @@ export default function POSPage() {
               date: new Date(),
               items: appointmentsData.flatMap(d => {
                     const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addons = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                    const addons = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                     return [...main, ...addons];
                 }),
               subtotal,
