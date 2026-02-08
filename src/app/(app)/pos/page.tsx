@@ -680,26 +680,15 @@ export default function POSPage() {
     setIsSubmitting(true);
     try {
         let client: Client | undefined;
+        
         if(selectedClientId) {
             client = clients?.find(c => c.id === selectedClientId);
-             // If not found in the main list, check the temporary clients from appointmentsData
-            if (!client) {
-                const aptData = appointmentsData.find(a => a.client?.id === selectedClientId);
-                 if (aptData?.client) {
-                    client = {
-                        ...aptData.client,
-                        id: aptData.client.id,
-                        name: aptData.client.name,
-                        email: aptData.client.email || '',
-                        phone: aptData.client.phone || '',
-                        avatarUrl: aptData.client.avatarUrl || `https://picsum.photos/seed/${aptData.client.id}/100`,
-                        lifetimeValue: aptData.client.lifetimeValue || 0,
-                        lastAppointment: aptData.client.lastAppointment || '',
-                    };
-                }
-            }
         }
         
+        if (!client && appointmentsData.length > 0 && appointmentsData[0].client) {
+            client = appointmentsData[0].client;
+        }
+
         if (!client && (appointmentsData.length > 0 || cart.length > 0)) {
             toast({ variant: 'destructive', title: 'Client Required', description: 'Please select or create a client to complete the sale.' });
             setIsSubmitting(false);
@@ -711,25 +700,15 @@ export default function POSPage() {
             setIsSubmitting(false);
             return;
         }
-
-        const isNewClient = !clients?.some(c => c.id === client!.id);
+        
+        const clientExistsInDB = !!(clients && clients.find(c => c.id === client!.id));
 
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
         
-        if (isNewClient) {
+        if (!clientExistsInDB) {
             const newClientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-            const newClientData: Client = {
-                id: client.id,
-                name: client.name,
-                email: client.email || '',
-                phone: client.phone || '',
-                avatarUrl: `https://picsum.photos/seed/${client.id}/100`,
-                lifetimeValue: 0, // will be incremented later
-                lastAppointment: nowISO,
-                status: 'active',
-            };
-            batch.set(newClientRef, newClientData);
+            batch.set(newClientRef, client);
         }
 
         const isGroupCheckout = appointmentsData.length > 1;
@@ -744,7 +723,8 @@ export default function POSPage() {
         }, 0);
 
         if (serviceRevenue > 0) {
-             const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
+             const serviceTransaction: Partial<Transaction> = {
+                date: nowISO,
                 description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                 clientOrVendor: client.name,
                 clientId: client.id,
@@ -756,18 +736,19 @@ export default function POSPage() {
                 hasReceipt: true,
                 staffId: appointmentsData[0]?.staff?.id,
                 appointmentId: appointmentsData.map(a => a.id).join(', '),
-                tipAmount: 0, // Tips are handled separately
+                tipAmount: 0,
             };
              if (appliedDiscountCode) {
                 serviceTransaction.appliedDiscountCode = appliedDiscountCode;
                 serviceTransaction.discountAmount = totalDiscount;
             }
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...serviceTransaction, date: nowISO});
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
         }
 
         // Loop through each appointment
         for (const data of appointmentsData) {
-            const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
+            const { service: currentService, client: currentClient } = data;
+            const currentAppointment = data;
 
             if (!currentAppointment || !currentService) continue;
             
@@ -811,7 +792,7 @@ export default function POSPage() {
             if (currentClient) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
                 batch.update(clientDocRef, {
-                    lifetimeValue: increment(appointmentRevenue / appointmentsData.length), // Distribute revenue for LTV
+                    lifetimeValue: increment(appointmentRevenue), // Distribute revenue for LTV?
                     lastAppointment: new Date().toISOString()
                 });
             }
@@ -821,7 +802,8 @@ export default function POSPage() {
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
-            const retailTotal = item.quantity * (product.msrp || 0);
+            const price = product.msrp || product.costPerUnit || 0;
+            const retailTotal = item.quantity * price;
 
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id'|'date'> = {
@@ -877,18 +859,20 @@ export default function POSPage() {
 
         await batch.commit();
 
+        const allCartItems = [
+            ...appointmentsData.flatMap(d => {
+                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const addons = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                return [...mainService, ...addons];
+            }),
+            ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
+        ];
+
         const receiptData: ReceiptData = {
           business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
           clientName: client.name,
           date: new Date(),
-          items: [
-            ...appointmentsData.flatMap(d => {
-                const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : (d.service.price || 0) }] : [];
-                const addons = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
-                return [...main, ...addons];
-            }),
-            ...retailItems.map(item => ({...item, price: item.price || 0}))
-          ],
+          items: allCartItems,
           subtotal,
           discount: totalDiscount,
           tax: mockTax,
@@ -1246,7 +1230,7 @@ export default function POSPage() {
                 </DialogContent>
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
+                <DialogContent className="max-w-sm print-content">
                     <DialogHeader className="print:hidden">
                         <DialogTitle>Print Receipt?</DialogTitle>
                         <DialogDescription>
