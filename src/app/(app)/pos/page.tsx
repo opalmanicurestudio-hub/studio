@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -672,6 +673,7 @@ export default function POSPage() {
   const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
   const mockTax = subtotalAfterDiscounts * 0.07;
   const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
+  
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
   const handleConfirmAndClose = async () => {
@@ -683,7 +685,18 @@ export default function POSPage() {
              // If not found in the main list, check the temporary clients from appointmentsData
             if (!client) {
                 const aptData = appointmentsData.find(a => a.client?.id === selectedClientId);
-                client = aptData?.client;
+                 if (aptData?.client) {
+                    client = {
+                        ...aptData.client,
+                        id: aptData.client.id,
+                        name: aptData.client.name,
+                        email: aptData.client.email || '',
+                        phone: aptData.client.phone || '',
+                        avatarUrl: aptData.client.avatarUrl || `https://picsum.photos/seed/${aptData.client.id}/100`,
+                        lifetimeValue: aptData.client.lifetimeValue || 0,
+                        lastAppointment: aptData.client.lastAppointment || '',
+                    };
+                }
             }
         }
         
@@ -722,7 +735,7 @@ export default function POSPage() {
         const isGroupCheckout = appointmentsData.length > 1;
 
         // Shared transactions
-        const retailTotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const retailItems = cart.filter(item => item.type === 'product');
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
@@ -731,8 +744,7 @@ export default function POSPage() {
         }, 0);
 
         if (serviceRevenue > 0) {
-             const serviceTransaction = {
-                date: nowISO,
+             const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                 clientOrVendor: client.name,
                 clientId: client.id,
@@ -745,9 +757,12 @@ export default function POSPage() {
                 staffId: appointmentsData[0]?.staff?.id,
                 appointmentId: appointmentsData.map(a => a.id).join(', '),
                 tipAmount: 0, // Tips are handled separately
-                ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: totalDiscount })
             };
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
+             if (appliedDiscountCode) {
+                serviceTransaction.appliedDiscountCode = appliedDiscountCode;
+                serviceTransaction.discountAmount = totalDiscount;
+            }
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...serviceTransaction, date: nowISO});
         }
 
         // Loop through each appointment
@@ -757,7 +772,18 @@ export default function POSPage() {
             if (!currentAppointment || !currentService) continue;
             
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
+
+            const allServicesInAppointment = [currentService, ...selectedAddOns.filter(a => currentAppointment.addOnIds?.includes(a.id))];
+            const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
+
+            if (redeemedOffer?.id === currentService.id) {
+                // Logic to handle redeemed offer, e.g. mark as used
+            }
+            
+            batch.update(appointmentRef, { 
+                status: 'completed',
+                actualEndTime: nowISO,
+            });
 
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
@@ -785,7 +811,7 @@ export default function POSPage() {
             if (currentClient) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
                 batch.update(clientDocRef, {
-                    lifetimeValue: increment(serviceRevenue / appointmentsData.length), // Distribute revenue for LTV
+                    lifetimeValue: increment(appointmentRevenue / appointmentsData.length), // Distribute revenue for LTV
                     lastAppointment: new Date().toISOString()
                 });
             }
@@ -895,10 +921,6 @@ export default function POSPage() {
         setIsSubmitting(false);
     }
   };
-
-    const selectedClient = useMemo(() => {
-        return clients?.find(c => c.id === selectedClientId);
-    }, [clients, selectedClientId]);
 
     const payerOptions = useMemo(() => {
       const clientMap = new Map<string, Client>();
@@ -1041,7 +1063,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1272,5 +1294,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
