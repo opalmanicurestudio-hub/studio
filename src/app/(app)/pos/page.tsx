@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -122,7 +121,7 @@ export default function POSPage() {
               avatarUrl: '',
               lifetimeValue: 0,
               lastAppointment: ''
-            };
+            } as Client;
           }
 
           const service = services.find(s => s.id === apt.serviceId);
@@ -646,7 +645,7 @@ export default function POSPage() {
     }, [cart, inventory]);
 
     useEffect(() => {
-        if (selectedClient && selectedClient.activeMembershipId) {
+        if (selectedClient && selectedClient.activeMembershipId && memberships) {
             const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
             if (membership?.retailDiscount && retailTotalForDiscount > 0) {
                 const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
@@ -694,7 +693,7 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        const appointmentToSave = {
+        const appointmentToSave: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {id: string, startTime: string, endTime: string} = {
             id: appointmentId,
             tenantId: selectedTenant.id,
             clientId: walkIn.clientId || walkIn.id,
@@ -814,6 +813,12 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
+    const cartServiceIds = useMemo(() => {
+        const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
+        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
+        return [...new Set([...appointmentServiceIds, ...cartServices])];
+    }, [cart, appointmentsData]);
+
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -997,7 +1002,7 @@ export default function POSPage() {
                     {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                 </div>
             </div>
-            <style jsx global>{`
+            <style jsx global>{\`
                 @media print {
                     body > *:not(.print-only) {
                     display: none !important;
@@ -1012,7 +1017,7 @@ export default function POSPage() {
                     top: 0;
                     }
                 }
-            `}</style>
+            \`}</style>
         </>
     );
 }
