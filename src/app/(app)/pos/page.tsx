@@ -655,9 +655,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || [])
-                .map(s => s.price || 0)
-                .reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.addOnServices || []).reduce((a, s) => a + (s.price || 0), 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -740,9 +738,10 @@ export default function POSPage() {
         }
 
         // Loop through each appointment
-        for (const data of appointmentsData) {
-            const { appointment: currentAppointment, service: currentService } = data;
-
+        for (const appointmentData of appointmentsData) {
+            const { client: currentClient, service: currentService } = appointmentData;
+            const currentAppointment = appointmentData;
+        
             if (!currentAppointment || !currentService) continue;
             
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
@@ -775,10 +774,10 @@ export default function POSPage() {
               }
             });
             
-            if (data.client) {
-                const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, data.client.id);
+            if (currentClient) {
+                const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
                 batch.update(clientDocRef, {
-                    lifetimeValue: increment(data.service.price),
+                    lifetimeValue: increment(currentService.price),
                     lastAppointment: new Date().toISOString()
                 });
             }
@@ -1033,7 +1032,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1063,6 +1062,8 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
+    
+    const tipAllocations: Record<string, number> = {};
 
     return (
         <>
