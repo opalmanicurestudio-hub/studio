@@ -114,10 +114,11 @@ export default function POSPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    const handleCartChange = useCallback((newRetailItems: any[]) => {
+    const handleCartChange = (newCart: EditableFormulaItem[]) => {
       const serviceItems = cart.filter(item => item.type === 'service');
+      const newRetailItems = newCart.filter(item => item.type === 'product');
       setCart([...serviceItems, ...newRetailItems]);
-    }, [cart]);
+    };
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -176,6 +177,53 @@ export default function POSPage() {
         })
         .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns, groupSizes]);
+    
+    useEffect(() => {
+        if (!firestore || !tenantId || !readyForCheckoutAppointments.length || !transactions || transactions.length === 0) {
+          return;
+        }
+    
+        const appointmentIdsWithTransactions = new Set<string>();
+        transactions.forEach(t => {
+          if (t.appointmentId) {
+            t.appointmentId.split(',').forEach(id => appointmentIdsWithTransactions.add(id.trim()));
+          }
+        });
+    
+        const appointmentsToFix = readyForCheckoutAppointments.filter(apt => 
+            appointmentIdsWithTransactions.has(apt.id)
+        );
+    
+        if (appointmentsToFix.length > 0) {
+          console.log(`Found ${appointmentsToFix.length} appointments to fix.`);
+          const batch = writeBatch(firestore);
+          appointmentsToFix.forEach(apt => {
+            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
+            batch.update(appointmentRef, { status: 'completed', actualEndTime: new Date().toISOString() });
+            
+            if (apt.checkInToken) {
+                 const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+                 batch.update(checkInRef, { status: 'completed' });
+            }
+            
+            if (apt.isWalkIn) {
+                const walkInId = apt.id.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
+            }
+    
+          });
+    
+          batch.commit().then(() => {
+            toast({
+              title: "Data Healed",
+              description: `${appointmentsToFix.length} stuck appointment(s) have been corrected.`,
+            });
+          }).catch(error => {
+            console.error("Error fixing appointments:", error);
+          });
+        }
+      }, [readyForCheckoutAppointments, transactions, firestore, tenantId, toast]);
 
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         const newSet = new Set(selectedAppointmentIds);
@@ -678,91 +726,78 @@ export default function POSPage() {
   const handleConfirmAndClose = async () => {
     setIsSubmitting(true);
     try {
-        if (!firestore || !tenantId || !clients) {
+        if (!firestore || !tenantId) {
             toast({ variant: "destructive", title: "Error", description: "Data is not ready. Please try again." });
             setIsSubmitting(false);
             return;
         }
 
-        const payingClientInfo = selectedClientId 
-            ? clients.find(c => c.id === selectedClientId)
-            : (appointmentsData.length > 0 ? appointmentsData[0].client : undefined);
-
-        if (!payingClientInfo) {
-            const isWalkInCheckout = appointmentsData.length > 0 && !appointmentsData[0].client.id;
-            if (isWalkInCheckout) {
-                // This is a pure walk-in, we need to create a client record.
-                // This part of the logic seems to be missing and causing the "Client not found" error.
-            } else {
-                 toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected.' });
-                setIsSubmitting(false);
-                return;
-            }
-        }
-
-        const batch = writeBatch(firestore);
-        const nowISO = new Date().toISOString();
-        
         const clientResolutionMap = new Map<string, Client>();
         
         for (const appointment of appointmentsData) {
             if (!appointment.client) continue;
-
             const tempClient = appointment.client;
             if (clientResolutionMap.has(tempClient.id)) continue;
-
-            const existingClient = clients.find(c => c.id === tempClient.id);
+            
+            const existingClient = clients?.find(c => c.id === tempClient.id);
             if (existingClient) {
                 clientResolutionMap.set(existingClient.id, existingClient);
             } else {
                 const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
-                const newClient: Client = { ...tempClient, id: newClientRef.id, lifetimeValue: 0, lastAppointment: nowISO };
-                batch.set(newClientRef, newClient);
+                const newClient: Client = { ...tempClient, id: newClientRef.id, lifetimeValue: 0, lastAppointment: new Date().toISOString() };
+                await setDoc(newClientRef, newClient);
                 clientResolutionMap.set(tempClient.id, newClient);
             }
         }
         
-        const payingClient = clientResolutionMap.get(payingClientInfo!.id) || payingClientInfo!;
-        
-        for (const appointment of appointmentsData) {
-            const { service: currentService, addOnServices, client: currentClient } = appointment;
-            if (!currentService || !currentClient) continue;
+        const payingClientInfo = selectedClientId 
+            ? clientResolutionMap.get(selectedClientId)
+            : (appointmentsData.length > 0 ? clientResolutionMap.get(appointmentsData[0].client.id) : undefined);
+
+        if (!payingClientInfo) {
+            toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected or created.' });
+            setIsSubmitting(false);
+            return;
+        }
+        const payingClient = payingClientInfo;
+
+        const batch = writeBatch(firestore);
+        const nowISO = new Date().toISOString();
+
+        for (const data of appointmentsData) {
+            const { appointment: currentAppointment, service: currentService, addOnServices, client: currentClient } = data;
+            
+            if (!currentAppointment || !currentService || !currentClient) continue;
             
             const resolvedClient = clientResolutionMap.get(currentClient.id);
             if (!resolvedClient) continue; 
-
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-            batch.update(appointmentRef, { 
-                status: 'completed', 
-                actualEndTime: nowISO,
-            });
             
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, resolvedClient.id);
-            const servicePrice = currentService?.price || 0;
-            const addOnsPrice = (addOnServices || []).reduce((acc: number, s: Service) => acc + s.price, 0);
+            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
+            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
+            
+            if (currentAppointment.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                batch.update(checkInRef, { status: 'completed' });
+            }
 
+            const appointmentRevenue = (currentService?.price || 0) + (addOnServices || []).reduce((acc: number, s: Service) => acc + s.price, 0);
+
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, resolvedClient.id);
             batch.update(clientDocRef, {
-                lifetimeValue: increment(servicePrice + addOnsPrice),
+                lifetimeValue: increment(appointmentRevenue),
                 lastAppointment: nowISO,
             });
 
-            if (appointment.isWalkIn) {
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-',''));
+            if (currentAppointment.isWalkIn) {
+                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
-            
-            const staffIdsInvolved = new Set(Object.values(appointment.checkoutState?.serviceStaffOverrides || {}));
-            if (appointment.staffId) staffIdsInvolved.add(appointment.staffId);
-        
-            staffIdsInvolved.forEach(staffId => {
-              if (staffId) {
-                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-                batch.update(staffDocRef, {
-                  status: 'idle',
-                  lastServedTimestamp: nowISO,
-                });
-              }
-            });
+
+            if (currentAppointment.staffId) {
+                const staffDocRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
+                batch.update(staffDocRef, { status: 'idle', lastServedTimestamp: nowISO });
+            }
         }
         
         const isGroupCheckout = appointmentsData.length > 1;
@@ -788,11 +823,9 @@ export default function POSPage() {
                 staffId: appointmentsData[0]?.staff?.id,
                 appointmentId: appointmentsData.map(a => a.id).join(', '),
                 tipAmount: 0,
+                 appliedDiscountCode: appliedDiscountCode,
+                discountAmount: totalDiscount,
             };
-             if (appliedDiscountCode) {
-                serviceTransaction.appliedDiscountCode = appliedDiscountCode;
-                serviceTransaction.discountAmount = totalDiscount;
-            }
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
         }
 
@@ -813,7 +846,7 @@ export default function POSPage() {
                     amount: retailTotal,
                     paymentMethod: paymentTab,
                     hasReceipt: true,
-                    staffId: appointmentsData[0]?.staff?.id,
+                    staffId: appointmentsData[0].staff?.id,
                     appointmentId: appointmentsData[0].id,
                 };
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
@@ -858,7 +891,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addons = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addons = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addons];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -902,21 +935,21 @@ export default function POSPage() {
     }
   };
 
-    const payerOptions = useMemo(() => {
-      const clientMap = new Map<string, Client>();
-      appointmentsData.forEach(apt => {
+  const payerOptions = useMemo(() => {
+    const clientMap = new Map<string, Client>();
+    appointmentsData.forEach(apt => {
         if (apt.client) {
-          clientMap.set(apt.client.id, apt.client);
+            clientMap.set(apt.client.id, apt.client);
         }
-      });
-      return Array.from(clientMap.values());
-    }, [appointmentsData]);
+    });
+    return Array.from(clientMap.values());
+  }, [appointmentsData]);
 
-    const cartServiceIds = useMemo(() => {
-        const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
-        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
-        return [...new Set([...appointmentServiceIds, ...cartServices])];
-    }, [cart, appointmentsData]);
+  const cartServiceIds = useMemo(() => {
+      const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
+      const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
+      return [...new Set([...appointmentServiceIds, ...cartServices])];
+  }, [cart, appointmentsData]);
     
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -1047,7 +1080,7 @@ export default function POSPage() {
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
-        isGroupCheckout: selectedAppointmentIds.size > 1,
+        isGroupCheckout: selectedAppointmentIds.size > 0,
         payerOptions,
         selectedClientId,
         setSelectedClientId,
@@ -1228,8 +1261,8 @@ export default function POSPage() {
                 </DialogContent>
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print-content">
-                    <DialogHeader className="print:hidden">
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
                         <DialogTitle>Print Receipt?</DialogTitle>
                         <DialogDescription>
                             Would you like to print a receipt for this transaction?
@@ -1238,7 +1271,7 @@ export default function POSPage() {
                     <div id="print-receipt-area" className="hidden print:block">
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
-                    <DialogFooter className="print:hidden">
+                    <DialogFooter>
                         <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
                         <Button onClick={() => window.print()}>
                             <Printer className="mr-2 h-4 w-4" />
@@ -1276,3 +1309,4 @@ export default function POSPage() {
         </>
     );
 }
+
