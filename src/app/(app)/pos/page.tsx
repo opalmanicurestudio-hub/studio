@@ -12,8 +12,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -735,30 +735,44 @@ export default function POSPage() {
             const element = document.getElementById('qr-reader-pos');
             if (element) {
                 html5QrCode = new Html5Qrcode('qr-reader-pos');
-                const onScanSuccess = (decodedText: string) => {
+                const onScanSuccess = (decodedText: string, decodedResult: any) => {
                     if (html5QrCode?.isScanning) {
                         html5QrCode.stop().catch(console.error);
                     }
                     setScannedData(decodedText);
                     setIsScannerOpen(false);
                 };
-                const onScanFailure = () => { /* ignore */ };
+
+                const onScanFailure = (error: any) => { /* ignore */ };
                 
-                html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
-                  .catch(err => {
-                    toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera.' });
-                    setIsScannerOpen(false);
-                  });
+                setTimeout(() => {
+                    html5QrCode?.start(
+                        { facingMode: "environment" },
+                        { fps: 10, qrbox: { width: 250, height: 250 } },
+                        onScanSuccess,
+                        onScanFailure
+                    ).catch(err => {
+                        toast({
+                            variant: 'destructive',
+                            title: 'Camera Error',
+                            description: 'Could not start the camera. Please check permissions and try again.',
+                        });
+                        setIsScannerOpen(false);
+                    });
+                }, 300);
             }
-          }, 300);
+          }, 100); 
+
           return () => {
               clearTimeout(timer);
               if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => console.error("Failed to stop QR scanner.", err));
+                html5QrCode.stop().catch(err => {
+                    console.error("Failed to stop QR Code scanner.", err);
+                });
               }
           };
         }
-    }, [isScannerOpen, toast, handleScan]);
+    }, [isScannerOpen, handleScan, toast]);
     
     const handleCartChange = (newCart: any[]) => {
         setCart(newCart);
@@ -827,7 +841,7 @@ export default function POSPage() {
           payment: {
               method: paymentTab,
               amountTendered: paymentTab === 'cash' ? amountTendered : total,
-              changeDue: paymentTab === 'cash' && amountTendered > total ? amountTendered - total : 0
+              changeDue: changeDue > 0 ? changeDue : 0
           },
         };
 
@@ -1035,8 +1049,8 @@ export default function POSPage() {
                 </DialogContent>
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
-                    <DialogHeader>
+                <DialogContent className="max-w-sm print-content">
+                    <DialogHeader className="print:hidden">
                         <DialogTitle>Print Receipt?</DialogTitle>
                         <DialogDescription>
                             Would you like to print a receipt for this transaction?
@@ -1045,7 +1059,7 @@ export default function POSPage() {
                     <div id="print-receipt-area" className="hidden print:block">
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="print:hidden">
                         <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
                         <Button onClick={() => window.print()}>
                             <Printer className="mr-2 h-4 w-4" />
@@ -1083,3 +1097,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
