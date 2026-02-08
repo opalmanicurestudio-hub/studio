@@ -32,6 +32,7 @@ interface WalkInQueueProps {
     onPrintTicket: (walkInId: string) => void;
     onSkip: (walkInId: string) => void;
     onReturnToQueue: (walkInId: string) => void;
+    groupSizes: Map<string, number>;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -49,6 +50,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onPrintTicket,
     onSkip,
     onReturnToQueue,
+    groupSizes,
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -59,16 +61,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
-
-    const groupSizes = useMemo(() => {
-        const sizes = new Map<string, number>();
-        (walkIns || []).forEach(w => {
-            if (w.groupId) {
-                sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
-            }
-        });
-        return sizes;
-    }, [walkIns]);
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);

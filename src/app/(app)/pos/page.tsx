@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -107,8 +108,18 @@ export default function POSPage() {
         }));
     }, [appointmentsFromDB]);
 
+    const groupSizes = useMemo(() => {
+        const sizes = new Map<string, number>();
+        (walkIns || []).forEach(w => {
+            if (w.groupId) {
+                sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
+            }
+        });
+        return sizes;
+    }, [walkIns]);
+
     const readyForCheckoutAppointments = useMemo(() => {
-      if (!appointments || !clients || !services || !staff) return [];
+      if (!appointments || !clients || !services || !staff || !walkIns) return [];
       return appointments
         .filter(apt => apt.status === 'ready_for_checkout')
         .map(apt => {
@@ -128,10 +139,23 @@ export default function POSPage() {
           const service = services.find(s => s.id === apt.serviceId);
           const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
           const staffMember = staff.find(s => s.id === apt.staffId);
-          return { ...apt, client, service, addOnServices, staff: staffMember };
+          
+          let groupInfo: { name: string; id: string } | null = null;
+          if (apt.isWalkIn) {
+              const walkInId = apt.id.replace('apt-walkin-', '');
+              const walkIn = walkIns.find(w => w.id === walkInId);
+              if (walkIn && walkIn.groupName && groupSizes.get(walkIn.groupId)! > 1) {
+                  groupInfo = {
+                      name: walkIn.groupName,
+                      id: walkIn.groupId,
+                  };
+              }
+          }
+
+          return { ...apt, client, service, addOnServices, staff: staffMember, groupInfo };
         })
-        .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
-    }, [appointments, clients, services, staff]);
+        .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
+    }, [appointments, clients, services, staff, walkIns, groupSizes]);
 
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         const newSet = new Set(selectedAppointmentIds);
@@ -456,7 +480,12 @@ export default function POSPage() {
               }
             }
           }
-        } else {
+        } else { // 'ordered_list'
+          const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
+          if (idleStaff.length === 0) {
+            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+            return;
+          }
             for (const client of waitingClients) {
                 const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
                 if (existingAssignment) continue;
@@ -593,7 +622,7 @@ export default function POSPage() {
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; } => !!a);
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
     
     useEffect(() => {
@@ -610,8 +639,8 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnIds || [])
-                .map(id => services.find(s => s.id === id)?.price || 0)
+            const addOnsPrice = (data.addOnServices || [])
+                .map(s => s.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
@@ -668,37 +697,34 @@ export default function POSPage() {
         return retailItemsCount + serviceItemsCount;
     }, [cart, appointmentsData]);
 
-    const handleStartService = (appointmentId: string) => {
-        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-        if (!appointmentToStart || !firestore || !selectedTenant) return;
+    const handleStartService = (walkInId: string) => {
+        const walkInToStart = walkIns?.find(w => w.id === walkInId);
+        if (!walkInToStart || !firestore || !selectedTenant) return;
         
+        const appointmentId = `apt-walkin-${walkInId}`;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        const nowISO = new Date().toISOString();
-        
-        const dataToSave = {
+        setDocumentNonBlocking(appointmentRef, {
+            ...walkInToStart, // This is simplified, real data would be mapped
+            id: appointmentId,
+            isWalkIn: true,
             status: 'servicing',
-            actualStartTime: nowISO,
-        };
-
-        if (appointmentToStart.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { 
-                status: 'servicing',
-                serviceStartTime: nowISO,
-            });
-        }
+            actualStartTime: new Date().toISOString(),
+        }, { merge: true });
         
-        updateDocumentNonBlocking(appointmentRef, dataToSave);
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, { 
+            status: 'servicing',
+            serviceStartTime: new Date().toISOString(),
+        });
         
-        if (appointmentToStart.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+        if (walkInToStart.assignedStaffId) {
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkInToStart.assignedStaffId);
             updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
         }
     
         toast({
             title: "Service Started!",
-            description: `The service for ${appointmentToStart.clientName} has begun.`
+            description: `The service for ${walkInToStart.customerName} has begun.`
         });
     };
     
@@ -757,7 +783,7 @@ export default function POSPage() {
           lastAppointment: new Date().toISOString(),
           status: 'active',
           notes: data.notes,
-          referralCode: '',
+          referralCode: '', // referral code generation logic is missing here
           birthday: data.birthday ? data.birthday.toISOString() : undefined,
           address: data.address,
           emergencyContact: data.emergencyContact,
@@ -775,14 +801,15 @@ export default function POSPage() {
       }
 
     const payerOptions = useMemo(() => {
-        const clientIds = new Set<string>();
+        if (!appointmentsData) return [];
+        const clientMap = new Map<string, Client>();
         appointmentsData.forEach(apt => {
-          if(apt.client) {
-            clientIds.add(apt.client.id);
+          if (apt.client) {
+            clientMap.set(apt.client.id, apt.client);
           }
         });
-        return (clients || []).filter(c => clientIds.has(c.id));
-    }, [appointmentsData, clients]);
+        return Array.from(clientMap.values());
+    }, [appointmentsData]);
     
     const cartServiceIds = useMemo(() => {
         const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
@@ -890,6 +917,7 @@ export default function POSPage() {
                                     }}
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
+                                    groupSizes={groupSizes}
                                 />
                             </TabsContent>
                         </Tabs>

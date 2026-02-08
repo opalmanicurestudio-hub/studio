@@ -12,15 +12,22 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { AlertTriangle, FlaskConical } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Badge } from '../ui/badge';
 
 interface CheckoutQueueCardProps {
-  appointment: Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff };
+  appointment: Appointment & { 
+    client?: Client, 
+    service?: Service, 
+    addOnServices: Service[], 
+    staff?: Staff,
+    groupInfo?: { name: string; id: string; } | null;
+  };
   isSelected: boolean;
   onSelect: () => void;
 }
 
 export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointment, isSelected, onSelect }) => {
-  const { client, service, addOnServices, staff, checkoutState } = appointment;
+  const { client, service, addOnServices, staff, checkoutState, groupInfo } = appointment;
 
   if (!client || !service) {
     return null; // Or a skeleton/error state
@@ -68,6 +75,11 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                     <div className="flex-1 space-y-1">
                         <p className="font-semibold flex items-center gap-2">
                             {client.name}
+                            {groupInfo && (
+                                <Badge variant="destructive" className="text-xs">
+                                    {groupInfo.name}
+                                </Badge>
+                            )}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
                                     <Tooltip>
