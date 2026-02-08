@@ -618,6 +618,8 @@ export default function POSPage() {
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId, services, inventory, redeemedOffer]);
 
+    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
     const retailTotalForDiscount = useMemo(() => {
         return cart.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
@@ -626,8 +628,8 @@ export default function POSPage() {
     }, [cart, inventory]);
 
     useEffect(() => {
-        if (client && client.activeMembershipId) {
-            const membership = memberships.find(m => m.id === client.activeMembershipId);
+        if (selectedClient && selectedClient.activeMembershipId) {
+            const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
             if (membership?.retailDiscount && retailTotalForDiscount > 0) {
                 const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
                 setMembershipDiscount(discountValue);
@@ -637,7 +639,7 @@ export default function POSPage() {
         } else {
             setMembershipDiscount(0);
         }
-    }, [client, retailTotalForDiscount, memberships]);
+    }, [selectedClient, retailTotalForDiscount, memberships]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -665,6 +667,8 @@ export default function POSPage() {
             toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
             return;
         }
+        
+        const batch = writeBatch(firestore);
 
         const appointmentId = `apt-walkin-${walkIn.id}`;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
@@ -672,13 +676,30 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        updateDocumentNonBlocking(appointmentRef, {
+        batch.update(appointmentRef, {
             status: 'servicing',
             actualStartTime: nowISO,
         });
 
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        batch.update(staffDocRef, { status: 'busy' });
+        
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+
+        batch.commit().then(() => {
+            toast({
+                title: "Service Started!",
+                description: `The service for ${walkIn.customerName} has begun.`
+            });
+        }).catch(error => {
+            console.error("Error starting service:", error);
+            toast({
+                variant: 'destructive',
+                title: "Error",
+                description: "Failed to start service.",
+            });
+        });
     };
     
     useEffect(() => {
