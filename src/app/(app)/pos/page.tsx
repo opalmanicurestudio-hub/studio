@@ -635,6 +635,27 @@ export default function POSPage() {
     
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
 
+    const totalDiscount = discount + membershipDiscount;
+    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+    const mockTax = subtotalAfterDiscounts * 0.07;
+    const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
+
+    const handleCheckout = async () => {
+        setIsSubmitting(true);
+        try {
+            await handleConfirmAndClose();
+        } catch(e) {
+            // handleConfirmAndClose already toasts on error
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    const handleCartChange = (newCart: any[]) => {
+        setCart(newCart);
+    }
+    
     const { subtotal, tax, total } = useMemo(() => {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
@@ -659,28 +680,153 @@ export default function POSPage() {
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, services, inventory, redeemedOffer]);
 
-    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
-
-    const retailTotalForDiscount = useMemo(() => {
-        return cart.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || 0));
-        }, 0);
-    }, [cart, inventory]);
-
-    useEffect(() => {
-        if (selectedClient && selectedClient.activeMembershipId && memberships) {
-            const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
-            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
-                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
-                setMembershipDiscount(discountValue);
-            } else {
-                setMembershipDiscount(0);
-            }
-        } else {
-            setMembershipDiscount(0);
+    const handleConfirmAndClose = async () => {
+        if (!selectedClientId || !clients) {
+            toast({ variant: 'destructive', title: 'No Payer Selected' });
+            return;
         }
-    }, [selectedClient, retailTotalForDiscount, memberships]);
+    
+        const client = clients.find(c => c.id === selectedClientId);
+    
+        if (!client || !firestore || !tenantId) {
+            toast({ variant: 'destructive', title: 'Database Error or Client Not Found' });
+            return;
+        }
+    
+        const batch = writeBatch(firestore);
+        
+        const totalDiscount = discount + membershipDiscount;
+    
+        // Loop through each appointment in the checkout
+        for (const data of appointmentsData) {
+            const { appointment: currentAppointment, service: currentService } = data;
+            if (!currentAppointment || !currentService) continue;
+    
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+            const allServicesInAppointment = [currentService, ...data.addOnServices];
+            const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
+    
+            batch.update(appointmentRef, {
+                status: 'completed',
+                revenue: appointmentRevenue,
+                discountAmount: discount / appointmentsData.length, // Distribute promo discount
+                appliedDiscountCode: appliedDiscountCode || ''
+            });
+    
+            if (currentAppointment.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                batch.update(checkInRef, { status: 'completed' });
+            }
+    
+            if (currentAppointment.staffId) {
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', currentAppointment.staffId);
+                batch.update(staffDocRef, {
+                    status: 'idle',
+                    lastServedTimestamp: new Date().toISOString(),
+                });
+            }
+        }
+        
+        // Handle shared items and transactions for the primary payer
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+        batch.update(clientDocRef, {
+            lifetimeValue: increment(subtotal - totalDiscount),
+            lastAppointment: new Date().toISOString()
+        });
+
+        const newTransaction: Omit<Transaction, 'id'|'date'> = {
+            description: 'Point of Sale Transaction',
+            clientOrVendor: client.name,
+            clientId: client.id,
+            type: 'income',
+            context: 'Business',
+            category: 'Service Revenue', // This could be more specific
+            amount: subtotalAfterDiscounts + mockTax, // Base sale
+            paymentMethod: paymentTab,
+            hasReceipt: true,
+            tipAmount: tipAmount,
+            discountAmount: totalDiscount,
+            appliedDiscountCode: appliedDiscountCode,
+            appointmentId: appointmentsData.map(a => a.id).join(', '),
+        };
+        batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
+
+    
+        if (appliedDiscountCode) {
+            const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+            batch.update(discountRef, {
+                usageCount: increment(1),
+                usedByClientIds: arrayUnion(client.id),
+            });
+        }
+    
+        try {
+            await batch.commit();
+            
+            const receiptData: ReceiptData = {
+              business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
+              clientName: client.name,
+              date: new Date(),
+              items: [
+                ...appointmentsData.flatMap(d => {
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                    return [...mainService, ...addOns];
+                }),
+                ...cart.map(item => ({name: item.name, quantity: item.quantity, price: inventory.find(p => p.id === item.id)?.msrp || 0})),
+              ],
+              subtotal,
+              discount: totalDiscount,
+              tax: mockTax,
+              tip: tipAmount,
+              total: grandTotal,
+              payment: {
+                  method: paymentTab,
+                  amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
+                  changeDue: changeDue > 0 ? changeDue : 0
+              },
+            };
+            
+            setReceiptToPrint(receiptData);
+            setIsReceiptDialogOpen(true);
+
+            // Reset state
+            setCart([]);
+            setSelectedAppointmentIds(new Set());
+            setSelectedClientId(null);
+            setTipAmount(0);
+            setAmountTendered(0);
+            setPromoCode('');
+            setDiscount(0);
+            setMembershipDiscount(0);
+            setAppliedDiscountCode(undefined);
+            
+        } catch (e) {
+            console.error("Checkout failed:", e);
+            toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.'});
+        }
+    };
+    
+    
+    const selectedClient = useMemo(() => {
+        return clients?.find(c => c.id === selectedClientId);
+    }, [clients, selectedClientId]);
+
+    const payerOptions = useMemo(() => {
+      const clientMap = new Map<string, Client>();
+      appointmentsData.forEach(apt => {
+        if (apt.client) {
+          clientMap.set(apt.client.id, apt.client);
+        }
+      });
+      return Array.from(clientMap.values());
+    }, [appointmentsData]);
+
+    const cartServiceIds = useMemo(() => {
+        const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
+        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
+        return [...new Set([...appointmentServiceIds, ...cartServices])];
+    }, [cart, appointmentsData]);
     
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -702,7 +848,8 @@ export default function POSPage() {
         if (!walkInToStart || !firestore || !selectedTenant) return;
 
         const appointmentId = `apt-walkin-${walkInId}`;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId), {
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, {
             status: 'servicing',
             actualStartTime: new Date().toISOString(),
         });
@@ -777,10 +924,6 @@ export default function POSPage() {
         }
     }, [isScannerOpen, handleScan, toast]);
     
-    const handleCartChange = (newCart: any[]) => {
-        setCart(newCart);
-    }
-    
     const handleAddClient = (data: ClientFormData) => {
         if (!firestore || !selectedTenant) return;
     
@@ -793,7 +936,7 @@ export default function POSPage() {
           lastAppointment: new Date().toISOString(),
           status: 'active',
           notes: data.notes,
-          referralCode: '',
+          referralCode: '', // referral code generation logic is missing here
           birthday: data.birthday ? data.birthday.toISOString() : undefined,
           address: data.address,
           emergencyContact: data.emergencyContact,
@@ -810,67 +953,6 @@ export default function POSPage() {
         });
       }
 
-    const payerOptions = useMemo(() => {
-      const clientMap = new Map<string, Client>();
-      appointmentsData.forEach(apt => {
-        if (apt.client) {
-          clientMap.set(apt.client.id, apt.client);
-        }
-      });
-      return Array.from(clientMap.values());
-    }, [appointmentsData]);
-    
-    const handleCheckout = async () => {
-        setIsSubmitting(true);
-
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network request
-        
-        const totalDiscount = discount + membershipDiscount;
-        const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-
-        const receiptData: ReceiptData = {
-          business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-          clientName: selectedClient?.name || 'Walk-in Customer',
-          date: new Date(),
-          items: [
-            ...appointmentsData.flatMap(d => {
-                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service?.id ? 0 : d.service.price }] : [];
-                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
-                return [...mainService, ...addOns];
-            }),
-            ...cart.map(item => ({name: item.name, quantity: item.quantity, price: inventory.find(p => p.id === item.id)?.msrp || 0})),
-          ],
-          subtotal: subtotal,
-          discount: totalDiscount,
-          tax: tax,
-          tip: tipAmount,
-          total: total,
-          payment: {
-              method: paymentTab,
-              amountTendered: paymentTab === 'cash' ? amountTendered : total,
-              changeDue: changeDue > 0 ? changeDue : 0
-          },
-        };
-
-        setReceiptToPrint(receiptData);
-        setIsReceiptDialogOpen(true);
-
-        // Reset state after checkout
-        setCart([]);
-        setSelectedAppointmentIds(new Set());
-        setSelectedClientId(null);
-        setTipAmount(0);
-        setAmountTendered(0);
-        
-        setIsSubmitting(false);
-    };
-
-    const cartServiceIds = useMemo(() => {
-        const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
-        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
-        return [...new Set([...appointmentServiceIds, ...cartServices])];
-    }, [cart, appointmentsData]);
-    
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -903,8 +985,6 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
-    const totalDiscount = discount + membershipDiscount;
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
     return (
         <>
@@ -1106,4 +1186,3 @@ export default function POSPage() {
         </>
     );
 }
-
