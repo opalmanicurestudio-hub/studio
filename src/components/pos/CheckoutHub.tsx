@@ -16,6 +16,7 @@ import { Label } from '../ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
+import { Progress } from '@/components/ui/progress';
 
 export const CheckoutHub = ({ 
     cart, 
@@ -103,6 +104,10 @@ export const CheckoutHub = ({
     }, [cart, appointmentsData]);
     
     const totalDiscount = discount + membershipDiscount;
+    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+    const mockTax = subtotalAfterDiscounts * 0.07;
+    const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
+    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
     const quickCashAmounts = useMemo(() => {
@@ -285,6 +290,13 @@ export const CheckoutHub = ({
                                     onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
                                     className="pl-10 text-2xl font-bold h-14 text-right pr-4"
                                 />
+                            </div>
+                            <div className="space-y-2 pt-2">
+                                <Progress value={total > 0 ? (amountTendered / total) * 100 : 0} />
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span>Tendered: ${amountTendered.toFixed(2)}</span>
+                                    <span>Remaining: <span className="font-medium text-foreground">${Math.max(0, total - amountTendered).toFixed(2)}</span></span>
+                                </div>
                             </div>
                         </div>
                         
