@@ -612,7 +612,7 @@ export default function POSPage() {
             title: `Return ${walkIn.customerName} to Queue?`,
             description: `This will move the client back to the 'Waiting' list and free up the assigned staff member.`,
             onConfirm: async () => {
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
                 
                 await updateDocumentNonBlocking(walkInRef, { 
                     status: 'waiting',
@@ -655,7 +655,9 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((a, s) => a + (s.price || 0), 0);
+            const addOnsPrice = (data.addOnIds || [])
+                .map(id => services.find(s => s.id === id)?.price || 0)
+                .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -710,7 +712,7 @@ export default function POSPage() {
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((a, s) => a + (s.price || 0), 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -738,31 +740,30 @@ export default function POSPage() {
         }
 
         // Loop through each appointment
-        for (const appointmentData of appointmentsData) {
-            const { client: currentClient, service: currentService } = appointmentData;
-            const currentAppointment = appointmentData;
+        for (const data of appointmentsData) {
+            const { client: currentClient, service: currentService, id: currentAppointmentId } = data;
         
-            if (!currentAppointment || !currentService) continue;
+            if (!currentAppointmentId || !currentService) continue;
             
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointmentId);
             
             batch.update(appointmentRef, { 
                 status: 'completed',
                 actualEndTime: nowISO,
             });
 
-            if (currentAppointment.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+            if (data.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
                 batch.update(checkInRef, { status: 'completed' });
             }
             
-            if (currentAppointment.isWalkIn) {
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', currentAppointment.id.replace('apt-walkin-',''));
+            if (data.isWalkIn) {
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', currentAppointmentId.replace('apt-walkin-',''));
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
             
-            const staffIdsInvolved = new Set(Object.values(currentAppointment.checkoutState?.serviceStaffOverrides || {}));
-            if (currentAppointment.staffId) staffIdsInvolved.add(currentAppointment.staffId);
+            const staffIdsInvolved = new Set(Object.values(data.checkoutState?.serviceStaffOverrides || {}));
+            if (data.staffId) staffIdsInvolved.add(data.staffId);
         
             staffIdsInvolved.forEach(staffId => {
               if (staffId) {
@@ -847,11 +848,12 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addons = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                const addons = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addons];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
         ];
+
 
         const receiptData: ReceiptData = {
           business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
@@ -1032,7 +1034,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
