@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -73,7 +72,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                         className="mt-1"
                     />
                     <div className="flex-1 space-y-1">
-                        <p className="font-semibold flex items-center gap-2">
+                        <div className="font-semibold flex items-center gap-2">
                             {client.name}
                             {groupInfo && (
                                 <Badge variant="destructive" className="text-xs">
@@ -94,7 +93,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                                     </Tooltip>
                                 )}
                             </TooltipProvider>
-                        </p>
+                        </div>
                         <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'h:mm a')}</p>
                     </div>
                     <div className="text-right">
