@@ -85,6 +85,10 @@ export default function POSPage() {
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
+    const onCartChange = (newCart: EditableFormulaItem[]) => {
+        setCart(newCart);
+    };
+
     // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -213,10 +217,6 @@ export default function POSPage() {
             return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
         });
     }, []);
-
-    const handleCartChange = (newCart: EditableFormulaItem[]) => {
-        setCart(newCart);
-    };
 
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -660,8 +660,8 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || [])
-                .map(s => s.price || 0)
+            const addOnsPrice = (data.appointment.addOnIds || [])
+                .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
@@ -696,47 +696,88 @@ export default function POSPage() {
 
             const batch = writeBatch(firestore);
             const nowISO = new Date().toISOString();
-            const totalDiscountAmount = discount + membershipDiscount;
-
+            const totalDiscount = discount + membershipDiscount;
+            const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+            
             // Handle Appointments
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment } = data;
-                if (!currentAppointment) continue;
+                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
 
+                if (!currentAppointment || !currentService) continue;
+                
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-                batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
-                
-                if (currentAppointment.checkInToken) {
-                    batch.update(doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken), { status: 'completed' });
-                }
 
-                if (currentAppointment.isWalkIn) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', currentAppointment.id.replace('apt-walkin-','')), { status: 'completed', serviceEndTime: nowISO });
+                const allServicesInAppointment = [currentService, ...selectedAddOns.filter(a => currentAppointment.addOnIds?.includes(a.id))];
+                
+                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
+
+                if (redeemedOffer?.id === currentService.id) {
+                    // Logic to handle redeemed offer, e.g. mark as used
                 }
                 
+                batch.update(appointmentRef, { 
+                    status: 'completed', 
+                    actualEndTime: nowISO,
+                    ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: totalDiscount / appointmentsData.length })
+                });
+
+                if (currentAppointment.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                    batch.update(checkInRef, { status: 'completed' });
+                }
+                
+                if (currentAppointment.isWalkIn) {
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', currentAppointment.id.replace('apt-walkin-',''));
+                    batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
+                }
+                
+                const staffIdsInvolved = new Set(Object.values(currentAppointment.checkoutState?.serviceStaffOverrides || {}));
                 if (currentAppointment.staffId) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentAppointment.staffId), { status: 'idle', lastServedTimestamp: nowISO });
+                  staffIdsInvolved.add(currentAppointment.staffId);
+                }
+            
+                staffIdsInvolved.forEach(staffId => {
+                  if (staffId) {
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+                    batch.update(staffDocRef, {
+                      status: 'idle',
+                      lastServedTimestamp: nowISO,
+                    });
+                  }
+                });
+                
+                // Update client LTV
+                if (currentClient) {
+                    const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
+                    batch.update(clientDocRef, {
+                        lifetimeValue: increment(appointmentRevenue),
+                        lastAppointment: new Date().toISOString()
+                    });
                 }
             }
+            
+            const isGroupCheckout = appointmentsData.length > 1;
 
-            // Handle client update
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-            batch.update(clientRef, {
-                lifetimeValue: increment(subtotal - totalDiscountAmount),
-                lastAppointment: nowISO
-            });
-
-            // Handle transactions
-            const serviceRevenue = subtotal - retailTotalForDiscount;
+            // Handle transactions for all services together
+            const serviceRevenue = appointmentsData.reduce((total, data) => {
+                if (!data || !data.service) return total;
+                const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
+                const addOnsPrice = (data.appointment.addOnIds || [])
+                    .map(id => services.find(s => s.id === id)?.price || 0)
+                    .reduce((a, b) => a + b, 0);
+                return total + mainServicePrice + addOnsPrice;
+            }, 0);
+            
             if (serviceRevenue > 0) {
                  batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                     date: nowISO, description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                     clientOrVendor: client.name, clientId: client.id, type: 'income', context: 'Business',
                     category: 'Service Revenue', amount: serviceRevenue, paymentMethod: paymentTab,
                     hasReceipt: true, tipAmount: tipAmount, appointmentId: appointmentsData.map(a => a.id).join(', '),
-                    discountAmount: totalDiscountAmount, appliedDiscountCode
+                    discountAmount: totalDiscount, appliedDiscountCode
                  });
             }
+
 
             // Handle retail items
             for (const item of cart) {
@@ -761,10 +802,14 @@ export default function POSPage() {
               business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
               clientName: client.name,
               date: new Date(),
-              items: appointmentsData.map(d => ({ name: d.service.name, quantity: 1, price: d.service.price })),
+              items: appointmentsData.flatMap(d => {
+                    const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                    const addons = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                    return [...main, ...addons];
+                }),
               subtotal,
-              discount: totalDiscountAmount,
-              tax,
+              discount: totalDiscount,
+              tax: mockTax,
               tip: tipAmount,
               total,
               payment: {
@@ -830,24 +875,27 @@ export default function POSPage() {
         return retailItemsCount + serviceItemsCount;
     }, [cart, appointmentsData]);
 
-    const handleStartService = (walkInId: string) => {
-        const walkInToStart = walkIns?.find(w => w.id === walkInId);
-        if (!walkInToStart || !firestore || !selectedTenant) return;
+    const handleStartService = (appointmentId: string) => {
+        const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
+        if (!appointmentToStart || !firestore || !selectedTenant) return;
         
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { 
-            status: 'servicing',
-            serviceStartTime: new Date().toISOString(),
-        });
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
         
-        if (walkInToStart.assignedStaffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkInToStart.assignedStaffId);
+        if (appointmentToStart.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+        }
+
+        if (appointmentToStart.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
             updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
         }
     
         toast({
             title: "Service Started!",
-            description: `The service for ${walkInToStart.customerName} has begun.`
+            description: `The service for ${appointmentToStart.clientName} has begun.`
         });
     };
     
@@ -1166,3 +1214,4 @@ export default function POSPage() {
         </>
     );
 }
+
