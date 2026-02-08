@@ -85,7 +85,7 @@ export default function POSPage() {
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    const onCartChange = (newCart: EditableFormulaItem[]) => {
+    const handleCartChange = (newCart: any[]) => {
         setCart(newCart);
     };
 
@@ -660,7 +660,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.appointment.addOnIds || [])
+            const addOnsPrice = (data.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
@@ -675,9 +675,9 @@ export default function POSPage() {
         const sub = retailSubtotal + servicesSubtotal;
         const finalDiscount = discount + membershipDiscount;
         const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
-        const taxAmount = subAfterDiscount * 0.07;
-        const grandTotal = subAfterDiscount + taxAmount + tipAmount;
-        return { subtotal: sub, tax: taxAmount, total: grandTotal };
+        const mockTax = subAfterDiscount * 0.07;
+        const grandTotal = subAfterDiscount + mockTax + tipAmount;
+        return { subtotal: sub, tax: mockTax, total: grandTotal };
     }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, services, inventory, redeemedOffer]);
 
     const handleConfirmAndClose = async () => {
@@ -685,12 +685,14 @@ export default function POSPage() {
         try {
             if (!selectedClientId || !clients || !firestore || !tenantId) {
                 toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected.' });
+                setIsSubmitting(false);
                 return;
             }
 
             const client = clients.find(c => c.id === selectedClientId);
             if (!client) {
                 toast({ variant: 'destructive', title: 'Client not found.' });
+                setIsSubmitting(false);
                 return;
             }
 
@@ -701,7 +703,8 @@ export default function POSPage() {
             
             // Handle Appointments
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
+                const currentAppointment = data;
+                const { client: currentClient, service: currentService } = data;
 
                 if (!currentAppointment || !currentService) continue;
                 
@@ -762,7 +765,7 @@ export default function POSPage() {
             const serviceRevenue = appointmentsData.reduce((total, data) => {
                 if (!data || !data.service) return total;
                 const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-                const addOnsPrice = (data.appointment.addOnIds || [])
+                const addOnsPrice = (data.addOnIds || [])
                     .map(id => services.find(s => s.id === id)?.price || 0)
                     .reduce((a, b) => a + b, 0);
                 return total + mainServicePrice + addOnsPrice;
@@ -783,17 +786,36 @@ export default function POSPage() {
             for (const item of cart) {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) continue;
-                const retailTotal = item.quantity * (product.msrp || 0);
+                const price = product.msrp || product.costPerUnit || 0;
+                const retailTotal = item.quantity * price;
 
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                     date: nowISO, description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: client.name, clientId: client.id, type: 'income', context: 'Business',
-                    category: 'Retail', amount: retailTotal, paymentMethod: paymentTab,
-                    hasReceipt: true, appointmentId: appointmentsData.map(a => a.id).join(', '),
-                });
-
+                if (retailTotal > 0) {
+                    const newTransaction: Omit<Transaction, 'id'|'date'> = {
+                        description: `Retail: ${item.quantity}x ${item.name}`,
+                        clientOrVendor: client.name,
+                        clientId: client.id,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Retail',
+                        amount: retailTotal,
+                        paymentMethod: paymentTab,
+                        hasReceipt: true,
+                        staffId: appointmentsData[0].appointment.staffId,
+                        appointmentId: appointmentsData[0].appointment.id,
+                    };
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
+                }
+                
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
                 batch.update(productRef, { totalStock: increment(-item.quantity) });
+            }
+            
+            if (appliedDiscountCode) {
+                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+                batch.update(discountRef, {
+                    usageCount: increment(1),
+                    usedByClientIds: arrayUnion(client.id),
+                });
             }
 
             await batch.commit();
@@ -809,7 +831,7 @@ export default function POSPage() {
                 }),
               subtotal,
               discount: totalDiscount,
-              tax: mockTax,
+              tax: tax,
               tip: tipAmount,
               total,
               payment: {
@@ -1007,7 +1029,7 @@ export default function POSPage() {
         isSubmitting,
         paymentTab,
         setPaymentTab,
-        discounts: discounts || [],
+        discounts,
         amountTendered,
         setAmountTendered,
     };
