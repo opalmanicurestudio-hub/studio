@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -109,6 +110,30 @@ export const CheckoutHub = ({
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
+     const quickTenderOptions = useMemo(() => {
+        const options = new Set<number>();
+        if (total === 0) return [];
+    
+        const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
+
+        const next5 = roundUp(total, 5);
+        if (next5 > total) options.add(next5);
+
+        const next10 = roundUp(total, 10);
+        if (next10 > total) options.add(next10);
+
+        const next20 = roundUp(total, 20);
+        if (next20 > total) options.add(next20);
+        
+        const next50 = roundUp(total, 50);
+        if (next50 > total) options.add(next50);
+        
+        const next100 = roundUp(total, 100);
+        if (next100 > total) options.add(next100);
+
+        return Array.from(options).sort((a,b) => a - b).slice(0, 3);
+    }, [total]);
+
     return (
         <div className="flex flex-col h-full">
             {showTitle && (
@@ -249,8 +274,8 @@ export const CheckoutHub = ({
                     <Button variant={paymentTab === 'scan' ? 'default' : 'outline'} onClick={() => setPaymentTab('scan')} className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
                 </div>
                 {paymentTab === 'cash' && (
-                    <div className="mt-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 space-y-4">
+                         <div className="grid grid-cols-2 gap-4">
                             <Card className="text-center">
                                 <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-muted-foreground">Amount Tendered</CardTitle></CardHeader>
                                 <CardContent className="p-2">
@@ -266,7 +291,7 @@ export const CheckoutHub = ({
                             </Card>
                             <AnimatePresence>
                             {changeDue > 0 && (
-                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
                                 <Card className="text-center bg-green-500/10 border-green-500/20">
                                     <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-green-600 dark:text-green-300">Change Due</CardTitle></CardHeader>
                                     <CardContent className="p-2">
@@ -290,6 +315,23 @@ export const CheckoutHub = ({
                                 <Gift className="mr-2 h-4 w-4" /> Keep the Change as Tip
                             </Button>
                         )}
+                        
+                        <div className="relative pt-2">
+                            <Progress value={(amountTendered / total) * 100} className={cn("h-3", amountTendered >= total && "[&>div]:bg-green-500")} />
+                            <p className="text-xs text-muted-foreground mt-1 text-center">Remaining: ${(Math.max(0, total - amountTendered)).toFixed(2)}</p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">Quick Tender</Label>
+                            <div className="grid grid-cols-4 gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setAmountTendered(total)}>Exact</Button>
+                                {quickTenderOptions.map(amount => (
+                                    <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>
+                                        ${amount}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
 
                         <div className="space-y-3 pt-2">
                              <div>
@@ -309,17 +351,16 @@ export const CheckoutHub = ({
                                     <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.25)}>25¢</Button>
                                     <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.10)}>10¢</Button>
                                     <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.05)}>5¢</Button>
-                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.01)}>1¢</Button>
+                                    <Button variant="ghost" className="h-10 text-muted-foreground" onClick={() => setAmountTendered(0)}>Clear</Button>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground" onClick={() => setAmountTendered(0)}>Clear</Button>
                         </div>
-                    </div>
+                    </motion.div>
                 )}
             </div>
 
             <div className="mt-auto pt-4 flex gap-2">
-                <Button className="flex-1" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
+                 <Button className="flex-1 h-14 text-lg" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
                     {isSubmitting ? <Loader className="animate-spin" /> : `Charge $${total.toFixed(2)}`}
                 </Button>
             </div>
