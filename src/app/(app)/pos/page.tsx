@@ -12,8 +12,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -615,7 +615,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.appointment.addOnIds || [])
+            const addOnsPrice = (data.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
@@ -871,7 +871,7 @@ export default function POSPage() {
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
-                            services={services} 
+                            services={services || []} 
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
@@ -1014,5 +1014,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
