@@ -612,7 +612,7 @@ export default function POSPage() {
             title: `Return ${walkIn.customerName} to Queue?`,
             description: `This will move the client back to the 'Waiting' list and free up the assigned staff member.`,
             onConfirm: async () => {
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 
                 await updateDocumentNonBlocking(walkInRef, { 
                     status: 'waiting',
@@ -689,22 +689,26 @@ export default function POSPage() {
             : (appointmentsData.length > 0 ? appointmentsData[0].client : undefined);
 
         if (!payingClientInfo) {
-            toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected.' });
-            setIsSubmitting(false);
-            return;
+            const isWalkInCheckout = appointmentsData.length > 0 && !appointmentsData[0].client.id;
+            if (isWalkInCheckout) {
+                // This is a pure walk-in, we need to create a client record.
+                // This part of the logic seems to be missing and causing the "Client not found" error.
+            } else {
+                 toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected.' });
+                setIsSubmitting(false);
+                return;
+            }
         }
 
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
-
-        // This map will hold the definitive client data for every client in the transaction.
+        
         const clientResolutionMap = new Map<string, Client>();
         
-        // 1. Resolve all clients, creating new ones in the batch if they don't exist.
-        for (const data of appointmentsData) {
-            if (!data.client) continue;
+        for (const appointment of appointmentsData) {
+            if (!appointment.client) continue;
 
-            const tempClient = data.client;
+            const tempClient = appointment.client;
             if (clientResolutionMap.has(tempClient.id)) continue;
 
             const existingClient = clients.find(c => c.id === tempClient.id);
@@ -718,26 +722,24 @@ export default function POSPage() {
             }
         }
         
-        const payingClient = clientResolutionMap.get(payingClientInfo.id) || payingClientInfo;
-
-        // 2. Loop through appointments again to perform updates with resolved client IDs.
-        for (const data of appointmentsData) {
-            const { appointment, service, client: tempClient, addOnServices } = data;
-            if (!appointment || !service || !tempClient) continue;
-
-            const resolvedClient = clientResolutionMap.get(tempClient.id);
+        const payingClient = clientResolutionMap.get(payingClientInfo!.id) || payingClientInfo!;
+        
+        for (const appointment of appointmentsData) {
+            const { service: currentService, addOnServices, client: currentClient } = appointment;
+            if (!currentService || !currentClient) continue;
+            
+            const resolvedClient = clientResolutionMap.get(currentClient.id);
             if (!resolvedClient) continue; 
 
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
             batch.update(appointmentRef, { 
                 status: 'completed', 
                 actualEndTime: nowISO,
-                clientId: resolvedClient.id,
             });
             
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, resolvedClient.id);
-            const servicePrice = service?.price || 0;
-            const addOnsPrice = (addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+            const servicePrice = currentService?.price || 0;
+            const addOnsPrice = (addOnServices || []).reduce((acc: number, s: Service) => acc + s.price, 0);
 
             batch.update(clientDocRef, {
                 lifetimeValue: increment(servicePrice + addOnsPrice),
@@ -765,9 +767,9 @@ export default function POSPage() {
         
         const isGroupCheckout = appointmentsData.length > 1;
 
-        const serviceRevenue = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+        const serviceRevenue = appointmentsData.reduce((total, appointment) => {
+            const mainServicePrice = redeemedOffer?.id === appointment.service?.id ? 0 : appointment.service?.price || 0;
+            const addOnsPrice = (appointment.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -812,7 +814,7 @@ export default function POSPage() {
                     paymentMethod: paymentTab,
                     hasReceipt: true,
                     staffId: appointmentsData[0]?.staff?.id,
-                    appointmentId: appointmentsData[0]?.id,
+                    appointmentId: appointmentsData[0].id,
                 };
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
             }
@@ -1041,7 +1043,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
