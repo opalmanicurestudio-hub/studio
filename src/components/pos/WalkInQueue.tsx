@@ -25,7 +25,7 @@ interface WalkInQueueProps {
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
-    onStartService: (appointmentId: string) => void;
+    onStartService: (walkInId: string) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';

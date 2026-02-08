@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -16,7 +17,7 @@ interface NotifiedCustomerCardProps {
     walkIn: WalkIn;
     services: Service[] | null;
     staff: Staff[] | null;
-    onStartService: (appointmentId: string) => void;
+    onStartService: (walkInId: string) => void;
     onSkip: (walkInId: string) => void;
     onCancel: (walkInId: string) => void;
     onReturnToQueue: (walkInId: string) => void;
@@ -69,7 +70,7 @@ export const NotifiedCustomerCard: React.FC<NotifiedCustomerCardProps> = ({ walk
                 )}
             </CardContent>
             <CardFooter className="p-2 flex items-center gap-2 border-t">
-                <Button size="sm" className="flex-1" onClick={() => onStartService(`apt-walkin-${walkIn.id}`)}>
+                <Button size="sm" className="flex-1" onClick={() => onStartService(walkIn.id)}>
                     <Play className="w-4 h-4 mr-2" /> Start Service
                 </Button>
                 <TooltipProvider>

@@ -483,10 +483,22 @@ export default function POSPage() {
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
-            description: 'This will remove the client from the queue. This action cannot be undone.',
+            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder appointment on the planner will also be cancelled. This action cannot be undone.',
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                updateDocumentNonBlocking(walkInRef, { status: 'cancelled' });
+                const walkIn = walkIns?.find(w => w.id === walkInId);
+                
+                const batch = writeBatch(firestore);
+                
+                batch.update(walkInRef, { status: 'cancelled' });
+
+                if (walkIn && walkIn.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
+                }
+
+                await batch.commit();
 
                 toast({
                     title: "Walk-in Cancelled",
@@ -595,7 +607,7 @@ export default function POSPage() {
         
         const sub = retailSubtotal + servicesSubtotal;
         const finalDiscount = discount + membershipDiscount;
-        const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
+        const subAfterDiscount = sub > totalDiscount ? sub - totalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
@@ -623,23 +635,57 @@ export default function POSPage() {
         return retailItemsCount + serviceItemsCount;
     }, [cart, appointmentsData]);
 
-    const handleStartService = (appointmentId: string) => {
-        if (!firestore || !selectedTenant) return;
-        
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-        
-        const appointment = appointments?.find(apt => apt.id === appointmentId);
-        
-        if (appointment && appointment.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+    const handleStartService = (walkInId: string) => {
+        if (!firestore || !selectedTenant || !services || !walkIns) {
+            toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
+            return;
         }
+
+        const walkIn = walkIns.find(w => w.id === walkInId);
+        if (!walkIn || !walkIn.assignedStaffId) {
+            toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
+            return;
+        }
+
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+
+        const now = new Date();
+        const nowISO = now.toISOString();
+
+        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+        const endTime = addMinutes(now, duration);
+        
+        const appointmentData = {
+            id: appointmentId,
+            tenantId: selectedTenant.id,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            clientEmail: walkIn.customerEmail,
+            clientPhone: walkIn.customerPhone,
+            serviceId: walkIn.serviceIds[0],
+            addOnIds: walkIn.serviceIds.slice(1),
+            staffId: walkIn.assignedStaffId,
+            status: 'servicing',
+            source: 'walk-in',
+            isWalkIn: true,
+            actualStartTime: nowISO,
+            startTime: nowISO, // For walk-ins, start time is now
+            endTime: endTime.toISOString(),
+        };
+
+        setDocumentNonBlocking(appointmentRef, appointmentData, {});
+
+        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+        
+        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
 
         toast({
             title: "Service Started!",
-            description: `The service for ${appointment?.clientName || 'the client'} has begun.`
+            description: `The service for ${walkIn.customerName} has begun.`
         });
     };
     
