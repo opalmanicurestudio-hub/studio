@@ -66,8 +66,8 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 type EditableFormulaItem = {
     id: string; // productId
     name: string;
-    quantity: number;
     price: number;
+    quantity: number;
     unit: string;
     imageUrl?: string;
     stock?: number;
@@ -114,10 +114,10 @@ export default function POSPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    const handleCartChange = (newRetailItems: any[]) => {
+    const handleCartChange = useCallback((newRetailItems: any[]) => {
       const serviceItems = cart.filter(item => item.type === 'service');
       setCart([...serviceItems, ...newRetailItems]);
-    };
+    }, [cart]);
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -655,9 +655,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnIds || [])
-                .map(id => services.find(s => s.id === id)?.price || 0)
-                .reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -680,48 +678,105 @@ export default function POSPage() {
   const handleConfirmAndClose = async () => {
     setIsSubmitting(true);
     try {
-        let client: Client | undefined;
-        
-        if(selectedClientId) {
-            client = clients?.find(c => c.id === selectedClientId);
-        } else if (appointmentsData.length > 0 && appointmentsData[0].client) {
-            const tempClient = appointmentsData[0].client;
-            if (clients?.some(c => c.id === tempClient.id)) {
-                client = tempClient;
-            } else {
-                // This is a new walk-in client
-                const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
-                client = { ...tempClient, id: newClientRef.id };
-                await setDocumentNonBlocking(newClientRef, client);
-            }
+        if (!firestore || !tenantId || !clients) {
+            toast({ variant: "destructive", title: "Error", description: "Data is not ready. Please try again." });
+            setIsSubmitting(false);
+            return;
         }
 
-        if (!client || !firestore || !tenantId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected or created.' });
+        const payingClientInfo = selectedClientId 
+            ? clients.find(c => c.id === selectedClientId)
+            : (appointmentsData.length > 0 ? appointmentsData[0].client : undefined);
+
+        if (!payingClientInfo) {
+            toast({ variant: 'destructive', title: 'Error', description: 'A paying client must be selected.' });
             setIsSubmitting(false);
             return;
         }
 
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
+
+        // This map will hold the definitive client data for every client in the transaction.
+        const clientResolutionMap = new Map<string, Client>();
+        
+        // 1. Resolve all clients, creating new ones in the batch if they don't exist.
+        for (const data of appointmentsData) {
+            if (!data.client) continue;
+
+            const tempClient = data.client;
+            if (clientResolutionMap.has(tempClient.id)) continue;
+
+            const existingClient = clients.find(c => c.id === tempClient.id);
+            if (existingClient) {
+                clientResolutionMap.set(existingClient.id, existingClient);
+            } else {
+                const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
+                const newClient: Client = { ...tempClient, id: newClientRef.id, lifetimeValue: 0, lastAppointment: nowISO };
+                batch.set(newClientRef, newClient);
+                clientResolutionMap.set(tempClient.id, newClient);
+            }
+        }
+        
+        const payingClient = clientResolutionMap.get(payingClientInfo.id) || payingClientInfo;
+
+        // 2. Loop through appointments again to perform updates with resolved client IDs.
+        for (const data of appointmentsData) {
+            const { appointment, service, client: tempClient, addOnServices } = data;
+            if (!appointment || !service || !tempClient) continue;
+
+            const resolvedClient = clientResolutionMap.get(tempClient.id);
+            if (!resolvedClient) continue; 
+
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+            batch.update(appointmentRef, { 
+                status: 'completed', 
+                actualEndTime: nowISO,
+                clientId: resolvedClient.id,
+            });
+            
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, resolvedClient.id);
+            const servicePrice = service?.price || 0;
+            const addOnsPrice = (addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+
+            batch.update(clientDocRef, {
+                lifetimeValue: increment(servicePrice + addOnsPrice),
+                lastAppointment: nowISO,
+            });
+
+            if (appointment.isWalkIn) {
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-',''));
+                batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
+            }
+            
+            const staffIdsInvolved = new Set(Object.values(appointment.checkoutState?.serviceStaffOverrides || {}));
+            if (appointment.staffId) staffIdsInvolved.add(appointment.staffId);
+        
+            staffIdsInvolved.forEach(staffId => {
+              if (staffId) {
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+                batch.update(staffDocRef, {
+                  status: 'idle',
+                  lastServedTimestamp: nowISO,
+                });
+              }
+            });
+        }
         
         const isGroupCheckout = appointmentsData.length > 1;
 
-        // Shared transactions
-        const retailItems = cart.filter(item => item.type === 'product');
-        
         const serviceRevenue = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
+            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
         if (serviceRevenue > 0) {
-             const serviceTransaction: Partial<Transaction> = {
+            const serviceTransaction: Partial<Transaction> = {
                 date: nowISO,
                 description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
-                clientOrVendor: client.name,
-                clientId: client.id,
+                clientOrVendor: payingClient.name,
+                clientId: payingClient.id,
                 type: 'income' as const,
                 context: 'Business' as const,
                 category: 'Service Revenue',
@@ -739,52 +794,6 @@ export default function POSPage() {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
         }
 
-        // Loop through each appointment
-        for (const data of appointmentsData) {
-            const { client: currentClient, service: currentService, id: currentAppointmentId } = data;
-        
-            if (!currentAppointmentId || !currentService) continue;
-            
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointmentId);
-            
-            batch.update(appointmentRef, { 
-                status: 'completed',
-                actualEndTime: nowISO,
-            });
-
-            if (data.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
-                batch.update(checkInRef, { status: 'completed' });
-            }
-            
-            if (data.isWalkIn) {
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', currentAppointmentId.replace('apt-walkin-',''));
-                batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
-            }
-            
-            const staffIdsInvolved = new Set(Object.values(data.checkoutState?.serviceStaffOverrides || {}));
-            if (data.staffId) staffIdsInvolved.add(data.staffId);
-        
-            staffIdsInvolved.forEach(staffId => {
-              if (staffId) {
-                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-                batch.update(staffDocRef, {
-                  status: 'idle',
-                  lastServedTimestamp: nowISO,
-                });
-              }
-            });
-            
-            if (currentClient) {
-                const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
-                batch.update(clientDocRef, {
-                    lifetimeValue: increment(currentService.price),
-                    lastAppointment: new Date().toISOString()
-                });
-            }
-        }
-        
-        // Handle retail items
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
@@ -794,8 +803,8 @@ export default function POSPage() {
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id'|'date'> = {
                     description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: client.name,
-                    clientId: client.id,
+                    clientOrVendor: payingClient.name,
+                    clientId: payingClient.id,
                     type: 'income',
                     context: 'Business',
                     category: 'Retail',
@@ -812,14 +821,13 @@ export default function POSPage() {
             batch.update(productRef, { totalStock: increment(-item.quantity) });
         });
         
-        // Handle Tip transaction
         if (tipAmount > 0) {
             Object.entries(tipAllocations).forEach(([staffId, tip]) => {
                 if (tip > 0) {
                      const tipTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Tip from ${client.name}`,
-                        clientOrVendor: client.name,
-                        clientId: client.id,
+                        description: `Tip from ${payingClient.name}`,
+                        clientOrVendor: payingClient.name,
+                        clientId: payingClient.id,
                         type: 'income',
                         context: 'Business',
                         category: 'Tips',
@@ -839,7 +847,7 @@ export default function POSPage() {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
                 usageCount: increment(1),
-                usedByClientIds: arrayUnion(client.id),
+                usedByClientIds: arrayUnion(payingClient.id),
             });
         }
 
@@ -848,7 +856,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addons = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addons = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addons];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -857,7 +865,7 @@ export default function POSPage() {
 
         const receiptData: ReceiptData = {
           business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-          clientName: client.name,
+          clientName: payingClient.name,
           date: new Date(),
           items: allCartItems,
           subtotal,
@@ -874,7 +882,6 @@ export default function POSPage() {
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
         
-        // Reset state
         setCart([]);
         setSelectedAppointmentIds(new Set());
         setSelectedClientId(null);
@@ -1267,4 +1274,3 @@ export default function POSPage() {
         </>
     );
 }
-
