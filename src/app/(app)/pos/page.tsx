@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -660,7 +659,7 @@ export default function POSPage() {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnIds || [])
+            const addOnsPrice = (data.appointment.addOnIds || [])
                 .map(id => services.find(s => s.id === id)?.price || 0)
                 .reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
@@ -765,7 +764,7 @@ export default function POSPage() {
             const serviceRevenue = appointmentsData.reduce((total, data) => {
                 if (!data || !data.service) return total;
                 const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-                const addOnsPrice = (data.addOnIds || [])
+                const addOnsPrice = (data.appointment.addOnIds || [])
                     .map(id => services.find(s => s.id === id)?.price || 0)
                     .reduce((a, b) => a + b, 0);
                 return total + mainServicePrice + addOnsPrice;
@@ -831,7 +830,7 @@ export default function POSPage() {
                 }),
               subtotal,
               discount: totalDiscount,
-              tax: tax,
+              tax: mockTax,
               tip: tipAmount,
               total,
               payment: {
@@ -924,7 +923,7 @@ export default function POSPage() {
     useEffect(() => {
         if (scannedData) {
             handleScan(scannedData);
-            setScannedData(null);
+            setScannedData(null); // Reset after processing
         }
     }, [scannedData, handleScan]);
     
@@ -1002,6 +1001,10 @@ export default function POSPage() {
           description: `${data.name} has been added to your client list.`,
         });
       }
+
+    const onCartChange = (newCart: any[]) => {
+        setCart(newCart);
+    }
 
     const checkoutHubProps = {
         cart, 
