@@ -22,7 +22,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Sheet,
   SheetContent,
@@ -61,8 +61,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, memberships } = useInventory();
-    const { packages, discounts } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -96,6 +95,8 @@ export default function POSPage() {
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
+
+    const { memberships, packages, discounts } = useInventory();
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -112,7 +113,6 @@ export default function POSPage() {
         .filter(apt => apt.status === 'ready_for_checkout')
         .map(apt => {
           let client = clients.find(c => c.id === apt.clientId);
-          // If a client isn't found but there's a name on the appointment, create a temporary client object for display.
           if (!client && apt.clientName) {
             client = {
               id: apt.clientId,
@@ -153,7 +153,6 @@ export default function POSPage() {
             if (appointment) {
                 setSelectedClientId(appointment.clientId);
             }
-            // Optional: remove the query param from URL without reloading
             const newUrl = new URL(window.location.href);
             newUrl.searchParams.delete('checkout_id');
             router.replace(newUrl.toString(), { scroll: false });
@@ -226,7 +225,6 @@ export default function POSPage() {
         return (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
     }, [appointments]);
 
-    // Initialize and sort staff based on turnOrder
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
         if (staff) {
@@ -266,7 +264,7 @@ export default function POSPage() {
 
             const totalSales = serviceRevenue + retailSales;
             const tips = staffTransactionsToday.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
-            const consumptionValue = 0; // Simplified for now
+            const consumptionValue = 0;
             
             let earnings = 0;
             if (member.payStructure === 'commission') {
@@ -417,7 +415,6 @@ export default function POSPage() {
         });
         batch.commit().catch(err => {
             console.error("Failed to save staff order:", err);
-            // Revert on failure
             const sorted = [...(staff || [])].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
             setOrderedStaff(sorted);
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
@@ -459,7 +456,7 @@ export default function POSPage() {
               }
             }
           }
-        } else { // 'ordered_list'
+        } else {
             for (const client of waitingClients) {
                 const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
                 if (existingAssignment) continue;
@@ -576,7 +573,7 @@ export default function POSPage() {
                     status: 'waiting',
                     assignedStaffId: deleteField(),
                     notifiedTimestamp: deleteField(),
-                    queueOrder: Date.now(), // Put them at the end of the queue
+                    queueOrder: Date.now(),
                 });
     
                 if (walkIn.assignedStaffId) {
@@ -671,48 +668,44 @@ export default function POSPage() {
         return retailItemsCount + serviceItemsCount;
     }, [cart, appointmentsData]);
 
-    const handleStartService = (walkInId: string) => {
-        if (!firestore || !selectedTenant || !services || !walkIns) {
-            toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
-            return;
-        }
-    
-        const walkIn = walkIns.find(w => w.id === walkInId);
-        if (!walkIn || !walkIn.assignedStaffId) {
-            toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
-            return;
-        }
+    const handleStartService = (appointmentId: string) => {
+        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
+        if (!appointmentToStart || !firestore || !selectedTenant) return;
         
-        const appointmentId = `apt-walkin-${walkIn.id}`;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        const nowISO = new Date().toISOString();
         
-        const now = new Date();
-        const nowISO = now.toISOString();
-
-        updateDocumentNonBlocking(appointmentRef, {
+        const dataToSave = {
             status: 'servicing',
             actualStartTime: nowISO,
-        });
+        };
 
-        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        if (appointmentToStart.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { 
+                status: 'servicing',
+                serviceStartTime: nowISO,
+            });
+        }
         
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { 
-            status: 'servicing',
-            serviceStartTime: nowISO,
-        });
-
+        updateDocumentNonBlocking(appointmentRef, dataToSave);
+        
+        if (appointmentToStart.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+    
         toast({
             title: "Service Started!",
-            description: `The service for ${walkIn.customerName} has begun.`
+            description: `The service for ${appointmentToStart.clientName} has begun.`
         });
     };
     
     useEffect(() => {
         if (scannedData) {
             handleScan(scannedData);
-            setScannedData(null); // Reset after processing
+            setScannedData(null);
         }
     }, [scannedData, handleScan]);
     
@@ -764,7 +757,7 @@ export default function POSPage() {
           lastAppointment: new Date().toISOString(),
           status: 'active',
           notes: data.notes,
-          referralCode: '', // referral code generation logic is missing here
+          referralCode: '',
           birthday: data.birthday ? data.birthday.toISOString() : undefined,
           address: data.address,
           emergencyContact: data.emergencyContact,
@@ -834,7 +827,6 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto gap-6 px-4 md:px-6 lg:px-8 pt-4 md:pt-6 lg:pt-8 pb-28 lg:pb-8">
-                        {/* KPI Cards for Desktop */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
@@ -842,7 +834,6 @@ export default function POSPage() {
                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
                         </div>
 
-                        {/* KPI Cards for Mobile */}
                         <div className="md:hidden">
                             <ScrollArea>
                                 <div className="flex space-x-4 pb-4">
