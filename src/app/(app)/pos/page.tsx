@@ -926,6 +926,9 @@ export default function POSPage() {
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                         <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold">Current Sale</h2>
+                        </div>
                         <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
@@ -1002,7 +1005,7 @@ export default function POSPage() {
                     {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                 </div>
             </div>
-            <style jsx global>{\`
+            <style jsx global>{`
                 @media print {
                     body > *:not(.print-only) {
                     display: none !important;
@@ -1017,7 +1020,8 @@ export default function POSPage() {
                     top: 0;
                     }
                 }
-            \`}</style>
+            `}</style>
         </>
     );
 }
+    
