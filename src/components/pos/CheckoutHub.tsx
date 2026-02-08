@@ -103,6 +103,8 @@ export const CheckoutHub = ({
     const totalDiscount = discount + membershipDiscount;
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
+    const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
+
     const quickCashAmounts = [Math.ceil(total / 5) * 5, Math.ceil(total / 10) * 10, Math.ceil(total / 20) * 20, Math.ceil(total / 50) * 50].filter((v, i, a) => a.indexOf(v) === i && v > total);
 
 
@@ -255,9 +257,12 @@ export const CheckoutHub = ({
                             </div>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
-                            {quickCashAmounts.map(amount => (
-                                <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>${amount}</Button>
+                            {denominations.map(amount => (
+                                <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(prev => prev + amount)}>
+                                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
+                                </Button>
                             ))}
+                            <Button variant="outline" size="sm" onClick={() => setAmountTendered(0)} className="col-span-4">Clear</Button>
                         </div>
                         {amountTendered > 0 && (
                             <div className="p-3 bg-muted rounded-md text-center">
