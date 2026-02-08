@@ -62,7 +62,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -469,12 +469,12 @@ export default function POSPage() {
     };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
-      if (!firestore || !selectedTenant || !services) return;
-      
-      const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+        if (!firestore || !selectedTenant || !services) return;
         
-      toast({ title: "Staff Assigned", description: "The client has been notified." });
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+          
+        toast({ title: "Staff Assigned", description: "The client has been notified." });
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
@@ -657,49 +657,59 @@ export default function POSPage() {
     }, [cart, appointmentsData]);
 
     const handleStartService = (walkInId: string) => {
-        if (!firestore || !selectedTenant || !services || !walkIns) {
-            toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
-            return;
-        }
+      if (!firestore || !selectedTenant || !services || !walkIns) {
+          toast({ variant: "destructive", title: "Error", description: "Data not fully loaded." });
+          return;
+      }
+  
+      const walkIn = walkIns.find(w => w.id === walkInId);
+      if (!walkIn || !walkIn.assignedStaffId) {
+          toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
+          return;
+      }
+      
+      const batch = writeBatch(firestore);
+  
+      const appointmentId = `apt-walkin-${walkIn.id}`;
+      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+      
+      const now = new Date();
+      const nowISO = now.toISOString();
 
-        const walkIn = walkIns.find(w => w.id === walkInId);
-        if (!walkIn || !walkIn.assignedStaffId) {
-            toast({ variant: "destructive", title: "Error", description: "Walk-in not found or not assigned." });
-            return;
-        }
-        
-        const batch = writeBatch(firestore);
-
-        const appointmentId = `apt-walkin-${walkIn.id}`;
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        
-        const now = new Date();
-        const nowISO = now.toISOString();
-
-        batch.update(appointmentRef, {
-            status: 'servicing',
-            actualStartTime: nowISO,
-        });
-
-        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-        batch.update(staffDocRef, { status: 'busy' });
-        
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-
-        batch.commit().then(() => {
-            toast({
-                title: "Service Started!",
-                description: `The service for ${walkIn.customerName} has begun.`
-            });
-        }).catch(error => {
-            console.error("Error starting service:", error);
-            toast({
-                variant: 'destructive',
-                title: "Error",
-                description: "Failed to start service.",
-            });
-        });
+      setDocumentNonBlocking(appointmentRef, {
+          id: appointmentId,
+          tenantId: selectedTenant.id,
+          clientId: walkIn.clientId || walkIn.id,
+          clientName: walkIn.customerName,
+          serviceId: walkIn.serviceIds[0],
+          staffId: walkIn.assignedStaffId,
+          status: 'servicing',
+          source: 'walk-in',
+          isWalkIn: true,
+          startTime: now.toISOString(),
+          endTime: addMinutes(now, walkIn.estimatedDuration).toISOString(),
+          actualStartTime: nowISO,
+      }, { merge: true });
+  
+      const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+      batch.update(staffDocRef, { status: 'busy' });
+      
+      const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+      batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+  
+      batch.commit().then(() => {
+          toast({
+              title: "Service Started!",
+              description: `The service for ${walkIn.customerName} has begun.`
+          });
+      }).catch(error => {
+          console.error("Error starting service:", error);
+          toast({
+              variant: 'destructive',
+              title: "Error",
+              description: "Failed to start service.",
+          });
+      });
     };
     
     useEffect(() => {
