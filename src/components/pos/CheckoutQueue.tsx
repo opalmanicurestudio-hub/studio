@@ -44,24 +44,30 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
         </div>
       </CardHeader>
       <CardContent>
-        {appointments.length > 0 ? (
-          <ScrollArea>
-            <div className="flex space-x-4 pb-4">
-              {filteredAppointments.map(order => (
-                <CheckoutQueueCard
-                  key={order.id}
-                  appointment={order}
-                  isSelected={selectedAppointmentIds.has(order.id)}
-                  onSelect={() => onSelectAppointment(order.id)}
-                />
-              ))}
-            </div>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
-        ) : (
+        {appointments.length === 0 ? (
           <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
             <p className="text-muted-foreground">No clients are currently ready for checkout.</p>
           </div>
+        ) : (
+          <ScrollArea>
+            <div className="flex space-x-4 pb-4">
+              {filteredAppointments.length > 0 ? (
+                filteredAppointments.map(order => (
+                    <CheckoutQueueCard
+                    key={order.id}
+                    appointment={order}
+                    isSelected={selectedAppointmentIds.has(order.id)}
+                    onSelect={() => onSelectAppointment(order.id)}
+                    />
+                ))
+              ) : (
+                <div className="w-full text-center py-8 text-muted-foreground">
+                    <p>No clients match your search.</p>
+                </div>
+              )}
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
         )}
       </CardContent>
     </Card>
