@@ -591,27 +591,32 @@ export default function POSPage() {
             setSelectedClientId(null);
         }
     }, [appointmentsData]);
+    
+    const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
 
     const { subtotal, tax, total } = useMemo(() => {
-        const offerApplied: { type: 'membership' | 'package', id: string } | null = null;
-        
-        const servicesSubtotal = appointmentsData.reduce((acc, aptData) => {
-            if (!aptData || !aptData.service) return acc;
-            const mainServicePrice = redeemedOffer?.id === aptData.service?.id ? 0 : aptData.service?.price || 0;
-            const addOnsPrice = (aptData.addOnServices || [])
-                .reduce((sum, s) => sum + s.price, 0);
-            return acc + mainServicePrice + addOnsPrice;
+        const servicesSubtotal = appointmentsData.reduce((total, data) => {
+            if (!data || !data.service) return total;
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.appointment.addOnIds || [])
+                .map(id => services.find(s => s.id === id)?.price || 0)
+                .reduce((a, b) => a + b, 0);
+            return total + mainServicePrice + addOnsPrice;
         }, 0);
-        
-        const retailSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        const retailSubtotal = cart.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            const price = product?.msrp || 0;
+            return acc + (item.quantity * price);
+        }, 0);
         
         const sub = retailSubtotal + servicesSubtotal;
         const finalDiscount = discount + membershipDiscount;
-        const subAfterDiscount = sub > totalDiscount ? sub - totalDiscount : 0;
+        const subAfterDiscount = sub > finalDiscount ? sub - finalDiscount : 0;
         const taxAmount = subAfterDiscount * 0.07;
         const grandTotal = subAfterDiscount + taxAmount + tipAmount;
         return { subtotal: sub, tax: taxAmount, total: grandTotal };
-    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId]);
+    }, [cart, appointmentsData, tipAmount, discount, membershipDiscount, clients, selectedClientId, services, inventory, redeemedOffer]);
 
     const retailTotalForDiscount = useMemo(() => {
         return cart.reduce((acc, item) => {
@@ -619,6 +624,20 @@ export default function POSPage() {
             return acc + (item.quantity * (product?.msrp || 0));
         }, 0);
     }, [cart, inventory]);
+
+    useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
+                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotalForDiscount, memberships]);
 
     const totalItemsInCart = useMemo(() => {
         const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -649,44 +668,17 @@ export default function POSPage() {
 
         const appointmentId = `apt-walkin-${walkIn.id}`;
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-
+        
         const now = new Date();
         const nowISO = now.toISOString();
 
-        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-        const endTime = addMinutes(now, duration);
-        
-        const appointmentData = {
-            id: appointmentId,
-            tenantId: selectedTenant.id,
-            clientId: walkIn.clientId || walkIn.id,
-            clientName: walkIn.customerName,
-            clientEmail: walkIn.customerEmail,
-            clientPhone: walkIn.customerPhone,
-            serviceId: walkIn.serviceIds[0],
-            addOnIds: walkIn.serviceIds.slice(1),
-            staffId: walkIn.assignedStaffId,
+        updateDocumentNonBlocking(appointmentRef, {
             status: 'servicing',
-            source: 'walk-in',
-            isWalkIn: true,
             actualStartTime: nowISO,
-            startTime: nowISO, // For walk-ins, start time is now
-            endTime: endTime.toISOString(),
-        };
+        });
 
-        setDocumentNonBlocking(appointmentRef, appointmentData, {});
-
-        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-        
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
         updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-
-        toast({
-            title: "Service Started!",
-            description: `The service for ${walkIn.customerName} has begun.`
-        });
     };
     
     useEffect(() => {
