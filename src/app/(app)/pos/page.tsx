@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -13,8 +12,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -43,6 +42,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -62,7 +62,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -80,12 +80,16 @@ export default function POSPage() {
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [tipAmount, setTipAmount] = useState(0);
     const [paymentTab, setPaymentTab] = useState('card');
+    const [amountTendered, setAmountTendered] = useState(0);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
     
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+    const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false);
+
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
@@ -96,8 +100,6 @@ export default function POSPage() {
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
-
-    const { memberships, packages, discounts } = useInventory();
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -446,71 +448,66 @@ export default function POSPage() {
     };
     
     const handleAssignNext = () => {
-        if (!staff || !walkIns || !services) {
-          toast({ title: "Data not loaded", description: "Please wait a moment and try again." });
-          return;
-        }
+      if (!staff || !walkIns || !services) {
+        toast({ title: 'Data not loaded', description: 'Please wait a moment and try again.' });
+        return;
+      }
     
-        const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
-        if (waitingClients.length === 0) {
-          toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
-          return;
-        }
+      const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
+      if (waitingClients.length === 0) {
+        toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
+        return;
+      }
     
-        if (assignmentMode === 'fair_play') {
-          const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-          
-          if (idleStaff.length === 0) {
-            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
-            return;
-          }
-          
-          for (const staffMember of idleStaff) {
-            for (const client of waitingClients) {
-              const allServiceIds = client.serviceIds;
-              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-              const staffSkills = staffMember.skillSet || [];
-              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+      if (assignmentMode === 'fair_play') {
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
         
-              const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-              if (canPerformService && !existingAssignment) {
-                handleAssignStaff(client, staffMember.id);
-                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return;
-              }
+        if (idleStaff.length === 0) {
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          return;
+        }
+        
+        for (const staffMember of idleStaff) {
+          for (const client of waitingClients) {
+            const allServiceIds = client.serviceIds;
+            const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+            const staffSkills = staffMember.skillSet || [];
+            const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+      
+            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+            if (canPerformService && !existingAssignment) {
+              handleAssignStaff(client, staffMember.id);
+              toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+              return;
             }
           }
-        } else { // 'ordered_list'
-          const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
-          if (idleStaff.length === 0) {
-            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
-            return;
-          }
-            for (const client of waitingClients) {
-                const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-                if (existingAssignment) continue;
-        
-                for (const staffMember of orderedStaff) {
-                  if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
-                    continue;
-                  }
-        
-                  const allServiceIds = client.serviceIds;
-                  const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-                  const staffSkills = staffMember.skillSet || [];
-                  const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-        
-                  if (canPerformService) {
-                    handleAssignStaff(client, staffMember.id);
-                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                    return;
-                  }
-                }
-              }
         }
+      } else { // 'ordered_list'
+        for (const client of waitingClients) {
+          const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+          if (existingAssignment) continue;
+      
+          for (const staffMember of orderedStaff) {
+            if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
+              continue;
+            }
+      
+            const allServiceIds = client.serviceIds;
+            const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+            const staffSkills = staffMember.skillSet || [];
+            const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+      
+            if (canPerformService) {
+              handleAssignStaff(client, staffMember.id);
+              toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+              return;
+            }
+          }
+        }
+      }
     
-        toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
-      };
+      toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
+    };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
         if (!firestore || !selectedTenant || !services) return;
@@ -700,16 +697,12 @@ export default function POSPage() {
     const handleStartService = (walkInId: string) => {
         const walkInToStart = walkIns?.find(w => w.id === walkInId);
         if (!walkInToStart || !firestore || !selectedTenant) return;
-        
+
         const appointmentId = `apt-walkin-${walkInId}`;
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        setDocumentNonBlocking(appointmentRef, {
-            ...walkInToStart, // This is simplified, real data would be mapped
-            id: appointmentId,
-            isWalkIn: true,
+        updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId), {
             status: 'servicing',
             actualStartTime: new Date().toISOString(),
-        }, { merge: true });
+        });
         
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
         updateDocumentNonBlocking(walkInRef, { 
@@ -783,7 +776,7 @@ export default function POSPage() {
           lastAppointment: new Date().toISOString(),
           status: 'active',
           notes: data.notes,
-          referralCode: '', // referral code generation logic is missing here
+          referralCode: '',
           birthday: data.birthday ? data.birthday.toISOString() : undefined,
           address: data.address,
           emergencyContact: data.emergencyContact,
@@ -801,16 +794,56 @@ export default function POSPage() {
       }
 
     const payerOptions = useMemo(() => {
-        if (!appointmentsData) return [];
-        const clientMap = new Map<string, Client>();
-        appointmentsData.forEach(apt => {
-          if (apt.client) {
-            clientMap.set(apt.client.id, apt.client);
-          }
-        });
-        return Array.from(clientMap.values());
+      const clientMap = new Map<string, Client>();
+      appointmentsData.forEach(apt => {
+        if (apt.client) {
+          clientMap.set(apt.client.id, apt.client);
+        }
+      });
+      return Array.from(clientMap.values());
     }, [appointmentsData]);
     
+    const handleCheckout = async () => {
+        setIsSubmitting(true);
+        // This is a placeholder for a full checkout flow.
+        // It would involve creating transactions, updating inventory, etc.
+        // The atomic updates happen here.
+
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network request
+
+        const receiptData: ReceiptData = {
+          business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
+          clientName: selectedClient?.name || 'Walk-in Customer',
+          date: new Date(),
+          items: [
+            ...appointmentsData.flatMap(d => [d.service, ...d.addOnServices].filter(Boolean).map(s => ({name: s!.name, quantity: 1, price: s!.price }))),
+            ...cart.map(item => ({name: item.name, quantity: item.quantity, price: inventory.find(p => p.id === item.id)?.msrp || 0})),
+          ],
+          subtotal: subtotal,
+          discount: discount + membershipDiscount,
+          tax: tax,
+          tip: tipAmount,
+          total: total,
+          payment: {
+              method: paymentTab,
+              amountTendered: paymentTab === 'cash' ? amountTendered : total,
+              changeDue: paymentTab === 'cash' && amountTendered > total ? amountTendered - total : 0
+          },
+        };
+
+        setReceiptToPrint(receiptData);
+        setIsReceiptDialogOpen(true);
+
+        // Reset state after checkout
+        setCart([]);
+        setSelectedAppointmentIds(new Set());
+        setSelectedClientId(null);
+        setTipAmount(0);
+        setAmountTendered(0);
+        
+        setIsSubmitting(false);
+    };
+
     const cartServiceIds = useMemo(() => {
         const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
         const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
@@ -834,7 +867,7 @@ export default function POSPage() {
         total,
         tipAmount,
         setTipAmount,
-        onCheckout: () => {},
+        onCheckout: handleCheckout,
         appliedDiscountCode,
         setAppliedDiscountCode,
         discount,
@@ -844,6 +877,8 @@ export default function POSPage() {
         paymentTab,
         setPaymentTab,
         discounts: discounts || [],
+        amountTendered,
+        setAmountTendered,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
@@ -853,7 +888,8 @@ export default function POSPage() {
             <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto gap-6 px-4 md:px-6 lg:px-8 pt-4 md:pt-6 lg:pt-8 pb-28 lg:pb-8">
+                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                        {/* KPI Cards for Desktop */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
@@ -861,6 +897,7 @@ export default function POSPage() {
                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
                         </div>
 
+                        {/* KPI Cards for Mobile */}
                         <div className="md:hidden">
                             <ScrollArea>
                                 <div className="flex space-x-4 pb-4">
@@ -877,7 +914,7 @@ export default function POSPage() {
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
-                            services={services || []} 
+                            services={services} 
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
@@ -997,10 +1034,35 @@ export default function POSPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+             <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Print Receipt?</DialogTitle>
+                        <DialogDescription>
+                            Would you like to print a receipt for this transaction?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div id="print-receipt-area" className="hidden print:block">
+                        {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <div className="hidden print:block print-only">
                 <div id="printable-ticket-pos">
                     {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                 </div>
+                {receiptToPrint && (
+                    <div id="printable-receipt-pos">
+                        <PrintReceipt data={receiptToPrint} />
+                    </div>
+                )}
             </div>
             <style jsx global>{`
                 @media print {

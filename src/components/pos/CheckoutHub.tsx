@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -43,6 +42,8 @@ export const CheckoutHub = ({
     paymentTab,
     setPaymentTab,
     discounts,
+    amountTendered,
+    setAmountTendered,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -60,7 +61,7 @@ export const CheckoutHub = ({
     total: number,
     tipAmount: number,
     setTipAmount: (amount: number) => void,
-    onCheckout: () => void;
+    onCheckout: (details: { paymentMethod: string; amountTendered?: number }) => void;
     appliedDiscountCode: string | undefined;
     setAppliedDiscountCode: (code: string | undefined) => void;
     discount: number;
@@ -70,6 +71,8 @@ export const CheckoutHub = ({
     paymentTab: string;
     setPaymentTab: (tab: string) => void;
     discounts: Discount[];
+    amountTendered: number;
+    setAmountTendered: (amount: number) => void;
 }) => {
     
     const [promoCode, setPromoCode] = useState('');
@@ -97,6 +100,12 @@ export const CheckoutHub = ({
         return [...new Set([...appointmentServiceIds, ...cartServices])];
     }, [cart, appointmentsData]);
     
+    const totalDiscount = discount + membershipDiscount;
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+    
+    const quickCashAmounts = [Math.ceil(total / 5) * 5, Math.ceil(total / 10) * 10, Math.ceil(total / 20) * 20, Math.ceil(total / 50) * 50].filter((v, i, a) => a.indexOf(v) === i && v > total);
+
+
     return (
         <div className="flex flex-col h-full">
             {showTitle && (
@@ -236,16 +245,38 @@ export const CheckoutHub = ({
                     <Button variant={paymentTab === 'card' ? 'default' : 'outline'} onClick={() => setPaymentTab('card')} className="flex-col h-16"><CreditCard /><span className="mt-1">Card</span></Button>
                     <Button variant={paymentTab === 'scan' ? 'default' : 'outline'} onClick={() => setPaymentTab('scan')} className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
                 </div>
+                 {paymentTab === 'cash' && (
+                    <div className="mt-4 space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="amount-tendered">Amount Tendered</Label>
+                             <div className="relative">
+                                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id="amount-tendered" type="number" placeholder="0.00" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8"/>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2">
+                            {quickCashAmounts.map(amount => (
+                                <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>${amount}</Button>
+                            ))}
+                        </div>
+                        {amountTendered > 0 && (
+                            <div className="p-3 bg-muted rounded-md text-center">
+                                <p className="text-sm text-muted-foreground">Change Due</p>
+                                <p className="text-2xl font-bold text-primary">${changeDue > 0 ? changeDue.toFixed(2) : '0.00'}</p>
+                                {changeDue > 0 && <Button variant="link" size="xs" onClick={() => { setTipAmount(tipAmount + changeDue); setAmountTendered(amountTendered - changeDue); }}>Keep the change as a tip</Button>}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className="mt-auto pt-4 flex gap-2">
                 <Button variant="outline" className="flex-1"><Printer /> Print</Button>
-                <Button className="flex-1" onClick={onCheckout} disabled={isSubmitting}>
-                    {isSubmitting ? <Loader className="animate-spin" /> : 'Place Order'}
+                <Button className="flex-1" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting}>
+                    {isSubmitting ? <Loader className="animate-spin" /> : 'Checkout'}
                 </Button>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
         </div>
     );
 };
-
