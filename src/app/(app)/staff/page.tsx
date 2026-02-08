@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail } from 'lucide-react';
 import {
   DropdownMenu,
@@ -320,43 +320,6 @@ export default function StaffPage() {
             }
         });
 
-        // New KPI Calculations
-        const staffAppointmentsInRange = appointments.filter(apt => {
-            if (apt.staffId !== member.id) return false;
-            const appointmentDate = apt.startTime;
-            if(fromDate && appointmentDate < fromDate) return false;
-            if(toDate && appointmentDate > toDate) return false;
-            return true;
-        });
-
-        const completedAppointments = staffAppointmentsInRange.filter(apt => apt.status === 'completed');
-        const completedAppointmentsCount = completedAppointments.length;
-
-        let totalInServiceMinutes = 0;
-        let totalMinutesVariance = 0;
-        completedAppointments.forEach(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            if (apt.actualStartTime && apt.actualEndTime) {
-                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
-                totalInServiceMinutes += actualDuration;
-                if(service) {
-                    const scheduledDuration = service.duration;
-                    totalMinutesVariance += actualDuration - scheduledDuration;
-                }
-            } else {
-                if (service) {
-                    totalInServiceMinutes += service.duration;
-                }
-            }
-        });
-        
-        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
-        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
-        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
-        
-        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
-        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-
         return {
             ...member,
             stats: {
@@ -364,18 +327,11 @@ export default function StaffPage() {
                 tips,
                 earnings,
                 consumptionValue,
-                totalHours: totalMinutesWorked / 60,
-                serviceRevenue,
-                retailSales,
-                utilizationRate,
-                avgSalePerAppointment,
-                completedAppointments: completedAppointmentsCount,
-                retailAttachmentRate,
-                avgVariance,
+                totalHours: totalMinutesWorked / 60
             }
         };
     });
-  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services]);
+  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs]);
 
 
   const handleViewActivity = (member: Staff & { stats: any }) => {
@@ -412,35 +368,7 @@ export default function StaffPage() {
     const sanitizedData = JSON.parse(JSON.stringify(updatedStaffData));
     updateDocumentNonBlocking(staffDocRef, sanitizedData);
   };
-
-  const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-      const staffMember = staff?.find(s => s.id === staffId);
-      if (!staffMember) return;
-
-      const titles = {
-          clock_in: 'Confirm Clock In',
-          clock_out: 'Confirm Clock Out',
-          break_start: 'Confirm Start Break',
-          break_end: 'Confirm End Break',
-      };
-       const descriptions = {
-          clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
-          clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
-          break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
-          break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
-      };
-      
-      setConfirmation({
-          isOpen: true,
-          title: titles[action],
-          description: descriptions[action],
-          onConfirm: () => {
-              handleStatusChange(staffId, action);
-              setConfirmation(null);
-          }
-      });
-  }
-
+  
   const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
       if (!firestore || !staff || !tenantId) return;
 
@@ -475,6 +403,34 @@ export default function StaffPage() {
       
       addDocumentNonBlocking(activityLogsRef, logEntry);
       updateDocumentNonBlocking(staffDocRef, staffUpdate);
+  };
+  
+  const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+      const staffMember = staff?.find(s => s.id === staffId);
+      if (!staffMember) return;
+
+      const titles = {
+          clock_in: 'Confirm Clock In',
+          clock_out: 'Confirm Clock Out',
+          break_start: 'Confirm Start Break',
+          break_end: 'Confirm End Break',
+      };
+       const descriptions = {
+          clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
+          clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
+          break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
+          break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
+      };
+      
+      setConfirmation({
+          isOpen: true,
+          title: titles[action],
+          description: descriptions[action],
+          onConfirm: () => {
+              handleStatusChange(staffId, action);
+              setConfirmation(null);
+          }
+      });
   }
 
   return (
@@ -591,3 +547,5 @@ export default function StaffPage() {
     </div>
   );
 }
+
+```
