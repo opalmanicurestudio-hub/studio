@@ -638,7 +638,7 @@ export default function POSPage() {
     const { subtotal, tax, total } = useMemo(() => {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
             const addOnsPrice = (data.addOnServices || [])
                 .map(s => s.price || 0)
                 .reduce((a, b) => a + b, 0);
@@ -824,6 +824,9 @@ export default function POSPage() {
         setIsSubmitting(true);
 
         await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network request
+        
+        const totalDiscount = discount + membershipDiscount;
+        const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
         const receiptData: ReceiptData = {
           business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
@@ -831,7 +834,7 @@ export default function POSPage() {
           date: new Date(),
           items: [
             ...appointmentsData.flatMap(d => {
-                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service?.id ? 0 : d.service.price }] : [];
                 const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
                 return [...mainService, ...addOns];
             }),
@@ -900,6 +903,7 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
+    const totalDiscount = discount + membershipDiscount;
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
     return (
