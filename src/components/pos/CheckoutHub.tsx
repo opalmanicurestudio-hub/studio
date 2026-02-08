@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -17,6 +16,9 @@ import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import { AnimatePresence, motion } from 'framer-motion';
+
 
 export const CheckoutHub = ({ 
     cart, 
@@ -104,27 +106,9 @@ export const CheckoutHub = ({
     }, [cart, appointmentsData]);
     
     const totalDiscount = discount + membershipDiscount;
-    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    const mockTax = subtotalAfterDiscounts * 0.07;
-    const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
-    const quickCashAmounts = useMemo(() => {
-        if (total <= 0) return [];
-        const suggestions = new Set<number>();
-        // Suggest the next highest $5, $10, or $20
-        suggestions.add(Math.ceil(total / 5) * 5);
-        suggestions.add(Math.ceil(total / 10) * 10);
-        suggestions.add(Math.ceil(total / 20) * 20);
-
-        return Array.from(suggestions)
-          .filter(amount => amount > total && amount !== Infinity)
-          .sort((a,b) => a - b)
-          .slice(0, 3);
-    }, [total]);
-
-
     return (
         <div className="flex flex-col h-full">
             {showTitle && (
@@ -266,103 +250,80 @@ export const CheckoutHub = ({
                 </div>
                 {paymentTab === 'cash' && (
                     <div className="mt-4 space-y-4">
-                        <div className="space-y-2">
-                            <Label className="text-xs text-muted-foreground">Quick Tender</Label>
-                            <div className="grid grid-cols-4 gap-2">
-                                <Button variant="secondary" onClick={() => setAmountTendered(total)}>Exact</Button>
-                                {quickCashAmounts.map(amount => (
-                                    <Button key={amount} variant="secondary" onClick={() => setAmountTendered(amount)}>
-                                        ${amount}
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="amount-tendered">Amount Tendered</Label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                                <Input
-                                    id="amount-tendered"
-                                    type="number"
-                                    placeholder="0.00"
-                                    value={amountTendered || ''}
-                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
-                                    className="pl-10 text-2xl font-bold h-14 text-right pr-4"
-                                />
-                            </div>
-                            <div className="space-y-2 pt-2">
-                                <Progress value={total > 0 ? (amountTendered / total) * 100 : 0} />
-                                <div className="flex justify-between text-xs text-muted-foreground">
-                                    <span>Tendered: ${amountTendered.toFixed(2)}</span>
-                                    <span>Remaining: <span className="font-medium text-foreground">${Math.max(0, total - amountTendered).toFixed(2)}</span></span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <Accordion type="single" collapsible>
-                            <AccordionItem value="denominations" className="border-0">
-                                <AccordionTrigger className="text-xs p-0 hover:no-underline text-muted-foreground">Add Denominations</AccordionTrigger>
-                                <AccordionContent className="pt-2">
-                                    <div className="space-y-3">
-                                        <div>
-                                            <Label className="text-xs text-muted-foreground">Bills</Label>
-                                            <div className="grid grid-cols-3 gap-2 mt-1">
-                                                {[100, 50, 20, 10, 5, 1].map(amount => (
-                                                    <Button key={amount} variant="outline" className="h-12 text-lg" onClick={() => setAmountTendered(prev => prev + amount)}>
-                                                        ${amount}
-                                                    </Button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <Label className="text-xs text-muted-foreground">Coins</Label>
-                                            <div className="grid grid-cols-4 gap-2 mt-1">
-                                                {[0.25, 0.10, 0.05, 0.01].map(amount => (
-                                                    <Button key={amount} variant="outline" className="h-12" onClick={() => setAmountTendered(prev => prev + amount)}>
-                                                        {amount * 100}¢
-                                                    </Button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <Button variant="ghost" size="sm" onClick={() => setAmountTendered(0)} className="w-full text-muted-foreground">Clear Tendered</Button>
-                                    </div>
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
-
-                        {amountTendered > total ? (
-                            <Card className="bg-primary/5 border-primary/20">
-                                <CardContent className="p-4 text-center">
-                                    <p className="text-sm font-medium text-primary">Change Due</p>
-                                    <p className="text-4xl font-bold text-primary">${changeDue > 0 ? changeDue.toFixed(2) : '0.00'}</p>
-                                    {changeDue > 0 && (
-                                        <Button
-                                            variant="secondary"
-                                            size="sm"
-                                            className="mt-2"
-                                            onClick={() => {
-                                                setTipAmount(tipAmount + changeDue);
-                                                setAmountTendered(amountTendered - changeDue);
-                                            }}
-                                        >
-                                            <Gift className="mr-2 h-4 w-4" /> Add to Tip
-                                        </Button>
-                                    )}
+                        <div className="grid grid-cols-2 gap-4">
+                            <Card className="text-center">
+                                <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-muted-foreground">Amount Tendered</CardTitle></CardHeader>
+                                <CardContent className="p-2">
+                                     <Input
+                                        id="amount-tendered"
+                                        type="number"
+                                        placeholder="$0.00"
+                                        value={amountTendered || ''}
+                                        onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
+                                        className="text-3xl font-bold h-auto border-none shadow-none focus-visible:ring-0 text-center bg-transparent p-0"
+                                    />
                                 </CardContent>
                             </Card>
-                        ) : null}
+                            <AnimatePresence>
+                            {changeDue > 0 && (
+                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                                <Card className="text-center bg-green-500/10 border-green-500/20">
+                                    <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-green-600 dark:text-green-300">Change Due</CardTitle></CardHeader>
+                                    <CardContent className="p-2">
+                                        <p className="text-3xl font-bold text-green-600 dark:text-green-300">${changeDue.toFixed(2)}</p>
+                                    </CardContent>
+                                </Card>
+                                </motion.div>
+                            )}
+                            </AnimatePresence>
+                        </div>
+                        
+                        {changeDue > 0 && (
+                            <Button
+                                variant="secondary"
+                                className="w-full"
+                                onClick={() => {
+                                    setTipAmount(tipAmount + changeDue);
+                                    setAmountTendered(amountTendered - changeDue);
+                                }}
+                            >
+                                <Gift className="mr-2 h-4 w-4" /> Keep the Change as Tip
+                            </Button>
+                        )}
+
+                        <div className="space-y-3 pt-2">
+                             <div>
+                                <Label className="text-xs text-muted-foreground">Bills</Label>
+                                <div className="grid grid-cols-5 gap-2 mt-1">
+                                    {[100, 50, 20, 10, 5].map(amount => (
+                                        <Button key={amount} variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + amount)}>
+                                            ${amount}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                             <div>
+                                <Label className="text-xs text-muted-foreground">Coins & Small Bills</Label>
+                                <div className="grid grid-cols-5 gap-2 mt-1">
+                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 1)}>$1</Button>
+                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.25)}>25¢</Button>
+                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.10)}>10¢</Button>
+                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.05)}>5¢</Button>
+                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.01)}>1¢</Button>
+                                </div>
+                            </div>
+                            <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground" onClick={() => setAmountTendered(0)}>Clear</Button>
+                        </div>
                     </div>
                 )}
             </div>
 
             <div className="mt-auto pt-4 flex gap-2">
-                <Button variant="outline" className="flex-1"><Printer /> Print</Button>
-                <Button className="flex-1" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting}>
-                    {isSubmitting ? <Loader className="animate-spin" /> : 'Checkout'}
+                <Button className="flex-1" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
+                    {isSubmitting ? <Loader className="animate-spin" /> : `Charge $${total.toFixed(2)}`}
                 </Button>
             </div>
-            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={() => {}} cartServiceIds={cartServiceIds} />
+            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={(code) => { setPromoCode(code); /* handleApplyPromo(code); */ }} cartServiceIds={cartServiceIds} />
         </div>
     );
 };
