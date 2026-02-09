@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { Calendar as CalendarIcon } from 'lucide-react';
-import { PrintableReport } from '@/components/reports/PrintableReport';
+import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -228,7 +228,7 @@ export default function ReportsPage() {
   }, [performanceAndPayrollData]);
   
   const salonWideStats = useMemo(() => {
-    if (!appointments || !transactions || !staff || !walkIns) return { avgTicket: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
+    if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -301,7 +301,7 @@ export default function ReportsPage() {
     const newClientRate = clientsInPeriod.size > 0 ? (newClientsInPeriod / clientsInPeriod.size) * 100 : 0;
     
     return {
-      avgTicket: completedAppointments.length > 0 ? totalRevenue / completedAppointments.length : 0,
+      avgSalePerAppointment: completedAppointments.length > 0 ? totalRevenue / completedAppointments.length : 0,
       utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0,
       retailAttachmentRate: completedAppointments.length > 0 ? (appointmentsWithRetail.size / completedAppointments.length) * 100 : 0,
       cancellationRate: appointmentsInRange.length > 0 ? (cancelledAppointments.length / appointmentsInRange.length) * 100 : 0,
@@ -478,7 +478,7 @@ export default function ReportsPage() {
               <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Avg. Ticket Size</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div>
+                      <div className="text-2xl font-bold">${salonWideStats.avgSalePerAppointment.toFixed(2)}</div>
                       <p className="text-xs text-muted-foreground">Avg. revenue per completed appointment.</p>
                   </CardContent>
               </Card>
@@ -717,3 +717,5 @@ export default function ReportsPage() {
     </>
   );
 }
+
+    
