@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -75,6 +76,14 @@ type EditableFormulaItem = {
 export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
     const [cart, setCart] = useState<EditableFormulaItem[]>([]);
+    
+    const handleCartChange = (newRetailItems: EditableFormulaItem[]) => {
+        setCart(prevCart => {
+            const serviceItems = prevCart.filter(item => item.type === 'service');
+            return [...serviceItems, ...newRetailItems];
+        });
+    };
+
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -111,10 +120,6 @@ export default function POSPage() {
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
-    
-    const onCartChange = (newCart: EditableFormulaItem[]) => {
-      setCart(newCart);
-    };
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -191,24 +196,23 @@ export default function POSPage() {
         );
     
         if (appointmentsToFix.length > 0) {
-          console.log(`Found ${appointmentsToFix.length} appointments to fix.`);
-          const batch = writeBatch(firestore);
-          appointmentsToFix.forEach(apt => {
-            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
-            batch.update(appointmentRef, { status: 'completed', actualEndTime: new Date().toISOString() });
-            
-            if (apt.checkInToken) {
-                 const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
-                 batch.update(checkInRef, { status: 'completed' });
-            }
-            
-            if (apt.isWalkIn) {
-                const walkInId = apt.id.replace('apt-walkin-', '');
-                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
-            }
-    
-          });
+            const batch = writeBatch(firestore);
+            appointmentsToFix.forEach(apt => {
+                const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
+                batch.update(appointmentRef, { status: 'completed', actualEndTime: new Date().toISOString() });
+                
+                if (apt.checkInToken) {
+                     const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+                     batch.update(checkInRef, { status: 'completed' });
+                }
+                
+                if (apt.isWalkIn) {
+                    const walkInId = apt.id.replace('apt-walkin-', '');
+                    const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                    batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
+                }
+        
+            });
     
           batch.commit().then(() => {
             toast({
@@ -746,21 +750,39 @@ export default function POSPage() {
   const handleConfirmAndClose = async () => {
     setIsSubmitting(true);
     try {
-        let clientToUse: Client | undefined = client;
+        let clientToUse: Client | undefined | null = client;
 
         if (!clientToUse && appointmentsData.length > 0) {
-            // If there's no primary payer selected but we have appointments,
-            // check if they all belong to the same client.
-            const firstClientId = appointmentsData[0].client?.id;
-            const allSameClient = appointmentsData.every(apt => apt.client?.id === firstClientId);
-            
-            if (allSameClient && firstClientId) {
-                clientToUse = clients?.find(c => c.id === firstClientId);
+            const firstAptData = appointmentsData[0];
+            clientToUse = firstAptData.client;
+        }
+
+        if (!clientToUse && appointmentsData.length > 0) {
+            const firstAptData = appointmentsData[0];
+            const existingClient = clients?.find(c => c.email && c.email === firstAptData.appointment.clientEmail);
+            if(existingClient) {
+                clientToUse = existingClient;
+            } else {
+                if (!firestore || !tenantId) return;
+                const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
+                const newId = newClientRef.id;
+                const newClient: Client = {
+                  id: newId,
+                  name: firstAptData.appointment.clientName || 'Walk-in Client',
+                  email: firstAptData.appointment.clientEmail || '', 
+                  phone: firstAptData.appointment.clientPhone || '',
+                  avatarUrl: `https://picsum.photos/seed/${newId}/100`,
+                  lifetimeValue: 0,
+                  lastAppointment: new Date().toISOString(),
+                  status: 'active',
+                };
+                await setDoc(newClientRef, newClient);
+                clientToUse = newClient;
             }
         }
         
         if (!clientToUse) {
-            toast({variant: 'destructive', title: 'Client Not Found', description: 'Could not find the client for this transaction. For group checkouts, please select a primary payer.'});
+            toast({variant: 'destructive', title: 'Client Not Found', description: 'Could not find or create the client for this transaction.'});
             setIsSubmitting(false);
             return;
         }
@@ -774,44 +796,11 @@ export default function POSPage() {
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
 
-        // Handle client creation for new walk-ins
-        const clientCreationPromises = appointmentsData.map(async (data) => {
-            if (data.isWalkIn && data.client && !clients?.find(c => c.id === data.client!.id)) {
-                const existingClientByEmail = clients?.find(c => c.email && c.email === data.client?.email);
-                if (existingClientByEmail) {
-                    data.appointment.clientId = existingClientByEmail.id;
-                } else {
-                    const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
-                    const newId = newClientRef.id;
-                    const newClient: Client = {
-                        id: newId,
-                        name: data.client.name,
-                        email: data.client.email || '', 
-                        phone: data.client.phone || '',
-                        avatarUrl: `https://picsum.photos/seed/${newId}/100`,
-                        lifetimeValue: 0,
-                        lastAppointment: nowISO,
-                        status: 'active',
-                    };
-                    batch.set(newClientRef, newClient);
-                    data.appointment.clientId = newId; // Update the appointment with the new ID
-                }
-            }
-        });
-        await Promise.all(clientCreationPromises);
-
-        // Loop through each appointment in the checkout
         for (const data of appointmentsData) {
-            const { appointment: currentAppointment, service: currentService, addOnServices } = data;
-            
-            if (!currentAppointment || !currentService) continue;
-
+            const { appointment: currentAppointment } = data;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             
-            batch.update(appointmentRef, { 
-                status: 'completed', 
-                actualEndTime: nowISO,
-            });
+            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
             
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
@@ -820,9 +809,21 @@ export default function POSPage() {
 
             if (currentAppointment.isWalkIn) {
                 const walkInId = currentAppointment.id.replace('apt-walkin-', '');
-                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
+
+            const allStaffInvolved = new Set<string>();
+            if(currentAppointment.staffId) allStaffInvolved.add(currentAppointment.staffId);
+            Object.values(currentAppointment.checkoutState?.serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
+            
+            allStaffInvolved.forEach(staffId => {
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+                batch.update(staffDocRef, {
+                  status: 'idle',
+                  lastServedTimestamp: nowISO,
+                });
+            });
         }
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
@@ -837,12 +838,12 @@ export default function POSPage() {
             lastAppointment: nowISO
         });
 
-        const isGroup = appointmentsData.length > 1;
+        const isGroupCheckout = appointmentsData.length > 1;
 
         if (serviceRevenue > 0) {
             const serviceTransaction: Partial<Transaction> = {
                 date: nowISO,
-                description: `${isGroup ? 'Group ' : ''}Services Checkout`,
+                description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                 clientOrVendor: clientToUse.name,
                 clientId: clientToUse.id,
                 type: 'income' as const,
@@ -868,8 +869,8 @@ export default function POSPage() {
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id'|'date'> = {
                     description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: clientToUse.name,
-                    clientId: clientToUse.id,
+                    clientOrVendor: clientToUse!.name,
+                    clientId: clientToUse!.id,
                     type: 'income',
                     context: 'Business',
                     category: 'Retail',
@@ -890,9 +891,9 @@ export default function POSPage() {
             Object.entries(tipAllocations).forEach(([staffId, tip]) => {
                 if (tip > 0) {
                      const tipTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Tip from ${clientToUse.name}`,
-                        clientOrVendor: clientToUse.name,
-                        clientId: clientToUse.id,
+                        description: `Tip from ${clientToUse!.name}`,
+                        clientOrVendor: clientToUse!.name,
+                        clientId: clientToUse!.id,
                         type: 'income',
                         context: 'Business',
                         category: 'Tips',
@@ -912,7 +913,7 @@ export default function POSPage() {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
                 usageCount: increment(1),
-                usedByClientIds: arrayUnion(clientToUse.id),
+                usedByClientIds: arrayUnion(clientToUse!.id),
             });
         }
 
@@ -930,7 +931,7 @@ export default function POSPage() {
 
         const receiptData: ReceiptData = {
           business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-          clientName: clientToUse.name,
+          clientName: clientToUse!.name,
           date: new Date(),
           items: allCartItems,
           subtotal,
@@ -964,355 +965,358 @@ export default function POSPage() {
         setIsSubmitting(false);
     }
   };
-    
-    const handleStartService = (appointmentId: string) => {
-        const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
-        if (!appointmentToStart || !firestore || !selectedTenant) return;
         
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-        
-        if (appointmentToStart.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
-        }
-
-        if (appointmentToStart.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-        }
-    
-        toast({
-            title: "Service Started!",
-            description: `The service for ${appointmentToStart.clientName} has begun.`
-        });
-    };
-    
-    useEffect(() => {
-        if (scannedData) {
-            handleScan(scannedData);
-            setScannedData(null); // Reset after processing
-        }
-    }, [scannedData, handleScan]);
-    
-    useEffect(() => {
-        let html5QrCode: Html5Qrcode | undefined;
-        if (isScannerOpen) {
-          const timer = setTimeout(() => {
-            const element = document.getElementById('qr-reader-pos');
-            if (element) {
-                html5QrCode = new Html5Qrcode('qr-reader-pos');
-                const onScanSuccess = (decodedText: string, decodedResult: any) => {
-                    if (html5QrCode?.isScanning) {
-                        html5QrCode.stop().catch(console.error);
-                    }
-                    setScannedData(decodedText);
-                    setIsScannerOpen(false);
-                };
-
-                const onScanFailure = (error: any) => { /* ignore */ };
-                
-                setTimeout(() => {
-                    html5QrCode?.start(
-                        { facingMode: "environment" },
-                        { fps: 10, qrbox: { width: 250, height: 250 } },
-                        onScanSuccess,
-                        onScanFailure
-                    ).catch(err => {
-                        toast({
-                            variant: 'destructive',
-                            title: 'Camera Error',
-                            description: 'Could not start the camera. Please check permissions and try again.',
-                        });
-                        setIsScannerOpen(false);
-                    });
-                }, 300);
+        const handleStartService = (appointmentId: string) => {
+            const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
+            if (!appointmentToStart || !firestore || !selectedTenant) return;
+            
+            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+            
+            if (appointmentToStart.isWalkIn) {
+                const walkInId = appointmentId.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
             }
-          }, 100); 
 
-          return () => {
-              clearTimeout(timer);
-              if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {
-                    console.error("Failed to stop QR Code scanner.", err);
-                });
-              }
-          };
-        }
-    }, [isScannerOpen, handleScan, toast]);
-    
-    const handleAddClient = (data: ClientFormData) => {
-        if (!firestore || !selectedTenant) return;
-    
-        const newClient: Omit<Client, 'id'> = {
-          name: data.name,
-          email: data.email || '',
-          phone: data.phone || '',
-          avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
-          lifetimeValue: 0,
-          lastAppointment: new Date().toISOString(),
-          status: 'active',
-          notes: data.notes,
-          referralCode: '', // referral code generation logic is missing here
-          birthday: data.birthday ? data.birthday.toISOString() : undefined,
-          address: data.address,
-          emergencyContact: data.emergencyContact,
-          intel: {
-            referralSource: data.intel?.referralSource
-          }
+            if (appointmentToStart.staffId) {
+                const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+                updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+            }
+        
+            toast({
+                title: "Service Started!",
+                description: `The service for ${appointmentToStart.clientName} has begun.`
+            });
         };
         
-        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
-    
-        toast({
-          title: "Client Added",
-          description: `${data.name} has been added to your client list.`,
-        });
-      }
+        useEffect(() => {
+            if (scannedData) {
+                handleScan(scannedData);
+                setScannedData(null); // Reset after processing
+            }
+        }, [scannedData, handleScan]);
+        
+        useEffect(() => {
+            let html5QrCode: Html5Qrcode | undefined;
+            if (isScannerOpen) {
+              const timer = setTimeout(() => {
+                const element = document.getElementById('qr-reader-pos');
+                if (element) {
+                    html5QrCode = new Html5Qrcode('qr-reader-pos');
+                    const onScanSuccess = (decodedText: string, decodedResult: any) => {
+                        if (html5QrCode?.isScanning) {
+                            html5QrCode.stop().catch(console.error);
+                        }
+                        setScannedData(decodedText);
+                        setIsScannerOpen(false);
+                    };
 
-    const payerOptions = useMemo(() => {
-        const clientIds = new Set<string>();
-        appointmentsData.forEach(apt => {
-          if (apt.client) {
-            clientIds.add(apt.client.id);
+                    const onScanFailure = (error: any) => { /* ignore */ };
+                    
+                    setTimeout(() => {
+                        html5QrCode?.start(
+                            { facingMode: "environment" },
+                            { fps: 10, qrbox: { width: 250, height: 250 } },
+                            onScanSuccess,
+                            onScanFailure
+                        ).catch(err => {
+                            toast({
+                                variant: 'destructive',
+                                title: 'Camera Error',
+                                description: 'Could not start the camera. Please check permissions and try again.',
+                            });
+                            setIsScannerOpen(false);
+                        });
+                    }, 300);
+                }
+              }, 100); 
+
+              return () => {
+                  clearTimeout(timer);
+                  if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop().catch(err => {
+                        console.error("Failed to stop QR Code scanner.", err);
+                    });
+                  }
+              };
+            }
+        }, [isScannerOpen, handleScan, toast]);
+        
+        const handleAddClient = (data: ClientFormData) => {
+            if (!firestore || !selectedTenant) return;
+        
+            const newClient: Omit<Client, 'id'> = {
+              name: data.name,
+              email: data.email || '',
+              phone: data.phone || '',
+              avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
+              lifetimeValue: 0,
+              lastAppointment: new Date().toISOString(),
+              status: 'active',
+              notes: data.notes,
+              referralCode: '', // referral code generation logic is missing here
+              birthday: data.birthday ? data.birthday.toISOString() : undefined,
+              address: data.address,
+              emergencyContact: data.emergencyContact,
+              intel: {
+                referralSource: data.intel?.referralSource
+              }
+            };
+            
+            addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+        
+            toast({
+              title: "Client Added",
+              description: `${data.name} has been added to your client list.`,
+            });
           }
-        });
-        return (clients || []).filter(c => clientIds.has(c.id));
-    }, [appointmentsData, clients]);
-    
-    const checkoutHubProps = {
-        cart: retailItems, 
-        onCartChange,
-        appointmentsData,
-        onSelectAppointment: handleSelectAppointment,
-        clients: clients || [],
-        isGroupCheckout,
-        payerOptions,
-        selectedClientId,
-        setSelectedClientId,
-        onAddClientClick: () => setIsAddClientOpen(true),
-        onScanClick: () => setIsScannerOpen(true),
-        subtotal,
-        tax,
-        total,
-        tipAmount,
-        setTipAmount,
-        onCheckout: handleConfirmAndClose,
-        appliedDiscountCode,
-        setAppliedDiscountCode,
-        discount,
-        membershipDiscount,
-        showTitle: false,
-        isSubmitting,
-        paymentTab,
-        setPaymentTab,
-        discounts: discounts || [],
-        amountTendered,
-        setAmountTendered,
-    };
-    
-    const handleStatusChangeWithConfirmation = () => {};
 
-    const tipAllocations: Record<string, number> = {};
+        const isGroupCheckout = appointmentsData.length > 1;
 
-    return (
-        <>
-            <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
-                <AppHeader />
-                <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                        {/* KPI Cards for Desktop */}
-                        <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                           <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
-                           <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
-                           <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
-                           <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
-                        </div>
+        const payerOptions = useMemo(() => {
+            const clientIds = new Set<string>();
+            appointmentsData.forEach(apt => {
+              if (apt.client) {
+                clientIds.add(apt.client.id);
+              }
+            });
+            return (clients || []).filter(c => clientIds.has(c.id));
+        }, [appointmentsData, clients]);
+        
+        const checkoutHubProps = {
+            cart: retailItems, 
+            onCartChange: handleCartChange,
+            appointmentsData,
+            onSelectAppointment: handleSelectAppointment,
+            clients: clients || [],
+            isGroupCheckout,
+            payerOptions,
+            selectedClientId,
+            setSelectedClientId,
+            onAddClientClick: () => setIsAddClientOpen(true),
+            onScanClick: () => setIsScannerOpen(true),
+            subtotal,
+            tax,
+            total,
+            tipAmount,
+            setTipAmount,
+            onCheckout: handleConfirmAndClose,
+            appliedDiscountCode,
+            setAppliedDiscountCode,
+            discount,
+            membershipDiscount,
+            showTitle: false,
+            isSubmitting,
+            paymentTab,
+            setPaymentTab,
+            discounts: discounts || [],
+            amountTendered,
+            setAmountTendered,
+        };
+        
+        const handleStatusChangeWithConfirmation = () => {};
 
-                        {/* KPI Cards for Mobile */}
-                        <div className="md:hidden">
-                            <ScrollArea>
-                                <div className="flex space-x-4 pb-4">
-                                    <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
-                                </div>
-                                <ScrollBar orientation="horizontal" />
-                            </ScrollArea>
-                        </div>
-                        
-                        <TeamStatus 
-                            staff={enrichedOrderedStaff} 
-                            onStatusChange={handleStatusChangeWithConfirmation} 
-                            appointments={appointments} 
-                            services={services || []} 
-                            onReorder={handleStaffReorder}
-                            assignmentMode={assignmentMode}
-                            onAssignmentModeChange={setAssignmentMode}
-                        />
-                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
-                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                            <TabsList className="grid w-full grid-cols-2">
-                                <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
-                            <TabsContent value="queue" className="flex-1 mt-6">
-                                <WalkInQueue 
-                                    walkIns={walkIns} 
-                                    appointments={inServiceAppointments} 
-                                    services={services} 
-                                    staff={staff} 
-                                    onAssignStaff={handleAssignStaff}
-                                    onAssignNext={handleAssignNext}
-                                    onCancel={handleCancelWalkIn}
-                                    onStartService={handleStartService}
-                                    orderedWaitingQueue={orderedWaitingQueue}
-                                    onReorder={handleReorder}
-                                    assignmentMode={assignmentMode}
-                                    onPrintTicket={(walkInId: string) => {
-                                        const walkIn = walkIns?.find(w => w.id === walkInId);
-                                        if (walkIn) {
-                                            setTicketToPrint({
-                                                id: walkIn.id,
-                                                name: walkIn.customerName,
-                                                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
-                                                queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
-                                                checkInTime: walkIn.checkInTime,
-                                            });
-                                            setIsPrintDialogOpen(true);
-                                        }
-                                    }}
-                                    onSkip={handleSkipWalkIn}
-                                    onReturnToQueue={handleReturnToQueue}
-                                    groupSizes={groupSizes}
-                                />
-                            </TabsContent>
-                        </Tabs>
-                    </main>
-                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
-                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold">Current Sale</h2>
-                        </div>
-                        <CheckoutHub {...checkoutHubProps} />
-                    </aside>
-                </div>
-            </div>
-            {isMobile && (
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
-                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild>
-                             <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0 && appointmentsData.length === 0}>
-                                <div className="flex justify-between items-center w-full">
-                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length + appointmentsData.length} item(s)</span>
-                                    <span>${total.toFixed(2)}</span>
-                                </div>
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                           <SheetHeader className="p-4 border-b">
-                               <SheetTitle>Current Sale</SheetTitle>
-                           </SheetHeader>
-                            <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} />
+        const tipAllocations: Record<string, number> = {};
+
+        return (
+            <>
+                <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+                    <AppHeader />
+                    <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
+                        <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                            {/* KPI Cards for Desktop */}
+                            <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                               <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
+                               <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
+                               <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
+                               <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
                             </div>
-                        </SheetContent>
-                    </Sheet>
-                </div>
-            )}
-            <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
-             {confirmation && (
-                <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            )}
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-              <DialogContent className="sm:max-w-md p-0">
-                <DialogHeader className="p-4 pb-0">
-                  <DialogTitle>Scan QR Code</DialogTitle>
-                  <DialogDescription>
-                    Position the code inside the frame to add to sale or checkout.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="p-4 relative">
-                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
-                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                      <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-                  </div>
-                </div>
-                <DialogFooter className="p-4 pt-0">
-                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
-                    <DialogHeader>
-                        <DialogTitle>Walk-in Ticket</DialogTitle>
-                    </DialogHeader>
-                    <div id="print-ticket-area">
-                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+
+                            {/* KPI Cards for Mobile */}
+                            <div className="md:hidden">
+                                <ScrollArea>
+                                    <div className="flex space-x-4 pb-4">
+                                        <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
+                                        <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
+                                        <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
+                                        <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
+                                    </div>
+                                    <ScrollBar orientation="horizontal" />
+                                </ScrollArea>
+                            </div>
+                            
+                            <TeamStatus 
+                                staff={enrichedOrderedStaff} 
+                                onStatusChange={handleStatusChangeWithConfirmation} 
+                                appointments={appointments} 
+                                services={services || []} 
+                                onReorder={handleStaffReorder}
+                                assignmentMode={assignmentMode}
+                                onAssignmentModeChange={setAssignmentMode}
+                            />
+                            <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
+                            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+                                <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
+                                    <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
+                                <TabsContent value="queue" className="flex-1 mt-6">
+                                    <WalkInQueue 
+                                        walkIns={walkIns} 
+                                        appointments={inServiceAppointments} 
+                                        services={services} 
+                                        staff={staff} 
+                                        onAssignStaff={handleAssignStaff}
+                                        onAssignNext={handleAssignNext}
+                                        onCancel={handleCancelWalkIn}
+                                        onStartService={handleStartService}
+                                        orderedWaitingQueue={orderedWaitingQueue}
+                                        onReorder={handleReorder}
+                                        assignmentMode={assignmentMode}
+                                        onPrintTicket={(walkInId: string) => {
+                                            const walkIn = walkIns?.find(w => w.id === walkInId);
+                                            if (walkIn) {
+                                                setTicketToPrint({
+                                                    id: walkIn.id,
+                                                    name: walkIn.customerName,
+                                                    services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
+                                                    queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
+                                                    checkInTime: walkIn.checkInTime,
+                                                });
+                                                setIsPrintDialogOpen(true);
+                                            }
+                                        }}
+                                        onSkip={handleSkipWalkIn}
+                                        onReturnToQueue={handleReturnToQueue}
+                                        groupSizes={groupSizes}
+                                    />
+                                </TabsContent>
+                            </Tabs>
+                        </main>
+                        <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                             <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold">Current Sale</h2>
+                            </div>
+                            <CheckoutHub {...checkoutHubProps} />
+                        </aside>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
-                        <Button onClick={() => window.print()}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Print
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-             <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
-                    <DialogHeader>
-                        <DialogTitle>Print Receipt?</DialogTitle>
-                        <DialogDescription>
-                            Would you like to print a receipt for this transaction?
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div id="print-receipt-area" className="hidden print:block">
-                        {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
-                        <Button onClick={() => window.print()}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Print
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-            <div className="hidden print:block print-only">
-                <div id="printable-ticket-pos">
-                    {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                 </div>
-                {receiptToPrint && (
-                    <div id="printable-receipt-pos">
-                        <PrintReceipt data={receiptToPrint} />
+                {isMobile && (
+                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
+                        <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                            <SheetTrigger asChild>
+                                 <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0 && appointmentsData.length === 0}>
+                                    <div className="flex justify-between items-center w-full">
+                                        <span><ShoppingCart className="inline-block mr-2" />{cart.length + appointmentsData.length} item(s)</span>
+                                        <span>${total.toFixed(2)}</span>
+                                    </div>
+                                </Button>
+                            </SheetTrigger>
+                            <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                               <SheetHeader className="p-4 border-b">
+                                   <SheetTitle>Current Sale</SheetTitle>
+                               </SheetHeader>
+                                <div className="p-4 flex-1 overflow-y-auto">
+                                    <CheckoutHub {...checkoutHubProps} />
+                                </div>
+                            </SheetContent>
+                        </Sheet>
                     </div>
                 )}
-            </div>
-            <style jsx global>{`
-                @media print {
-                    body > *:not(.print-only) {
-                    display: none !important;
+                <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
+                 {confirmation && (
+                    <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                )}
+                <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+                  <DialogContent className="sm:max-w-md p-0">
+                    <DialogHeader className="p-4 pb-0">
+                      <DialogTitle>Scan QR Code</DialogTitle>
+                      <DialogDescription>
+                        Position the code inside the frame to add to sale or checkout.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="p-4 relative">
+                      <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
+                      <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                          <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                      </div>
+                    </div>
+                    <DialogFooter className="p-4 pt-0">
+                      <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                    <DialogContent className="max-w-sm print:hidden">
+                        <DialogHeader>
+                            <DialogTitle>Walk-in Ticket</DialogTitle>
+                        </DialogHeader>
+                        <div id="print-ticket-area">
+                            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                            <Button onClick={() => window.print()}>
+                                <Printer className="mr-2 h-4 w-4" />
+                                Print
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+                 <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+                    <DialogContent className="max-w-sm print:hidden">
+                        <DialogHeader>
+                            <DialogTitle>Print Receipt?</DialogTitle>
+                            <DialogDescription>
+                                Would you like to print a receipt for this transaction?
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div id="print-receipt-area" className="hidden print:block">
+                            {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
+                            <Button onClick={() => window.print()}>
+                                <Printer className="mr-2 h-4 w-4" />
+                                Print
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+                <div className="hidden print:block print-only">
+                    <div id="printable-ticket-pos">
+                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                    </div>
+                    {receiptToPrint && (
+                        <div id="printable-receipt-pos">
+                            <PrintReceipt data={receiptToPrint} />
+                        </div>
+                    )}
+                </div>
+                <style jsx global>{`
+                    @media print {
+                        body > *:not(.print-only) {
+                        display: none !important;
+                        }
+                        .print-only, .print-only * {
+                        display: block !important;
+                        visibility: visible !important;
+                        }
+                        .print-only {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        }
                     }
-                    .print-only, .print-only * {
-                    display: block !important;
-                    visibility: visible !important;
-                    }
-                    .print-only {
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    }
-                }
-            `}</style>
-        </>
-    );
-}
+                `}</style>
+            </>
+        );
+    }
+    
