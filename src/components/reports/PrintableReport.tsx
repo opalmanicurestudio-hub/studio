@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -215,7 +216,7 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                       <TableRow key={data.id}>
                         <TableCell className="font-medium">{data.name}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
                         <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-red-600' : 'text-green-600')}>
                           {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
@@ -229,4 +230,4 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
     );
 });
 
-PrintableReport.displayName = 'PrintableReport';
+PrintableStaffReport.displayName = 'PrintableStaffReport';

@@ -118,8 +118,6 @@ export default function ReportsPage() {
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedAppointmentsCount = completedAppointments.length;
       
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
-
         let totalMinutesVariance = 0;
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
@@ -135,6 +133,8 @@ export default function ReportsPage() {
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
         const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
       
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
+        
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const totalSales = serviceRevenue + retailSales;
@@ -142,7 +142,7 @@ export default function ReportsPage() {
         
         const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-        const avgTicket = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         let totalMinutesWorked = 0;
         const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
@@ -167,7 +167,7 @@ export default function ReportsPage() {
         }
         if(clockInTime && (!toDate || clockInTime < toDate)) {
             const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
+            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
         }
 
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
@@ -196,7 +196,7 @@ export default function ReportsPage() {
                 avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
-                avgTicket,
+                avgSalePerAppointment,
                 retailAttachmentRate,
                 serviceRevenue,
                 retailSales,
@@ -577,7 +577,7 @@ export default function ReportsPage() {
                                   <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                   <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
                                   <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${data.stats.totalPay.toFixed(2)}</TableCell>
-                                  <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
+                                  <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                               </TableRow>
                           ))}
                       </TableBody>
@@ -690,7 +690,7 @@ export default function ReportsPage() {
         </main>
       </div>
       <div className="hidden print:block">
-        <PrintableReport
+        <PrintableStaffReport
             ref={reportRef} 
             dateRange={dateRange}
             kpiData={salonWideStats}
