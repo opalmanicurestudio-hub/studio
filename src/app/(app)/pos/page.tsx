@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -68,7 +67,6 @@ type EditableFormulaItem = {
     name: string;
     price: number;
     quantity: number;
-    unit: string;
     imageUrl?: string;
     stock?: number;
     type: 'product' | 'service';
@@ -114,7 +112,7 @@ export default function POSPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    const handleCartChange = (newCart: EditableFormulaItem[]) => {
+    const onCartChange = (newCart: EditableFormulaItem[]) => {
       const serviceItems = cart.filter(item => item.type === 'service');
       const newRetailItems = newCart.filter(item => item.type === 'product');
       setCart([...serviceItems, ...newRetailItems]);
@@ -734,9 +732,8 @@ export default function POSPage() {
 
         const clientResolutionMap = new Map<string, Client>();
         
-        for (const appointment of appointmentsData) {
-            if (!appointment.client) continue;
-            const tempClient = appointment.client;
+        for (const data of appointmentsData) {
+            const tempClient = data.client;
             if (clientResolutionMap.has(tempClient.id)) continue;
             
             const existingClient = clients?.find(c => c.id === tempClient.id);
@@ -765,18 +762,18 @@ export default function POSPage() {
         const nowISO = new Date().toISOString();
 
         for (const data of appointmentsData) {
-            const { appointment: currentAppointment, service: currentService, addOnServices, client: currentClient } = data;
+            const { service: currentService, addOnServices, client: currentClient } = data;
             
-            if (!currentAppointment || !currentService || !currentClient) continue;
+            if (!currentService || !currentClient) continue;
             
             const resolvedClient = clientResolutionMap.get(currentClient.id);
             if (!resolvedClient) continue; 
             
-            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
+            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, data.id);
             batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
             
-            if (currentAppointment.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+            if (data.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
                 batch.update(checkInRef, { status: 'completed' });
             }
 
@@ -785,26 +782,26 @@ export default function POSPage() {
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, resolvedClient.id);
             batch.update(clientDocRef, {
                 lifetimeValue: increment(appointmentRevenue),
-                lastAppointment: nowISO,
+                lastAppointment: nowISO
             });
 
-            if (currentAppointment.isWalkIn) {
-                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+            if (data.isWalkIn) {
+                const walkInId = data.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
 
-            if (currentAppointment.staffId) {
-                const staffDocRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
+            if (data.staffId) {
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', data.staffId);
                 batch.update(staffDocRef, { status: 'idle', lastServedTimestamp: nowISO });
             }
         }
         
         const isGroupCheckout = appointmentsData.length > 1;
 
-        const serviceRevenue = appointmentsData.reduce((total, appointment) => {
-            const mainServicePrice = redeemedOffer?.id === appointment.service?.id ? 0 : appointment.service?.price || 0;
-            const addOnsPrice = (appointment.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+        const serviceRevenue = appointmentsData.reduce((total, data) => {
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -823,7 +820,7 @@ export default function POSPage() {
                 staffId: appointmentsData[0]?.staff?.id,
                 appointmentId: appointmentsData.map(a => a.id).join(', '),
                 tipAmount: 0,
-                 appliedDiscountCode: appliedDiscountCode,
+                ...(appliedDiscountCode && { appliedDiscountCode }),
                 discountAmount: totalDiscount,
             };
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
@@ -882,7 +879,7 @@ export default function POSPage() {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
                 usageCount: increment(1),
-                usedByClientIds: arrayUnion(payingClient.id),
+                usedByClientIds: arrayUnion(client.id),
             });
         }
 
@@ -891,8 +888,8 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addons = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
-                return [...mainService, ...addons];
+                const addOns = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
         ];
@@ -934,37 +931,6 @@ export default function POSPage() {
         setIsSubmitting(false);
     }
   };
-
-  const payerOptions = useMemo(() => {
-    const clientMap = new Map<string, Client>();
-    appointmentsData.forEach(apt => {
-        if (apt.client) {
-            clientMap.set(apt.client.id, apt.client);
-        }
-    });
-    return Array.from(clientMap.values());
-  }, [appointmentsData]);
-
-  const cartServiceIds = useMemo(() => {
-      const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
-      const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
-      return [...new Set([...appointmentServiceIds, ...cartServices])];
-  }, [cart, appointmentsData]);
-    
-    const totalItemsInCart = useMemo(() => {
-        const retailItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-        
-        const serviceItemsCount = appointmentsData.reduce((acc, aptData) => {
-            let count = 0;
-            if (aptData.service) count += 1;
-            if (aptData.addOnServices) {
-                count += aptData.addOnServices.length;
-            }
-            return acc + count;
-        }, 0);
-
-        return retailItemsCount + serviceItemsCount;
-    }, [cart, appointmentsData]);
     
     const handleStartService = (appointmentId: string) => {
         const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
@@ -1074,6 +1040,16 @@ export default function POSPage() {
         });
       }
 
+    const payerOptions = useMemo(() => {
+        const clientMap = new Map<string, Client>();
+        appointmentsData.forEach(apt => {
+            if (apt.client) {
+                clientMap.set(apt.client.id, apt.client);
+            }
+        });
+        return Array.from(clientMap.values());
+    }, [appointmentsData]);
+    
     const checkoutHubProps = {
         cart: retailItems, 
         onCartChange,
@@ -1197,10 +1173,10 @@ export default function POSPage() {
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                         <SheetTrigger asChild>
-                             <Button className="w-full h-14 text-lg" size="lg" disabled={totalItemsInCart === 0}>
+                             <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}>
                                 <div className="flex justify-between items-center w-full">
-                                    <span><ShoppingCart className="inline-block mr-2" />{totalItemsInCart} item(s)</span>
-                                    <span>${grandTotal.toFixed(2)}</span>
+                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length} item(s)</span>
+                                    <span>${total.toFixed(2)}</span>
                                 </div>
                             </Button>
                         </SheetTrigger>
@@ -1310,3 +1286,4 @@ export default function POSPage() {
     );
 }
 
+    
