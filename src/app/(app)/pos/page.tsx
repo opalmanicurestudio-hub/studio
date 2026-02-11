@@ -669,8 +669,8 @@ export default function POSPage() {
         const productDifferences: {name: string, extraQuantity: number, cost: number, unit: string}[] = [];
         
         for (const data of appointmentsData) {
-            const { appointment, service } = data;
-            const checkoutState = appointment.checkoutState;
+            const { service } = data;
+            const checkoutState = data.checkoutState;
             if (!checkoutState || !service) continue;
             
             const scheduledDuration = service.duration || 0;
@@ -815,15 +815,15 @@ export default function POSPage() {
         const nowISO = new Date().toISOString();
 
         for (const data of appointmentsData) {
-            const currentAppointment = data.appointment;
+            const currentAppointment = data;
             const currentService = data.service;
             
             if (!currentAppointment || !currentService) continue;
             
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-            const allServicesInThisAppointment = [currentService, ...data.addOnServices];
-            const appointmentRevenue = allServicesInThisAppointment.reduce((acc, s) => acc + s.price, 0);
+            const allServicesInAppointment = [currentService, ...data.addOnServices];
+            const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
 
             if (redeemedOffer?.id === currentService.id) {
                 // Logic to handle redeemed offer, e.g. mark as used
@@ -1197,6 +1197,7 @@ export default function POSPage() {
             applyAdditionalCharges,
             setApplyAdditionalCharges,
             timeDifference: checkoutSummary.timeDifference,
+            timeCostDifference,
             productDifferences: checkoutSummary.productDifferences,
         };
         
