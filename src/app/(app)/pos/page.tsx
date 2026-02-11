@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -247,6 +248,22 @@ export default function POSPage() {
           }
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
+    
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const isGroupCheckout = appointmentsData.length > 1;
+    
+    useEffect(() => {
+        if (appointmentsData.length === 1) {
+            setSelectedClientId(appointmentsData[0].clientId);
+        } else if (appointmentsData.length === 0) {
+            setSelectedClientId(null);
+        }
+    }, [appointmentsData]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
@@ -678,29 +695,13 @@ export default function POSPage() {
             }
         });
     };
-
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
-    
-    useEffect(() => {
-        if (appointmentsData.length === 1) {
-            setSelectedClientId(appointmentsData[0].clientId);
-        } else if (appointmentsData.length === 0) {
-            setSelectedClientId(null);
-        }
-    }, [appointmentsData]);
     
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
-    
-    const retailItems = cart.filter(item => item.type === 'product');
 
     const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -764,37 +765,9 @@ export default function POSPage() {
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
-    const retailTotalForDiscount = useMemo(() => {
-        return retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || 0));
-        }, 0);
-    }, [retailItems, inventory]);
-    
-    const [promoCode, setPromoCode] = useState('');
-    const [discount, setDiscount] = useState(0);
-    const [membershipDiscount, setMembershipDiscount] = useState(0);
+    const retailItems = cart.filter(item => item.type === 'product');
 
-    useEffect(() => {
-        if (client && client.activeMembershipId) {
-            const membership = memberships.find(m => m.id === client.activeMembershipId);
-            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
-                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
-                setMembershipDiscount(discountValue);
-            } else {
-                setMembershipDiscount(0);
-            }
-        } else {
-            setMembershipDiscount(0);
-        }
-    }, [client, retailTotalForDiscount, memberships]);
-    
-    const totalDiscount = discount + membershipDiscount;
-    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-
-  const handleConfirmAndClose = async () => {
+    const handleConfirmAndClose = async () => {
     setIsSubmitting(true);
     try {
         let clientToUse: Client | undefined | null = client;
@@ -844,7 +817,8 @@ export default function POSPage() {
         const nowISO = new Date().toISOString();
 
         for (const data of appointmentsData) {
-            const { appointment: currentAppointment, service: currentService } = data;
+            const currentAppointment = data;
+            const currentService = data.service;
             
             if (!currentAppointment || !currentService) continue;
 
@@ -925,7 +899,7 @@ export default function POSPage() {
         }
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
             const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
@@ -951,7 +925,7 @@ export default function POSPage() {
                 paymentMethod: paymentTab,
                 hasReceipt: true,
                 staffId: appointmentsData[0]?.staff?.id,
-                appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
+                appointmentId: appointmentsData.map(a => a.id).join(', '),
                 tipAmount: 0,
                 ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: discount }),
             };
@@ -1036,7 +1010,7 @@ export default function POSPage() {
           discount: totalDiscount,
           tax,
           tip: tipAmount,
-          total: total,
+          total,
           payment: {
               method: paymentTab,
               amountTendered: paymentTab === 'cash' ? amountTendered : total,
