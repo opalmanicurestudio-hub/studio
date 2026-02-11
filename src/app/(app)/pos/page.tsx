@@ -133,47 +133,47 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
-    
+
     const readyForCheckoutAppointments = useMemo(() => {
-      if (!appointments || !clients || !services || !staff || !walkIns) return [];
-      
-      return appointments
-        .filter(apt => apt.status === 'ready_for_checkout')
-        .map(apt => {
-          let client = clients.find(c => c.id === apt.clientId);
-          if (!client && apt.clientName) {
-            client = {
-              id: apt.clientId,
-              name: apt.clientName,
-              email: apt.clientEmail || '',
-              phone: apt.clientPhone || '',
-              avatarUrl: '',
-              lifetimeValue: 0,
-              lastAppointment: ''
-            } as Client;
-          }
+        if (!appointments || !clients || !services || !staff || !walkIns) return [];
+        
+        return appointments
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                let client = clients.find(c => c.id === apt.clientId);
+                if (!client && apt.clientName) {
+                    client = {
+                        id: apt.clientId,
+                        name: apt.clientName,
+                        email: apt.clientEmail || '',
+                        phone: apt.clientPhone || '',
+                        avatarUrl: '',
+                        lifetimeValue: 0,
+                        lastAppointment: ''
+                    } as Client;
+                }
 
-          const service = services.find(s => s.id === apt.serviceId);
-          const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-          const staffMember = staff.find(s => s.id === apt.staffId);
-          
-          let groupInfo: { name: string; id: string } | null = null;
-          if (apt.isWalkIn) {
-              const walkInId = apt.id.replace('apt-walkin-', '');
-              const walkIn = walkIns.find(w => w.id === walkInId);
-              if (walkIn && walkIn.groupName && (walkIns.filter(w => w.groupId === walkIn.groupId).length) > 1) {
-                  groupInfo = {
-                      name: walkIn.groupName,
-                      id: walkIn.groupId,
-                  };
-              }
-          }
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                
+                let groupInfo: { name: string; id: string } | null = null;
+                if (apt.isWalkIn) {
+                    const walkInId = apt.id.replace('apt-walkin-', '');
+                    const walkIn = walkIns.find(w => w.id === walkInId);
+                    if (walkIn && walkIn.groupName && (walkIns.filter(w => w.groupId === walkIn.groupId).length) > 1) {
+                        groupInfo = {
+                            name: walkIn.groupName,
+                            id: walkIn.groupId,
+                        };
+                    }
+                }
 
-          return { ...apt, client, service, addOnServices, staff: staffMember, groupInfo };
-        })
-        .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
+                return { ...apt, client, service, addOnServices, staff: staffMember, groupInfo };
+            })
+            .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns]);
-
+    
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -185,7 +185,6 @@ export default function POSPage() {
         if (checkoutId && readyForCheckoutAppointments.length > 0) {
             const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === checkoutId);
       
-            // Wait for the checkoutState to be present before selecting
             if (appointmentToSelect && appointmentToSelect.checkoutState && !selectedAppointmentIds.has(checkoutId)) {
                 setSelectedAppointmentIds(new Set([checkoutId]));
                 const client = clients?.find(c => c.id === appointmentToSelect.clientId);
@@ -431,7 +430,7 @@ export default function POSPage() {
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
@@ -659,7 +658,7 @@ export default function POSPage() {
         let totalAbsorbedCost = 0;
         let totalTimeDifference = 0;
         let totalTimeCostDifference = 0;
-        const allProductDifferences: { name: string; extraQuantity: number; cost: number; unit: string }[] = [];
+        const allProductDifferences: { serviceName: string; name: string; extraQuantity: number; cost: number; unit: string }[] = [];
 
         for (const data of appointmentsData) {
             const { checkoutState, service } = data;
@@ -697,7 +696,7 @@ export default function POSPage() {
                         }
                         const cost = extraQuantity * costPerUse;
                         totalAdditionalCharge += cost;
-                        allProductDifferences.push({ name: productInfo.name, extraQuantity, cost, unit: productInfo.unit || 'unit' });
+                        allProductDifferences.push({ serviceName: service.name, name: productInfo.name, extraQuantity, cost, unit: productInfo.unit || 'unit' });
                     }
                 }
             });
@@ -1155,7 +1154,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1166,7 +1165,7 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax: tax,
+        tax,
         total,
         tipAmount,
         setTipAmount,
@@ -1194,6 +1193,8 @@ export default function POSPage() {
     const handleStatusChangeWithConfirmation = () => {};
 
     const tipAllocations: Record<string, number> = {};
+    const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
     return (
         <>
@@ -1395,4 +1396,3 @@ export default function POSPage() {
         </>
     );
 }
-

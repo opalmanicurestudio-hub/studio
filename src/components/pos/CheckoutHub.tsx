@@ -93,7 +93,7 @@ export const CheckoutHub = ({
     setApplyAdditionalCharges: (apply: boolean) => void;
     timeDifference: number;
     timeCostDifference: number;
-    productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[];
+    productDifferences: { serviceName: string; name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
     
     const [promoCode, setPromoCode] = useState('');
@@ -267,8 +267,11 @@ export const CheckoutHub = ({
                                 </div>
                             )}
                             {productDifferences.map((p, i) => (
-                                <div key={i} className="flex justify-between items-center">
-                                    <span>+ {p.extraQuantity.toFixed(1)}{p.unit} {p.name}</span>
+                                <div key={i} className="flex justify-between items-start">
+                                    <div>
+                                        <span>+ {p.extraQuantity.toFixed(1)}{p.unit} {p.name}</span>
+                                        <p className="text-[10px] text-muted-foreground">for {p.serviceName}</p>
+                                    </div>
                                     <span className="font-mono font-medium text-foreground">${p.cost.toFixed(2)}</span>
                                 </div>
                             ))}
