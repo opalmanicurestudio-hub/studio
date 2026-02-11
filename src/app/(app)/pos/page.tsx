@@ -600,8 +600,8 @@ export default function POSPage() {
         const staffMember = staff.find(s => s.id === staffId);
         
         toast({ 
-            title: "Staff Assigned", 
-            description: `${walkIn.customerName} has been assigned to ${staffMember?.name}.`
+            title: "Staff Assigned!", 
+            description: `${walkIn.customerName} has been assigned to ${staffMember?.name}. A notification has been sent.`
         });
     };
 
@@ -891,12 +891,14 @@ export default function POSPage() {
 
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
                 
+                const staffForService = staff.find(s => s.id === currentAppointment.staffId);
+
                 const correction: Omit<StockCorrection, 'id'> = {
                     productId: product.id,
                     date: nowISO,
                     change: -quantityUsed,
-                    unit: product.costingMethod === 'uses' ? product.useUnit || 'uses' : product.unit || 'unit',
-                    reason: `Appointment #${currentAppointment.id.slice(-6)}`,
+                    unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
+                    reason: `Appointment #${currentAppointment.id} by ${staffForService?.name || 'Unknown'}`,
                 };
                 const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(correctionRef, correction);
@@ -966,7 +968,7 @@ export default function POSPage() {
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
-            const price = product.msrp || product.costPerUnit || 0;
+            const price = item.price;
             const retailTotal = item.quantity * price;
 
             if (retailTotal > 0) {
@@ -1025,7 +1027,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1430,3 +1432,4 @@ export default function POSPage() {
     
 
     
+

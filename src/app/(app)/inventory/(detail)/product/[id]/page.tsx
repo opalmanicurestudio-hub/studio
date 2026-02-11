@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -43,7 +44,7 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, stockCorrections, locations, services, transactions } = useInventory();
+  const { inventory, stockCorrections, locations, services, transactions, appointments, clients } = useInventory();
   const { toast } = useToast();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -82,12 +83,11 @@ export default function ProductDetailPage() {
   }
   
   const servicesUsingProduct = (services || []).filter(s => s.products?.some(p => p.id === product.id));
-  const productStockCorrections = stockCorrections.filter(sc => sc.productId === product.id).sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
   const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
 
   const ledgerWithRunningStock = useMemo(() => {
-    if (!product) return [];
+    if (!product || !appointments || !clients) return [];
   
     const correctionsOldestFirst = stockCorrections
       .filter(sc => sc.productId === product.id)
@@ -140,16 +140,28 @@ export default function ProductDetailPage() {
         } else {
             runningStock += correction.change;
         }
+        
+        let displayReason = correction.reason;
+        if (correction.reason.startsWith('Appointment #')) {
+            const parts = correction.reason.split(' by ');
+            const appointmentId = parts[0].replace('Appointment #', '');
+            const staffName = parts[1] || 'Unknown Staff';
+            
+            const appointment = appointments.find(apt => apt.id === appointmentId);
+            const clientName = appointment ? (clients.find(c => c.id === appointment.clientId)?.name) : 'Unknown Client';
+            displayReason = `Service for ${clientName} by ${staffName}`;
+        }
 
         return { 
             ...correction, 
             stockAfter: runningStock, 
             partialAfter: runningPartial,
+            displayReason,
         };
     });
   
     return result.reverse(); 
-  }, [product, stockCorrections]);
+  }, [product, stockCorrections, appointments, clients]);
 
 
   const professionalPerformance = useMemo(() => {
@@ -503,7 +515,7 @@ export default function ProductDetailPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {ledgerWithRunningStock.length > 0 ? (
-                                                ledgerWithRunningStock.map((correction) => {
+                                                ledgerWithRunningStock.map((correction: any) => {
                                                     let stockAfterDisplay = `${(correction as any).stockAfter?.toFixed(0) || 'N/A'}`;
                                                     if (product.costingMethod === 'uses') {
                                                         stockAfterDisplay = `${Math.floor((correction as any).stockAfter) || 0} full, ${((correction as any).partialAfter || 0)} uses`;
@@ -517,15 +529,7 @@ export default function ProductDetailPage() {
                                                         <TableCell>
                                                             <div className="flex items-center gap-2">
                                                                 <CorrectionIcon reason={correction.reason} />
-                                                                <span>
-                                                                    {(() => {
-                                                                        if (correction.reason.startsWith('Appointment #')) {
-                                                                            const parts = correction.reason.split(' by ');
-                                                                            return `Service via ${parts[1] || 'Unknown'}`;
-                                                                        }
-                                                                        return correction.reason;
-                                                                    })()}
-                                                                </span>
+                                                                <span>{correction.displayReason}</span>
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className={cn('text-right font-mono', correction.change > 0 ? 'text-green-500' : 'text-red-500')}>
@@ -623,3 +627,4 @@ export default function ProductDetailPage() {
     </div>
   );
 }
+
