@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -100,7 +99,7 @@ interface AppointmentDetailsProps {
     tmhr: number;
     transactions: Transaction[] | null;
     onStartService: (appointmentId: string) => void;
-    onOpenFinishConfirm: () => void;
+    onFinishService: (appointment: Appointment) => void;
     setIsDetailsOpen: (isOpen: boolean) => void;
     onEdit: (appointment: Appointment) => void;
     onDelete: (appointmentId: string) => void;
@@ -118,12 +117,12 @@ const AppointmentDetails = ({
     tmhr,
     transactions,
     onStartService,
-    onOpenFinishConfirm,
+    onFinishService,
     setIsDetailsOpen,
     onEdit,
-    onDelete,
     onReschedule,
     onRebook,
+    onDelete,
     onBookNewForClient,
     onPrintTicket,
     resources,
@@ -260,7 +259,7 @@ const AppointmentDetails = ({
                 </Button>
             )}
             {appointment.status === 'servicing' && (
-                 <Button onClick={onOpenFinishConfirm} className="w-full" size="lg">
+                 <Button onClick={() => onFinishService(appointment)} className="w-full" size="lg">
                     <Square className="mr-2 h-4 w-4" /> Finish Service
                 </Button>
             )}
@@ -489,7 +488,6 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
-  const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
   const [isRunningOver, setIsRunningOver] = useState(false);
   const { toast } = useToast();
 
@@ -772,7 +770,7 @@ export function AppointmentCard({
             tmhr={tmhr}
             transactions={transactions}
             onStartService={onStartService}
-            onOpenFinishConfirm={() => setIsFinishConfirmOpen(true)}
+            onFinishService={onFinishService}
             setIsDetailsOpen={setIsDetailsOpen}
             onEdit={onEdit}
             onReschedule={onReschedule}
@@ -797,26 +795,6 @@ export function AppointmentCard({
               </DialogContent>
           </Dialog>
       )}
-      
-       <AlertDialog open={isFinishConfirmOpen} onOpenChange={setIsFinishConfirmOpen}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure you want to finish this service?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    This will stop the timer and mark the service as ready for checkout.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                    onFinishService(appointment);
-                    setIsFinishConfirmOpen(false);
-                }}>
-                    Yes, Finish Service
-                </AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
     </div>
   );
 };

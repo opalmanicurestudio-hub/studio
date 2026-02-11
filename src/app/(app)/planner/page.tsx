@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -191,6 +190,18 @@ function PlannerPageContent() {
         appointmentsToFix.forEach(apt => {
             const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
             batch.update(appointmentRef, { status: 'completed' });
+                
+            if (apt.checkInToken) {
+                 const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+                 batch.update(checkInRef, { status: 'completed' });
+            }
+            
+            if (apt.isWalkIn) {
+                const walkInId = apt.id.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
+            }
+    
         });
         batch.commit();
     }
@@ -357,7 +368,7 @@ function PlannerPageContent() {
         return acc;
     }, 0);
 
-    const absorbedCosts = completedAppointments.reduce((acc, apt) => acc + (apt.absorbedCost || 0), 0);
+    const absorbedCosts = completedAppointments.reduce((acc, apt) => acc + (apt.checkoutState?.absorbedCost || 0), 0);
 
     return {
         weeklyRevenue: weeklyRevenue,
@@ -846,7 +857,7 @@ function PlannerPageContent() {
     
     const walkInId = appointmentId.replace('apt-walkin-', '');
     if (walkIns?.find(w => w.id === walkInId)) {
-        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
         updateDocumentNonBlocking(walkInRef, {
             status: 'ready_for_checkout',
             serviceEndTime: new Date().toISOString()
@@ -918,8 +929,7 @@ function PlannerPageContent() {
   };
   
   const handleFinishService = (appointment: Appointment) => {
-    const updatedAppointment = { ...appointment, actualEndTime: new Date().toISOString() };
-    setSelectedAppointment(updatedAppointment);
+    setSelectedAppointment(appointment);
     setIsTechnicianReviewOpen(true);
   };
 
@@ -1344,7 +1354,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1381,7 +1391,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1623,5 +1633,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
