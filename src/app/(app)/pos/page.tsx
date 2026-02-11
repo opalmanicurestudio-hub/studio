@@ -133,17 +133,7 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
-
-    const groupSizes = useMemo(() => {
-        const sizes = new Map<string, number>();
-        (walkIns || []).forEach(w => {
-            if (w.groupId) {
-                sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
-            }
-        });
-        return sizes;
-    }, [walkIns]);
-
+    
     const readyForCheckoutAppointments = useMemo(() => {
       if (!appointments || !clients || !services || !staff || !walkIns) return [];
       return appointments
@@ -170,7 +160,7 @@ export default function POSPage() {
           if (apt.isWalkIn) {
               const walkInId = apt.id.replace('apt-walkin-', '');
               const walkIn = walkIns.find(w => w.id === walkInId);
-              if (walkIn && walkIn.groupName && groupSizes.get(walkIn.groupId)! > 1) {
+              if (walkIn && walkIn.groupName && (walkIns.filter(w => w.groupId === walkIn.groupId).length) > 1) {
                   groupInfo = {
                       name: walkIn.groupName,
                       id: walkIn.groupId,
@@ -181,8 +171,8 @@ export default function POSPage() {
           return { ...apt, client, service, addOnServices, staff: staffMember, groupInfo };
         })
         .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
-    }, [appointments, clients, services, staff, walkIns, groupSizes]);
-    
+    }, [appointments, clients, services, staff, walkIns]);
+
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -192,51 +182,13 @@ export default function POSPage() {
     const isGroupCheckout = appointmentsData.length > 1;
 
     useEffect(() => {
-        if (!firestore || !tenantId || !readyForCheckoutAppointments.length || !transactions || transactions.length === 0) {
-          return;
+        if (appointmentsData.length === 1) {
+            setSelectedClientId(appointmentsData[0].clientId);
+        } else if (appointmentsData.length === 0) {
+            setSelectedClientId(null);
         }
+    }, [appointmentsData]);
     
-        const appointmentIdsWithTransactions = new Set<string>();
-        transactions.forEach(t => {
-          if (t.appointmentId) {
-            t.appointmentId.split(',').forEach(id => appointmentIdsWithTransactions.add(id.trim()));
-          }
-        });
-    
-        const appointmentsToFix = readyForCheckoutAppointments.filter(apt => 
-            appointmentIdsWithTransactions.has(apt.id)
-        );
-    
-        if (appointmentsToFix.length > 0) {
-            const batch = writeBatch(firestore);
-            appointmentsToFix.forEach(apt => {
-                const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
-                batch.update(appointmentRef, { status: 'completed', actualEndTime: new Date().toISOString() });
-                
-                if (apt.checkInToken) {
-                     const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
-                     batch.update(checkInRef, { status: 'completed' });
-                }
-                
-                if (apt.isWalkIn) {
-                    const walkInId = apt.id.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                    batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
-                }
-        
-            });
-    
-          batch.commit().then(() => {
-            toast({
-              title: "Data Healed",
-              description: `${appointmentsToFix.length} stuck appointment(s) have been corrected.`,
-            });
-          }).catch(error => {
-            console.error("Error fixing appointments:", error);
-          });
-        }
-      }, [readyForCheckoutAppointments, transactions, firestore, tenantId, toast]);
-
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         const newSet = new Set(selectedAppointmentIds);
         if (newSet.has(appointmentId)) {
@@ -264,14 +216,6 @@ export default function POSPage() {
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
     
-    
-    useEffect(() => {
-        if (appointmentsData.length === 1) {
-            setSelectedClientId(appointmentsData[0].clientId);
-        } else if (appointmentsData.length === 0) {
-            setSelectedClientId(null);
-        }
-    }, [appointmentsData]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
@@ -709,54 +653,71 @@ export default function POSPage() {
     const { subtotal, tax, total, checkoutSummary } = useMemo(() => {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = data.addOnServices.reduce((acc, s) => acc + s.price, 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
         const retailSubtotal = retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || item.price || 0));
+            return acc + (item.quantity * (item.price || 0));
         }, 0);
         
         const sub = servicesSubtotal + retailSubtotal;
 
         const { tmhr } = selectedTenant || {};
         
-        const serviceAdjustments = appointmentsData.reduce((total, data) => {
-            const checkoutState = data.checkoutState;
-            if (!checkoutState || !data.service) return total;
-
-            const initialDuration = data.service.duration || 0;
-            const actualDuration = checkoutState.actualDuration || initialDuration;
-            const timeDiff = actualDuration - initialDuration;
-            const timeCost = (timeDiff / 60) * (tmhr || 50);
-
-            const initialProductCost = (data.service.products || []).reduce((acc, p) => {
-                const product = inventory.find(i => i.id === p.id);
-                if (!product) return acc;
-                let costPerUse = 0;
-                if (product.costingMethod === 'size' && product.size) costPerUse = (product.costPerUnit || 0) / product.size;
-                else if (product.costingMethod === 'uses' && product.estimatedUses) costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-                else costPerUse = product.costPerUnit || 0;
-                return acc + (costPerUse * p.quantityUsed);
-            }, 0);
+        let timeDifference = 0;
+        const productDifferences: {name: string, extraQuantity: number, cost: number, unit: string}[] = [];
+        
+        for (const data of appointmentsData) {
+            const { appointment, service } = data;
+            const checkoutState = appointment.checkoutState;
+            if (!checkoutState || !service) continue;
             
-            const finalProductCost = (checkoutState.formula || []).reduce((acc: any, p: any) => {
-                const product = inventory.find(i => i.id === p.id);
-                if (!product) return acc;
-                let costPerUse = 0;
-                if (product.costingMethod === 'size' && product.size) costPerUse = (product.costPerUnit || 0) / product.size;
-                else if (product.costingMethod === 'uses' && product.estimatedUses) costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-                else costPerUse = product.costPerUnit || 0;
-                return acc + (costPerUse * p.quantity);
-            }, 0);
+            const scheduledDuration = service.duration || 0;
+            const actualDuration = checkoutState.actualDuration || scheduledDuration;
+            const timeDiff = actualDuration - scheduledDuration;
+            if (timeDiff > 0) {
+                timeDifference += timeDiff;
+            }
 
-            const productCostDiff = finalProductCost - initialProductCost;
+            const defaultFormula = new Map(service.products?.map(p => [p.id, p]));
+            const actualFormula = new Map(checkoutState.formula?.map(p => [p.id, p]));
 
-            return total + timeCost + productCostDiff;
-        }, 0);
+            for (const [productId, actualItem] of actualFormula.entries()) {
+                const defaultItem = defaultFormula.get(productId);
+                const extraQuantity = defaultItem ? actualItem.quantity - defaultItem.quantityUsed : actualItem.quantity;
+                if (extraQuantity > 0) {
+                    const productInfo = inventory.find(p => p.id === productId);
+                    if (productInfo) {
+                        let costPerUse = 0;
+                        if (productInfo.costingMethod === 'size' && productInfo.size) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
+                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
+                        }
+                        const cost = extraQuantity * costPerUse;
 
-        const additionalCharge = applyAdditionalCharges ? Math.max(0, serviceAdjustments) : 0;
+                        const existingDiff = productDifferences.find(p => p.name === productInfo.name);
+                        if (existingDiff) {
+                            existingDiff.extraQuantity += extraQuantity;
+                            existingDiff.cost += cost;
+                        } else {
+                            productDifferences.push({
+                                name: productInfo.name,
+                                extraQuantity: extraQuantity,
+                                unit: productInfo.costingMethod === 'uses' ? (productInfo.useUnit || 'uses') : (productInfo.unit || 'unit'),
+                                cost: cost,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        const timeCostDifference = (timeDifference / 60) * (tmhr || 50);
+        const productCostDifference = productDifferences.reduce((acc, p) => acc + p.cost, 0);
+
+        const additionalCharge = applyAdditionalCharges ? Math.max(0, timeCostDifference + productCostDifference) : 0;
         const subtotalWithAdjustments = sub + additionalCharge;
         
         const totalDiscount = discount + membershipDiscount;
@@ -768,7 +729,13 @@ export default function POSPage() {
             subtotal: subtotalWithAdjustments,
             tax: finalTax, 
             total: finalGrandTotal, 
-            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments }
+            checkoutSummary: { 
+                additionalCharge, 
+                absorbedCost: applyAdditionalCharges ? 0 : Math.max(0, timeCostDifference + productCostDifference),
+                timeDifference: Math.round(timeDifference),
+                timeCostDifference,
+                productDifferences,
+            }
         };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges]);
     
@@ -848,18 +815,23 @@ export default function POSPage() {
         const nowISO = new Date().toISOString();
 
         for (const data of appointmentsData) {
-            const currentAppointment = data;
+            const currentAppointment = data.appointment;
             const currentService = data.service;
             
             if (!currentAppointment || !currentService) continue;
             
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-            const serviceRevenue = (currentService.price || 0) + currentAppointment.addOnServices.reduce((acc, s) => acc + s.price, 0);
+            const allServicesInThisAppointment = [currentService, ...data.addOnServices];
+            const appointmentRevenue = allServicesInThisAppointment.reduce((acc, s) => acc + s.price, 0);
 
+            if (redeemedOffer?.id === currentService.id) {
+                // Logic to handle redeemed offer, e.g. mark as used
+            }
+            
             batch.update(appointmentRef, { 
                 status: 'completed',
-                revenue: serviceRevenue,
+                revenue: appointmentRevenue,
                 discountAmount: discount / appointmentsData.length, // Distribute discount
                 appliedDiscountCode: appliedDiscountCode || ''
             });
@@ -1221,11 +1193,11 @@ export default function POSPage() {
             amountTendered,
             setAmountTendered,
             additionalCharge: checkoutSummary.additionalCharge,
-            absorbedCost: checkoutSummary.additionalCharge,
+            absorbedCost: checkoutSummary.absorbedCost,
             applyAdditionalCharges,
             setApplyAdditionalCharges,
-            timeDifference: checkoutSummary.serviceAdjustments,
-            productDifferences: [],
+            timeDifference: checkoutSummary.timeDifference,
+            productDifferences: checkoutSummary.productDifferences,
         };
         
         const handleStatusChangeWithConfirmation = () => {};
@@ -1303,7 +1275,7 @@ export default function POSPage() {
                                         }}
                                         onSkip={handleSkipWalkIn}
                                         onReturnToQueue={handleReturnToQueue}
-                                        groupSizes={groupSizes}
+                                        groupSizes={new Map()}
                                     />
                                 </TabsContent>
                             </Tabs>

@@ -56,6 +56,7 @@ export const CheckoutHub = ({
     applyAdditionalCharges,
     setApplyAdditionalCharges,
     timeDifference,
+    timeCostDifference,
     productDifferences,
 }: { 
     cart: any[], 
@@ -91,6 +92,7 @@ export const CheckoutHub = ({
     applyAdditionalCharges: boolean;
     setApplyAdditionalCharges: (apply: boolean) => void;
     timeDifference: number;
+    timeCostDifference: number;
     productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
     
@@ -258,13 +260,15 @@ export const CheckoutHub = ({
                             </div>
                         </CardHeader>
                         <CardContent className="p-3 pt-0 text-xs text-muted-foreground space-y-1">
-                             <div className="flex justify-between items-center">
-                                <span>+ {timeDifference} min extra time</span>
-                                <span className="font-mono font-medium text-foreground">${timeDifference > 0 ? (timeDifference / 60 * 50).toFixed(2) : '0.00'}</span>
-                            </div>
+                            {timeDifference > 0 && (
+                                <div className="flex justify-between items-center">
+                                    <span>+ {timeDifference} min extra time</span>
+                                    <span className="font-mono font-medium text-foreground">${timeCostDifference.toFixed(2)}</span>
+                                </div>
+                            )}
                             {productDifferences.map((p, i) => (
                                 <div key={i} className="flex justify-between items-center">
-                                    <span>+ {p.extraQuantity}{p.unit} {p.name}</span>
+                                    <span>+ {p.extraQuantity.toFixed(1)}{p.unit} {p.name}</span>
                                     <span className="font-mono font-medium text-foreground">${p.cost.toFixed(2)}</span>
                                 </div>
                             ))}
