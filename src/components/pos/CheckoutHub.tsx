@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -19,6 +19,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '..
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Switch } from '../ui/switch';
 
 
 export const CheckoutHub = ({ 
@@ -50,6 +51,12 @@ export const CheckoutHub = ({
     discounts,
     amountTendered,
     setAmountTendered,
+    additionalCharge,
+    absorbedCost,
+    applyAdditionalCharges,
+    setApplyAdditionalCharges,
+    timeDifference,
+    productDifferences,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -79,6 +86,12 @@ export const CheckoutHub = ({
     discounts: Discount[];
     amountTendered: number;
     setAmountTendered: (amount: number) => void;
+    additionalCharge: number;
+    absorbedCost: number;
+    applyAdditionalCharges: boolean;
+    setApplyAdditionalCharges: (apply: boolean) => void;
+    timeDifference: number;
+    productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
     
     const [promoCode, setPromoCode] = useState('');
@@ -228,6 +241,43 @@ export const CheckoutHub = ({
                     </div>
                 )}
             </ScrollArea>
+            
+            {additionalCharge > 0 && (
+                <div className="my-4 space-y-2">
+                    <Card className="bg-amber-500/10 border-amber-500/20">
+                        <CardHeader className="p-3">
+                            <div className="flex justify-between items-center">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    Service Adjustments
+                                </CardTitle>
+                                <Switch
+                                    checked={applyAdditionalCharges}
+                                    onCheckedChange={setApplyAdditionalCharges}
+                                />
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-3 pt-0 text-xs text-muted-foreground space-y-1">
+                             <div className="flex justify-between items-center">
+                                <span>+ {timeDifference} min extra time</span>
+                                <span className="font-mono font-medium text-foreground">${timeDifference > 0 ? (timeDifference / 60 * 50).toFixed(2) : '0.00'}</span>
+                            </div>
+                            {productDifferences.map((p, i) => (
+                                <div key={i} className="flex justify-between items-center">
+                                    <span>+ {p.extraQuantity}{p.unit} {p.name}</span>
+                                    <span className="font-mono font-medium text-foreground">${p.cost.toFixed(2)}</span>
+                                </div>
+                            ))}
+                            <Separator className="my-1" />
+                            <div className="flex justify-between items-center font-semibold text-foreground">
+                                <span>Total Adjustment</span>
+                                <span>${additionalCharge.toFixed(2)}</span>
+                            </div>
+                             {!applyAdditionalCharges && <p className="text-amber-600 dark:text-amber-400 text-center pt-2">This ${absorbedCost.toFixed(2)} cost will be absorbed by the business.</p>}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             <Separator />
             <div className="my-4 space-y-2 text-sm">

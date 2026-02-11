@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -102,6 +103,7 @@ export default function POSPage() {
     const [tipAmount, setTipAmount] = useState(0);
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState(0);
+    const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
@@ -131,6 +133,14 @@ export default function POSPage() {
           endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
         }));
     }, [appointmentsFromDB]);
+
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const isGroupCheckout = appointmentsData.length > 1;
 
     const groupSizes = useMemo(() => {
         const sizes = new Map<string, number>();
@@ -254,13 +264,6 @@ export default function POSPage() {
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
     
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
-
-    const isGroupCheckout = appointmentsData.length > 1;
     
     useEffect(() => {
         if (appointmentsData.length === 1) {
@@ -599,10 +602,9 @@ export default function POSPage() {
         updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
         
         const staffMember = staff.find(s => s.id === staffId);
-        
-        toast({ 
-            title: "Staff Assigned!", 
-            description: `${walkIn.customerName} has been assigned to ${staffMember?.name}. A notification has been sent.`
+        toast({
+            title: `Assigned to ${staffMember?.name}`,
+            description: `${walkIn.customerName} has been notified and their placeholder is on the planner.`,
         });
     };
 
@@ -704,7 +706,7 @@ export default function POSPage() {
         });
     };
     
-    const { subtotal, tax, total, checkoutSummary, subtotalAfterDiscounts, totalDiscount } = useMemo(() => {
+    const { subtotal, tax, total, checkoutSummary } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
@@ -754,23 +756,21 @@ export default function POSPage() {
             return total + timeCost + productCostDiff;
         }, 0);
 
-        const additionalCharge = Math.max(0, serviceAdjustments);
-        const subtotalWithAdjustments = sub + (additionalCharge);
+        const additionalCharge = applyAdditionalCharges ? Math.max(0, serviceAdjustments) : 0;
+        const subtotalWithAdjustments = sub + additionalCharge;
         
-        const finalTotalDiscount = discount + membershipDiscount;
-        const finalSubtotalAfterDiscounts = subtotalWithAdjustments > finalTotalDiscount ? subtotalWithAdjustments - finalTotalDiscount : 0;
-        const finalTax = finalSubtotalAfterDiscounts * 0.07;
-        const finalGrandTotal = finalSubtotalAfterDiscounts + finalTax + tipAmount;
+        const totalDiscount = discount + membershipDiscount;
+        const subtotalAfterDiscounts = subtotalWithAdjustments > totalDiscount ? subtotalWithAdjustments - totalDiscount : 0;
+        const finalTax = subtotalAfterDiscounts * 0.07;
+        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
 
         return { 
             subtotal: subtotalWithAdjustments,
             tax: finalTax, 
             total: finalGrandTotal, 
-            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments },
-            totalDiscount: finalTotalDiscount,
-            subtotalAfterDiscounts: finalSubtotalAfterDiscounts,
+            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments }
         };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount]);
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -974,7 +974,8 @@ export default function POSPage() {
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
-            const retailTotal = item.quantity * (product.msrp || 0);
+            const price = product.msrp || product.costPerUnit || 0;
+            const retailTotal = item.quantity * price;
 
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id'|'date'> = {
@@ -1032,7 +1033,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
