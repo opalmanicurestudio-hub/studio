@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -11,7 +10,6 @@ import { format, addDays, subDays, startOfWeek, getHours, getMinutes, difference
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -209,7 +207,6 @@ function PlannerPageContent() {
   }, [appointments, transactions, firestore, tenantId]);
 
 
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
@@ -225,7 +222,6 @@ function PlannerPageContent() {
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
-  const [receiptDataForPrompt, setReceiptDataForPrompt] = useState<ReceiptData | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   
   const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
@@ -243,7 +239,7 @@ function PlannerPageContent() {
     
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true));
   }, [firestore, tenantId]);
 
   const resourcesQuery = useMemoFirebase(() => {
@@ -514,18 +510,6 @@ function PlannerPageContent() {
     return resources || [];
   }, [activeView, staffToDisplay, resources]);
 
-  const handleCheckoutComplete = (receiptData: Omit<ReceiptData, 'business'>) => {
-    if (!selectedTenant) return;
-    const fullReceiptData: ReceiptData = {
-        ...receiptData,
-        business: {
-            name: selectedTenant.name,
-            phone: '555-123-4567'
-        }
-    };
-    setReceiptToPrint(fullReceiptData);
-  };
-
   const handleCompleteClick = (appointment: Appointment) => {
     if (appointment.status === 'completed') {
       toast({
@@ -534,8 +518,16 @@ function PlannerPageContent() {
       });
       return;
     }
-    setSelectedAppointment(appointment);
-    setIsCheckoutOpen(true);
+
+    if (appointment.status !== 'ready_for_checkout') {
+      toast({
+        variant: 'destructive',
+        title: 'Not Ready for Checkout',
+        description: 'This service must be finished before it can be checked out.',
+      });
+      return;
+    }
+    router.push(`/pos?checkout_id=${appointment.id}`);
   };
 
   const handleEditClick = (appointment: Appointment) => {
@@ -739,7 +731,6 @@ function PlannerPageContent() {
   };
 
   const handleRebook = (appointment: Appointment, weeksOut?: number) => {
-    setIsCheckoutOpen(false);
     setSelectedAppointment(null); // Clear appointment from checkout
     
     let rebookAppointmentData: Appointment = { ...appointment };
@@ -969,29 +960,6 @@ function PlannerPageContent() {
     }
   };
 
-  const selectedAppointmentData = useMemo(() => {
-    if (!selectedAppointment) return null;
-    let client = (clients || []).find(c => c.id === selectedAppointment.clientId);
-    const service = (services || []).find(s => s.id === selectedAppointment.serviceId);
-
-    const walkIn = selectedAppointment.isWalkIn && walkIns
-      ? walkIns.find(w => `apt-walkin-${w.id}` === selectedAppointment.id)
-      : undefined;
-
-    if (!client && selectedAppointment.clientName) {
-        client = {
-            id: selectedAppointment.clientId,
-            name: selectedAppointment.clientName,
-            email: selectedAppointment.clientEmail || '',
-            phone: selectedAppointment.clientPhone || '',
-            avatarUrl: '',
-            lifetimeValue: 0,
-            lastAppointment: ''
-        };
-    }
-
-    return { appointment: selectedAppointment, client, service };
-  }, [selectedAppointment, clients, services, walkIns]);
   
   const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedTenant) return;
@@ -1029,7 +997,7 @@ function PlannerPageContent() {
 
         if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
             setSelectedAppointment(appointmentToCheckout);
-            setIsCheckoutOpen(true);
+            router.push(`/pos?checkout_id=${appointmentId}`);
         } else if (appointmentToCheckout) {
           toast({
             title: 'Appointment Not Ready',
@@ -1043,7 +1011,7 @@ function PlannerPageContent() {
             });
         }
     }
-  }, [appointments, toast, setIsCheckoutOpen, setSelectedAppointment]);
+  }, [appointments, toast, router]);
 
   useEffect(() => {
     if (scannedData) {
@@ -1429,26 +1397,14 @@ function PlannerPageContent() {
         onNewEventClick={() => setIsAddEventOpen(true)}
       />
 
-      {selectedAppointmentData && (
-        <CompleteAppointmentDialog
-            open={isCheckoutOpen}
-            onOpenChange={(isOpen) => {
-              if(!isOpen) setSelectedAppointment(null);
-              setIsCheckoutOpen(isOpen);
-            }}
-            appointmentsData={[selectedAppointmentData]}
-            onCheckoutComplete={handleCheckoutComplete}
-            onRebook={handleRebook}
-        />
-      )}
-      {selectedAppointmentData && (
+      {selectedAppointment && (
         <TechnicianReviewDialog
             open={isTechnicianReviewOpen}
             onOpenChange={(isOpen) => {
                 if(!isOpen) setSelectedAppointment(null);
                 setIsTechnicianReviewOpen(isOpen);
             }}
-            appointmentData={selectedAppointmentData}
+            appointmentData={{appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId)}}
             onSendToFrontDesk={handleSendToFrontDesk}
             staff={staff || []}
         />
@@ -1523,28 +1479,6 @@ function PlannerPageContent() {
                 onConfirm={handleLogPaymentConfirm}
             />
       )}
-
-      <AlertDialog open={!!receiptDataForPrompt} onOpenChange={() => setReceiptDataForPrompt(null)}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Print Receipt?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Would you like to print a receipt for this transaction?
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>No, Thanks</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                    if (receiptDataForPrompt) {
-                        handlePrintReceipt(receiptDataForPrompt);
-                    }
-                    setReceiptDataForPrompt(null);
-                }}>
-                    Print Receipt
-                </AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
