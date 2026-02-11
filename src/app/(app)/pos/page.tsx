@@ -173,7 +173,7 @@ export default function POSPage() {
         })
         .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns]);
-    
+
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -650,6 +650,98 @@ export default function POSPage() {
         });
     };
 
+    const checkoutSummary = useMemo(() => {
+        if (appointmentsData.length === 0) {
+            return { additionalCharge: 0, absorbedCost: 0, timeDifference: 0, timeCostDifference: 0, productDifferences: [] };
+        }
+
+        let totalAdditionalCharge = 0;
+        let totalAbsorbedCost = 0;
+        let totalTimeDifference = 0;
+        let totalTimeCostDifference = 0;
+        const allProductDifferences: { name: string; extraQuantity: number; cost: number; unit: string }[] = [];
+
+        for (const data of appointmentsData) {
+            const { checkoutState, service } = data;
+            if (!checkoutState || !service) continue;
+            
+            const scheduledDuration = service.duration || 0;
+            const timeDifference = (checkoutState.actualDuration || 0) - scheduledDuration;
+            totalTimeDifference += timeDifference;
+
+            if (timeDifference > 0) {
+                const timeCost = (timeDifference / 60) * (selectedTenant?.tmhr || 50);
+                totalTimeCostDifference += timeCost;
+                totalAdditionalCharge += timeCost;
+            }
+
+            const baseProducts = new Map(service.products?.map(p => [p.id, p.quantityUsed]) || []);
+            const actualProducts = new Map(checkoutState.formula?.map(p => [p.id, p.quantity]) || []);
+            const allProductIds = new Set([...baseProducts.keys(), ...actualProducts.keys()]);
+            
+            allProductIds.forEach(id => {
+                const baseQty = baseProducts.get(id) || 0;
+                const actualQty = actualProducts.get(id) || 0;
+                const extraQuantity = actualQty - baseQty;
+
+                if (extraQuantity > 0) {
+                    const productInfo = inventory.find(p => p.id === id);
+                    if (productInfo) {
+                        let costPerUse = 0;
+                         if (productInfo.costingMethod === 'size' && productInfo.size && productInfo.size > 0) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
+                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
+                        } else {
+                            costPerUse = productInfo.costPerUnit || 0;
+                        }
+                        const cost = extraQuantity * costPerUse;
+                        totalAdditionalCharge += cost;
+                        allProductDifferences.push({ name: productInfo.name, extraQuantity, cost, unit: productInfo.unit || 'unit' });
+                    }
+                }
+            });
+        }
+        
+        if (!applyAdditionalCharges) {
+            totalAbsorbedCost = totalAdditionalCharge;
+        }
+
+        return { 
+            additionalCharge: applyAdditionalCharges ? totalAdditionalCharge : 0, 
+            absorbedCost: totalAbsorbedCost,
+            timeDifference: totalTimeDifference,
+            timeCostDifference: totalTimeCostDifference,
+            productDifferences: allProductDifferences,
+        };
+    }, [appointmentsData, services, inventory, selectedTenant?.tmhr, applyAdditionalCharges]);
+
+    const totalDiscount = discount + membershipDiscount;
+
+    const { subtotal, tax, total } = useMemo(() => {
+        const servicesSubtotal = appointmentsData.reduce((total, data) => {
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || [])
+                .map(s => s.price || 0)
+                .reduce((a, b) => a + b, 0);
+            return total + mainServicePrice + addOnsPrice;
+        }, 0);
+
+        const retailSubtotal = retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            const price = product?.msrp || 0;
+            return acc + (item.quantity * price);
+        }, 0);
+
+        const sub = servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
+        const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
+        const finalTax = subtotalAfterDiscounts * 0.07;
+        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
+        
+        return { subtotal: sub, tax: finalTax, total: finalGrandTotal };
+    }, [appointmentsData, retailItems, checkoutSummary.additionalCharge, totalDiscount, services, inventory, redeemedOffer, tipAmount]);
+
+
     const handleConfirmAndClose = async () => {
         setIsSubmitting(true);
         try {
@@ -700,25 +792,43 @@ export default function POSPage() {
             const nowISO = new Date().toISOString();
     
             for (const data of appointmentsData) {
-                const { service: currentService } = data;
-                const currentAppointment = data;
-
+                const { service: currentService, appointment: currentAppointment, addOnServices: currentAddOns } = data;
+                
                 if (!currentAppointment || !currentService) continue;
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-                const allServicesInAppointment = [currentService, ...data.addOnServices];
+                const allServicesInAppointment = [currentService, ...currentAddOns];
                 
-                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
+                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => {
+                    return acc + (s.id === redeemedOffer?.id ? 0 : s.price || 0);
+                }, 0);
 
-                if (redeemedOffer?.id === currentService.id) {
-                    // Logic to handle redeemed offer
+                if (redeemedOffer?.type === 'package') {
+                    const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUse.id);
+                    const clientPackages = clientToUse.activePackages || [];
+                    const updatedPackages = clientPackages.map(p => 
+                        p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p
+                    ).filter(p => p.sessionsRemaining > 0);
+                    batch.update(clientRef, { activePackages: updatedPackages });
                 }
+                
+                const checkoutState: AppointmentCheckoutState = {
+                    formula: editableFormula,
+                    addOns: selectedAddOns,
+                    actualDuration,
+                    serviceStaffOverrides,
+                    absorbedCost,
+                    tipAmount: tipAmount / appointmentsData.length,
+                    tipAllocations,
+                    retailItems
+                };
                 
                 batch.update(appointmentRef, { 
                     status: 'completed',
+                    checkoutState,
                     revenue: appointmentRevenue,
-                    discountAmount: discount / appointmentsData.length, // Distribute discount
+                    discountAmount: totalDiscount / appointmentsData.length, // Distribute discount
                     appliedDiscountCode: appliedDiscountCode || ''
                 });
 
@@ -734,8 +844,8 @@ export default function POSPage() {
                 }
         
                 const allStaffInvolved = new Set<string>();
-                if(data.staffId) allStaffInvolved.add(data.staffId);
-                Object.values(data.checkoutState?.serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
+                if(data.staff?.id) allStaffInvolved.add(data.staff.id);
+                Object.values(serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
                 
                 allStaffInvolved.forEach(staffId => {
                     if (staffId) {
@@ -747,7 +857,7 @@ export default function POSPage() {
                     }
                 });
         
-                const formulaUsed = data.checkoutState?.formula || currentService.products || [];
+                const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
                 formulaUsed.forEach((formulaItem: any) => {
                     const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
                     if (!product) return;
@@ -797,20 +907,14 @@ export default function POSPage() {
                 });
             }
             
-            const serviceRevenue = appointmentsData.reduce((total, data) => {
-                const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-                const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
-                return total + mainServicePrice + addOnsPrice;
-            }, 0);
-            
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUse.id);
             batch.update(clientDocRef, {
-                lifetimeValue: increment(serviceRevenue),
+                lifetimeValue: increment(subtotal + checkoutSummary.additionalCharge),
                 lastAppointment: nowISO
             });
             
-            if (serviceRevenue > 0) {
-                const serviceTransaction: Partial<Transaction> = {
+            if (subtotal + checkoutSummary.additionalCharge > 0) {
+                const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
                     date: nowISO,
                     description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                     clientOrVendor: clientToUse.name,
@@ -818,13 +922,13 @@ export default function POSPage() {
                     type: 'income' as const,
                     context: 'Business' as const,
                     category: 'Service Revenue',
-                    amount: serviceRevenue,
+                    amount: subtotal + checkoutSummary.additionalCharge,
                     paymentMethod: paymentTab,
                     hasReceipt: true,
                     staffId: appointmentsData[0]?.staff?.id,
-                    appointmentId: appointmentsData.map(a => a.id).join(', '),
+                    appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
                     tipAmount: 0,
-                    ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: discount }),
+                    ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: totalDiscount }),
                 };
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
             }
@@ -832,7 +936,7 @@ export default function POSPage() {
             retailItems.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) return;
-                const price = product.msrp || product.costPerUnit || 0;
+                const price = product.msrp || 0;
                 const retailTotal = item.quantity * price;
     
                 if (retailTotal > 0) {
@@ -847,7 +951,7 @@ export default function POSPage() {
                         paymentMethod: paymentTab,
                         hasReceipt: true,
                         staffId: appointmentsData[0].staff?.id,
-                        appointmentId: appointmentsData[0].id,
+                        appointmentId: appointmentsData[0].appointment.id,
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
@@ -856,23 +960,25 @@ export default function POSPage() {
                 batch.update(productRef, { totalStock: increment(-item.quantity) });
             });
             
-            if (tipAmount > 0) {
-                const tipTransaction: Omit<Transaction, 'id'|'date'> = {
-                    description: `Tip from ${clientToUse!.name}`,
-                    clientOrVendor: clientToUse!.name,
-                    clientId: clientToUse!.id,
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Tips',
-                    amount: tipAmount,
-                    paymentMethod: paymentTab,
-                    hasReceipt: true,
-                    staffId: appointmentsData[0].staff?.id,
-                    tipAmount: tipAmount,
-                    appointmentId: appointmentsData[0].id,
-                };
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
-            }
+            Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
+                if (tipAmount > 0) {
+                    const tipTransaction: Omit<Transaction, 'id'|'date'> = {
+                        description: `Tip from ${clientToUse!.name}`,
+                        clientOrVendor: clientToUse!.name,
+                        clientId: clientToUse!.id,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Tips',
+                        amount: tipAmount,
+                        paymentMethod: paymentTab,
+                        hasReceipt: true,
+                        staffId: staffId,
+                        tipAmount: tipAmount,
+                        appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
+                    };
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
+                }
+            });
             
             if (appliedDiscountCode) {
                 const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
@@ -901,7 +1007,7 @@ export default function POSPage() {
               items: allCartItems,
               subtotal,
               discount: totalDiscount,
-              tax: mockTax,
+              tax: tax,
               tip: tipAmount,
               total: total,
               payment: {
@@ -929,7 +1035,7 @@ export default function POSPage() {
         } finally {
             setIsSubmitting(false);
         }
-    };
+  };
         
     const handleStartService = (appointmentId: string) => {
         const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
@@ -1049,7 +1155,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        handleCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1060,7 +1166,7 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax: mockTax,
+        tax: tax,
         total,
         tipAmount,
         setTipAmount,
