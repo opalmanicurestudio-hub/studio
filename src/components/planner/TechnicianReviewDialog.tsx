@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -36,7 +37,14 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
+import { doc, collection, arrayUnion, increment, writeBatch } from 'firebase/firestore';
+import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
+import { useTenant } from '@/context/TenantContext';
+import { type Transaction } from '@/lib/financial-data';
 
+
+// ... (keep all existing types and interfaces)
 type EditableFormulaItem = {
     id: string; // productId
     name: string;
@@ -44,6 +52,25 @@ type EditableFormulaItem = {
     unit: string;
     costPerUnit: number;
     isCustom?: boolean;
+};
+
+export type CheckoutData = {
+    updatedInventory: InventoryItem[];
+    newCorrections: StockCorrection[];
+    receiptData: Omit<ReceiptData, 'business'>;
+    incident?: IncidentFormData;
+    serviceStaffOverrides: Record<string, string>;
+    tipAllocations: Record<string, number>;
+    retailItems: EditableFormulaItem[];
+    addOns: Service[];
+    absorbedCost: number;
+    tipAmount: number;
+    redeemedOffer?: {
+        type: 'membership' | 'package';
+        id: string;
+    } | null;
+    appliedDiscountId?: string;
+    discountAmount?: number;
 };
 
 interface TechnicianReviewDialogProps {
@@ -80,6 +107,14 @@ const FormContent = ({
   setServiceStaffOverrides: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   actualDuration: number;
   setActualDuration: React.Dispatch<React.SetStateAction<number>>;
+  // These props are no longer needed for display within this component
+  applyAdditionalCharges: boolean;
+  setApplyAdditionalCharges: (apply: boolean) => void;
+  additionalCharge: number;
+  absorbedCost: number;
+  timeDifference: number;
+  timeCostDifference: number;
+  productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
   const { inventory, services } = useInventory();
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
@@ -166,9 +201,9 @@ const FormContent = ({
                       onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
                       readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
                   />
-                    {appointment.actualStartTime && appointment.actualEndTime && (
+                    {appointment.actualStartTime && !appointment.actualEndTime && (
                       <p className="text-xs text-muted-foreground">
-                          Service duration tracked from start to finish: {actualDuration} min. (Scheduled: {service.duration} min)
+                          Service duration is being timed automatically. You can still adjust if needed.
                       </p>
                   )}
                 </div>
@@ -309,14 +344,28 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             .map(id => services.find(s => s.id === id))
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
+        
+        let durationToSet = checkoutState?.actualDuration;
 
-        setActualDuration(checkoutState?.actualDuration || 
-            (appointment.actualStartTime && appointment.actualEndTime 
-                ? differenceInMinutes(
-                    typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
-                    typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
-                ) 
-                : service.duration));
+        if (!durationToSet) {
+            if (appointment.actualStartTime) {
+                const startTime = typeof appointment.actualStartTime === 'string'
+                    ? parseISO(appointment.actualStartTime)
+                    : appointment.actualStartTime;
+                
+                // If service is being finished now, end time is now.
+                const endTime = appointment.actualEndTime 
+                    ? (typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime)
+                    : new Date(); 
+
+                durationToSet = differenceInMinutes(endTime, startTime);
+            } else {
+                // Fallback to scheduled duration if not started
+                durationToSet = service.duration;
+            }
+        }
+        
+        setActualDuration(durationToSet || 0);
         
         const initialOverrides: Record<string, string> = {};
         initialAddons.forEach(addon => {
@@ -336,6 +385,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         actualDuration,
         serviceStaffOverrides,
         absorbedCost: 0, // This will be calculated at checkout
+        tipAmount: 0, // Will be set at checkout
+        tipAllocations: {}, // Will be set at checkout
+        retailItems: [], // Will be set at checkout
     };
     onSendToFrontDesk(appointment.id, checkoutState);
   };
@@ -370,7 +422,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     setServiceStaffOverrides={setServiceStaffOverrides}
                     actualDuration={actualDuration}
                     setActualDuration={setActualDuration}
-                    // These props are no longer needed here
+                    // These props are no longer needed for display within this component
                     applyAdditionalCharges={true}
                     setApplyAdditionalCharges={() => {}}
                     additionalCharge={0}
