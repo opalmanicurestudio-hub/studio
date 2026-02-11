@@ -31,7 +31,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -134,14 +134,6 @@ export default function POSPage() {
         }));
     }, [appointmentsFromDB]);
 
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
-
-    const isGroupCheckout = appointmentsData.length > 1;
-
     const groupSizes = useMemo(() => {
         const sizes = new Map<string, number>();
         (walkIns || []).forEach(w => {
@@ -191,6 +183,14 @@ export default function POSPage() {
         .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns, groupSizes]);
     
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const isGroupCheckout = appointmentsData.length > 1;
+
     useEffect(() => {
         if (!firestore || !tenantId || !readyForCheckoutAppointments.length || !transactions || transactions.length === 0) {
           return;
@@ -603,8 +603,8 @@ export default function POSPage() {
         
         const staffMember = staff.find(s => s.id === staffId);
         toast({
-            title: `Assigned to ${staffMember?.name}`,
-            description: `${walkIn.customerName} has been notified and their placeholder is on the planner.`,
+            title: `Assigned!`,
+            description: `${walkIn.customerName} has been assigned to ${staffMember?.name}.`,
         });
     };
 
@@ -707,18 +707,18 @@ export default function POSPage() {
     };
     
     const { subtotal, tax, total, checkoutSummary } = useMemo(() => {
-        const servicesTotal = appointmentsData.reduce((total, data) => {
+        const servicesSubtotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = data.addOnServices.reduce((acc, s) => acc + s.price, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
         const retailSubtotal = retailItems.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || 0));
+            return acc + (item.quantity * (product?.msrp || item.price || 0));
         }, 0);
         
-        const sub = servicesTotal + retailSubtotal;
+        const sub = servicesSubtotal + retailSubtotal;
 
         const { tmhr } = selectedTenant || {};
         
@@ -852,18 +852,16 @@ export default function POSPage() {
             const currentService = data.service;
             
             if (!currentAppointment || !currentService) continue;
-
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+
             const serviceRevenue = (currentService.price || 0) + currentAppointment.addOnServices.reduce((acc, s) => acc + s.price, 0);
 
             batch.update(appointmentRef, { 
                 status: 'completed',
                 revenue: serviceRevenue,
                 discountAmount: discount / appointmentsData.length, // Distribute discount
-                appliedDiscountCode: appliedDiscountCode || '',
-                inventoryProcessed: true,
-                actualEndTime: nowISO,
+                appliedDiscountCode: appliedDiscountCode || ''
             });
             
             if (currentAppointment.checkInToken) {
@@ -941,7 +939,7 @@ export default function POSPage() {
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -1205,7 +1203,7 @@ export default function POSPage() {
             setSelectedClientId,
             onAddClientClick: () => setIsAddClientOpen(true),
             onScanClick: () => setIsScannerOpen(true),
-            subtotal: subtotalAfterDiscounts,
+            subtotal,
             tax,
             total,
             tipAmount,
@@ -1223,6 +1221,11 @@ export default function POSPage() {
             amountTendered,
             setAmountTendered,
             additionalCharge: checkoutSummary.additionalCharge,
+            absorbedCost: checkoutSummary.additionalCharge,
+            applyAdditionalCharges,
+            setApplyAdditionalCharges,
+            timeDifference: checkoutSummary.serviceAdjustments,
+            productDifferences: [],
         };
         
         const handleStatusChangeWithConfirmation = () => {};
@@ -1441,5 +1444,7 @@ export default function POSPage() {
 
 
 
+
+    
 
     
