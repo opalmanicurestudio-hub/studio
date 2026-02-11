@@ -669,8 +669,8 @@ export default function POSPage() {
         const productDifferences: {name: string, extraQuantity: number, cost: number, unit: string}[] = [];
         
         for (const data of appointmentsData) {
-            const { service } = data;
             const checkoutState = data.checkoutState;
+            const service = data.service;
             if (!checkoutState || !service) continue;
             
             const scheduledDuration = service.duration || 0;
@@ -1197,7 +1197,7 @@ export default function POSPage() {
             applyAdditionalCharges,
             setApplyAdditionalCharges,
             timeDifference: checkoutSummary.timeDifference,
-            timeCostDifference,
+            timeCostDifference: checkoutSummary.timeCostDifference,
             productDifferences: checkoutSummary.productDifferences,
         };
         
@@ -1421,3 +1421,4 @@ export default function POSPage() {
     
 
     
+
