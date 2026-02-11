@@ -99,7 +99,12 @@ const FormContent = ({
 
   const handleAddProduct = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => ({
-        id: p.id, name: p.name, quantity: 1, unit: p.unit || 'unit', costPerUnit: p.costPerUnit || 0, isCustom: true,
+        id: p.id,
+        name: p.name,
+        quantity: 1,
+        unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
+        costPerUnit: p.costPerUnit || 0,
+        isCustom: true,
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
   };
@@ -116,13 +121,16 @@ const FormContent = ({
       if (!client || !service) return;
 
       if (formulaNameToApply === "default") {
-          const defaultFormula = service?.products?.map(p => ({
-              id: p.id,
-              name: p.name,
-              quantity: p.quantityUsed,
-              unit: p.unit || 'uses',
-              costPerUnit: p.costPerUnit || 0,
-          })) || [];
+          const defaultFormula = service?.products?.map(p => {
+              const product = inventory.find(i => i.id === p.id);
+              return {
+                id: p.id,
+                name: p.name,
+                quantity: p.quantityUsed,
+                unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
+                costPerUnit: product?.costPerUnit || 0,
+            }
+          }) || [];
           setEditableFormula(defaultFormula);
           setFormulaName('Default Service Formula');
           return;
@@ -197,10 +205,6 @@ const FormContent = ({
                 <div className="space-y-2 text-sm">
                     {editableFormula.map((item, index) => {
                         const inventoryItem = inventory.find(i => i.id === item.id);
-                        const unit = inventoryItem?.costingMethod === 'uses' 
-                          ? (inventoryItem.useUnit || 'uses') 
-                          : (inventoryItem?.unit || 'unit');
-                        
                         let costPerUse = 0;
                         if (inventoryItem) {
                             if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
@@ -216,7 +220,7 @@ const FormContent = ({
                           <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
                               <div>
                                   <p className="font-medium">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground">Cost: ${costPerUse.toFixed(3)}/{unit}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${costPerUse.toFixed(3)}/{item.unit}</p>
                               </div>
                               <div className="flex items-center gap-2">
                                   <Input
@@ -229,7 +233,7 @@ const FormContent = ({
                                       className="w-20 h-8 text-center"
                                       step="0.1"
                                   />
-                                  <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
+                                  <span className="text-xs text-muted-foreground w-10 truncate">{item.unit}</span>
                                   <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}>
                                       <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -323,7 +327,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
     }, []);
 
-  const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
+    const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
         if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
         
         const tmhrValue = tmhr;
@@ -366,7 +370,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         const finalProductCost = editableFormula.reduce((acc, item) => {
             const inventoryItem = inventory.find(i => i.id === item.id);
             if (!inventoryItem) return acc;
-            const quantity = item.quantity || 1;
+            const quantity = item.quantity || 0;
             let costPerUse = 0;
             if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
                 costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
@@ -408,7 +412,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 id: p.id,
                 name: p.name,
                 quantity: p.quantityUsed,
-                unit: p.unit || 'uses',
+                unit: product?.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product?.unit || 'unit'),
                 costPerUnit: product?.costPerUnit || 0,
             }
         }) || [];
