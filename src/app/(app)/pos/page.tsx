@@ -278,10 +278,6 @@ export default function POSPage() {
       }
     }, [inventory, appointments, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
-    const inServiceAppointments = useMemo(() => {
-        return (appointments || []).filter(apt => apt.status === 'servicing');
-    }, [appointments]);
-
     // Initialize and sort staff based on turnOrder
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
@@ -831,14 +827,14 @@ export default function POSPage() {
             const batch = writeBatch(firestore);
             const nowISO = new Date().toISOString();
     
-            for (const currentAppointment of appointmentsData) {
-                const { checkoutState, id: appointmentId, client: currentClient, service: currentService } = currentAppointment;
+            for (const data of appointmentsData) {
+                const { checkoutState, id: appointmentId, client: currentClient, service: currentService } = data;
                 
                 if (!currentService) continue;
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     
-                const allServicesInAppointment = [currentService, ...currentAppointment.addOnServices];
+                const allServicesInAppointment = [currentService, ...data.addOnServices];
                 const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
     
                 if (redeemedOffer?.id === currentService.id) {
@@ -858,19 +854,19 @@ export default function POSPage() {
                     appliedDiscountCode: appliedDiscountCode || ''
                 });
                 
-                if (currentAppointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                if (data.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
     
-                if (currentAppointment.isWalkIn) {
+                if (data.isWalkIn) {
                     const walkInId = appointmentId.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
     
                 const allStaffInvolved = new Set<string>();
-                if(currentAppointment.staffId) allStaffInvolved.add(currentAppointment.staffId);
+                if(data.staffId) allStaffInvolved.add(data.staffId);
                 Object.values(checkoutState?.serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
                 
                 allStaffInvolved.forEach(staffId => {
@@ -893,7 +889,7 @@ export default function POSPage() {
     
                     const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
                     
-                    const staffForService = staff?.find(s => s.id === currentAppointment.staffId);
+                    const staffForService = staff?.find(s => s.id === data.staffId);
     
                     const correction: Omit<StockCorrection, 'id'> = {
                         productId: product.id,
