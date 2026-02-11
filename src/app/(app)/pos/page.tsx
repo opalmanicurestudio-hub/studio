@@ -650,6 +650,8 @@ export default function POSPage() {
         });
     };
     
+    const totalDiscount = discount + membershipDiscount;
+
     const { subtotal, tax, total, checkoutSummary } = useMemo(() => {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
@@ -685,15 +687,17 @@ export default function POSPage() {
 
             for (const [productId, actualItem] of actualFormula.entries()) {
                 const defaultItem = defaultFormula.get(productId);
-                const extraQuantity = defaultItem ? actualItem.quantity - defaultItem.quantityUsed : actualItem.quantity;
+                const extraQuantity = defaultItem ? (actualItem.quantity as number) - defaultItem.quantityUsed : (actualItem.quantity as number);
                 if (extraQuantity > 0) {
                     const productInfo = inventory.find(p => p.id === productId);
                     if (productInfo) {
                         let costPerUse = 0;
-                        if (productInfo.costingMethod === 'size' && productInfo.size) {
+                        if (productInfo.costingMethod === 'size' && productInfo.size && productInfo.size > 0) {
                             costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
-                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses) {
+                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
                             costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
+                        } else { // if no costing method, or it's 'unit'
+                            costPerUse = productInfo.costPerUnit || 0;
                         }
                         const cost = extraQuantity * costPerUse;
 
@@ -720,7 +724,6 @@ export default function POSPage() {
         const additionalCharge = applyAdditionalCharges ? Math.max(0, timeCostDifference + productCostDifference) : 0;
         const subtotalWithAdjustments = sub + additionalCharge;
         
-        const totalDiscount = discount + membershipDiscount;
         const subtotalAfterDiscounts = subtotalWithAdjustments > totalDiscount ? subtotalWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
@@ -737,7 +740,7 @@ export default function POSPage() {
                 productDifferences,
             }
         };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges]);
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges, totalDiscount]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -761,7 +764,6 @@ export default function POSPage() {
             setMembershipDiscount(0);
         }
     }, [client, retailTotalForDiscount, memberships]);
-
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
@@ -815,7 +817,7 @@ export default function POSPage() {
         const nowISO = new Date().toISOString();
 
         for (const data of appointmentsData) {
-            const currentAppointment = data;
+            const currentAppointment = data.appointment;
             const currentService = data.service;
             
             if (!currentAppointment || !currentService) continue;
@@ -1421,4 +1423,5 @@ export default function POSPage() {
     
 
     
+
 
