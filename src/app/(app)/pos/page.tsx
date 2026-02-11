@@ -114,9 +114,6 @@ export default function POSPage() {
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [promoCode, setPromoCode] = useState('');
-    const [discount, setDiscount] = useState(0);
-    const [membershipDiscount, setMembershipDiscount] = useState(0);
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -701,11 +698,11 @@ export default function POSPage() {
     
     const retailItems = cart.filter(item => item.type === 'product');
 
-    const subtotal = useMemo(() => {
+    const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
-            if (!data || !data.service) return total;
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            if (!data.service) return total;
+            const mainServicePrice = redeemedOffer?.id === data.service.id ? 0 : data.service.price || 0;
+            const addOnsPrice = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -715,8 +712,58 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
         
-        return servicesTotal + retailSubtotal;
-      }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
+        const sub = servicesTotal + retailSubtotal;
+
+        const { tmhr } = selectedTenant || {};
+        
+        const serviceAdjustments = appointmentsData.reduce((total, data) => {
+            const { appointment, service } = data;
+            const checkoutState = appointment.checkoutState;
+            if (!checkoutState || !service) return total;
+
+            const initialDuration = service.duration || 0;
+            const actualDuration = checkoutState.actualDuration || initialDuration;
+            const timeDiff = actualDuration - initialDuration;
+            const timeCost = (timeDiff / 60) * (tmhr || 50);
+
+            const initialProductCost = (service.products || []).reduce((acc, p) => {
+                const product = inventory.find(i => i.id === p.id);
+                if (!product) return acc;
+                let costPerUse = 0;
+                if (product.costingMethod === 'size' && product.size) costPerUse = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                else costPerUse = product.costPerUnit || 0;
+                return acc + (costPerUse * p.quantityUsed);
+            }, 0);
+            
+            const finalProductCost = (checkoutState.formula || []).reduce((acc, p: any) => {
+                const product = inventory.find(i => i.id === p.id);
+                if (!product) return acc;
+                let costPerUse = 0;
+                if (product.costingMethod === 'size' && product.size) costPerUse = (product.costPerUnit || 0) / product.size;
+                else if (product.costingMethod === 'uses' && product.estimatedUses) costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                else costPerUse = product.costPerUnit || 0;
+                return acc + (costPerUse * p.quantity);
+            }, 0);
+
+            const productCostDiff = finalProductCost - initialProductCost;
+
+            return total + timeCost + productCostDiff;
+        }, 0);
+
+        const additionalCharge = Math.max(0, serviceAdjustments);
+        
+        const subtotalWithAdjustments = sub + (additionalCharge);
+        const taxAmount = subtotalWithAdjustments * 0.07;
+        const grandTotal = subtotalWithAdjustments + taxAmount + tipAmount;
+
+        return { 
+            subtotal: sub, 
+            tax: taxAmount, 
+            total: grandTotal, 
+            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments } 
+        };
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -741,10 +788,10 @@ export default function POSPage() {
         }
     }, [client, retailTotalForDiscount, memberships]);
     
+    const discount = 0;
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    const tax = subtotalAfterDiscounts * 0.07;
-    const total = subtotalAfterDiscounts + tax + tipAmount;
+    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
   const handleConfirmAndClose = async () => {
@@ -796,10 +843,14 @@ export default function POSPage() {
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
 
-        for (const currentAppointment of appointmentsData) {
+        for (const data of appointmentsData) {
+            const { appointment: currentAppointment, service: currentService } = data;
+            
+            if (!currentAppointment || !currentService) continue;
+
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             
-            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
+            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
             
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
@@ -823,11 +874,59 @@ export default function POSPage() {
                   lastServedTimestamp: nowISO,
                 });
             });
+
+            // Deduct inventory for professional products
+            const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
+            formulaUsed.forEach(formulaItem => {
+                const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
+                if (!product) return;
+
+                const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed;
+                if (quantityUsed <= 0) return;
+
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+                
+                const correction: Omit<StockCorrection, 'id'> = {
+                    productId: product.id,
+                    date: nowISO,
+                    change: -quantityUsed,
+                    unit: product.costingMethod === 'uses' ? product.useUnit || 'uses' : product.unit || 'unit',
+                    reason: `Appointment #${currentAppointment.id.slice(-6)}`,
+                };
+                const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                batch.set(correctionRef, correction);
+
+                if (product.costingMethod === 'uses' && product.estimatedUses) {
+                    let newStock = product.totalStock;
+                    let newPartialUses = (product.partialContainerUses || 0) - quantityUsed;
+                    while (newPartialUses < 0 && newStock > 0) {
+                        newStock--;
+                        newPartialUses += product.estimatedUses;
+                    }
+                    batch.update(productRef, {
+                        totalStock: newStock,
+                        partialContainerUses: Math.max(0, newPartialUses)
+                    });
+                } else if (product.costingMethod === 'size' && product.size) {
+                    let newStock = product.totalStock;
+                    let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
+                    while (newPartialSize < 0 && newStock > 0) {
+                        newStock--;
+                        newPartialSize += product.size;
+                    }
+                    batch.update(productRef, {
+                        totalStock: newStock,
+                        partialContainerSize: Math.max(0, newPartialSize)
+                    });
+                } else {
+                    batch.update(productRef, { totalStock: increment(-quantityUsed) });
+                }
+            });
         }
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -852,7 +951,7 @@ export default function POSPage() {
                 paymentMethod: paymentTab,
                 hasReceipt: true,
                 staffId: appointmentsData[0]?.staff?.id,
-                appointmentId: appointmentsData.map(a => a.id).join(', '),
+                appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
                 tipAmount: 0,
                 ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: discount }),
             };
@@ -921,7 +1020,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1071,8 +1170,6 @@ export default function POSPage() {
             });
           }
 
-        const isGroupCheckout = appointmentsData.length > 1;
-
         const payerOptions = useMemo(() => {
             const clientIds = new Set<string>();
             appointmentsData.forEach(apt => {
@@ -1112,6 +1209,7 @@ export default function POSPage() {
             discounts: discounts || [],
             amountTendered,
             setAmountTendered,
+            additionalCharge: checkoutSummary.additionalCharge,
         };
         
         const handleStatusChangeWithConfirmation = () => {};
@@ -1319,3 +1417,4 @@ export default function POSPage() {
         );
     }
     
+
