@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -584,13 +585,6 @@ function PlannerPageContent() {
         setIsBillsSheetOpen(false);
     }
   };
-
-  const handleCheckoutComplete = (receiptData: Omit<ReceiptData, 'business'>) => {
-    setReceiptDataForPrompt({
-        business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-        ...receiptData
-    });
-  }
 
   const handleAddAppointment = async (newAppointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => {
     if (!firestore || !tenantId) return;
@@ -1354,7 +1348,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1391,7 +1385,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
