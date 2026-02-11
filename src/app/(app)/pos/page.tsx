@@ -136,6 +136,7 @@ export default function POSPage() {
     
     const readyForCheckoutAppointments = useMemo(() => {
       if (!appointments || !clients || !services || !staff || !walkIns) return [];
+      
       return appointments
         .filter(apt => apt.status === 'ready_for_checkout')
         .map(apt => {
@@ -172,6 +173,12 @@ export default function POSPage() {
         })
         .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns]);
+    
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
 
     useEffect(() => {
         const checkoutId = searchParams.get('checkout_id');
@@ -192,11 +199,6 @@ export default function POSPage() {
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds, clients]);
     
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
 
     const isGroupCheckout = appointmentsData.length > 1;
 
@@ -655,8 +657,7 @@ export default function POSPage() {
         let productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[] = [];
 
         for (const data of appointmentsData) {
-            const { service } = data;
-            const checkoutState = data.checkoutState;
+            const { checkoutState, service } = data;
 
             if (!checkoutState || !service) continue;
             
@@ -712,9 +713,8 @@ export default function POSPage() {
         return { additionalCharge: applyAdditionalCharges ? additionalCharge : 0, absorbedCost, timeDifference, timeCostDifference, productDifferences };
     }, [appointmentsData, inventory, selectedTenant?.tmhr, applyAdditionalCharges]);
 
-    const totalDiscount = discount + membershipDiscount;
-
-    const { subtotal, tax, total } = useMemo(() => {
+    
+    const subtotal = useMemo(() => {
         const servicesSubtotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service.id ? 0 : data.service.price || 0;
             const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
@@ -725,13 +725,8 @@ export default function POSPage() {
             return acc + (item.quantity * (item.price || 0));
         }, 0);
 
-        const sub = servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
-        const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
-        const finalTax = subtotalAfterDiscounts * 0.07;
-        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
-
-        return { subtotal: sub, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, redeemedOffer, checkoutSummary.additionalCharge, tipAmount, totalDiscount]);
+        return servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
+    }, [appointmentsData, retailItems, redeemedOffer, checkoutSummary.additionalCharge]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -741,6 +736,8 @@ export default function POSPage() {
             return acc + (item.quantity * (product?.msrp || 0));
         }, 0);
     }, [retailItems, inventory]);
+
+    const totalDiscount = discount + membershipDiscount;
 
     useEffect(() => {
         if (client && client.activeMembershipId) {
@@ -757,9 +754,13 @@ export default function POSPage() {
     }, [client, retailTotalForDiscount, memberships]);
     
     
+    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+    const mockTax = subtotalAfterDiscounts * 0.07;
+    const total = subtotalAfterDiscounts + mockTax + tipAmount;
+    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
-    const quickTenderOptions = useMemo(() => {
+     const quickTenderOptions = useMemo(() => {
         const options = new Set<number>();
         if (total === 0) return [];
     
@@ -833,7 +834,8 @@ export default function POSPage() {
             const nowISO = new Date().toISOString();
     
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
+                const { service: currentService } = data;
+                const currentAppointment = data;
 
                 if (!currentAppointment || !currentService) continue;
                 
@@ -1180,8 +1182,10 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart, 
-        onCartChange,
+        cart: retailItems, 
+        onCartChange: handleCartChange,
+        appointmentsData,
+        onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
         isGroupCheckout: selectedAppointmentIds.size > 0,
         payerOptions,
@@ -1195,6 +1199,10 @@ export default function POSPage() {
         tipAmount,
         setTipAmount,
         onCheckout: handleConfirmAndClose,
+        appliedDiscountCode,
+        setAppliedDiscountCode,
+        discount,
+        membershipDiscount,
         showTitle: false,
         isSubmitting,
         paymentTab,
