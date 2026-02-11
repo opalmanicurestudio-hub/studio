@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -511,22 +512,6 @@ function PlannerPageContent() {
   }, [activeView, staffToDisplay, resources]);
 
   const handleCompleteClick = (appointment: Appointment) => {
-    if (appointment.status === 'completed') {
-      toast({
-        title: 'Already Completed',
-        description: 'This appointment has already been checked out.',
-      });
-      return;
-    }
-
-    if (appointment.status !== 'ready_for_checkout') {
-      toast({
-        variant: 'destructive',
-        title: 'Not Ready for Checkout',
-        description: 'This service must be finished before it can be checked out.',
-      });
-      return;
-    }
     router.push(`/pos?checkout_id=${appointment.id}`);
   };
 
@@ -1147,6 +1132,36 @@ function PlannerPageContent() {
     setStartConfirmAppointment(null);
   };
   
+    const appointmentDataForDialog = useMemo(() => {
+        if (!selectedAppointment) return null;
+
+        let clientForDialog = clients?.find(c => c.id === selectedAppointment.clientId);
+
+        if (!clientForDialog && selectedAppointment.clientName) {
+            clientForDialog = {
+                id: selectedAppointment.clientId,
+                name: selectedAppointment.clientName,
+                email: selectedAppointment.clientEmail || '',
+                phone: selectedAppointment.clientPhone || '',
+                avatarUrl: '',
+                lifetimeValue: 0,
+                lastAppointment: '',
+            } as Client;
+        }
+
+        const serviceForDialog = services?.find(s => s.id === selectedAppointment.serviceId);
+        
+        if (!clientForDialog || !serviceForDialog) {
+            return null;
+        }
+
+        return {
+            appointment: selectedAppointment,
+            client: clientForDialog,
+            service: serviceForDialog,
+        };
+    }, [selectedAppointment, clients, services]);
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -1329,7 +1344,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1366,7 +1381,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1397,14 +1412,14 @@ function PlannerPageContent() {
         onNewEventClick={() => setIsAddEventOpen(true)}
       />
 
-      {selectedAppointment && (
+      {appointmentDataForDialog && (
         <TechnicianReviewDialog
             open={isTechnicianReviewOpen}
             onOpenChange={(isOpen) => {
                 if(!isOpen) setSelectedAppointment(null);
                 setIsTechnicianReviewOpen(isOpen);
             }}
-            appointmentData={{appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId)}}
+            appointmentData={appointmentDataForDialog}
             onSendToFrontDesk={handleSendToFrontDesk}
             staff={staff || []}
         />
