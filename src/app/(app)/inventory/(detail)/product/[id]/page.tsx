@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw, Percent } from 'lucide-react';
+import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw, Percent, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -32,6 +32,7 @@ import { StockCorrection, type InventoryItem, type Service } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.toLowerCase().includes('appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
@@ -49,6 +50,7 @@ export default function ProductDetailPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrModalContent, setQrModalContent] = useState({ url: '', alt: '', title: '' });
+  const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
   
   const product = inventory.find((p) => p.id === id);
 
@@ -162,6 +164,17 @@ export default function ProductDetailPage() {
   
     return result.reverse(); 
   }, [product, stockCorrections, appointments, clients]);
+
+  const filteredLedger = useMemo(() => {
+    if (!ledgerWithRunningStock) return [];
+    if (!ledgerSearchTerm.trim()) return ledgerWithRunningStock;
+    
+    const lowercasedSearch = ledgerSearchTerm.toLowerCase();
+    
+    return ledgerWithRunningStock.filter(correction => 
+        correction.displayReason.toLowerCase().includes(lowercasedSearch)
+    );
+  }, [ledgerWithRunningStock, ledgerSearchTerm]);
 
 
   const professionalPerformance = useMemo(() => {
@@ -504,6 +517,15 @@ export default function ProductDetailPage() {
                                     <TabsTrigger value="notes"><FileText className="w-4 h-4 mr-2"/>Notes</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value="ledger" className="mt-4">
+                                    <div className="relative mb-4">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search by client or staff..."
+                                            className="pl-9"
+                                            value={ledgerSearchTerm}
+                                            onChange={(e) => setLedgerSearchTerm(e.target.value)}
+                                        />
+                                    </div>
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
@@ -514,8 +536,8 @@ export default function ProductDetailPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {ledgerWithRunningStock.length > 0 ? (
-                                                ledgerWithRunningStock.map((correction: any) => {
+                                            {filteredLedger.length > 0 ? (
+                                                filteredLedger.map((correction: any) => {
                                                     let stockAfterDisplay = `${(correction as any).stockAfter?.toFixed(0) || 'N/A'}`;
                                                     if (product.costingMethod === 'uses') {
                                                         stockAfterDisplay = `${Math.floor((correction as any).stockAfter) || 0} full, ${((correction as any).partialAfter || 0)} uses`;
@@ -542,7 +564,7 @@ export default function ProductDetailPage() {
                                                 )})
                                             ) : (
                                                 <TableRow>
-                                                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No inventory movements recorded yet.</TableCell>
+                                                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No inventory movements recorded for this search.</TableCell>
                                                 </TableRow>
                                             )}
                                         </TableBody>
@@ -628,3 +650,4 @@ export default function ProductDetailPage() {
   );
 }
 
+    
