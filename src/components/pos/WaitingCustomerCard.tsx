@@ -7,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
@@ -63,6 +63,21 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                             </div>
                         </div>
                     )}
+                    {walkIn.notes && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="text-xs mt-2 text-muted-foreground flex items-start gap-2 pt-2 border-t border-dashed">
+                                        <MessageSquare className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                        <p className="truncate">{walkIn.notes}</p>
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p className="max-w-xs">{walkIn.notes}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                 </div>
             </CardContent>
             <CardFooter className="p-2 border-t">
@@ -106,4 +121,3 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
         </Card>
     );
 };
-

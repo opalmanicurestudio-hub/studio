@@ -664,30 +664,26 @@ export default function POSPage() {
         }, 0);
         
         const sub = servicesSubtotal + retailSubtotal;
-
+        
         const { tmhr } = selectedTenant || {};
         
-        let timeDifference = 0;
-        const productDifferences: {name: string, extraQuantity: number, cost: number, unit: string}[] = [];
-        
-        for (const data of appointmentsData) {
+        const serviceAdjustments = appointmentsData.reduce((total, data) => {
             const checkoutState = data.checkoutState;
-            const service = data.service;
-            if (!checkoutState || !service) continue;
+            if (!checkoutState || !data.service) return total;
             
-            const scheduledDuration = service.duration || 0;
-            const actualDuration = checkoutState.actualDuration || scheduledDuration;
-            const timeDiff = actualDuration - scheduledDuration;
-            if (timeDiff > 0) {
-                timeDifference += timeDiff;
-            }
+            const initialDuration = data.service.duration || 0;
+            const actualDuration = checkoutState.actualDuration || initialDuration;
+            const timeDiff = actualDuration - initialDuration;
+            
+            const timeCostDiff = (timeDiff / 60) * (tmhr || 50);
 
-            const defaultFormula = new Map(service.products?.map(p => [p.id, p]));
+            const initialFormula = new Map(data.service.products?.map(p => [p.id, p]));
             const actualFormula = new Map(checkoutState.formula?.map(p => [p.id, p]));
-
+            
+            let productCostDiff = 0;
             for (const [productId, actualItem] of actualFormula.entries()) {
-                const defaultItem = defaultFormula.get(productId);
-                const extraQuantity = defaultItem ? (actualItem.quantity as number) - defaultItem.quantityUsed : (actualItem.quantity as number);
+                const initialItem = initialFormula.get(productId);
+                const extraQuantity = initialItem ? (actualItem.quantity as number) - initialItem.quantityUsed : (actualItem.quantity as number);
                 if (extraQuantity > 0) {
                     const productInfo = inventory.find(p => p.id === productId);
                     if (productInfo) {
@@ -696,32 +692,18 @@ export default function POSPage() {
                             costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
                         } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
                             costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
-                        } else { // if no costing method, or it's 'unit'
+                        } else {
                             costPerUse = productInfo.costPerUnit || 0;
                         }
-                        const cost = extraQuantity * costPerUse;
-
-                        const existingDiff = productDifferences.find(p => p.name === productInfo.name);
-                        if (existingDiff) {
-                            existingDiff.extraQuantity += extraQuantity;
-                            existingDiff.cost += cost;
-                        } else {
-                            productDifferences.push({
-                                name: productInfo.name,
-                                extraQuantity: extraQuantity,
-                                unit: productInfo.costingMethod === 'uses' ? (productInfo.useUnit || 'uses') : (productInfo.unit || 'unit'),
-                                cost: cost,
-                            });
-                        }
+                        productCostDiff += extraQuantity * costPerUse;
                     }
                 }
             }
-        }
-        
-        const timeCostDifference = (timeDifference / 60) * (tmhr || 50);
-        const productCostDifference = productDifferences.reduce((acc, p) => acc + p.cost, 0);
 
-        const additionalCharge = applyAdditionalCharges ? Math.max(0, timeCostDifference + productCostDifference) : 0;
+            return total + Math.max(0, timeCostDiff + productCostDiff);
+        }, 0);
+
+        const additionalCharge = applyAdditionalCharges ? serviceAdjustments : 0;
         const subtotalWithAdjustments = sub + additionalCharge;
         
         const subtotalAfterDiscounts = subtotalWithAdjustments > totalDiscount ? subtotalWithAdjustments - totalDiscount : 0;
@@ -734,10 +716,7 @@ export default function POSPage() {
             total: finalGrandTotal, 
             checkoutSummary: { 
                 additionalCharge, 
-                absorbedCost: applyAdditionalCharges ? 0 : Math.max(0, timeCostDifference + productCostDifference),
-                timeDifference: Math.round(timeDifference),
-                timeCostDifference,
-                productDifferences,
+                absorbedCost: applyAdditionalCharges ? 0 : serviceAdjustments,
             }
         };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges, totalDiscount]);
@@ -1005,7 +984,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1019,9 +998,9 @@ export default function POSPage() {
           items: allCartItems,
           subtotal,
           discount: totalDiscount,
-          tax,
+          tax: mockTax,
           tip: tipAmount,
-          total,
+          total: total,
           payment: {
               method: paymentTab,
               amountTendered: paymentTab === 'cash' ? amountTendered : total,
@@ -1198,9 +1177,9 @@ export default function POSPage() {
             absorbedCost: checkoutSummary.absorbedCost,
             applyAdditionalCharges,
             setApplyAdditionalCharges,
-            timeDifference: checkoutSummary.timeDifference,
-            timeCostDifference: checkoutSummary.timeCostDifference,
-            productDifferences: checkoutSummary.productDifferences,
+            timeDifference: 0,
+            timeCostDifference: 0,
+            productDifferences: [],
         };
         
         const handleStatusChangeWithConfirmation = () => {};
@@ -1272,6 +1251,7 @@ export default function POSPage() {
                                                     services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
                                                     queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
                                                     checkInTime: walkIn.checkInTime,
+                                                    notes: walkIn.notes,
                                                 });
                                                 setIsPrintDialogOpen(true);
                                             }
@@ -1423,5 +1403,6 @@ export default function POSPage() {
     
 
     
+
 
 

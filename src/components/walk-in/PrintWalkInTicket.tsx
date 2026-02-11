@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -15,6 +16,7 @@ export interface WalkInTicketData {
   services: Service[];
   queuePosition: number;
   checkInTime: string;
+  notes?: string;
 }
 
 const getServiceIcon = (serviceName: string) => {
@@ -50,6 +52,16 @@ export const PrintWalkInTicket: React.FC<{ data: WalkInTicketData }> = ({ data }
              <p className="text-lg font-semibold">{data.name}</p>
         </div>
         
+        {data.notes && (
+            <>
+                <Separator className="my-3 border-dashed border-black" />
+                <div className="mb-3 text-left">
+                    <h2 className="font-semibold mb-1">Notes</h2>
+                    <p className="text-xs text-gray-600">{data.notes}</p>
+                </div>
+            </>
+        )}
+
         <Separator className="my-3 border-dashed border-black" />
 
         <div className="mb-3">
