@@ -1,8 +1,7 @@
 
-
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,8 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident } from '@/lib/data';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock } from 'lucide-react';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident, Discount } from '@/lib/data';
 import { Input } from '../ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -69,6 +68,8 @@ const FormContent = ({
   serviceStaffOverrides, setServiceStaffOverrides,
   actualDuration, setActualDuration,
   applyAdditionalCharges, setApplyAdditionalCharges,
+  additionalCharge,
+  absorbedCost,
 }: {
   appointment: Appointment,
   client: Client,
@@ -84,74 +85,14 @@ const FormContent = ({
   setActualDuration: React.Dispatch<React.SetStateAction<number>>;
   applyAdditionalCharges: boolean;
   setApplyAdditionalCharges: React.Dispatch<React.SetStateAction<boolean>>;
+  additionalCharge: number;
+  absorbedCost: number;
 }) => {
   const { inventory, services } = useInventory();
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   
-  const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
-    if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
-    
-    const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '50')) || 50;
-    
-    const initialProductCost = (service.products || []).reduce((acc, p) => {
-        const inventoryItem = inventory.find(i => i.id === p.id);
-        if (!inventoryItem) return acc;
-        const quantity = p.quantityUsed || 1;
-        let costPerUse = 0;
-
-        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
-            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
-        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
-            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
-        } else { // 'unit' or undefined
-            costPerUse = inventoryItem.costPerUnit || 0;
-        }
-
-        return acc + (costPerUse * quantity);
-    }, 0);
-    const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
-    const initialBreakEvenCost = initialProductCost + initialTimeCost;
-
-    const finalProductCost = editableFormula.reduce((acc, item) => {
-        const inventoryItem = inventory.find(i => i.id === item.id);
-        if (!inventoryItem) return acc;
-        const quantity = item.quantity || 1;
-        let costPerUse = 0;
-
-        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
-            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
-        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
-            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
-        } else { // 'unit' or undefined
-            costPerUse = inventoryItem.costPerUnit || 0;
-        }
-
-        return acc + (costPerUse * quantity);
-    }, 0);
-
-    const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
-      ? differenceInMinutes(
-          typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
-          typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
-      )
-      : actualDuration;
-      
-    const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
-    const finalBreakEvenCost = finalProductCost + finalTimeCost;
-    
-    const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
-    const absorbedCostValue = applyAdditionalCharges ? 0 : additionalChargeValue;
-
-    return {
-        initialBreakEven: initialBreakEvenCost,
-        finalBreakEven: finalBreakEvenCost,
-        additionalCharge: additionalChargeValue,
-        absorbedCost: absorbedCostValue
-    };
-  }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges, appointment]);
-
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
@@ -297,7 +238,7 @@ const FormContent = ({
                         )
                     })}
                 </div>
-                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" type="button" onClick={() => {}}><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
             </CardContent>
         </Card>
         
@@ -332,14 +273,14 @@ const FormContent = ({
         {additionalCharge > 0 && (
             <Card>
                 <CardHeader>
-                    <CardTitle>Additional Charges</CardTitle>
+                    <CardTitle>Service Adjustments</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <Alert>
                         <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>This service ran over schedule.</AlertTitle>
+                        <AlertTitle>This service ran over schedule or used extra product.</AlertTitle>
                         <AlertDescription>
-                            Based on your TMHR and the actual duration, there is an additional cost of <strong>${additionalCharge.toFixed(2)}</strong>.
+                            Based on your TMHR and the actuals, there is an additional cost of <strong>${additionalCharge.toFixed(2)}</strong>.
                         </AlertDescription>
                     </Alert>
                     <div className="flex items-center justify-between rounded-lg border p-4">
@@ -366,7 +307,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   staff,
 }) => {
   const { appointment, client, service } = appointmentData;
-  const { services } = useInventory();
+  const { services, inventory } = useInventory();
   const isMobile = useIsMobile();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
@@ -374,13 +315,103 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+  const [tmhr, setTmhr] = useState(0);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
+        }
+    }, []);
+
+  const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
+        if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
+        
+        const tmhrValue = tmhr;
+
+        // Initial Cost Calculation
+        const initialDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+        const initialTimeCost = (initialDuration / 60) * tmhrValue;
+        
+        const initialProductCost = (service.products || []).reduce((acc, p) => {
+            const product = inventory.find(i => i.id === p.id);
+            if (!product) return acc;
+            const quantity = p.quantityUsed || 1;
+            let costPerUse = 0;
+
+            if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.size;
+            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+            } else { // 'unit' or undefined
+                costPerUse = product.costPerUnit || 0;
+            }
+
+            return acc + (costPerUse * quantity);
+        }, 0);
+        
+        const initialEquipmentCost = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
+            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
+            return acc + (costPerMinute * initialDuration);
+        }, 0);
+
+        const initialBreakEvenCost = initialTimeCost + initialProductCost + initialEquipmentCost;
+
+        // Final Cost Calculation
+        const finalDuration = (actualDuration + (service.padBefore || 0) + (service.padAfter || 0));
+        const finalTimeCost = (finalDuration / 60) * tmhrValue;
+
+        const finalProductCost = editableFormula.reduce((acc, item) => {
+            const inventoryItem = inventory.find(i => i.id === item.id);
+            if (!inventoryItem) return acc;
+            const quantity = item.quantity || 1;
+            let costPerUse = 0;
+            if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+            } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+            } else { // 'unit' or undefined
+                costPerUse = inventoryItem.costPerUnit || 0;
+            }
+            return acc + (costPerUse * quantity);
+        }, 0);
+        
+        const finalEquipmentCost = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
+            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
+            return acc + (costPerMinute * finalDuration);
+        }, 0);
+
+        const finalBreakEvenCost = finalTimeCost + finalProductCost + finalEquipmentCost;
+        
+        const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
+        const absorbedCostValue = applyAdditionalCharges ? 0 : additionalChargeValue;
+
+        return {
+            initialBreakEven: initialBreakEvenCost,
+            finalBreakEven: finalBreakEvenCost,
+            additionalCharge: additionalChargeValue,
+            absorbedCost: absorbedCostValue
+        };
+    }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges, tmhr]);
 
   useEffect(() => {
     if (open && service && appointment) {
         const checkoutState = appointment.checkoutState;
-        const initialFormula = checkoutState?.formula || service.products?.map(p => ({
-            id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
-        })) || [];
+        const initialFormula = checkoutState?.formula || service.products?.map(p => {
+            const product = inventory.find(i => i.id === p.id);
+            return {
+                id: p.id,
+                name: p.name,
+                quantity: p.quantityUsed,
+                unit: p.unit || 'uses',
+                costPerUnit: product?.costPerUnit || 0,
+            }
+        }) || [];
         setEditableFormula(initialFormula);
 
         const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
@@ -402,7 +433,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         });
         setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
     }
-  }, [service, appointment, open, services]);
+  }, [service, appointment, open, services, inventory]);
 
   
   const handleSend = () => {
@@ -410,12 +441,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
-        retailItems: [], // Retail is handled at front desk
+        retailItems: [],
         addOns: selectedAddOns,
         actualDuration,
         serviceStaffOverrides,
         tipAllocations: {},
         tipAmount: 0,
+        absorbedCost,
     };
     onSendToFrontDesk(appointment.id, checkoutState);
   };
@@ -452,6 +484,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     setActualDuration={setActualDuration}
                     applyAdditionalCharges={applyAdditionalCharges}
                     setApplyAdditionalCharges={setApplyAdditionalCharges}
+                    additionalCharge={additionalCharge}
+                    absorbedCost={absorbedCost}
                   />
               </div>
             </div>
