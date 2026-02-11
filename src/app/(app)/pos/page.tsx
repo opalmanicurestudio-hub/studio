@@ -558,7 +558,6 @@ export default function POSPage() {
             const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
             if (canPerformService && !existingAssignment) {
               handleAssignStaff(client, staffMember.id);
-              toast({ title: 'Assigned!', description: `\`${client.customerName} has been assigned to \${staffMember.name}.\`` });
               return;
             }
           }
@@ -580,7 +579,6 @@ export default function POSPage() {
       
             if (canPerformService) {
               handleAssignStaff(client, staffMember.id);
-              toast({ title: 'Assigned!', description: `\`${client.customerName} has been assigned to \${staffMember.name}.\`` });
               return;
             }
           }
@@ -591,12 +589,17 @@ export default function POSPage() {
     };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
-        if (!firestore || !selectedTenant || !services) return;
+        if (!firestore || !selectedTenant || !services || !staff) return;
         
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
         updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
-          
-        toast({ title: "Staff Assigned", description: "The client has been notified." });
+        
+        const staffMember = staff.find(s => s.id === staffId);
+        
+        toast({ 
+            title: "Staff Assigned", 
+            description: `${walkIn.customerName} has been assigned to ${staffMember?.name || 'a staff member'}.`
+        });
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
@@ -698,7 +701,7 @@ export default function POSPage() {
     };
     
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
-
+    
     const [discount, setDiscount] = useState(0);
     const [membershipDiscount, setMembershipDiscount] = useState(0);
     
@@ -710,9 +713,7 @@ export default function POSPage() {
         }, 0);
 
         const retailSubtotal = retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            const price = product?.msrp || 0;
-            return acc + (item.quantity * price);
+            return acc + (item.quantity * item.price);
         }, 0);
         
         const sub = servicesTotal + retailSubtotal;
@@ -1423,5 +1424,7 @@ export default function POSPage() {
 
     
 
+
+    
 
     
