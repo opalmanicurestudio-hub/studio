@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -122,6 +121,7 @@ export default function POSPage() {
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
+    const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -704,17 +704,16 @@ export default function POSPage() {
         });
     };
     
-    const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
-    
-    const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
+    const { subtotal, tax, total, checkoutSummary, subtotalAfterDiscounts, totalDiscount } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
         const retailSubtotal = retailItems.reduce((acc, item) => {
-            return acc + (item.quantity * item.price);
+            const product = inventory.find(p => p.id === item.id);
+            return acc + (item.quantity * (product?.msrp || 0));
         }, 0);
         
         const sub = servicesTotal + retailSubtotal;
@@ -756,18 +755,22 @@ export default function POSPage() {
         }, 0);
 
         const additionalCharge = Math.max(0, serviceAdjustments);
-        
         const subtotalWithAdjustments = sub + (additionalCharge);
-        const taxAmount = subtotalWithAdjustments * 0.07;
-        const grandTotal = subtotalWithAdjustments + taxAmount + tipAmount;
+        
+        const finalTotalDiscount = discount + membershipDiscount;
+        const finalSubtotalAfterDiscounts = subtotalWithAdjustments > finalTotalDiscount ? subtotalWithAdjustments - finalTotalDiscount : 0;
+        const finalTax = finalSubtotalAfterDiscounts * 0.07;
+        const finalGrandTotal = finalSubtotalAfterDiscounts + finalTax + tipAmount;
 
         return { 
-            subtotal: sub, 
-            tax: taxAmount, 
-            total: grandTotal, 
-            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments } 
+            subtotal: subtotalWithAdjustments,
+            tax: finalTax, 
+            total: finalGrandTotal, 
+            checkoutSummary: { serviceAdjustments, additionalCharge, subtotalWithAdjustments },
+            totalDiscount: finalTotalDiscount,
+            subtotalAfterDiscounts: finalSubtotalAfterDiscounts,
         };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount]);
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -792,10 +795,6 @@ export default function POSPage() {
         }
     }, [client, retailTotalForDiscount, memberships]);
 
-    const totalDiscount = discount + membershipDiscount;
-    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    const tax = subtotalAfterDiscounts * 0.07;
-    const total = subtotalAfterDiscounts + tax + tipAmount;
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
@@ -891,7 +890,7 @@ export default function POSPage() {
             });
 
             const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
-            formulaUsed.forEach(formulaItem => {
+            formulaUsed.forEach((formulaItem: any) => {
                 const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
                 if (!product) return;
 
@@ -900,7 +899,7 @@ export default function POSPage() {
 
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
                 
-                const staffForService = staff.find(s => s.id === currentAppointment.staffId);
+                const staffForService = staff?.find(s => s.id === currentAppointment.staffId);
 
                 const correction: Omit<StockCorrection, 'id'> = {
                     productId: product.id,
@@ -941,7 +940,7 @@ export default function POSPage() {
         }
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
@@ -952,8 +951,6 @@ export default function POSPage() {
             lastAppointment: nowISO
         });
         
-        const isGroupCheckout = appointmentsData.length > 1;
-
         if (serviceRevenue > 0) {
             const serviceTransaction: Partial<Transaction> = {
                 date: nowISO,
@@ -977,8 +974,7 @@ export default function POSPage() {
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
-            const price = product.msrp || 0;
-            const retailTotal = item.quantity * price;
+            const retailTotal = item.quantity * (product.msrp || 0);
 
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id'|'date'> = {
@@ -1036,7 +1032,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1050,9 +1046,9 @@ export default function POSPage() {
           items: allCartItems,
           subtotal,
           discount: totalDiscount,
-          tax: mockTax,
+          tax,
           tip: tipAmount,
-          total: grandTotal,
+          total,
           payment: {
               method: paymentTab,
               amountTendered: paymentTab === 'cash' ? amountTendered : total,
@@ -1208,7 +1204,7 @@ export default function POSPage() {
             setSelectedClientId,
             onAddClientClick: () => setIsAddClientOpen(true),
             onScanClick: () => setIsScannerOpen(true),
-            subtotal,
+            subtotal: subtotalAfterDiscounts,
             tax,
             total,
             tipAmount,
@@ -1443,3 +1439,6 @@ export default function POSPage() {
     
 
 
+
+
+    
