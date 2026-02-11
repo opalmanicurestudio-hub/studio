@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -76,6 +75,8 @@ type EditableFormulaItem = {
 export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
     const [cart, setCart] = useState<EditableFormulaItem[]>([]);
+    
+    const retailItems = cart.filter(item => item.type === 'product');
     
     const handleCartChange = (newRetailItems: EditableFormulaItem[]) => {
         setCart(prevCart => {
@@ -698,10 +699,13 @@ export default function POSPage() {
     
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
 
+    const [discount, setDiscount] = useState(0);
+    const [membershipDiscount, setMembershipDiscount] = useState(0);
+    
     const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -765,8 +769,31 @@ export default function POSPage() {
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
-    const retailItems = cart.filter(item => item.type === 'product');
+    const retailTotalForDiscount = useMemo(() => {
+        return retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            return acc + (item.quantity * (product?.msrp || 0));
+        }, 0);
+    }, [retailItems, inventory]);
 
+    useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
+                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotalForDiscount, memberships]);
+
+    const totalDiscount = discount + membershipDiscount;
+    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+    
     const handleConfirmAndClose = async () => {
     setIsSubmitting(true);
     try {
@@ -824,7 +851,9 @@ export default function POSPage() {
 
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             
-            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
+            const serviceRevenue = (currentService.price || 0) + currentAppointment.addOnServices.reduce((acc, s) => acc + s.price, 0);
+
+            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true, revenue: serviceRevenue, appliedDiscountCode: appliedDiscountCode || '' });
             
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
@@ -849,7 +878,6 @@ export default function POSPage() {
                 });
             });
 
-            // Deduct inventory for professional products
             const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
             formulaUsed.forEach(formulaItem => {
                 const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
@@ -886,7 +914,7 @@ export default function POSPage() {
                     let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
                     while (newPartialSize < 0 && newStock > 0) {
                         newStock--;
-                        newPartialSize += sizePerContainer;
+                        newPartialSize += product.size;
                     }
                     batch.update(productRef, {
                         totalStock: newStock,
@@ -909,7 +937,7 @@ export default function POSPage() {
             lifetimeValue: increment(serviceRevenue),
             lastAppointment: nowISO
         });
-
+        
         const isGroupCheckout = appointmentsData.length > 1;
 
         if (serviceRevenue > 0) {
@@ -994,7 +1022,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1008,9 +1036,9 @@ export default function POSPage() {
           items: allCartItems,
           subtotal,
           discount: totalDiscount,
-          tax,
+          tax: mockTax,
           tip: tipAmount,
-          total,
+          total: grandTotal,
           payment: {
               method: paymentTab,
               amountTendered: paymentTab === 'cash' ? amountTendered : total,
@@ -1390,6 +1418,9 @@ export default function POSPage() {
             </>
         );
     }
+    
+
+
     
 
 
