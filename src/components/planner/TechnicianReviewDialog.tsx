@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -70,6 +71,9 @@ const FormContent = ({
   applyAdditionalCharges, setApplyAdditionalCharges,
   additionalCharge,
   absorbedCost,
+  timeDifference,
+  timeCostDifference,
+  productDifferences,
 }: {
   appointment: Appointment,
   client: Client,
@@ -87,6 +91,9 @@ const FormContent = ({
   setApplyAdditionalCharges: React.Dispatch<React.SetStateAction<boolean>>;
   additionalCharge: number;
   absorbedCost: number;
+  timeDifference: number;
+  timeCostDifference: number;
+  productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
   const { inventory, services } = useInventory();
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
@@ -275,25 +282,73 @@ const FormContent = ({
         </Card>
 
         {additionalCharge > 0 && (
-            <Card>
-                <CardHeader>
-                    <CardTitle>Service Adjustments</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <Alert>
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>This service ran over schedule or used extra product.</AlertTitle>
-                        <AlertDescription>
-                            Based on your TMHR and the actuals, there is an additional cost of <strong>${additionalCharge.toFixed(2)}</strong>.
-                        </AlertDescription>
-                    </Alert>
-                    <div className="flex items-center justify-between rounded-lg border p-4">
-                        <Label htmlFor="apply-charges">Pass this cost on to the client?</Label>
-                        <Switch id="apply-charges" checked={applyAdditionalCharges} onCheckedChange={setApplyAdditionalCharges} />
-                    </div>
-                     {!applyAdditionalCharges && <p className="text-xs text-muted-foreground">The cost of <strong>${absorbedCost.toFixed(2)}</strong> will be absorbed by the business.</p>}
-                </CardContent>
-            </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Service Adjustments</CardTitle>
+              <CardDescription>
+                Additional time or product was used for this service.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-3 rounded-lg border bg-muted/50 space-y-2 text-sm">
+                {timeDifference > 0 && (
+                  <div className="flex justify-between items-center">
+                    <span>
+                      <Clock className="w-3 h-3 inline-block mr-1.5" /> Extra
+                      Time
+                    </span>
+                    <span className="font-mono flex items-center gap-2">
+                      {timeDifference} min{' '}
+                      <span className="text-muted-foreground font-sans text-xs">
+                        (${timeCostDifference.toFixed(2)})
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {productDifferences.length > 0 && (
+                  <>
+                    {timeDifference > 0 && <Separator />}
+                    {productDifferences.map((p, i) => (
+                      <div key={i} className="flex justify-between items-center">
+                        <span>
+                          <FlaskConical className="w-3 h-3 inline-block mr-1.5" />{' '}
+                          {p.name}
+                        </span>
+                        <span className="font-mono flex items-center gap-2">
+                          +{p.extraQuantity}
+                          {p.unit}{' '}
+                          <span className="text-muted-foreground font-sans text-xs">
+                            (${p.cost.toFixed(2)})
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                <Separator className="my-2" />
+                <div className="flex justify-between font-semibold">
+                  <span>Additional Cost</span>
+                  <span>${additionalCharge.toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <Label htmlFor="apply-charges">
+                  Pass this cost on to the client?
+                </Label>
+                <Switch
+                  id="apply-charges"
+                  checked={applyAdditionalCharges}
+                  onCheckedChange={setApplyAdditionalCharges}
+                />
+              </div>
+              {!applyAdditionalCharges && (
+                <p className="text-xs text-muted-foreground">
+                  The cost of <strong>${absorbedCost.toFixed(2)}</strong> will
+                  be absorbed by the business.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         )}
       </div>
       <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
@@ -327,79 +382,69 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
     }, []);
 
-    const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
-        if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
+    const { 
+        additionalCharge, 
+        absorbedCost,
+        timeDifference,
+        timeCostDifference,
+        productDifferences,
+    } = useMemo(() => {
+        if (!service) return { additionalCharge: 0, absorbedCost: 0, timeDifference: 0, timeCostDifference: 0, productDifferences: [] };
         
         const tmhrValue = tmhr;
 
-        // Initial Cost Calculation
-        const initialDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-        const initialTimeCost = (initialDuration / 60) * tmhrValue;
-        
-        const initialProductCost = (service.products || []).reduce((acc, p) => {
-            const product = inventory.find(i => i.id === p.id);
-            if (!product) return acc;
-            const quantity = p.quantityUsed || 1;
-            let costPerUse = 0;
+        // Time Difference
+        const scheduledDuration = service.duration || 0;
+        const timeDiff = actualDuration - scheduledDuration;
+        const timeCostDiff = timeDiff > 0 ? (timeDiff / 60) * tmhrValue : 0;
 
-            if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.size;
-            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-            } else { // 'unit' or undefined
-                costPerUse = product.costPerUnit || 0;
+        // Product Difference
+        const defaultFormulaMap = new Map( (service.products || []).map(p => [p.id, p.quantityUsed]) );
+        const actualFormulaMap = new Map( editableFormula.map(p => [p.id, p.quantity]) );
+        
+        const productDiffs: { name: string; extraQuantity: number; cost: number; unit: string; }[] = [];
+        let productCostDiff = 0;
+
+        const allProductIds = new Set([...defaultFormulaMap.keys(), ...actualFormulaMap.keys()]);
+
+        allProductIds.forEach(productId => {
+            const defaultQty = defaultFormulaMap.get(productId) || 0;
+            const actualQty = actualFormulaMap.get(productId) || 0;
+            const qtyDifference = actualQty - defaultQty;
+
+            if (qtyDifference > 0) {
+                const product = inventory.find(i => i.id === productId);
+                if (product) {
+                    let costPerUse = 0;
+                    if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                        costPerUse = (product.costPerUnit || 0) / product.size;
+                    } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                        costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                    } else {
+                        costPerUse = product.costPerUnit || 0;
+                    }
+                    
+                    const costOfDifference = qtyDifference * costPerUse;
+                    productCostDiff += costOfDifference;
+                    productDiffs.push({
+                        name: product.name,
+                        extraQuantity: qtyDifference,
+                        cost: costOfDifference,
+                        unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit')
+                    });
+                }
             }
-
-            return acc + (costPerUse * quantity);
-        }, 0);
+        });
         
-        const initialEquipmentCost = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
-            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * initialDuration);
-        }, 0);
-
-        const initialBreakEvenCost = initialTimeCost + initialProductCost + initialEquipmentCost;
-
-        // Final Cost Calculation
-        const finalDuration = (actualDuration + (service.padBefore || 0) + (service.padAfter || 0));
-        const finalTimeCost = (finalDuration / 60) * tmhrValue;
-
-        const finalProductCost = editableFormula.reduce((acc, item) => {
-            const inventoryItem = inventory.find(i => i.id === item.id);
-            if (!inventoryItem) return acc;
-            const quantity = item.quantity || 0;
-            let costPerUse = 0;
-            if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
-                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
-            } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
-                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
-            } else { // 'unit' or undefined
-                costPerUse = inventoryItem.costPerUnit || 0;
-            }
-            return acc + (costPerUse * quantity);
-        }, 0);
-        
-        const finalEquipmentCost = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
-            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * finalDuration);
-        }, 0);
-
-        const finalBreakEvenCost = finalTimeCost + finalProductCost + finalEquipmentCost;
-        
-        const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
+        const additionalChargeValue = timeCostDiff + productCostDiff;
         const absorbedCostValue = applyAdditionalCharges ? 0 : additionalChargeValue;
 
         return {
-            initialBreakEven: initialBreakEvenCost,
-            finalBreakEven: finalBreakEvenCost,
             additionalCharge: additionalChargeValue,
-            absorbedCost: absorbedCostValue
+            absorbedCost: absorbedCostValue,
+            timeDifference: timeDiff,
+            timeCostDifference: timeCostDiff,
+            productDifferences: productDiffs,
         };
     }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges, tmhr]);
 
@@ -490,6 +535,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     setApplyAdditionalCharges={setApplyAdditionalCharges}
                     additionalCharge={additionalCharge}
                     absorbedCost={absorbedCost}
+                    timeDifference={timeDifference}
+                    timeCostDifference={timeCostDifference}
+                    productDifferences={productDifferences}
                   />
               </div>
             </div>
