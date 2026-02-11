@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -700,8 +699,7 @@ export default function POSPage() {
 
     const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
-            if (!data.service) return total;
-            const mainServicePrice = redeemedOffer?.id === data.service.id ? 0 : data.service.price || 0;
+            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
@@ -717,16 +715,15 @@ export default function POSPage() {
         const { tmhr } = selectedTenant || {};
         
         const serviceAdjustments = appointmentsData.reduce((total, data) => {
-            const { appointment, service } = data;
-            const checkoutState = appointment.checkoutState;
-            if (!checkoutState || !service) return total;
+            const checkoutState = data.checkoutState;
+            if (!checkoutState || !data.service) return total;
 
-            const initialDuration = service.duration || 0;
+            const initialDuration = data.service.duration || 0;
             const actualDuration = checkoutState.actualDuration || initialDuration;
             const timeDiff = actualDuration - initialDuration;
             const timeCost = (timeDiff / 60) * (tmhr || 50);
 
-            const initialProductCost = (service.products || []).reduce((acc, p) => {
+            const initialProductCost = (data.service.products || []).reduce((acc, p) => {
                 const product = inventory.find(i => i.id === p.id);
                 if (!product) return acc;
                 let costPerUse = 0;
@@ -736,7 +733,7 @@ export default function POSPage() {
                 return acc + (costPerUse * p.quantityUsed);
             }, 0);
             
-            const finalProductCost = (checkoutState.formula || []).reduce((acc, p: any) => {
+            const finalProductCost = (checkoutState.formula || []).reduce((acc: any, p: any) => {
                 const product = inventory.find(i => i.id === p.id);
                 if (!product) return acc;
                 let costPerUse = 0;
@@ -773,6 +770,10 @@ export default function POSPage() {
             return acc + (item.quantity * (product?.msrp || 0));
         }, 0);
     }, [retailItems, inventory]);
+    
+    const [promoCode, setPromoCode] = useState('');
+    const [discount, setDiscount] = useState(0);
+    const [membershipDiscount, setMembershipDiscount] = useState(0);
 
     useEffect(() => {
         if (client && client.activeMembershipId) {
@@ -788,7 +789,6 @@ export default function POSPage() {
         }
     }, [client, retailTotalForDiscount, memberships]);
     
-    const discount = 0;
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
     
@@ -912,7 +912,7 @@ export default function POSPage() {
                     let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
                     while (newPartialSize < 0 && newStock > 0) {
                         newStock--;
-                        newPartialSize += product.size;
+                        newPartialSize += sizePerContainer;
                     }
                     batch.update(productRef, {
                         totalStock: newStock,
@@ -926,7 +926,7 @@ export default function POSPage() {
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = data.addOnServices.map(s => s.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -1020,7 +1020,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1418,3 +1418,5 @@ export default function POSPage() {
     }
     
 
+
+    
