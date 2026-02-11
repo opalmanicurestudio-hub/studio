@@ -279,7 +279,7 @@ export default function POSPage() {
     }, [inventory, appointments, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
     const inServiceAppointments = useMemo(() => {
-        return (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        return (appointments || []).filter(apt => apt.status === 'servicing');
     }, [appointments]);
 
     // Initialize and sort staff based on turnOrder
@@ -431,7 +431,7 @@ export default function POSPage() {
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
@@ -650,40 +650,35 @@ export default function POSPage() {
         });
     };
     
-    const totalDiscount = discount + membershipDiscount;
+    const checkoutSummary = useMemo(() => {
+        let additionalCharge = 0;
+        let timeDifference = 0;
+        let productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[] = [];
+        let timeCostDifference = 0;
 
-    const { subtotal, tax, total, checkoutSummary } = useMemo(() => {
-        const servicesSubtotal = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
-            return total + mainServicePrice + addOnsPrice;
-        }, 0);
-
-        const retailSubtotal = retailItems.reduce((acc, item) => {
-            return acc + (item.quantity * (item.price || 0));
-        }, 0);
-        
-        const sub = servicesSubtotal + retailSubtotal;
-        
-        const { tmhr } = selectedTenant || {};
-        
-        const serviceAdjustments = appointmentsData.reduce((total, data) => {
-            const checkoutState = data.checkoutState;
-            if (!checkoutState || !data.service) return total;
+        for (const data of appointmentsData) {
+            const { appointment, service } = data;
+            const checkoutState = appointment.checkoutState;
+            if (!checkoutState || !service) continue;
             
-            const initialDuration = data.service.duration || 0;
-            const actualDuration = checkoutState.actualDuration || initialDuration;
-            const timeDiff = actualDuration - initialDuration;
-            
-            const timeCostDiff = (timeDiff / 60) * (tmhr || 50);
+            const scheduledDuration = service.duration || 0;
+            const actualDuration = checkoutState.actualDuration || scheduledDuration;
+            const timeDiff = actualDuration - scheduledDuration;
+            timeDifference += timeDiff;
 
-            const initialFormula = new Map(data.service.products?.map(p => [p.id, p]));
-            const actualFormula = new Map(checkoutState.formula?.map(p => [p.id, p]));
+            const tmhr = selectedTenant?.tmhr || 50;
+            const timeCostDiff = (timeDiff / 60) * tmhr;
+            if (timeCostDiff > 0) {
+                timeCostDifference += timeCostDiff;
+            }
+
+            const initialFormula = new Map(service.products?.map(p => [p.id, p]));
+            const actualFormula = new Map(checkoutState.formula?.map(p => [p.id, { id: p.id, name: p.name, quantityUsed: p.quantity, unit: p.unit }]));
             
             let productCostDiff = 0;
             for (const [productId, actualItem] of actualFormula.entries()) {
                 const initialItem = initialFormula.get(productId);
-                const extraQuantity = initialItem ? (actualItem.quantity as number) - initialItem.quantityUsed : (actualItem.quantity as number);
+                const extraQuantity = initialItem ? actualItem.quantityUsed - initialItem.quantityUsed : actualItem.quantityUsed;
                 if (extraQuantity > 0) {
                     const productInfo = inventory.find(p => p.id === productId);
                     if (productInfo) {
@@ -695,31 +690,46 @@ export default function POSPage() {
                         } else {
                             costPerUse = productInfo.costPerUnit || 0;
                         }
-                        productCostDiff += extraQuantity * costPerUse;
+                        const cost = extraQuantity * costPerUse;
+                        productCostDiff += cost;
+
+                        const existingDiff = productDifferences.find(p => p.name === productInfo.name);
+                        if(existingDiff) {
+                            existingDiff.extraQuantity += extraQuantity;
+                            existingDiff.cost += cost;
+                        } else {
+                            productDifferences.push({ name: productInfo.name, extraQuantity, cost, unit: actualItem.unit });
+                        }
                     }
                 }
             }
+            
+            additionalCharge += Math.max(0, timeCostDiff + productCostDiff);
+        }
 
-            return total + Math.max(0, timeCostDiff + productCostDiff);
+        const absorbedCost = applyAdditionalCharges ? 0 : additionalCharge;
+        
+        return { additionalCharge: applyAdditionalCharges ? additionalCharge : 0, absorbedCost, timeDifference, timeCostDifference, productDifferences };
+    }, [appointmentsData, inventory, selectedTenant?.tmhr, applyAdditionalCharges]);
+
+    const { subtotal, tax, total } = useMemo(() => {
+        const servicesSubtotal = appointmentsData.reduce((total, data) => {
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
+            return total + servicePrice + addOnsPrice;
+        }, 0);
+        
+        const retailSubtotal = retailItems.reduce((acc, item) => {
+            return acc + (item.quantity * (item.price || 0));
         }, 0);
 
-        const additionalCharge = applyAdditionalCharges ? serviceAdjustments : 0;
-        const subtotalWithAdjustments = sub + additionalCharge;
-        
-        const subtotalAfterDiscounts = subtotalWithAdjustments > totalDiscount ? subtotalWithAdjustments - totalDiscount : 0;
+        const sub = servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
+        const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
 
-        return { 
-            subtotal: subtotalWithAdjustments,
-            tax: finalTax, 
-            total: finalGrandTotal, 
-            checkoutSummary: { 
-                additionalCharge, 
-                absorbedCost: applyAdditionalCharges ? 0 : serviceAdjustments,
-            }
-        };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, selectedTenant, tipAmount, discount, membershipDiscount, applyAdditionalCharges, totalDiscount]);
+        return { subtotal: sub, tax: finalTax, total: finalGrandTotal };
+    }, [appointmentsData, retailItems, redeemedOffer, checkoutSummary.additionalCharge, tipAmount, discount, membershipDiscount]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -744,665 +754,679 @@ export default function POSPage() {
         }
     }, [client, retailTotalForDiscount, memberships]);
     
+    const totalDiscount = discount + membershipDiscount;
+    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
+    const quickTenderOptions = useMemo(() => {
+        const options = new Set<number>();
+        if (total === 0) return [];
+    
+        const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
+
+        const next5 = roundUp(total, 5);
+        if (next5 > total) options.add(next5);
+
+        const next10 = roundUp(total, 10);
+        if (next10 > total) options.add(next10);
+
+        const next20 = roundUp(total, 20);
+        if (next20 > total) options.add(next20);
+        
+        const next50 = roundUp(total, 50);
+        if (next50 > total) options.add(next50);
+        
+        const next100 = roundUp(total, 100);
+        if (next100 > total) options.add(next100);
+
+        return Array.from(options).sort((a,b) => a - b).slice(0, 3);
+    }, [total]);
+
     const handleConfirmAndClose = async () => {
-    setIsSubmitting(true);
-    try {
-        let clientToUse: Client | undefined | null = client;
-
-        if (!clientToUse && appointmentsData.length > 0) {
-            const firstAptData = appointmentsData[0];
-            clientToUse = firstAptData.client;
-        }
-
-        if (!clientToUse && appointmentsData.length > 0) {
-            const firstAptData = appointmentsData[0];
-            const existingClient = clients?.find(c => c.email && c.email === firstAptData.clientEmail);
-            if(existingClient) {
-                clientToUse = existingClient;
-            } else {
-                if (!firestore || !tenantId) return;
-                const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
-                const newId = newClientRef.id;
-                const newClient: Client = {
-                  id: newId,
-                  name: firstAptData.clientName || 'Walk-in Client',
-                  email: firstAptData.clientEmail || '', 
-                  phone: firstAptData.clientPhone || '',
-                  avatarUrl: `https://picsum.photos/seed/${newId}/100`,
-                  lifetimeValue: 0,
-                  lastAppointment: new Date().toISOString(),
-                  status: 'active',
-                };
-                await setDoc(newClientRef, newClient);
-                clientToUse = newClient;
+        setIsSubmitting(true);
+        try {
+            let clientToUse: Client | undefined | null = client;
+    
+            if (!clientToUse && appointmentsData.length > 0) {
+                const firstAptData = appointmentsData[0];
+                clientToUse = firstAptData.client;
             }
-        }
-        
-        if (!clientToUse) {
-            toast({variant: 'destructive', title: 'Client Not Found', description: 'Could not find or create the client for this transaction.'});
-            setIsSubmitting(false);
-            return;
-        }
-
-        if (!firestore || !tenantId) {
-            toast({ variant: "destructive", title: "Error", description: "Data is not ready. Please try again." });
-            setIsSubmitting(false);
-            return;
-        }
-
-        const batch = writeBatch(firestore);
-        const nowISO = new Date().toISOString();
-
-        for (const data of appointmentsData) {
-            const currentAppointment = data.appointment;
-            const currentService = data.service;
-            
-            if (!currentAppointment || !currentService) continue;
-            
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-
-            const allServicesInAppointment = [currentService, ...data.addOnServices];
-            const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
-
-            if (redeemedOffer?.id === currentService.id) {
-                // Logic to handle redeemed offer, e.g. mark as used
-            }
-            
-            batch.update(appointmentRef, { 
-                status: 'completed',
-                revenue: appointmentRevenue,
-                discountAmount: discount / appointmentsData.length, // Distribute discount
-                appliedDiscountCode: appliedDiscountCode || ''
-            });
-            
-            if (currentAppointment.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
-                batch.update(checkInRef, { status: 'completed' });
-            }
-
-            if (currentAppointment.isWalkIn) {
-                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
-            }
-
-            const allStaffInvolved = new Set<string>();
-            if(currentAppointment.staffId) allStaffInvolved.add(currentAppointment.staffId);
-            Object.values(currentAppointment.checkoutState?.serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
-            
-            allStaffInvolved.forEach(staffId => {
-                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-                batch.update(staffDocRef, {
-                  status: 'idle',
-                  lastServedTimestamp: nowISO,
-                });
-            });
-
-            const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
-            formulaUsed.forEach((formulaItem: any) => {
-                const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
-                if (!product) return;
-
-                const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed;
-                if (quantityUsed <= 0) return;
-
-                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-                
-                const staffForService = staff?.find(s => s.id === currentAppointment.staffId);
-
-                const correction: Omit<StockCorrection, 'id'> = {
-                    productId: product.id,
-                    date: nowISO,
-                    change: -quantityUsed,
-                    unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
-                    reason: `Appointment #${currentAppointment.id} by ${staffForService?.name || 'Unknown'}`,
-                };
-                const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                batch.set(correctionRef, correction);
-
-                if (product.costingMethod === 'uses' && product.estimatedUses) {
-                    let newStock = product.totalStock;
-                    let newPartialUses = (product.partialContainerUses || 0) - quantityUsed;
-                    while (newPartialUses < 0 && newStock > 0) {
-                        newStock--;
-                        newPartialUses += product.estimatedUses;
-                    }
-                    batch.update(productRef, {
-                        totalStock: newStock,
-                        partialContainerUses: Math.max(0, newPartialUses)
-                    });
-                } else if (product.costingMethod === 'size' && product.size) {
-                    let newStock = product.totalStock;
-                    let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
-                    while (newPartialSize < 0 && newStock > 0) {
-                        newStock--;
-                        newPartialSize += product.size;
-                    }
-                    batch.update(productRef, {
-                        totalStock: newStock,
-                        partialContainerSize: Math.max(0, newPartialSize)
-                    });
+    
+            if (!clientToUse && appointmentsData.length > 0) {
+                const firstAptData = appointmentsData[0];
+                const existingClient = clients?.find(c => c.email && c.email === firstAptData.clientEmail);
+                if(existingClient) {
+                    clientToUse = existingClient;
                 } else {
-                    batch.update(productRef, { totalStock: increment(-quantityUsed) });
+                    if (!firestore || !tenantId) return;
+                    const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
+                    const newId = newClientRef.id;
+                    const newClient: Client = {
+                      id: newId,
+                      name: firstAptData.clientName || 'Walk-in Client',
+                      email: firstAptData.clientEmail || '', 
+                      phone: firstAptData.clientPhone || '',
+                      avatarUrl: `https://picsum.photos/seed/${newId}/100`,
+                      lifetimeValue: 0,
+                      lastAppointment: new Date().toISOString(),
+                      status: 'active',
+                    };
+                    await setDoc(newClientRef, newClient);
+                    clientToUse = newClient;
                 }
+            }
+            
+            if (!clientToUse) {
+                toast({variant: 'destructive', title: 'Client Not Found', description: 'Could not find or create the client for this transaction.'});
+                setIsSubmitting(false);
+                return;
+            }
+    
+            if (!firestore || !tenantId) {
+                toast({ variant: "destructive", title: "Error", description: "Data is not ready. Please try again." });
+                setIsSubmitting(false);
+                return;
+            }
+    
+            const batch = writeBatch(firestore);
+            const nowISO = new Date().toISOString();
+    
+            for (const data of appointmentsData) {
+                const { checkoutState, id: appointmentId, client: currentClient, service: currentService } = data;
+                
+                if (!currentService) continue;
+                
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    
+                const allServicesInAppointment = [currentService, ...data.addOnServices];
+                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + s.price, 0);
+    
+                if (redeemedOffer?.id === currentService.id) {
+                    // Logic to handle redeemed offer
+                }
+                
+                batch.update(appointmentRef, { 
+                    status: 'completed',
+                    checkoutState: {
+                        ...checkoutState,
+                        tipAmount,
+                        tipAllocations,
+                        absorbedCost: checkoutSummary.absorbedCost,
+                    },
+                    revenue: appointmentRevenue,
+                    discountAmount: discount / appointmentsData.length, // Distribute discount
+                    appliedDiscountCode: appliedDiscountCode || ''
+                });
+                
+                if (data.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
+                    batch.update(checkInRef, { status: 'completed' });
+                }
+    
+                if (data.isWalkIn) {
+                    const walkInId = appointmentId.replace('apt-walkin-', '');
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                    batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
+                }
+    
+                const allStaffInvolved = new Set<string>();
+                if(data.staffId) allStaffInvolved.add(data.staffId);
+                Object.values(checkoutState?.serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
+                
+                allStaffInvolved.forEach(staffId => {
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+                    batch.update(staffDocRef, {
+                      status: 'idle',
+                      lastServedTimestamp: nowISO,
+                    });
+                });
+    
+                const formulaUsed = checkoutState?.formula || currentService.products || [];
+                formulaUsed.forEach((formulaItem: any) => {
+                    const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
+                    if (!product) return;
+    
+                    const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed;
+                    if (quantityUsed <= 0) return;
+    
+                    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+                    
+                    const staffForService = staff?.find(s => s.id === data.staffId);
+    
+                    const correction: Omit<StockCorrection, 'id'> = {
+                        productId: product.id,
+                        date: nowISO,
+                        change: -quantityUsed,
+                        unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
+                        reason: `Appointment #${appointmentId} by ${staffForService?.name || 'Unknown'}`,
+                    };
+                    const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                    batch.set(correctionRef, correction);
+    
+                    if (product.costingMethod === 'uses' && product.estimatedUses) {
+                        let newStock = product.totalStock;
+                        let newPartialUses = (product.partialContainerUses || 0) - quantityUsed;
+                        while (newPartialUses < 0 && newStock > 0) {
+                            newStock--;
+                            newPartialUses += product.estimatedUses;
+                        }
+                        batch.update(productRef, {
+                            totalStock: newStock,
+                            partialContainerUses: Math.max(0, newPartialUses)
+                        });
+                    } else if (product.costingMethod === 'size' && product.size) {
+                        let newStock = product.totalStock;
+                        let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
+                        while (newPartialSize < 0 && newStock > 0) {
+                            newStock--;
+                            newPartialSize += product.size;
+                        }
+                        batch.update(productRef, {
+                            totalStock: newStock,
+                            partialContainerSize: Math.max(0, newPartialSize)
+                        });
+                    } else {
+                        batch.update(productRef, { totalStock: increment(-quantityUsed) });
+                    }
+                });
+            }
+            
+            const serviceRevenue = appointmentsData.reduce((total, data) => {
+                const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+                const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
+                return total + mainServicePrice + addOnsPrice;
+            }, 0);
+            
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUse.id);
+            batch.update(clientDocRef, {
+                lifetimeValue: increment(serviceRevenue),
+                lastAppointment: nowISO
             });
-        }
-        
-        const serviceRevenue = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
-            return total + mainServicePrice + addOnsPrice;
-        }, 0);
-        
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUse.id);
-        batch.update(clientDocRef, {
-            lifetimeValue: increment(serviceRevenue),
-            lastAppointment: nowISO
-        });
-        
-        if (serviceRevenue > 0) {
-            const serviceTransaction: Partial<Transaction> = {
-                date: nowISO,
-                description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
-                clientOrVendor: clientToUse.name,
-                clientId: clientToUse.id,
-                type: 'income' as const,
-                context: 'Business' as const,
-                category: 'Service Revenue',
-                amount: serviceRevenue,
-                paymentMethod: paymentTab,
-                hasReceipt: true,
-                staffId: appointmentsData[0]?.staff?.id,
-                appointmentId: appointmentsData.map(a => a.id).join(', '),
-                tipAmount: 0,
-                ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: discount }),
-            };
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
-        }
-
-        retailItems.forEach(item => {
-            const product = inventory.find(p => p.id === item.id);
-            if (!product) return;
-            const price = product.msrp || product.costPerUnit || 0;
-            const retailTotal = item.quantity * price;
-
-            if (retailTotal > 0) {
-                const newTransaction: Omit<Transaction, 'id'|'date'> = {
-                    description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: clientToUse!.name,
-                    clientId: clientToUse!.id,
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Retail',
-                    amount: retailTotal,
+            
+            if (serviceRevenue > 0) {
+                const serviceTransaction: Partial<Transaction> = {
+                    date: nowISO,
+                    description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
+                    clientOrVendor: clientToUse.name,
+                    clientId: clientToUse.id,
+                    type: 'income' as const,
+                    context: 'Business' as const,
+                    category: 'Service Revenue',
+                    amount: serviceRevenue,
                     paymentMethod: paymentTab,
                     hasReceipt: true,
-                    staffId: appointmentsData[0].staff?.id,
-                    appointmentId: appointmentsData[0].id,
+                    staffId: appointmentsData[0]?.staff?.id,
+                    appointmentId: appointmentsData.map(a => a.id).join(', '),
+                    tipAmount: 0,
+                    ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: discount }),
                 };
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
             }
-            
-            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-            batch.update(productRef, { totalStock: increment(-item.quantity) });
-        });
-        
-        if (tipAmount > 0) {
-            Object.entries(tipAllocations).forEach(([staffId, tip]) => {
-                if (tip > 0) {
-                     const tipTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Tip from ${clientToUse!.name}`,
+    
+            retailItems.forEach(item => {
+                const product = inventory.find(p => p.id === item.id);
+                if (!product) return;
+                const price = product.msrp || product.costPerUnit || 0;
+                const retailTotal = item.quantity * price;
+    
+                if (retailTotal > 0) {
+                    const newTransaction: Omit<Transaction, 'id'|'date'> = {
+                        description: `Retail: ${item.quantity}x ${item.name}`,
                         clientOrVendor: clientToUse!.name,
                         clientId: clientToUse!.id,
                         type: 'income',
                         context: 'Business',
-                        category: 'Tips',
-                        amount: tip,
+                        category: 'Retail',
+                        amount: retailTotal,
                         paymentMethod: paymentTab,
                         hasReceipt: true,
-                        staffId,
-                        tipAmount: tip,
+                        staffId: appointmentsData[0].staff?.id,
                         appointmentId: appointmentsData[0].id,
                     };
-                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
+                
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                batch.update(productRef, { totalStock: increment(-item.quantity) });
             });
-        }
-        
-        if (appliedDiscountCode) {
-            const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-            batch.update(discountRef, {
-                usageCount: increment(1),
-                usedByClientIds: arrayUnion(clientToUse!.id),
-            });
-        }
-
-        await batch.commit();
-
-        const allCartItems = [
-            ...appointmentsData.flatMap(d => {
-                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
-                return [...mainService, ...addOns];
-            }),
-            ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
-        ];
-
-
-        const receiptData: ReceiptData = {
-          business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-          clientName: clientToUse!.name,
-          date: new Date(),
-          items: allCartItems,
-          subtotal,
-          discount: totalDiscount,
-          tax: mockTax,
-          tip: tipAmount,
-          total: total,
-          payment: {
-              method: paymentTab,
-              amountTendered: paymentTab === 'cash' ? amountTendered : total,
-              changeDue: changeDue > 0 ? changeDue : 0
-          },
-        };
-        setReceiptToPrint(receiptData);
-        setIsReceiptDialogOpen(true);
-        
-        setCart([]);
-        setSelectedAppointmentIds(new Set());
-        setSelectedClientId(null);
-        setTipAmount(0);
-        setAmountTendered(0);
-        setPromoCode('');
-        setDiscount(0);
-        setMembershipDiscount(0);
-        setAppliedDiscountCode(undefined);
-
-    } catch (e) {
-        console.error("Checkout failed:", e);
-        toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.'});
-    } finally {
-        setIsSubmitting(false);
-    }
-  };
-        
-        const handleStartService = (appointmentId: string) => {
-            const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
-            if (!appointmentToStart || !firestore || !selectedTenant) return;
             
-            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+            if (tipAmount > 0) {
+                Object.entries(tipAllocations).forEach(([staffId, tip]) => {
+                    if (tip > 0) {
+                         const tipTransaction: Omit<Transaction, 'id'|'date'> = {
+                            description: `Tip from ${clientToUse!.name}`,
+                            clientOrVendor: clientToUse!.name,
+                            clientId: clientToUse!.id,
+                            type: 'income',
+                            context: 'Business',
+                            category: 'Tips',
+                            amount: tip,
+                            paymentMethod: paymentTab,
+                            hasReceipt: true,
+                            staffId,
+                            tipAmount: tip,
+                            appointmentId: appointmentsData[0].id,
+                        };
+                        batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
+                    }
+                });
+            }
             
-            if (appointmentToStart.isWalkIn) {
-                const walkInId = appointmentId.replace('apt-walkin-', '');
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+            if (appliedDiscountCode) {
+                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+                batch.update(discountRef, {
+                    usageCount: increment(1),
+                    usedByClientIds: arrayUnion(clientToUse!.id),
+                });
             }
-
-            if (appointmentToStart.staffId) {
-                const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-                updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-            }
-        
-            toast({
-                title: "Service Started!",
-                description: `The service for ${appointmentToStart.clientName} has begun.`
-            });
-        };
-        
-        useEffect(() => {
-            if (scannedData) {
-                handleScan(scannedData);
-                setScannedData(null); // Reset after processing
-            }
-        }, [scannedData, handleScan]);
-        
-        useEffect(() => {
-            let html5QrCode: Html5Qrcode | undefined;
-            if (isScannerOpen) {
-              const timer = setTimeout(() => {
-                const element = document.getElementById('qr-reader-pos');
-                if (element) {
-                    html5QrCode = new Html5Qrcode('qr-reader-pos');
-                    const onScanSuccess = (decodedText: string, decodedResult: any) => {
-                        if (html5QrCode?.isScanning) {
-                            html5QrCode.stop().catch(console.error);
-                        }
-                        setScannedData(decodedText);
-                        setIsScannerOpen(false);
-                    };
-
-                    const onScanFailure = (error: any) => { /* ignore */ };
-                    
-                    setTimeout(() => {
-                        html5QrCode?.start(
-                            { facingMode: "environment" },
-                            { fps: 10, qrbox: { width: 250, height: 250 } },
-                            onScanSuccess,
-                            onScanFailure
-                        ).catch(err => {
-                            toast({
-                                variant: 'destructive',
-                                title: 'Camera Error',
-                                description: 'Could not start the camera. Please check permissions and try again.',
-                            });
-                            setIsScannerOpen(false);
-                        });
-                    }, 300);
-                }
-              }, 100); 
-
-              return () => {
-                  clearTimeout(timer);
-                  if (html5QrCode && html5QrCode.isScanning) {
-                    html5QrCode.stop().catch(err => {
-                        console.error("Failed to stop QR Code scanner.", err);
-                    });
-                  }
-              };
-            }
-        }, [isScannerOpen, handleScan, toast]);
-        
-        const handleAddClient = (data: ClientFormData) => {
-            if (!firestore || !selectedTenant) return;
-        
-            const newClient: Omit<Client, 'id'> = {
-              name: data.name,
-              email: data.email || '',
-              phone: data.phone || '',
-              avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
-              lifetimeValue: 0,
-              lastAppointment: new Date().toISOString(),
-              status: 'active',
-              notes: data.notes,
-              referralCode: '', // referral code generation logic is missing here
-              birthday: data.birthday ? data.birthday.toISOString() : undefined,
-              address: data.address,
-              emergencyContact: data.emergencyContact,
-              intel: {
-                referralSource: data.intel?.referralSource
-              }
+    
+            await batch.commit();
+    
+            const allCartItems = [
+                ...appointmentsData.flatMap(d => {
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                    const addOns = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                    return [...mainService, ...addOns];
+                }),
+                ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
+            ];
+    
+    
+            const receiptData: ReceiptData = {
+              business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
+              clientName: clientToUse!.name,
+              date: new Date(),
+              items: allCartItems,
+              subtotal,
+              discount: totalDiscount,
+              tax: mockTax,
+              tip: tipAmount,
+              total: total,
+              payment: {
+                  method: paymentTab,
+                  amountTendered: paymentTab === 'cash' ? amountTendered : total,
+                  changeDue: changeDue > 0 ? changeDue : 0
+              },
             };
+            setReceiptToPrint(receiptData);
+            setIsReceiptDialogOpen(true);
             
-            addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+            setCart([]);
+            setSelectedAppointmentIds(new Set());
+            setSelectedClientId(null);
+            setTipAmount(0);
+            setAmountTendered(0);
+            setPromoCode('');
+            setDiscount(0);
+            setMembershipDiscount(0);
+            setAppliedDiscountCode(undefined);
+    
+        } catch (e) {
+            console.error("Checkout failed:", e);
+            toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.'});
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
         
-            toast({
-              title: "Client Added",
-              description: `${data.name} has been added to your client list.`,
-            });
-          }
+    const handleStartService = (appointmentId: string) => {
+        const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
+        if (!appointmentToStart || !firestore || !selectedTenant) return;
+        
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+        
+        if (appointmentToStart.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+        }
 
-        const payerOptions = useMemo(() => {
-            const clientIds = new Set<string>();
-            appointmentsData.forEach(apt => {
-              if (apt.client) {
-                clientIds.add(apt.client.id);
+        if (appointmentToStart.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+    
+        toast({
+            title: "Service Started!",
+            description: `The service for ${appointmentToStart.clientName} has begun.`
+        });
+    };
+    
+    useEffect(() => {
+        if (scannedData) {
+            handleScan(scannedData);
+            setScannedData(null); // Reset after processing
+        }
+    }, [scannedData, handleScan]);
+    
+    useEffect(() => {
+        let html5QrCode: Html5Qrcode | undefined;
+        if (isScannerOpen) {
+          const timer = setTimeout(() => {
+            const element = document.getElementById('qr-reader-pos');
+            if (element) {
+                html5QrCode = new Html5Qrcode('qr-reader-pos');
+                const onScanSuccess = (decodedText: string, decodedResult: any) => {
+                    if (html5QrCode?.isScanning) {
+                        html5QrCode.stop().catch(console.error);
+                    }
+                    setScannedData(decodedText);
+                    setIsScannerOpen(false);
+                };
+
+                const onScanFailure = (error: any) => { /* ignore */ };
+                
+                setTimeout(() => {
+                    html5QrCode?.start(
+                        { facingMode: "environment" },
+                        { fps: 10, qrbox: { width: 250, height: 250 } },
+                        onScanSuccess,
+                        onScanFailure
+                    ).catch(err => {
+                        toast({
+                            variant: 'destructive',
+                            title: 'Camera Error',
+                            description: 'Could not start the camera. Please check permissions and try again.',
+                        });
+                        setIsScannerOpen(false);
+                    });
+                }, 300);
+            }
+          }, 100); 
+
+          return () => {
+              clearTimeout(timer);
+              if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => {
+                    console.error("Failed to stop QR Code scanner.", err);
+                });
               }
-            });
-            return (clients || []).filter(c => clientIds.has(c.id));
-        }, [appointmentsData, clients]);
-        
-        const checkoutHubProps = {
-            cart: retailItems, 
-            onCartChange: handleCartChange,
-            appointmentsData,
-            onSelectAppointment: handleSelectAppointment,
-            clients: clients || [],
-            isGroupCheckout,
-            payerOptions,
-            selectedClientId,
-            setSelectedClientId,
-            onAddClientClick: () => setIsAddClientOpen(true),
-            onScanClick: () => setIsScannerOpen(true),
-            subtotal,
-            tax,
-            total,
-            tipAmount,
-            setTipAmount,
-            onCheckout: handleConfirmAndClose,
-            appliedDiscountCode,
-            setAppliedDiscountCode,
-            discount,
-            membershipDiscount,
-            showTitle: false,
-            isSubmitting,
-            paymentTab,
-            setPaymentTab,
-            discounts: discounts || [],
-            amountTendered,
-            setAmountTendered,
-            additionalCharge: checkoutSummary.additionalCharge,
-            absorbedCost: checkoutSummary.absorbedCost,
-            applyAdditionalCharges,
-            setApplyAdditionalCharges,
-            timeDifference: 0,
-            timeCostDifference: 0,
-            productDifferences: [],
+          };
+        }
+    }, [isScannerOpen, handleScan, toast]);
+    
+    const handleAddClient = (data: ClientFormData) => {
+        if (!firestore || !selectedTenant) return;
+    
+        const newClient: Omit<Client, 'id'> = {
+          name: data.name,
+          email: data.email || '',
+          phone: data.phone || '',
+          avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
+          lifetimeValue: 0,
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+          notes: data.notes,
+          referralCode: '', // referral code generation logic is missing here
+          birthday: data.birthday ? data.birthday.toISOString() : undefined,
+          address: data.address,
+          emergencyContact: data.emergencyContact,
+          intel: {
+            referralSource: data.intel?.referralSource
+          }
         };
         
-        const handleStatusChangeWithConfirmation = () => {};
+        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+    
+        toast({
+          title: "Client Added",
+          description: `${data.name} has been added to your client list.`,
+        });
+      }
 
-        const tipAllocations: Record<string, number> = {};
+    const payerOptions = useMemo(() => {
+        const clientIds = new Set<string>();
+        appointmentsData.forEach(apt => {
+          if (apt.client) {
+            clientIds.add(apt.client.id);
+          }
+        });
+        return (clients || []).filter(c => clientIds.has(c.id));
+    }, [appointmentsData, clients]);
+    
+    const checkoutHubProps = {
+        cart: retailItems, 
+        onCartChange: handleCartChange,
+        appointmentsData,
+        onSelectAppointment,
+        clients: clients || [],
+        isGroupCheckout,
+        payerOptions,
+        selectedClientId,
+        setSelectedClientId,
+        onAddClientClick: () => setIsAddClientOpen(true),
+        onScanClick: () => setIsScannerOpen(true),
+        subtotal,
+        tax,
+        total,
+        tipAmount,
+        setTipAmount,
+        onCheckout: handleConfirmAndClose,
+        appliedDiscountCode,
+        setAppliedDiscountCode,
+        discount,
+        membershipDiscount,
+        showTitle: false,
+        isSubmitting,
+        paymentTab,
+        setPaymentTab,
+        discounts: discounts || [],
+        amountTendered,
+        setAmountTendered,
+        additionalCharge: checkoutSummary.additionalCharge,
+        absorbedCost: checkoutSummary.absorbedCost,
+        applyAdditionalCharges,
+        setApplyAdditionalCharges,
+        timeDifference: checkoutSummary.timeDifference,
+        timeCostDifference: checkoutSummary.timeCostDifference,
+        productDifferences: checkoutSummary.productDifferences,
+    };
+    
+    const handleStatusChangeWithConfirmation = () => {};
 
-        return (
-            <>
-                <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
-                    <AppHeader />
-                    <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                        <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                            {/* KPI Cards for Desktop */}
-                            <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                               <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
-                               <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
-                               <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
-                               <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
-                            </div>
+    const tipAllocations: Record<string, number> = {};
 
-                            {/* KPI Cards for Mobile */}
-                            <div className="md:hidden">
-                                <ScrollArea>
-                                    <div className="flex space-x-4 pb-4">
-                                        <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
-                                        <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
-                                        <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
-                                        <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
-                                    </div>
-                                    <ScrollBar orientation="horizontal" />
-                                </ScrollArea>
-                            </div>
-                            
-                            <TeamStatus 
-                                staff={enrichedOrderedStaff} 
-                                onStatusChange={handleStatusChangeWithConfirmation} 
-                                appointments={appointments} 
-                                services={services || []} 
-                                onReorder={handleStaffReorder}
-                                assignmentMode={assignmentMode}
-                                onAssignmentModeChange={setAssignmentMode}
-                            />
-                            <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
-                            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                                <TabsList className="grid w-full grid-cols-2">
-                                    <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                    <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
-                                </TabsList>
-                                <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
-                                <TabsContent value="queue" className="flex-1 mt-6">
-                                    <WalkInQueue 
-                                        walkIns={walkIns} 
-                                        appointments={inServiceAppointments} 
-                                        services={services} 
-                                        staff={staff} 
-                                        onAssignStaff={handleAssignStaff}
-                                        onAssignNext={handleAssignNext}
-                                        onCancel={handleCancelWalkIn}
-                                        onStartService={handleStartService}
-                                        orderedWaitingQueue={orderedWaitingQueue}
-                                        onReorder={handleReorder}
-                                        assignmentMode={assignmentMode}
-                                        onPrintTicket={(walkInId: string) => {
-                                            const walkIn = walkIns?.find(w => w.id === walkInId);
-                                            if (walkIn) {
-                                                setTicketToPrint({
-                                                    id: walkIn.id,
-                                                    name: walkIn.customerName,
-                                                    services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
-                                                    queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
-                                                    checkInTime: walkIn.checkInTime,
-                                                    notes: walkIn.notes,
-                                                });
-                                                setIsPrintDialogOpen(true);
-                                            }
-                                        }}
-                                        onSkip={handleSkipWalkIn}
-                                        onReturnToQueue={handleReturnToQueue}
-                                        groupSizes={new Map()}
-                                    />
-                                </TabsContent>
-                            </Tabs>
-                        </main>
-                        <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
-                             <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-bold">Current Sale</h2>
-                            </div>
-                            <CheckoutHub {...checkoutHubProps} />
-                        </aside>
-                    </div>
-                </div>
-                {isMobile && (
-                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
-                        <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                            <SheetTrigger asChild>
-                                 <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0 && appointmentsData.length === 0}>
-                                    <div className="flex justify-between items-center w-full">
-                                        <span><ShoppingCart className="inline-block mr-2" />{cart.length + appointmentsData.length} item(s)</span>
-                                        <span>${total.toFixed(2)}</span>
-                                    </div>
-                                </Button>
-                            </SheetTrigger>
-                            <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                               <SheetHeader className="p-4 border-b">
-                                   <SheetTitle>Current Sale</SheetTitle>
-                               </SheetHeader>
-                                <div className="p-4 flex-1 overflow-y-auto">
-                                    <CheckoutHub {...checkoutHubProps} />
+    return (
+        <>
+            <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+                <AppHeader />
+                <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
+                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                        {/* KPI Cards for Desktop */}
+                        <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                           <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
+                           <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
+                           <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
+                           <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
+                        </div>
+
+                        {/* KPI Cards for Mobile */}
+                        <div className="md:hidden">
+                            <ScrollArea>
+                                <div className="flex space-x-4 pb-4">
+                                    <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
                                 </div>
-                            </SheetContent>
-                        </Sheet>
-                    </div>
-                )}
-                <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
-                 {confirmation && (
-                    <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
-                        <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                )}
-                <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-                  <DialogContent className="sm:max-w-md p-0">
-                    <DialogHeader className="p-4 pb-0">
-                      <DialogTitle>Scan QR Code</DialogTitle>
-                      <DialogDescription>
-                        Position the code inside the frame to add to sale or checkout.
-                      </DialogDescription>
+                                <ScrollBar orientation="horizontal" />
+                            </ScrollArea>
+                        </div>
+                        
+                        <TeamStatus 
+                            staff={enrichedOrderedStaff} 
+                            onStatusChange={handleStatusChangeWithConfirmation} 
+                            appointments={appointments} 
+                            services={services || []} 
+                            onReorder={handleStaffReorder}
+                            assignmentMode={assignmentMode}
+                            onAssignmentModeChange={setAssignmentMode}
+                        />
+                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
+                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+                            <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
+                            <TabsContent value="queue" className="flex-1 mt-6">
+                                <WalkInQueue 
+                                    walkIns={walkIns} 
+                                    appointments={inServiceQueue} 
+                                    services={services} 
+                                    staff={staff} 
+                                    onAssignStaff={handleAssignStaff}
+                                    onAssignNext={handleAssignNext}
+                                    onCancel={handleCancelWalkIn}
+                                    onStartService={handleStartService}
+                                    orderedWaitingQueue={orderedWaitingQueue}
+                                    onReorder={handleReorder}
+                                    assignmentMode={assignmentMode}
+                                    onPrintTicket={(walkInId: string) => {
+                                        const walkIn = walkIns?.find(w => w.id === walkInId);
+                                        if (walkIn) {
+                                            setTicketToPrint({
+                                                id: walkIn.id,
+                                                name: walkIn.customerName,
+                                                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
+                                                queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
+                                                checkInTime: walkIn.checkInTime,
+                                                notes: walkIn.notes,
+                                            });
+                                            setIsPrintDialogOpen(true);
+                                        }
+                                    }}
+                                    onSkip={handleSkipWalkIn}
+                                    onReturnToQueue={handleReturnToQueue}
+                                    groupSizes={new Map()}
+                                />
+                            </TabsContent>
+                        </Tabs>
+                    </main>
+                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                         <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold">Current Sale</h2>
+                        </div>
+                        <CheckoutHub {...checkoutHubProps} />
+                    </aside>
+                </div>
+            </div>
+            {isMobile && (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
+                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                        <SheetTrigger asChild>
+                             <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0 && appointmentsData.length === 0}>
+                                <div className="flex justify-between items-center w-full">
+                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length + appointmentsData.length} item(s)</span>
+                                    <span>${total.toFixed(2)}</span>
+                                </div>
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                           <SheetHeader className="p-4 border-b">
+                               <SheetTitle>Current Sale</SheetTitle>
+                           </SheetHeader>
+                            <div className="p-4 flex-1 overflow-y-auto">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                </div>
+            )}
+            <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
+             {confirmation && (
+                <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
+                        <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            )}
+            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+              <DialogContent className="sm:max-w-md p-0">
+                <DialogHeader className="p-4 pb-0">
+                  <DialogTitle>Scan QR Code</DialogTitle>
+                  <DialogDescription>
+                    Position the code inside the frame to add to sale or checkout.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="p-4 relative">
+                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
+                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                      <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                  </div>
+                </div>
+                <DialogFooter className="p-4 pt-0">
+                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Walk-in Ticket</DialogTitle>
                     </DialogHeader>
-                    <div className="p-4 relative">
-                      <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
-                      <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                          <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-                      </div>
-                    </div>
-                    <DialogFooter className="p-4 pt-0">
-                      <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-                    <DialogContent className="max-w-sm print:hidden">
-                        <DialogHeader>
-                            <DialogTitle>Walk-in Ticket</DialogTitle>
-                        </DialogHeader>
-                        <div id="print-ticket-area">
-                            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
-                            <Button onClick={() => window.print()}>
-                                <Printer className="mr-2 h-4 w-4" />
-                                Print
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                 <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                    <DialogContent className="max-w-sm print:hidden">
-                        <DialogHeader>
-                            <DialogTitle>Print Receipt?</DialogTitle>
-                            <DialogDescription>
-                                Would you like to print a receipt for this transaction?
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div id="print-receipt-area" className="hidden print:block">
-                            {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
-                            <Button onClick={() => window.print()}>
-                                <Printer className="mr-2 h-4 w-4" />
-                                Print
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-                <div className="hidden print:block print-only">
-                    <div id="printable-ticket-pos">
+                    <div id="print-ticket-area">
                         {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                     </div>
-                    {receiptToPrint && (
-                        <div id="printable-receipt-pos">
-                            <PrintReceipt data={receiptToPrint} />
-                        </div>
-                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+             <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Print Receipt?</DialogTitle>
+                        <DialogDescription>
+                            Would you like to print a receipt for this transaction?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div id="print-receipt-area" className="hidden print:block">
+                        {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <div className="hidden print:block print-only">
+                <div id="printable-ticket-pos">
+                    {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
                 </div>
-                <style jsx global>{`
-                    @media print {
-                        body > *:not(.print-only) {
-                        display: none !important;
-                        }
-                        .print-only, .print-only * {
-                        display: block !important;
-                        visibility: visible !important;
-                        }
-                        .print-only {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        }
+                {receiptToPrint && (
+                    <div id="printable-receipt-pos">
+                        <PrintReceipt data={receiptToPrint} />
+                    </div>
+                )}
+            </div>
+            <style jsx global>{`
+                @media print {
+                    body > *:not(.print-only) {
+                    display: none !important;
                     }
-                `}</style>
-            </>
-        );
-    }
-    
-
-
-    
-
-
-    
-
-    
-
-
-
+                    .print-only, .print-only * {
+                    display: block !important;
+                    visibility: visible !important;
+                    }
+                    .print-only {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    }
+                }
+            `}</style>
+        </>
+    );
+}
 
     
-
-    
-
-
-
