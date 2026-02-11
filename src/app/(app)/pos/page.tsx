@@ -650,140 +650,6 @@ export default function POSPage() {
         });
     };
 
-    const checkoutSummary = useMemo(() => {
-        let additionalCharge = 0;
-        let timeDifference = 0;
-        let timeCostDifference = 0;
-        let productDifferences: { name: string; extraQuantity: number; cost: number; unit: string; }[] = [];
-
-        for (const data of appointmentsData) {
-            const { checkoutState, service } = data;
-
-            if (!checkoutState || !service) continue;
-            
-            const scheduledDuration = service.duration || 0;
-            const actualDuration = checkoutState.actualDuration || scheduledDuration;
-            const timeDiff = actualDuration - scheduledDuration;
-            timeDifference += timeDiff;
-
-            const tmhr = selectedTenant?.tmhr || 50;
-            const timeCostDiff = (timeDiff / 60) * tmhr;
-            if (timeCostDiff > 0) {
-                timeCostDifference += timeCostDiff;
-            }
-
-            const initialFormula = new Map(service.products?.map(p => [p.id, p]));
-            const actualFormula = new Map(checkoutState.formula?.map(p => [p.id, { id: p.id, name: p.name, quantityUsed: p.quantity, unit: p.unit }]));
-            
-            let productCostDiff = 0;
-            for (const [productId, actualItem] of actualFormula.entries()) {
-                const initialItem = initialFormula.get(productId);
-                const extraQuantity = initialItem ? actualItem.quantityUsed - initialItem.quantityUsed : actualItem.quantityUsed;
-
-                if (extraQuantity > 0) {
-                    const productInfo = inventory.find(p => p.id === productId);
-                    if (productInfo) {
-                        let costPerUse = 0;
-                        if (productInfo.costingMethod === 'size' && productInfo.size && productInfo.size > 0) {
-                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
-                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
-                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
-                        } else {
-                            costPerUse = productInfo.costPerUnit || 0;
-                        }
-                        const cost = extraQuantity * costPerUse;
-                        productCostDiff += cost;
-
-                        const existingDiff = productDifferences.find(p => p.name === productInfo.name);
-                        if(existingDiff) {
-                            existingDiff.extraQuantity += extraQuantity;
-                            existingDiff.cost += cost;
-                        } else {
-                            productDifferences.push({ name: productInfo.name, extraQuantity, cost, unit: actualItem.unit });
-                        }
-                    }
-                }
-            }
-            
-            additionalCharge += Math.max(0, timeCostDiff + productCostDiff);
-        }
-
-        const absorbedCost = applyAdditionalCharges ? 0 : additionalCharge;
-        
-        return { additionalCharge: applyAdditionalCharges ? additionalCharge : 0, absorbedCost, timeDifference, timeCostDifference, productDifferences };
-    }, [appointmentsData, inventory, selectedTenant?.tmhr, applyAdditionalCharges]);
-
-    
-    const subtotal = useMemo(() => {
-        const servicesSubtotal = appointmentsData.reduce((total, data) => {
-            const servicePrice = redeemedOffer?.id === data.service.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
-            return total + servicePrice + addOnsPrice;
-        }, 0);
-        
-        const retailSubtotal = retailItems.reduce((acc, item) => {
-            return acc + (item.quantity * (item.price || 0));
-        }, 0);
-
-        return servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
-    }, [appointmentsData, retailItems, redeemedOffer, checkoutSummary.additionalCharge]);
-    
-    const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
-
-    const retailTotalForDiscount = useMemo(() => {
-        return retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || 0));
-        }, 0);
-    }, [retailItems, inventory]);
-
-    const totalDiscount = discount + membershipDiscount;
-
-    useEffect(() => {
-        if (client && client.activeMembershipId) {
-            const membership = memberships.find(m => m.id === client.activeMembershipId);
-            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
-                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
-                setMembershipDiscount(discountValue);
-            } else {
-                setMembershipDiscount(0);
-            }
-        } else {
-            setMembershipDiscount(0);
-        }
-    }, [client, retailTotalForDiscount, memberships]);
-    
-    
-    const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    const mockTax = subtotalAfterDiscounts * 0.07;
-    const total = subtotalAfterDiscounts + mockTax + tipAmount;
-    
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-    
-     const quickTenderOptions = useMemo(() => {
-        const options = new Set<number>();
-        if (total === 0) return [];
-    
-        const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
-
-        const next5 = roundUp(total, 5);
-        if (next5 > total) options.add(next5);
-
-        const next10 = roundUp(total, 10);
-        if (next10 > total) options.add(next10);
-
-        const next20 = roundUp(total, 20);
-        if (next20 > total) options.add(next20);
-        
-        const next50 = roundUp(total, 50);
-        if (next50 > total) options.add(next50);
-        
-        const next100 = roundUp(total, 100);
-        if (next100 > total) options.add(next100);
-
-        return Array.from(options).sort((a,b) => a - b).slice(0, 3);
-    }, [total]);
-
     const handleConfirmAndClose = async () => {
         setIsSubmitting(true);
         try {
@@ -932,7 +798,7 @@ export default function POSPage() {
             }
             
             const serviceRevenue = appointmentsData.reduce((total, data) => {
-                const mainServicePrice = redeemedOffer?.id === data.service.id ? 0 : data.service.price || 0;
+                const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
                 const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
                 return total + mainServicePrice + addOnsPrice;
             }, 0);
@@ -1183,7 +1049,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1223,8 +1089,6 @@ export default function POSPage() {
 
     const tipAllocations: Record<string, number> = {};
 
-    const mockTax = 0;
-    
     return (
         <>
             <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
