@@ -514,6 +514,17 @@ function PlannerPageContent() {
     return resources || [];
   }, [activeView, staffToDisplay, resources]);
 
+  const handleCheckoutComplete = (receiptData: Omit<ReceiptData, 'business'>) => {
+    if (!selectedTenant) return;
+    const fullReceiptData: ReceiptData = {
+        ...receiptData,
+        business: {
+            name: selectedTenant.name,
+            phone: '555-123-4567'
+        }
+    };
+    setReceiptToPrint(fullReceiptData);
+  };
 
   const handleCompleteClick = (appointment: Appointment) => {
     if (appointment.status === 'completed') {
@@ -523,7 +534,8 @@ function PlannerPageContent() {
       });
       return;
     }
-    router.push(`/pos?checkout_id=${appointment.id}`);
+    setSelectedAppointment(appointment);
+    setIsCheckoutOpen(true);
   };
 
   const handleEditClick = (appointment: Appointment) => {
@@ -981,8 +993,9 @@ function PlannerPageContent() {
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment, clients, services, walkIns]);
   
-  const handlePrintReceipt = (receiptData: ReceiptData) => {
-    setReceiptToPrint(receiptData);
+  const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
+    if (!selectedTenant) return;
+    setReceiptToPrint({ ...receiptData, business: { name: selectedTenant.name, phone: '555-123-4567'}});
   };
 
   const handlePrintTicket = (ticketData: Omit<TicketData, 'business'>) => {
@@ -1350,7 +1363,7 @@ function PlannerPageContent() {
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
-                onPrintReceipt={handlePrintReceipt}
+                onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
@@ -1387,7 +1400,7 @@ function PlannerPageContent() {
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
-                onPrintReceipt={handlePrintReceipt}
+                onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
