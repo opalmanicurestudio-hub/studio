@@ -115,6 +115,9 @@ export default function POSPage() {
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [promoCode, setPromoCode] = useState('');
+    const [discount, setDiscount] = useState(0);
+    const [membershipDiscount, setMembershipDiscount] = useState(0);
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -598,7 +601,7 @@ export default function POSPage() {
         
         toast({ 
             title: "Staff Assigned", 
-            description: `${walkIn.customerName} has been assigned to ${staffMember?.name || 'a staff member'}.`
+            description: `${walkIn.customerName} has been assigned to ${staffMember?.name}.`
         });
     };
 
@@ -702,13 +705,10 @@ export default function POSPage() {
     
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
     
-    const [discount, setDiscount] = useState(0);
-    const [membershipDiscount, setMembershipDiscount] = useState(0);
-    
     const {subtotal, tax, total, checkoutSummary} = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || []).map(s => s.price || 0).reduce((a, b) => a + b, 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -721,7 +721,7 @@ export default function POSPage() {
         const { tmhr } = selectedTenant || {};
         
         const serviceAdjustments = appointmentsData.reduce((total, data) => {
-            const checkoutState = data.checkoutState;
+            const checkoutState = data.appointment.checkoutState;
             if (!checkoutState || !data.service) return total;
 
             const initialDuration = data.service.duration || 0;
@@ -793,6 +793,8 @@ export default function POSPage() {
 
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+    const grandTotal = subtotalAfterDiscounts + tax + tipAmount;
+    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
     const handleConfirmAndClose = async () => {
@@ -1023,7 +1025,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
