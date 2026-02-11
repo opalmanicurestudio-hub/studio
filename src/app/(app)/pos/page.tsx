@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -721,7 +722,7 @@ export default function POSPage() {
         const { tmhr } = selectedTenant || {};
         
         const serviceAdjustments = appointmentsData.reduce((total, data) => {
-            const checkoutState = data.appointment.checkoutState;
+            const checkoutState = data.checkoutState;
             if (!checkoutState || !data.service) return total;
 
             const initialDuration = data.service.duration || 0;
@@ -793,7 +794,8 @@ export default function POSPage() {
 
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-    const grandTotal = subtotalAfterDiscounts + tax + tipAmount;
+    const tax = subtotalAfterDiscounts * 0.07;
+    const total = subtotalAfterDiscounts + tax + tipAmount;
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
@@ -856,7 +858,14 @@ export default function POSPage() {
             
             const serviceRevenue = (currentService.price || 0) + currentAppointment.addOnServices.reduce((acc, s) => acc + s.price, 0);
 
-            batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true, revenue: serviceRevenue, appliedDiscountCode: appliedDiscountCode || '' });
+            batch.update(appointmentRef, { 
+                status: 'completed',
+                revenue: serviceRevenue,
+                discountAmount: discount / appointmentsData.length, // Distribute discount
+                appliedDiscountCode: appliedDiscountCode || '',
+                inventoryProcessed: true,
+                actualEndTime: nowISO,
+            });
             
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
@@ -968,7 +977,7 @@ export default function POSPage() {
         retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
             if (!product) return;
-            const price = item.price;
+            const price = product.msrp || 0;
             const retailTotal = item.quantity * price;
 
             if (retailTotal > 0) {
@@ -1027,7 +1036,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1432,4 +1441,5 @@ export default function POSPage() {
     
 
     
+
 
