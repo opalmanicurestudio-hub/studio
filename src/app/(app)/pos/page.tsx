@@ -702,10 +702,10 @@ export default function POSPage() {
     const retailItems = cart.filter(item => item.type === 'product');
 
     const subtotal = useMemo(() => {
-        const servicesSubtotal = appointmentsData.reduce((total, data) => {
+        const servicesTotal = appointmentsData.reduce((total, data) => {
             if (!data || !data.service) return total;
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
 
@@ -715,8 +715,8 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
         
-        return servicesSubtotal + retailSubtotal;
-      }, [appointmentsData, retailItems, redeemedOffer, inventory, services]);
+        return servicesTotal + retailSubtotal;
+      }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
@@ -759,7 +759,7 @@ export default function POSPage() {
 
         if (!clientToUse && appointmentsData.length > 0) {
             const firstAptData = appointmentsData[0];
-            const existingClient = clients?.find(c => c.email && c.email === firstAptData.appointment.clientEmail);
+            const existingClient = clients?.find(c => c.email && c.email === firstAptData.clientEmail);
             if(existingClient) {
                 clientToUse = existingClient;
             } else {
@@ -768,9 +768,9 @@ export default function POSPage() {
                 const newId = newClientRef.id;
                 const newClient: Client = {
                   id: newId,
-                  name: firstAptData.appointment.clientName || 'Walk-in Client',
-                  email: firstAptData.appointment.clientEmail || '', 
-                  phone: firstAptData.appointment.clientPhone || '',
+                  name: firstAptData.clientName || 'Walk-in Client',
+                  email: firstAptData.clientEmail || '', 
+                  phone: firstAptData.clientPhone || '',
                   avatarUrl: `https://picsum.photos/seed/${newId}/100`,
                   lifetimeValue: 0,
                   lastAppointment: new Date().toISOString(),
@@ -796,8 +796,7 @@ export default function POSPage() {
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
 
-        for (const data of appointmentsData) {
-            const { appointment: currentAppointment } = data;
+        for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             
             batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
@@ -828,7 +827,7 @@ export default function POSPage() {
         
         const serviceRevenue = appointmentsData.reduce((total, data) => {
             const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((acc, s) => acc + s.price, 0);
+            const addOnsPrice = (data.addOnIds || []).map(id => services.find(s => s.id === id)?.price || 0).reduce((a, b) => a + b, 0);
             return total + mainServicePrice + addOnsPrice;
         }, 0);
         
@@ -922,7 +921,7 @@ export default function POSPage() {
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                const addOns = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                const addOns = (d.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                 return [...mainService, ...addOns];
             }),
             ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
