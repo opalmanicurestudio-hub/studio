@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -179,12 +180,16 @@ export default function POSPage() {
             const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
             if(appointmentToSelect?.checkoutState){
                 selectedIds.add(appointmentId);
+                setSelectedAppointmentIds(new Set(selectedIds));
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('checkout_id');
+                router.replace(newUrl.toString(), { scroll: false });
             }
         }
         return Array.from(selectedIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, searchParams]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, searchParams, router]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -283,25 +288,6 @@ export default function POSPage() {
             .filter(adj => !appliedAdjustments.has(adj.id))
             .reduce((sum, adj) => sum + adj.cost, 0);
     }, [appliedAdjustments, checkoutSummary.adjustments]);
-
-    useEffect(() => {
-        const checkoutId = searchParams.get('checkout_id');
-        if (checkoutId && readyForCheckoutAppointments.length > 0) {
-            const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === checkoutId);
-      
-            if (appointmentToSelect && appointmentToSelect.checkoutState && !selectedAppointmentIds.has(checkoutId)) {
-                setSelectedAppointmentIds(new Set([checkoutId]));
-                const client = clients?.find(c => c.id === appointmentToSelect.clientId);
-                if (client) {
-                    setSelectedClientId(client.id);
-                }
-                const newUrl = new URL(window.location.href);
-                newUrl.searchParams.delete('checkout_id');
-                router.replace(newUrl.toString(), { scroll: false });
-            }
-        }
-    }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds, clients]);
-    
 
     const isGroupCheckout = appointmentsData.length > 1;
 
@@ -755,28 +741,14 @@ export default function POSPage() {
 
     const totalDiscount = discount + membershipDiscount;
 
-    const { subtotal, tax, total } = useMemo(() => {
-        const servicesSubtotal = appointmentsData.reduce((total, data) => {
-            const mainServicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || [])
-                .map(s => s.price || 0)
-                .reduce((a, b) => a + b, 0);
-            return total + mainServicePrice + addOnsPrice;
-        }, 0);
-
-        const retailSubtotal = retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            const price = product?.msrp || 0;
-            return acc + (item.quantity * price);
-        }, 0);
-
-        const sub = servicesSubtotal + retailSubtotal + additionalCharge;
+    const { tax, total } = useMemo(() => {
+        const sub = subtotal + additionalCharge;
         const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
-        return { subtotal: sub, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, additionalCharge, totalDiscount, services, inventory, redeemedOffer, tipAmount]);
+        return { tax: finalTax, total: finalGrandTotal };
+    }, [subtotal, additionalCharge, totalDiscount, tipAmount]);
 
 
     const handleConfirmAndClose = async () => {
@@ -1028,7 +1000,7 @@ export default function POSPage() {
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
                     const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                    const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                     return [...mainService, ...addOns];
                 }),
                 ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1201,7 +1173,7 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax,
+        tax: tax,
         total,
         tipAmount,
         setTipAmount,
@@ -1388,7 +1360,7 @@ export default function POSPage() {
                             Would you like to print a receipt for this transaction?
                         </DialogDescription>
                     </DialogHeader>
-                    <div id="print-receipt-area" className="hidden print:block">
+                    <div id="print-receipt-area" className="my-4 p-2 bg-white border shadow-sm">
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
                     <DialogFooter>
@@ -1430,4 +1402,3 @@ export default function POSPage() {
     );
 }
 
-    
