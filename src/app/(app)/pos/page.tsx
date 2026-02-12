@@ -815,11 +815,11 @@ export default function POSPage() {
             const nowISO = new Date().toISOString();
     
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
+                const { id: currentAppointmentId, client: currentClient, service: currentService } = data;
                 
-                if (!currentAppointment || !currentService) continue;
+                if (!currentAppointmentId || !currentService) continue;
                 
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointmentId);
 
                 const allServicesInAppointment = [currentService, ...data.addOnServices];
                 
@@ -853,13 +853,13 @@ export default function POSPage() {
                     appliedDiscountCode: appliedDiscountCode || ''
                 });
 
-                if (currentAppointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                if (data.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
         
-                if (currentAppointment.isWalkIn) {
-                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                if (data.isWalkIn) {
+                    const walkInId = currentAppointmentId.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
@@ -878,7 +878,7 @@ export default function POSPage() {
                     }
                 });
         
-                const formulaUsed = currentAppointment.checkoutState?.formula || currentService.products || [];
+                const formulaUsed = data.checkoutState?.formula || currentService.products || [];
                 formulaUsed.forEach((formulaItem: any) => {
                     const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
                     if (!product) return;
@@ -895,7 +895,7 @@ export default function POSPage() {
                         date: nowISO,
                         change: -quantityUsed,
                         unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
-                        reason: `Appointment #${currentAppointment.id} by ${staffForService?.name || 'Unknown'}`,
+                        reason: `Appointment #${currentAppointmentId} by ${staffForService?.name || 'Unknown'}`,
                     };
                     const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                     batch.set(correctionRef, correction);
@@ -1028,9 +1028,9 @@ export default function POSPage() {
               items: allCartItems,
               subtotal,
               discount: totalDiscount,
-              tax: tax,
+              tax,
               tip: tipAmount,
-              total: total,
+              total,
               payment: {
                   method: paymentTab,
                   amountTendered: paymentTab === 'cash' ? amountTendered : total,
@@ -1176,7 +1176,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart, 
-        handleCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1187,7 +1187,7 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax,
+        tax: tax,
         total,
         tipAmount,
         setTipAmount,
@@ -1367,6 +1367,12 @@ export default function POSPage() {
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
                 <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Receipt</DialogTitle>
+                        <DialogDescription>
+                            A summary of the completed transaction.
+                        </DialogDescription>
+                    </DialogHeader>
                     <div id="receipt-area" className="my-4">
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
@@ -1408,5 +1414,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
