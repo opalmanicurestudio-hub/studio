@@ -2,11 +2,11 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
-import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
+import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package } from '@/lib/data';
 import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO } from 'date-fns';
@@ -60,6 +60,11 @@ export default function BookingPage() {
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
   const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
+  
+  const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
+  const packagesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/packages`), [firestore, tenantId]);
+  const { data: memberships, isLoading: membershipsLoading } = useCollection<Membership>(membershipsQuery);
+  const { data: packages, isLoading: packagesLoading } = useCollection<Package>(packagesQuery);
   
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -236,7 +241,7 @@ export default function BookingPage() {
   };
 
 
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading || membershipsLoading || packagesLoading;
 
   if (isLoading) {
       return (
