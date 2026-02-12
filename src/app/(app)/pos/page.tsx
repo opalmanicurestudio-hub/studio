@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -330,8 +331,7 @@ export default function POSPage() {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || [])
-                .map(s => s.price || 0)
-                .reduce((a, b) => a + b, 0);
+                .reduce((a, b) => a + (b.price || 0), 0);
             return total + servicePrice + addOnsPrice;
         }, 0);
 
@@ -341,16 +341,15 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
         
-        const subtotalBeforeAdjustments = servicesTotal + retailTotal;
-        const subtotalValue = subtotalBeforeAdjustments + additionalCharge;
+        const subtotalValue = servicesTotal + retailTotal;
+        const subWithAdjustments = subtotalValue + additionalCharge;
         
-        const subtotalAfterDiscounts = subtotalValue > totalDiscount ? subtotalValue - totalDiscount : 0;
+        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
-
 
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -816,18 +815,83 @@ export default function POSPage() {
     
             const batch = writeBatch(firestore);
             const nowISO = new Date().toISOString();
+
+            const productDeductions = new Map<string, { total: number; appointmentIds: string[] }>();
+
+            // Aggregate service product deductions
+            for (const data of appointmentsData) {
+                const { appointment: currentAppointment, service: currentService } = data;
+                if (!currentAppointment || !currentService) continue;
+
+                const formulaUsed = data.checkoutState?.formula || currentService.products || [];
+                formulaUsed.forEach((formulaItem: any) => {
+                    const productId = formulaItem.id || formulaItem.productId;
+                    const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed || 0;
+
+                    if (productId && quantityUsed > 0) {
+                        const current = productDeductions.get(productId) || { total: 0, appointmentIds: [] };
+                        current.total += quantityUsed;
+                        if (!current.appointmentIds.includes(currentAppointment.id)) {
+                            current.appointmentIds.push(currentAppointment.id);
+                        }
+                        productDeductions.set(productId, current);
+                    }
+                });
+            }
+
+            // Aggregate retail item deductions from the cart
+            retailItems.forEach(item => {
+                const current = productDeductions.get(item.id) || { total: 0, appointmentIds: [] };
+                current.total += item.quantity;
+                if(appointmentsData.length > 0 && !current.appointmentIds.includes(appointmentsData[0].id)) {
+                    current.appointmentIds.push(appointmentsData[0].id);
+                }
+                productDeductions.set(item.id, current);
+            });
+            
+            // Loop through aggregated deductions and create batch updates
+            productDeductions.forEach(({ total: totalQuantityUsed, appointmentIds }, productId) => {
+                const product = inventory.find(p => p.id === productId);
+                if (!product) return;
+
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+                const reason = `Checkout for: ${clientToUse?.name || 'Customer'}. Appointments: ${appointmentIds.map(id => id.slice(-4)).join(', ')}`;
+                const correction: Omit<StockCorrection, 'id'> = {
+                    productId: productId, date: nowISO, change: -totalQuantityUsed,
+                    unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
+                    reason: reason,
+                };
+                const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                batch.set(correctionRef, correction);
+
+                if (product.costingMethod === 'uses' && product.estimatedUses) {
+                    let newStock = product.totalStock;
+                    let newPartialUses = (product.partialContainerUses || 0) - totalQuantityUsed;
+                    while (newPartialUses < 0 && newStock > 0) {
+                        newStock -= 1;
+                        newPartialUses += product.estimatedUses;
+                    }
+                    batch.update(productRef, { totalStock: newStock, partialContainerUses: Math.max(0, newPartialUses) });
+                } else if (product.costingMethod === 'size' && product.size) {
+                    let newStock = product.totalStock;
+                    let newPartialSize = (product.partialContainerSize || 0) - totalQuantityUsed;
+                    while (newPartialSize < 0 && newStock > 0) {
+                        newStock -= 1;
+                        newPartialSize += product.size;
+                    }
+                    batch.update(productRef, { totalStock: newStock, partialContainerSize: Math.max(0, newPartialSize) });
+                } else {
+                    batch.update(productRef, { totalStock: increment(-totalQuantityUsed) });
+                }
+            });
     
             for (const data of appointmentsData) {
                 const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
-                
                 if (!currentAppointment || !currentService) continue;
-                
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-    
                 const allServicesInAppointment = [currentService, ...data.addOnServices];
-                
                 const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + (redeemedOffer?.id === s.id ? 0 : s.price || 0), 0);
-
+                
                 if (redeemedOffer?.type === 'package') {
                     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUse.id);
                     const clientPackages = clientToUse.activePackages || [];
@@ -836,7 +900,7 @@ export default function POSPage() {
                     ).filter(p => p.sessionsRemaining > 0);
                     batch.update(clientRef, { activePackages: updatedPackages });
                 }
-                
+
                 const checkoutState = data.checkoutState;
                 if (!checkoutState) {
                   console.error('Checkout state not found for appointment:', data.id);
@@ -849,7 +913,7 @@ export default function POSPage() {
                     status: 'completed',
                     checkoutState: { ...checkoutState, tipAmount, tipAllocations, retailItems, absorbedCost },
                     revenue: appointmentRevenue,
-                    discountAmount: totalDiscount / appointmentsData.length, // Distribute discount
+                    discountAmount: totalDiscount / appointmentsData.length,
                     appliedDiscountCode: appliedDiscountCode || ''
                 });
 
@@ -875,55 +939,6 @@ export default function POSPage() {
                           status: 'idle',
                           lastServedTimestamp: nowISO,
                         });
-                    }
-                });
-        
-                const formulaUsed = data.checkoutState?.formula || currentService.products || [];
-                formulaUsed.forEach((formulaItem: any) => {
-                    const product = inventory.find(p => p.id === (formulaItem.id || formulaItem.productId));
-                    if (!product) return;
-        
-                    const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed;
-                    if (quantityUsed <= 0) return;
-        
-                    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-                    
-                    const staffForService = staff?.find(s => s.id === data.staffId);
-        
-                    const correction: Omit<StockCorrection, 'id'> = {
-                        productId: product.id,
-                        date: nowISO,
-                        change: -quantityUsed,
-                        unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
-                        reason: `Appointment #${currentAppointment.id} by ${staffForService?.name || 'Unknown'}`,
-                    };
-                    const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                    batch.set(correctionRef, correction);
-        
-                    if (product.costingMethod === 'uses' && product.estimatedUses) {
-                        let newStock = product.totalStock;
-                        let newPartialUses = (product.partialContainerUses || 0) - quantityUsed;
-                        while (newPartialUses < 0 && newStock > 0) {
-                            newStock--;
-                            newPartialUses += product.estimatedUses;
-                        }
-                        batch.update(productRef, {
-                            totalStock: newStock,
-                            partialContainerUses: Math.max(0, newPartialUses)
-                        });
-                    } else if (product.costingMethod === 'size' && product.size) {
-                        let newStock = product.totalStock;
-                        let newPartialSize = (product.partialContainerSize || 0) - quantityUsed;
-                        while (newPartialSize < 0 && newStock > 0) {
-                            newStock--;
-                            newPartialSize += product.size;
-                        }
-                        batch.update(productRef, {
-                            totalStock: newStock,
-                            partialContainerSize: Math.max(0, newPartialSize)
-                        });
-                    } else {
-                        batch.update(productRef, { totalStock: increment(-quantityUsed) });
                     }
                 });
             }
@@ -976,9 +991,6 @@ export default function POSPage() {
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
-                
-                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                batch.update(productRef, { totalStock: increment(-item.quantity) });
             });
             
             Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
@@ -1382,20 +1394,20 @@ export default function POSPage() {
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
                 <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Receipt</DialogTitle>
-                    <DialogDescription>A summary of the completed transaction.</DialogDescription>
-                  </DialogHeader>
-                  <div id="receipt-area" className="my-4">
-                      {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
-                  </div>
-                  <DialogFooter className="print:hidden">
-                      <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>Close</Button>
-                      <Button onClick={() => window.print()}>
-                          <Printer className="mr-2 h-4 w-4" />
-                          Print
-                      </Button>
-                  </DialogFooter>
+                    <DialogHeader>
+                        <DialogTitle>Receipt</DialogTitle>
+                        <DialogDescription>A summary of the completed transaction.</DialogDescription>
+                    </DialogHeader>
+                    <div id="receipt-area" className="my-4">
+                        {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+                    </div>
+                    <DialogFooter className="print:hidden">
+                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>Close</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
             <div className="hidden print:block print-only">
