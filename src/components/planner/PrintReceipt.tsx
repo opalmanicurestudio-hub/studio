@@ -17,6 +17,10 @@ export interface ReceiptData {
     quantity: number;
     price: number;
   }[];
+  adjustments?: {
+    description: string;
+    cost: number;
+  }[];
   subtotal: number;
   discount?: number;
   tax: number;
@@ -86,6 +90,21 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
           </div>
         ))}
       </div>
+
+      {data.adjustments && data.adjustments.length > 0 && (
+          <>
+            <Separator className="my-2 border-dashed border-black" />
+            <div className="space-y-1">
+                <p className="font-semibold">Adjustments:</p>
+                {data.adjustments.map((adj, index) => (
+                    <div key={index} className="flex justify-between pl-2 text-xs">
+                        <p className="text-gray-600">{adj.description}</p>
+                        <p className="font-mono text-gray-600">+${adj.cost.toFixed(2)}</p>
+                    </div>
+                ))}
+            </div>
+          </>
+      )}
 
       <Separator className="my-2 border-dashed border-black" />
 

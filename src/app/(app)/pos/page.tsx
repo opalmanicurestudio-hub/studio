@@ -242,7 +242,7 @@ export default function POSPage() {
                             type: 'product',
                             clientName: client.name,
                             serviceName: service.name,
-                            description: `+ ${extraQuantity.toFixed(1)}${productInfo.unit || 'unit'} ${productInfo.name}`,
+                            description: `+${extraQuantity.toFixed(1)}${productInfo.unit || 'unit'} ${productInfo.name}`,
                             cost: cost,
                         });
                     }
@@ -341,14 +341,15 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
         
-        const subtotalValue = servicesTotal + retailTotal;
-        const subWithAdjustments = subtotalValue + additionalCharge;
-        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
+        const subtotalBeforeAdjustments = servicesTotal + retailTotal;
+        const subtotalValue = subtotalBeforeAdjustments + additionalCharge;
+        
+        const subtotalAfterDiscounts = subtotalValue > totalDiscount ? subtotalValue - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
 
 
     const handleScan = useCallback((data: string) => {
@@ -817,11 +818,11 @@ export default function POSPage() {
             const nowISO = new Date().toISOString();
     
             for (const data of appointmentsData) {
-                const { id: currentAppointmentId, client: currentClient, service: currentService } = data;
+                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
                 
-                if (!currentAppointmentId || !currentService) continue;
+                if (!currentAppointment || !currentService) continue;
                 
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointmentId);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
     
                 const allServicesInAppointment = [currentService, ...data.addOnServices];
                 
@@ -836,24 +837,17 @@ export default function POSPage() {
                     batch.update(clientRef, { activePackages: updatedPackages });
                 }
                 
-                const { checkoutState: existingCheckoutState, service } = data;
-                const actualDuration = existingCheckoutState?.actualDuration ?? service?.duration ?? 0;
-                const serviceStaffOverrides = existingCheckoutState?.serviceStaffOverrides ?? {};
-
-                const checkoutState: AppointmentCheckoutState = {
-                    formula: existingCheckoutState?.formula ?? [],
-                    addOns: existingCheckoutState?.addOns ?? [],
-                    actualDuration,
-                    serviceStaffOverrides,
-                    absorbedCost,
-                    tipAmount: tipAmount / appointmentsData.length,
-                    tipAllocations,
-                    retailItems,
-                };
+                const checkoutState = data.checkoutState;
+                if (!checkoutState) {
+                  console.error('Checkout state not found for appointment:', data.id);
+                  continue;
+                }
+                const actualDuration = checkoutState.actualDuration;
+                const serviceStaffOverrides = checkoutState.serviceStaffOverrides;
                 
                 batch.update(appointmentRef, { 
                     status: 'completed',
-                    checkoutState,
+                    checkoutState: { ...checkoutState, tipAmount, tipAllocations, retailItems, absorbedCost },
                     revenue: appointmentRevenue,
                     discountAmount: totalDiscount / appointmentsData.length, // Distribute discount
                     appliedDiscountCode: appliedDiscountCode || ''
@@ -865,7 +859,7 @@ export default function POSPage() {
                 }
         
                 if (data.isWalkIn) {
-                    const walkInId = currentAppointmentId.replace('apt-walkin-', '');
+                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
@@ -901,7 +895,7 @@ export default function POSPage() {
                         date: nowISO,
                         change: -quantityUsed,
                         unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
-                        reason: `Appointment #${currentAppointmentId} by ${staffForService?.name || 'Unknown'}`,
+                        reason: `Appointment #${currentAppointment.id} by ${staffForService?.name || 'Unknown'}`,
                     };
                     const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                     batch.set(correctionRef, correction);
@@ -1017,9 +1011,16 @@ export default function POSPage() {
     
             await batch.commit();
     
+            const appliedAdjustmentItems = (checkoutSummary.adjustments || [])
+                .filter(adj => appliedAdjustments.has(adj.id))
+                .map(adj => ({
+                    description: isGroupCheckout ? `${adj.description} (${adj.clientName})` : adj.description,
+                    cost: adj.cost,
+                }));
+    
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
-                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price || 0 }] : [];
                     const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                     return [...mainService, ...addOns];
                 }),
@@ -1032,6 +1033,7 @@ export default function POSPage() {
               clientName: clientToUse!.name,
               date: new Date(),
               items: allCartItems,
+              adjustments: appliedAdjustmentItems,
               subtotal,
               discount: totalDiscount,
               tax,
