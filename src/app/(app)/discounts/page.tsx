@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit, MoreHorizontal, UserPlus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -18,6 +19,8 @@ import { nanoid } from 'nanoid';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Label } from '@/components/ui/label';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
 
 const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
     <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
@@ -49,6 +52,63 @@ const AutomationCard = ({ icon, title, description, onSetup }: { icon: React.Rea
     </Card>
 );
 
+const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discount, onEdit: (discount: Discount) => void, onDelete: (discountId: string) => void }) => {
+    const triggerText = {
+        loyalty: `Triggers after ${discount.automation?.appointmentThreshold || 'N/A'} visits.`,
+        re_engagement: `Triggers after ${discount.automation?.daysSinceLastVisit || 'N/A'} days of inactivity.`,
+        birthday: "Triggers during a client's birthday month.",
+        new_client: "Triggers for a new client's first visit.",
+        none: ""
+    };
+    
+    const Icon = {
+        loyalty: Star,
+        re_engagement: Repeat,
+        birthday: Gift,
+        new_client: UserPlus,
+        none: Star // Default icon
+    }[discount.automation?.trigger || 'none'];
+
+    const title = {
+         loyalty: 'Loyalty Program',
+        re_engagement: 'Re-engagement Offer',
+        birthday: 'Birthday Special',
+        new_client: 'New Client Offer',
+        none: 'Automated Discount'
+    }[discount.automation?.trigger || 'none'];
+
+    return (
+        <Card className="border-primary/20 bg-primary/5">
+            <CardHeader>
+                <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-4">
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                           <Icon className="w-6 h-6 text-primary" />
+                        </div>
+                        <CardTitle>{title}</CardTitle>
+                    </div>
+                    <DropdownMenu>
+                         <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4"/></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => onEdit(discount)}><Edit className="mr-2 h-4 w-4"/>Edit</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-4 w-4"/>Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                <p className="font-semibold text-lg text-primary">
+                    {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
+                </p>
+                <p className="text-sm text-muted-foreground">{triggerText[discount.automation?.trigger || 'none']}</p>
+                <p className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></p>
+            </CardContent>
+        </Card>
+    );
+}
+
 export default function DiscountsPage() {
     const { discounts, isLoading, transactions, appointments } = useInventory();
     const { firestore } = useFirebase();
@@ -69,6 +129,10 @@ export default function DiscountsPage() {
     const [isReferralEditing, setIsReferralEditing] = useState(false);
     const [tenantData, setTenantData] = useState<Partial<Tenant>>(selectedTenant || {});
     const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
+    
+    const loyaltyAutomation = useMemo(() => discounts?.find(d => d.automation?.trigger === 'loyalty'), [discounts]);
+    const reEngagementAutomation = useMemo(() => discounts?.find(d => d.automation?.trigger === 're_engagement'), [discounts]);
+    const birthdayAutomation = useMemo(() => discounts?.find(d => d.automation?.trigger === 'birthday'), [discounts]);
 
     useEffect(() => {
       if (selectedTenant) {
@@ -347,24 +411,36 @@ export default function DiscountsPage() {
                     </TabsContent>
                     <TabsContent value="automations" className="mt-6">
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            <AutomationCard 
-                                icon={<Star className="w-6 h-6 text-primary" />}
-                                title="Loyalty Program"
-                                description="Automatically reward clients after they complete a certain number of appointments."
-                                onSetup={() => handleSetupAutomation('loyalty')}
-                            />
-                            <AutomationCard 
-                                icon={<Repeat className="w-6 h-6 text-primary" />}
-                                title="Re-engagement"
-                                description="Win back clients who haven't visited in a while with a special offer."
-                                onSetup={() => handleSetupAutomation('re_engagement')}
-                            />
-                            <AutomationCard 
-                                icon={<Gift className="w-6 h-6 text-primary" />}
-                                title="Birthday Special"
-                                description="Delight clients by automatically sending them a birthday gift or discount."
-                                onSetup={() => handleSetupAutomation('birthday')}
-                            />
+                            {loyaltyAutomation ? (
+                                <ActiveAutomationCard discount={loyaltyAutomation} onEdit={handleEdit} onDelete={handleDelete} />
+                            ) : (
+                                <AutomationCard 
+                                    icon={<Star className="w-6 h-6 text-primary" />}
+                                    title="Loyalty Program"
+                                    description="Automatically reward clients after they complete a certain number of appointments."
+                                    onSetup={() => handleSetupAutomation('loyalty')}
+                                />
+                            )}
+                            {reEngagementAutomation ? (
+                                <ActiveAutomationCard discount={reEngagementAutomation} onEdit={handleEdit} onDelete={handleDelete} />
+                            ) : (
+                                <AutomationCard 
+                                    icon={<Repeat className="w-6 h-6 text-primary" />}
+                                    title="Re-engagement"
+                                    description="Win back clients who haven't visited in a while with a special offer."
+                                    onSetup={() => handleSetupAutomation('re_engagement')}
+                                />
+                            )}
+                            {birthdayAutomation ? (
+                                <ActiveAutomationCard discount={birthdayAutomation} onEdit={handleEdit} onDelete={handleDelete} />
+                            ) : (
+                                <AutomationCard 
+                                    icon={<Gift className="w-6 h-6 text-primary" />}
+                                    title="Birthday Special"
+                                    description="Delight clients by automatically sending them a birthday gift or discount."
+                                    onSetup={() => handleSetupAutomation('birthday')}
+                                />
+                            )}
                         </div>
                     </TabsContent>
                      <TabsContent value="referrals" className="mt-6">
@@ -420,3 +496,5 @@ export default function DiscountsPage() {
     )
 
     
+
+}
