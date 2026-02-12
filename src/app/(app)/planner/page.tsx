@@ -903,7 +903,7 @@ function PlannerPageContent() {
         const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
         updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
     }
-
+    
     toast({
         title: "Status Updated",
         description: `Appointment status changed to ${status}.`
@@ -1344,7 +1344,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1381,7 +1381,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
