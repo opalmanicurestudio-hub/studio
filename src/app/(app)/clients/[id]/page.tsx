@@ -49,8 +49,9 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
+import { Progress } from '@/components/ui/progress';
 
 
 type ClientPhoto = {
@@ -166,6 +167,77 @@ const AppointmentHistoryCard = ({
   );
 };
 
+const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client; appointments: any[]; discounts: Discount[] }) => {
+    const loyaltyDiscount = useMemo(() => {
+        return discounts.find(d => d.automation?.trigger === 'loyalty' && d.isActive);
+    }, [discounts]);
+
+    if (!loyaltyDiscount) {
+        return (
+            <Card>
+                <CardHeader><CardTitle>Loyalty Program</CardTitle></CardHeader>
+                <CardContent>
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                        No active loyalty program found.
+                    </p>
+                </CardContent>
+            </Card>
+        )
+    }
+
+    const threshold = loyaltyDiscount.automation?.appointmentThreshold || 5;
+    const completedAppointmentsCount = appointments.filter(apt => apt.status === 'completed').length;
+    const progress = (completedAppointmentsCount % threshold) / threshold * 100;
+    const visitsRemaining = threshold - (completedAppointmentsCount % threshold);
+    
+    const rewardValue = loyaltyDiscount.type === 'percentage' 
+        ? `${loyaltyDiscount.value}% off` 
+        : `$${loyaltyDiscount.value.toFixed(2)} off`;
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Award className="w-5 h-5 text-primary" /> Loyalty Status</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="text-center">
+                    {visitsRemaining === threshold && completedAppointmentsCount > 0 && (
+                        <p>Reward earned on last visit!</p>
+                    )
+                    }
+                    {visitsRemaining === threshold && completedAppointmentsCount === 0 && (
+                         <p>Their next visit is their first towards a reward!</p>
+                    )
+                    }
+                    {visitsRemaining === 1 && (
+                        <p>Just <span className="font-bold text-primary text-lg">1</span> more visit until the next reward!</p>
+                    )
+                    }
+                    {visitsRemaining > 1 && (
+                         <p><span className="font-bold text-primary text-lg">{visitsRemaining}</span> more visits until the next reward!</p>
+                    )}
+                </div>
+                <Progress value={progress} />
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-muted-foreground">Completed Visits (cycle)</span>
+                        <span className="font-medium">{(completedAppointmentsCount % threshold)} / {threshold}</span>
+                    </div>
+                     <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Lifetime Visits</span>
+                        <span className="font-medium">{completedAppointmentsCount}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t">
+                        <span className="font-semibold">Next Reward</span>
+                        <span className="font-bold text-primary">{rewardValue}</span>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
+
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const { id: clientId } = params;
@@ -229,6 +301,12 @@ export default function ClientDetailPage() {
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
   
+  const discountsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/discounts`);
+  }, [firestore, tenantId]);
+  const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(discountsQuery);
+
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
@@ -284,7 +362,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
+  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || discountsLoading;
 
   if (isLoading) {
       return (
@@ -662,6 +740,7 @@ export default function ClientDetailPage() {
                                       <Button disabled={!client.outstandingBalance || client.outstandingBalance === 0}>Settle Balance in POS</Button>
                                   </CardFooter>
                               </Card>
+                               <LoyaltyStatusCard client={client} appointments={pastAppointments} discounts={discounts || []} />
                               <Card>
                                 <Tabs defaultValue="formulas" className="w-full">
                                     <TabsList className="grid w-full grid-cols-2">
@@ -962,6 +1041,7 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
 
 
 
