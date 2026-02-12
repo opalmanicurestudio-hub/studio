@@ -741,14 +741,29 @@ export default function POSPage() {
 
     const totalDiscount = discount + membershipDiscount;
 
-    const { tax, total } = useMemo(() => {
-        const sub = subtotal + additionalCharge;
-        const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
+    const { subtotal, tax, total } = useMemo(() => {
+        const servicesTotal = appointmentsData.reduce((total, data) => {
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.appointment.addOnIds || [])
+                .map(id => services.find(s => s.id === id)?.price || 0)
+                .reduce((a, b) => a + b, 0);
+            return total + servicePrice + addOnsPrice;
+        }, 0);
+
+        const retailTotal = retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            const price = product?.msrp || 0;
+            return acc + (item.quantity * price);
+        }, 0);
+        
+        const subtotalValue = servicesTotal + retailTotal;
+        const subWithAdjustments = subtotalValue + additionalCharge;
+        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
-        return { tax: finalTax, total: finalGrandTotal };
-    }, [subtotal, additionalCharge, totalDiscount, tipAmount]);
+        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
 
 
     const handleConfirmAndClose = async () => {
@@ -958,7 +973,7 @@ export default function POSPage() {
                         paymentMethod: paymentTab,
                         hasReceipt: true,
                         staffId: appointmentsData[0].staff?.id,
-                        appointmentId: appointmentsData[0].appointment.id,
+                        appointmentId: appointmentsData[0].id,
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
@@ -1162,7 +1177,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1172,7 +1187,6 @@ export default function POSPage() {
         setSelectedClientId,
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
-        subtotal,
         tax: tax,
         total,
         tipAmount,
@@ -1281,7 +1295,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} />
+                        <CheckoutHub {...checkoutHubProps} subtotal={subtotal} />
                     </aside>
                 </div>
             </div>
@@ -1301,7 +1315,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} />
+                                <CheckoutHub {...checkoutHubProps} subtotal={subtotal} />
                             </div>
                         </SheetContent>
                     </Sheet>
@@ -1353,17 +1367,17 @@ export default function POSPage() {
                 </DialogContent>
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
-                    <DialogHeader>
+                <DialogContent className="max-w-sm print-content">
+                    <DialogHeader className="print:hidden">
                         <DialogTitle>Print Receipt?</DialogTitle>
                         <DialogDescription>
                             Would you like to print a receipt for this transaction?
                         </DialogDescription>
                     </DialogHeader>
-                    <div id="print-receipt-area" className="my-4 p-2 bg-white border shadow-sm">
+                    <div id="receipt-area" className="my-4">
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="print:hidden">
                         <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>No, Thanks</Button>
                         <Button onClick={() => window.print()}>
                             <Printer className="mr-2 h-4 w-4" />
