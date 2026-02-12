@@ -20,6 +20,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Switch } from '../ui/switch';
+import { Checkbox } from '../ui/checkbox';
 
 
 export const CheckoutHub = ({ 
@@ -51,13 +52,10 @@ export const CheckoutHub = ({
     discounts,
     amountTendered,
     setAmountTendered,
-    additionalCharge,
+    adjustments,
+    appliedAdjustments,
+    onApplyAdjustmentToggle,
     absorbedCost,
-    applyAdditionalCharges,
-    setApplyAdditionalCharges,
-    timeDifference,
-    timeCostDifference,
-    productDifferences,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -87,13 +85,10 @@ export const CheckoutHub = ({
     discounts: Discount[];
     amountTendered: number;
     setAmountTendered: (amount: number) => void;
-    additionalCharge: number;
+    adjustments: { id: string; clientName: string; serviceName: string; description: string; cost: number; }[];
+    appliedAdjustments: Set<string>;
+    onApplyAdjustmentToggle: (adjustmentId: string, apply: boolean) => void;
     absorbedCost: number;
-    applyAdditionalCharges: boolean;
-    setApplyAdditionalCharges: (apply: boolean) => void;
-    timeDifference: number;
-    timeCostDifference: number;
-    productDifferences: { serviceName: string; name: string; extraQuantity: number; cost: number; unit: string; }[];
 }) => {
     
     const [promoCode, setPromoCode] = useState('');
@@ -244,43 +239,39 @@ export const CheckoutHub = ({
                 )}
             </ScrollArea>
             
-            {additionalCharge > 0 && (
+            {(adjustments && adjustments.length > 0) && (
                 <div className="my-4 space-y-2">
                     <Card className="bg-amber-500/10 border-amber-500/20">
                         <CardHeader className="p-3">
-                            <div className="flex justify-between items-center">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                                    Service Adjustments
-                                </CardTitle>
-                                <Switch
-                                    checked={applyAdditionalCharges}
-                                    onCheckedChange={setApplyAdditionalCharges}
-                                />
-                            </div>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                Service Adjustments
+                            </CardTitle>
+                            <CardDescription className="text-xs">Review and apply additional charges for extra time or products used.</CardDescription>
                         </CardHeader>
-                        <CardContent className="p-3 pt-0 text-xs text-muted-foreground space-y-1">
-                            {timeDifference > 0 && (
-                                <div className="flex justify-between items-center">
-                                    <span>+ {timeDifference} min extra time</span>
-                                    <span className="font-mono font-medium text-foreground">${timeCostDifference.toFixed(2)}</span>
-                                </div>
-                            )}
-                            {productDifferences.map((p, i) => (
-                                <div key={i} className="flex justify-between items-start">
-                                    <div>
-                                        <span>+ {p.extraQuantity.toFixed(1)}{p.unit} {p.name}</span>
-                                        <p className="text-[10px] text-muted-foreground">for {p.serviceName}</p>
+                        <CardContent className="p-3 pt-0 space-y-2">
+                            {adjustments.map(adj => (
+                                <div key={adj.id} className="flex items-start gap-3 p-2 rounded-md bg-background/50">
+                                    <Checkbox 
+                                        id={`adj-${adj.id}`}
+                                        checked={appliedAdjustments.has(adj.id)}
+                                        onCheckedChange={(checked) => onApplyAdjustmentToggle(adj.id, !!checked)}
+                                        className="mt-1"
+                                    />
+                                    <div className="flex-1 space-y-0.5">
+                                        <Label htmlFor={`adj-${adj.id}`} className="text-sm font-medium leading-tight">
+                                            {adj.description}
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">{adj.clientName} &middot; {adj.serviceName}</p>
                                     </div>
-                                    <span className="font-mono font-medium text-foreground">${p.cost.toFixed(2)}</span>
+                                    <p className="font-mono text-sm font-semibold">${adj.cost.toFixed(2)}</p>
                                 </div>
                             ))}
-                            <Separator className="my-1" />
-                            <div className="flex justify-between items-center font-semibold text-foreground">
-                                <span>Total Adjustment</span>
-                                <span>${additionalCharge.toFixed(2)}</span>
-                            </div>
-                             {!applyAdditionalCharges && <p className="text-amber-600 dark:text-amber-400 text-center pt-2">This ${absorbedCost.toFixed(2)} cost will be absorbed by the business.</p>}
+                            {absorbedCost > 0 && (
+                                <p className="text-amber-600 dark:text-amber-400 text-center pt-2 text-xs">
+                                    An unselected cost of ${absorbedCost.toFixed(2)} will be absorbed by the business.
+                                </p>
+                            )}
                         </CardContent>
                     </Card>
                 </div>
@@ -425,3 +416,4 @@ export const CheckoutHub = ({
         </div>
     );
 };
+

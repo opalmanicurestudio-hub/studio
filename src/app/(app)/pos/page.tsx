@@ -103,8 +103,7 @@ export default function POSPage() {
     const [tipAmount, setTipAmount] = useState(0);
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState(0);
-    const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
-
+    
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
     
@@ -179,6 +178,104 @@ export default function POSPage() {
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const checkoutSummary = useMemo(() => {
+        if (appointmentsData.length === 0) {
+            return { adjustments: [] };
+        }
+    
+        const adjustments: { id: string; type: 'time' | 'product'; clientName: string; serviceName: string; description: string; cost: number; }[] = [];
+    
+        for (const data of appointmentsData) {
+            const { checkoutState, service, client } = data;
+            if (!checkoutState || !service || !client) continue;
+            
+            const scheduledDuration = service.duration || 0;
+            const timeDifference = (checkoutState.actualDuration || 0) - scheduledDuration;
+            
+            if (timeDifference > 0) {
+                const timeCost = (timeDifference / 60) * (selectedTenant?.tmhr || 50);
+                adjustments.push({
+                    id: `time-${data.id}`,
+                    type: 'time',
+                    clientName: client.name,
+                    serviceName: service.name,
+                    description: `${timeDifference} min extra time`,
+                    cost: timeCost,
+                });
+            }
+    
+            const baseProducts = new Map(service.products?.map(p => [p.id, p.quantityUsed]) || []);
+            const actualProducts = new Map(checkoutState.formula?.map(p => [p.id, p.quantity]) || []);
+            const allProductIds = new Set([...baseProducts.keys(), ...actualProducts.keys()]);
+            
+            allProductIds.forEach(id => {
+                const baseQty = baseProducts.get(id) || 0;
+                const actualQty = actualProducts.get(id) || 0;
+                const extraQuantity = actualQty - baseQty;
+    
+                if (extraQuantity > 0) {
+                    const productInfo = inventory.find(p => p.id === id);
+                    if (productInfo) {
+                        let costPerUse = 0;
+                         if (productInfo.costingMethod === 'size' && productInfo.size && productInfo.size > 0) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
+                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
+                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
+                        } else {
+                            costPerUse = productInfo.costPerUnit || 0;
+                        }
+                        const cost = extraQuantity * costPerUse;
+                        adjustments.push({
+                            id: `product-${data.id}-${id}`,
+                            type: 'product',
+                            clientName: client.name,
+                            serviceName: service.name,
+                            description: `+ ${extraQuantity.toFixed(1)}${productInfo.unit || 'unit'} ${productInfo.name}`,
+                            cost: cost,
+                        });
+                    }
+                }
+            });
+        }
+    
+        return { adjustments };
+    
+      }, [appointmentsData, services, inventory, selectedTenant?.tmhr]);
+
+    const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+    
+    useEffect(() => {
+        if (checkoutSummary.adjustments) {
+            setAppliedAdjustments(new Set(checkoutSummary.adjustments.map(adj => adj.id)));
+        }
+    }, [checkoutSummary.adjustments]);
+
+    const handleAdjustmentToggle = (adjustmentId: string, apply: boolean) => {
+        setAppliedAdjustments(prev => {
+            const newSet = new Set(prev);
+            if (apply) {
+                newSet.add(adjustmentId);
+            } else {
+                newSet.delete(adjustmentId);
+            }
+            return newSet;
+        });
+    };
+
+    const additionalCharge = useMemo(() => {
+        if (!checkoutSummary.adjustments) return 0;
+        return checkoutSummary.adjustments
+            .filter(adj => appliedAdjustments.has(adj.id))
+            .reduce((sum, adj) => sum + adj.cost, 0);
+    }, [appliedAdjustments, checkoutSummary.adjustments]);
+
+    const absorbedCost = useMemo(() => {
+        if (!checkoutSummary.adjustments) return 0;
+        return checkoutSummary.adjustments
+            .filter(adj => !appliedAdjustments.has(adj.id))
+            .reduce((sum, adj) => sum + adj.cost, 0);
+    }, [appliedAdjustments, checkoutSummary.adjustments]);
 
     useEffect(() => {
         const checkoutId = searchParams.get('checkout_id');
@@ -649,72 +746,6 @@ export default function POSPage() {
         });
     };
 
-    const checkoutSummary = useMemo(() => {
-        if (appointmentsData.length === 0) {
-            return { additionalCharge: 0, absorbedCost: 0, timeDifference: 0, timeCostDifference: 0, productDifferences: [] };
-        }
-
-        let totalAdditionalCharge = 0;
-        let totalAbsorbedCost = 0;
-        let totalTimeDifference = 0;
-        let totalTimeCostDifference = 0;
-        const allProductDifferences: { serviceName: string; name: string; extraQuantity: number; cost: number; unit: string }[] = [];
-
-        for (const data of appointmentsData) {
-            const { checkoutState, service } = data;
-            if (!checkoutState || !service) continue;
-            
-            const scheduledDuration = service.duration || 0;
-            const timeDifference = (checkoutState.actualDuration || 0) - scheduledDuration;
-            totalTimeDifference += timeDifference;
-
-            if (timeDifference > 0) {
-                const timeCost = (timeDifference / 60) * (selectedTenant?.tmhr || 50);
-                totalTimeCostDifference += timeCost;
-                totalAdditionalCharge += timeCost;
-            }
-
-            const baseProducts = new Map(service.products?.map(p => [p.id, p.quantityUsed]) || []);
-            const actualProducts = new Map(checkoutState.formula?.map(p => [p.id, p.quantity]) || []);
-            const allProductIds = new Set([...baseProducts.keys(), ...actualProducts.keys()]);
-            
-            allProductIds.forEach(id => {
-                const baseQty = baseProducts.get(id) || 0;
-                const actualQty = actualProducts.get(id) || 0;
-                const extraQuantity = actualQty - baseQty;
-
-                if (extraQuantity > 0) {
-                    const productInfo = inventory.find(p => p.id === id);
-                    if (productInfo) {
-                        let costPerUse = 0;
-                         if (productInfo.costingMethod === 'size' && productInfo.size && productInfo.size > 0) {
-                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.size;
-                        } else if (productInfo.costingMethod === 'uses' && productInfo.estimatedUses && productInfo.estimatedUses > 0) {
-                            costPerUse = (productInfo.costPerUnit || 0) / productInfo.estimatedUses;
-                        } else {
-                            costPerUse = productInfo.costPerUnit || 0;
-                        }
-                        const cost = extraQuantity * costPerUse;
-                        totalAdditionalCharge += cost;
-                        allProductDifferences.push({ serviceName: service.name, name: productInfo.name, extraQuantity, cost, unit: productInfo.unit || 'unit' });
-                    }
-                }
-            });
-        }
-        
-        if (!applyAdditionalCharges) {
-            totalAbsorbedCost = totalAdditionalCharge;
-        }
-
-        return { 
-            additionalCharge: applyAdditionalCharges ? totalAdditionalCharge : 0, 
-            absorbedCost: totalAbsorbedCost,
-            timeDifference: totalTimeDifference,
-            timeCostDifference: totalTimeCostDifference,
-            productDifferences: allProductDifferences,
-        };
-    }, [appointmentsData, services, inventory, selectedTenant?.tmhr, applyAdditionalCharges]);
-
     const totalDiscount = discount + membershipDiscount;
 
     const { subtotal, tax, total } = useMemo(() => {
@@ -732,13 +763,13 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
 
-        const sub = servicesSubtotal + retailSubtotal + checkoutSummary.additionalCharge;
+        const sub = servicesSubtotal + retailSubtotal + additionalCharge;
         const subtotalAfterDiscounts = sub > totalDiscount ? sub - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: sub, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, checkoutSummary.additionalCharge, totalDiscount, services, inventory, redeemedOffer, tipAmount]);
+    }, [appointmentsData, retailItems, additionalCharge, totalDiscount, services, inventory, redeemedOffer, tipAmount]);
 
 
     const handleConfirmAndClose = async () => {
@@ -908,11 +939,11 @@ export default function POSPage() {
             
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUse.id);
             batch.update(clientDocRef, {
-                lifetimeValue: increment(subtotal + checkoutSummary.additionalCharge),
+                lifetimeValue: increment(subtotal + additionalCharge),
                 lastAppointment: nowISO
             });
             
-            if (subtotal + checkoutSummary.additionalCharge > 0) {
+            if (subtotal + additionalCharge > 0) {
                 const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
                     date: nowISO,
                     description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
@@ -921,7 +952,7 @@ export default function POSPage() {
                     type: 'income' as const,
                     context: 'Business' as const,
                     category: 'Service Revenue',
-                    amount: subtotal + checkoutSummary.additionalCharge,
+                    amount: subtotal + additionalCharge,
                     paymentMethod: paymentTab,
                     hasReceipt: true,
                     staffId: appointmentsData[0]?.staff?.id,
@@ -1154,7 +1185,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        handleCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1181,13 +1212,10 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        additionalCharge: checkoutSummary.additionalCharge,
-        absorbedCost: checkoutSummary.absorbedCost,
-        applyAdditionalCharges,
-        setApplyAdditionalCharges,
-        timeDifference: checkoutSummary.timeDifference,
-        timeCostDifference: checkoutSummary.timeCostDifference,
-        productDifferences: checkoutSummary.productDifferences,
+        adjustments: checkoutSummary.adjustments,
+        appliedAdjustments,
+        onApplyAdjustmentToggle: handleAdjustmentToggle,
+        absorbedCost,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
