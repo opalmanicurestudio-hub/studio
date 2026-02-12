@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -329,7 +330,7 @@ export default function POSPage() {
     const { subtotal, tax, total } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + s.price, 0);
+            const addOnsPrice = (data.addOnServices || []).reduce((sum, s) => sum + s.price, 0);
             return total + servicePrice + addOnsPrice;
         }, 0);
 
@@ -820,7 +821,7 @@ export default function POSPage() {
                 if (!currentAppointmentId || !currentService) continue;
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointmentId);
-
+    
                 const allServicesInAppointment = [currentService, ...data.addOnServices];
                 
                 const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + (redeemedOffer?.id === s.id ? 0 : s.price || 0), 0);
@@ -834,15 +835,19 @@ export default function POSPage() {
                     batch.update(clientRef, { activePackages: updatedPackages });
                 }
                 
+                const { checkoutState: existingCheckoutState, service } = data;
+                const actualDuration = existingCheckoutState?.actualDuration ?? service?.duration ?? 0;
+                const serviceStaffOverrides = existingCheckoutState?.serviceStaffOverrides ?? {};
+
                 const checkoutState: AppointmentCheckoutState = {
-                    formula: [],
-                    addOns: [],
-                    actualDuration,
-                    serviceStaffOverrides,
+                    formula: existingCheckoutState?.formula ?? [],
+                    addOns: existingCheckoutState?.addOns ?? [],
+                    actualDuration: actualDuration,
+                    serviceStaffOverrides: serviceStaffOverrides,
                     absorbedCost,
                     tipAmount: tipAmount / appointmentsData.length,
                     tipAllocations,
-                    retailItems
+                    retailItems,
                 };
                 
                 batch.update(appointmentRef, { 
@@ -943,7 +948,7 @@ export default function POSPage() {
                     type: 'income' as const,
                     context: 'Business' as const,
                     category: 'Service Revenue',
-                    amount: subtotal + additionalCharge,
+                    amount: subtotal + additionalCharge - retailItems.reduce((acc, item) => acc + (item.quantity * (inventory.find(p => p.id === item.id)?.msrp || 0)), 0),
                     paymentMethod: paymentTab,
                     hasReceipt: true,
                     staffId: appointmentsData[0]?.staff?.id,
@@ -972,7 +977,7 @@ export default function POSPage() {
                         paymentMethod: paymentTab,
                         hasReceipt: true,
                         staffId: appointmentsData[0].staff?.id,
-                        appointmentId: appointmentsData[0].id,
+                        appointmentId: appointmentsData.length > 0 ? appointmentsData[0].id : undefined,
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
@@ -1260,7 +1265,7 @@ export default function POSPage() {
                             <TabsContent value="queue" className="flex-1 mt-6">
                                 <WalkInQueue 
                                     walkIns={walkIns} 
-                                    appointments={inServiceQueue} 
+                                    appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={handleAssignStaff}
@@ -1367,22 +1372,20 @@ export default function POSPage() {
             </Dialog>
              <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
                 <DialogContent className="max-w-sm">
-                    <DialogHeader>
-                        <DialogTitle>Receipt</DialogTitle>
-                        <DialogDescription>
-                            A summary of the completed transaction.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div id="receipt-area" className="my-4">
-                        {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
-                    </div>
-                    <DialogFooter className="print:hidden">
-                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>Close</Button>
-                        <Button onClick={() => window.print()}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Print
-                        </Button>
-                    </DialogFooter>
+                  <DialogHeader>
+                    <DialogTitle>Receipt</DialogTitle>
+                    <DialogDescription>A summary of the completed transaction.</DialogDescription>
+                  </DialogHeader>
+                  <div id="receipt-area" className="my-4">
+                      {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+                  </div>
+                  <DialogFooter className="print:hidden">
+                      <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>Close</Button>
+                      <Button onClick={() => window.print()}>
+                          <Printer className="mr-2 h-4 w-4" />
+                          Print
+                      </Button>
+                  </DialogFooter>
                 </DialogContent>
             </Dialog>
             <div className="hidden print:block print-only">
