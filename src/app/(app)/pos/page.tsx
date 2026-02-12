@@ -330,7 +330,7 @@ export default function POSPage() {
     const { subtotal, tax, total } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || []).reduce((sum, s) => sum + s.price, 0);
+            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + s.price, 0);
             return total + servicePrice + addOnsPrice;
         }, 0);
 
@@ -842,8 +842,8 @@ export default function POSPage() {
                 const checkoutState: AppointmentCheckoutState = {
                     formula: existingCheckoutState?.formula ?? [],
                     addOns: existingCheckoutState?.addOns ?? [],
-                    actualDuration: actualDuration,
-                    serviceStaffOverrides: serviceStaffOverrides,
+                    actualDuration,
+                    serviceStaffOverrides,
                     absorbedCost,
                     tipAmount: tipAmount / appointmentsData.length,
                     tipAllocations,
@@ -940,7 +940,7 @@ export default function POSPage() {
             });
             
             if (subtotal + additionalCharge > 0) {
-                const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
+                const serviceTransaction: Omit<Transaction, 'id'|'date'> = {
                     date: nowISO,
                     description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
                     clientOrVendor: clientToUse.name,
@@ -962,7 +962,7 @@ export default function POSPage() {
             retailItems.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) return;
-                const price = product.msrp || 0;
+                const price = product.msrp || product.costPerUnit || 0;
                 const retailTotal = item.quantity * price;
     
                 if (retailTotal > 0) {
@@ -1180,7 +1180,7 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart, 
+        cart: retailItems, 
         onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
@@ -1192,7 +1192,7 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax: tax,
+        tax,
         total,
         tipAmount,
         setTipAmount,
@@ -1218,6 +1218,13 @@ export default function POSPage() {
 
     const tipAllocations: Record<string, number> = {};
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+    const allServicesInCart = useMemo(() => {
+        return appointmentsData.flatMap(data => {
+            const main = data.service ? [data.service] : [];
+            const addons = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+            return [...main, ...addons];
+        });
+      }, [appointmentsData, services]);
 
     return (
         <>
@@ -1265,7 +1272,7 @@ export default function POSPage() {
                             <TabsContent value="queue" className="flex-1 mt-6">
                                 <WalkInQueue 
                                     walkIns={walkIns} 
-                                    appointments={inServiceAppointments} 
+                                    appointments={inServiceQueue} 
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={handleAssignStaff}
