@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -325,16 +324,13 @@ export default function POSPage() {
         });
     }, []);
 
+    const totalDiscount = discount + membershipDiscount;
+    
     const { subtotal, tax, total } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnServicesPrice = 0;
-            
-            if (data && data.addOnServices) {
-                data.addOnServices.reduce((sum, s) => sum + s.price, 0)
-            }
-            
-            return total + servicePrice + addOnServicesPrice;
+            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + s.price, 0);
+            return total + servicePrice + addOnsPrice;
         }, 0);
 
         const retailTotal = retailItems.reduce((acc, item) => {
@@ -345,13 +341,12 @@ export default function POSPage() {
         
         const subtotalValue = servicesTotal + retailTotal;
         const subWithAdjustments = subtotalValue + additionalCharge;
-        const totalDiscount = discount + membershipDiscount;
         const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount]);
+    }, [appointmentsData, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
 
 
     const handleScan = useCallback((data: string) => {
@@ -549,7 +544,7 @@ export default function POSPage() {
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
@@ -768,8 +763,6 @@ export default function POSPage() {
         });
     };
 
-    const totalDiscount = discount + membershipDiscount;
-
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
     const handleConfirmAndClose = async () => {
@@ -828,7 +821,7 @@ export default function POSPage() {
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-                const allServicesInAppointment = [currentService, ...selectedAddOns.filter(a => currentAppointment.addOnIds?.includes(a.id))];
+                const allServicesInAppointment = [currentService, ...data.addOnServices];
                 
                 const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + (redeemedOffer?.id === s.id ? 0 : s.price || 0), 0);
 
@@ -842,8 +835,8 @@ export default function POSPage() {
                 }
                 
                 const checkoutState: AppointmentCheckoutState = {
-                    formula: editableFormula,
-                    addOns: selectedAddOns,
+                    formula: [],
+                    addOns: [],
                     actualDuration,
                     serviceStaffOverrides,
                     absorbedCost,
@@ -1021,7 +1014,7 @@ export default function POSPage() {
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
                     const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
                     return [...mainService, ...addOns];
                 }),
                 ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1182,7 +1175,7 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart: retailItems, 
+        cart, 
         handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
@@ -1193,7 +1186,8 @@ export default function POSPage() {
         setSelectedClientId,
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
-        tax: tax,
+        subtotal,
+        tax,
         total,
         tipAmount,
         setTipAmount,
@@ -1300,7 +1294,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} subtotal={subtotal} />
+                        <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
             </div>
@@ -1320,7 +1314,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} subtotal={subtotal} />
+                                <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
                     </Sheet>
@@ -1414,6 +1408,5 @@ export default function POSPage() {
         </>
     );
 }
-
 
     
