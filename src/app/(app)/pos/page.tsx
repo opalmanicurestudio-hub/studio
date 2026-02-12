@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -325,7 +324,6 @@ export default function POSPage() {
         });
     }, []);
 
-    const totalDiscount = discount + membershipDiscount;
     
     const { subtotal, tax, total } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
@@ -347,7 +345,7 @@ export default function POSPage() {
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
+    }, [appointmentsData, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount]);
 
 
     const handleScan = useCallback((data: string) => {
@@ -1019,7 +1017,7 @@ export default function POSPage() {
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
                     const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+                    const addOns = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                     return [...mainService, ...addOns];
                 }),
                 ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1221,10 +1219,10 @@ export default function POSPage() {
     const allServicesInCart = useMemo(() => {
         return appointmentsData.flatMap(data => {
             const main = data.service ? [data.service] : [];
-            const addons = (data.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+            const addons = data.addOnServices || [];
             return [...main, ...addons];
         });
-      }, [appointmentsData, services]);
+      }, [appointmentsData]);
 
     return (
         <>
@@ -1424,3 +1422,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
