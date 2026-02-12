@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -174,10 +173,18 @@ export default function POSPage() {
     }, [appointments, clients, services, staff, walkIns]);
     
     const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
+        const appointmentId = searchParams.get('checkout_id');
+        const selectedIds = new Set(selectedAppointmentIds);
+        if (appointmentId && !selectedIds.has(appointmentId)) {
+            const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+            if(appointmentToSelect?.checkoutState){
+                selectedIds.add(appointmentId);
+            }
+        }
+        return Array.from(selectedIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, searchParams]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -527,7 +534,7 @@ export default function POSPage() {
     const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
@@ -822,17 +829,15 @@ export default function POSPage() {
             const nowISO = new Date().toISOString();
     
             for (const data of appointmentsData) {
-                const { service: currentService, appointment: currentAppointment, addOnServices: currentAddOns } = data;
+                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
                 
                 if (!currentAppointment || !currentService) continue;
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
 
-                const allServicesInAppointment = [currentService, ...currentAddOns];
+                const allServicesInAppointment = [currentService, ...selectedAddOns.filter(a => currentAppointment.addOnIds?.includes(a.id))];
                 
-                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => {
-                    return acc + (s.id === redeemedOffer?.id ? 0 : s.price || 0);
-                }, 0);
+                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + (s.id === redeemedOffer?.id ? 0 : s.price || 0), 0);
 
                 if (redeemedOffer?.type === 'package') {
                     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUse.id);
@@ -956,7 +961,7 @@ export default function POSPage() {
                     paymentMethod: paymentTab,
                     hasReceipt: true,
                     staffId: appointmentsData[0]?.staff?.id,
-                    appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
+                    appointmentId: appointmentsData.map(a => a.id).join(', '),
                     tipAmount: 0,
                     ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: totalDiscount }),
                 };
@@ -1004,7 +1009,7 @@ export default function POSPage() {
                         hasReceipt: true,
                         staffId: staffId,
                         tipAmount: tipAmount,
-                        appointmentId: appointmentsData.map(a => a.appointment.id).join(', '),
+                        appointmentId: appointmentsData.map(a => a.id).join(', '),
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
                 }
@@ -1424,3 +1429,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
