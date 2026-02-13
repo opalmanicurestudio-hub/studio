@@ -152,9 +152,18 @@ export default function POSPage() {
                     } as Client;
                 }
 
-                const service = services.find(s => s.id === apt.serviceId);
+                let service = services.find(s => s.id === apt.serviceId);
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
+
+                if (service && staffMember?.skillLevel) {
+                    const tierPrice = service.pricingTiers?.find(t => t.level === staffMember.skillLevel)?.price;
+                    const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+                    service = {
+                        ...service,
+                        price: finalPrice
+                    };
+                }
                 
                 let groupInfo: { name: string; id: string } | null = null;
                 if (apt.isWalkIn) {
@@ -820,10 +829,12 @@ export default function POSPage() {
 
             // Aggregate service product deductions
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, service: currentService } = data;
-                if (!currentAppointment || !currentService) continue;
+                const checkoutState = data.appointment.checkoutState;
+                if (!checkoutState) continue;
+                
+                const currentAppointment = data.appointment;
 
-                const formulaUsed = data.checkoutState?.formula || currentService.products || [];
+                const formulaUsed = checkoutState.formula || [];
                 formulaUsed.forEach((formulaItem: any) => {
                     const productId = formulaItem.id || formulaItem.productId;
                     const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed || 0;
@@ -1032,7 +1043,7 @@ export default function POSPage() {
     
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
-                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price || 0 }] : [];
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
                     const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
                     return [...mainService, ...addOns];
                 }),
@@ -1239,7 +1250,7 @@ export default function POSPage() {
             const addOns = data.addOnServices;
             return [...main, ...addOns];
         });
-      }, [appointmentsData, services]);
+      }, [appointmentsData]);
 
     return (
         <>
