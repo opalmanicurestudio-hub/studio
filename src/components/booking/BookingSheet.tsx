@@ -170,7 +170,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const publicScheduleProfile = scheduleProfiles[0];
 
   const timeSlots = useMemo(() => {
-    if (!service || !date || !publicScheduleProfile) return [];
+    if (!service || !date || !publicScheduleProfile || !staff || !services) return [];
 
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
@@ -270,18 +270,42 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
     }, [service, consentForms]);
     
+  const { price, priceRange } = useMemo(() => {
+    if (!service.pricingTiers || service.pricingTiers.length === 0) {
+      return { price: service.price, priceRange: null };
+    }
+
+    if (selectedStaffId && selectedStaffId !== 'any') {
+      const staffMember = staff.find(s => s.id === selectedStaffId);
+      const skillLevel = staffMember?.skillLevel || 'senior';
+      const tierPrice = service.pricingTiers.find(t => t.level === skillLevel)?.price;
+      return { price: tierPrice || service.price, priceRange: null };
+    }
+    
+    const prices = service.pricingTiers.map(t => t.price);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+
+    if (minPrice === maxPrice) {
+        return { price: minPrice, priceRange: null };
+    }
+    
+    return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
+
+  }, [service, selectedStaffId, staff]);
+
     const depositAmount = useMemo(() => {
         if (!service || service.depositType === 'none') return 0;
-        if (service.depositType === 'full') return service.price;
+        if (service.depositType === 'full') return price;
         if (service.depositType === 'breakeven') return service.cost;
         if (service.depositType === 'deposit') {
             if (service.depositSubType === 'percentage') {
-                return service.price * ((service.depositAmount || 0) / 100);
+                return price * ((service.depositAmount || 0) / 100);
             }
             return service.depositAmount || 0;
         }
         return 0;
-    }, [service]);
+    }, [service, price]);
     
     const steps = useMemo(() => {
         const flow = ['staff', 'dateTime', 'details'];
@@ -392,23 +416,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     onConfirm(clientData, appointmentDetails, (step) => setCurrentStepIndex(steps.indexOf(step)));
   };
 
-  const price = useMemo(() => {
-    if (selectedStaffId === 'any' || !selectedStaffId) {
-        const seniorPrice = service.pricingTiers?.find(t => t.level === 'senior')?.price;
-        if (seniorPrice) return seniorPrice;
-        if (service.pricingTiers && service.pricingTiers.length > 0) return Math.min(...service.pricingTiers.map(t => t.price));
-        return service.price;
-    }
-    const staffMember = staff.find(s => s.id === selectedStaffId);
-    if (!staffMember || !staffMember.skillLevel) {
-        const seniorPrice = service.pricingTiers?.find(t => t.level === 'senior')?.price;
-        return seniorPrice || service.price;
-    }
-
-    const tierPrice = service.pricingTiers?.find(t => t.level === staffMember.skillLevel)?.price;
-    return tierPrice || service.price;
-  }, [service, selectedStaffId, staff]);
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
@@ -440,7 +447,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <p className="font-semibold">{service?.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
                                             <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service?.duration} min</span>
-                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{price?.toFixed(2)}</span>
+                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{priceRange ? `From $${priceRange.min.toFixed(2)}` : price?.toFixed(2)}</span>
                                         </div>
                                     </div>
                                 </CardContent>
@@ -493,7 +500,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Select Date & Time</h3>
                                 <div className="p-4 rounded-lg border space-y-4">
                                     <div className="flex items-center justify-between"><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
-                                    <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", isBefore(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed")} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
+                                    <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
                                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
                                         {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
                                         {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>)}
@@ -508,7 +515,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <div className="space-y-4">
                                         <h3 className="text-lg font-medium">Your Information</h3>
                                         <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" {...register('clientName')} />{errors.clientName && <p className="text-sm text-destructive">{errors.clientName.message}</p>}</div>
-                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register('clientEmail')} />{errors.email && <p className="text-sm text-destructive">{errors.clientEmail.message}</p>}</div>
+                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register('clientEmail')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
                                         <PhoneInput name="clientPhone" label="Phone" />
                                     </div>
                                 </form>
@@ -542,8 +549,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEEE, LLL d, yyyy')}</span></div>
                                         <div className="flex justify-between"><span>Time:</span> <span className="font-semibold">{selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</span></div>
                                         <Separator className="my-2"/>
-                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : price?.toFixed(2) ?? '0.00'}</span></div>
-                                        {depositAmount > 0 && <p className="text-xs text-muted-foreground text-right">Remaining balance of ${((price ?? 0) - depositAmount).toFixed(2)} due at appointment.</p>}
+                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : (priceRange ? priceRange.min.toFixed(2) : price?.toFixed(2) ?? '0.00')}</span></div>
+                                        {depositAmount > 0 ? (
+                                            priceRange ? (
+                                                <p className="text-xs text-muted-foreground text-right">
+                                                    Final price of ${priceRange.min.toFixed(2)} - ${priceRange.max.toFixed(2)} determined by provider.
+                                                </p>
+                                            ) : (
+                                                <p className="text-xs text-muted-foreground text-right">
+                                                    Remaining balance of ${((price ?? 0) - depositAmount).toFixed(2)} due at appointment.
+                                                </p>
+                                            )
+                                        ) : null}
                                     </CardContent>
                                 </Card>
                             </div>
