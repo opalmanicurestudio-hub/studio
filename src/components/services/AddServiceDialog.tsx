@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -52,6 +53,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 
 
 const serviceSchema = z.object({
