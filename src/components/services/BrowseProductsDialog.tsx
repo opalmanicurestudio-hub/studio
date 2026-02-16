@@ -67,7 +67,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Browse Products</DialogTitle>
           <DialogDescription>Select products to add.</DialogDescription>

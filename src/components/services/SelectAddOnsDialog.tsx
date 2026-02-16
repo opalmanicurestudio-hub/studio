@@ -34,7 +34,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
   allAddOns,
   initialSelected,
 }) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialSelected.map(p => p.id)));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -67,8 +67,8 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Browse Add-ons</DialogTitle>
-          <DialogDescription>Select compatible add-on services.</DialogDescription>
+          <DialogTitle>Select Compatible Add-ons</DialogTitle>
+          <DialogDescription>Choose which add-on services can be booked with this main service.</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
             <div className="relative">

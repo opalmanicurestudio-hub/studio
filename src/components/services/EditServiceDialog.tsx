@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -31,15 +32,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource, type PricingTier } from '@/lib/data';
+import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator, Clock } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2 } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -47,14 +48,10 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { ScrollArea } from '../ui/scroll-area';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, query } from 'firebase/firestore';
-
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -101,7 +98,7 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
-const Step1_BasicDetails = ({ 
+const Step1 = ({ 
     categories, 
     onNewCategory 
 }: { 
@@ -163,16 +160,16 @@ const Step1_BasicDetails = ({
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
             <Label htmlFor="duration-edit">Duration (min)</Label>
-            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration')}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
         <div className="space-y-2">
             <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
-            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore')} />
         </div>
         <div className="space-y-2">
             <Label htmlFor="pad-after-edit">Pad After (min)</Label>
-            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter')} />
         </div>
     </div>
     
@@ -183,155 +180,20 @@ const Step1_BasicDetails = ({
 
     <div className="space-y-2">
       <Label>Service Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value}/> )}/>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
   </div>
     );
 };
 
-const PackagingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
-    const [totalCost, setTotalCost] = useState('');
-    const [numItems, setNumItems] = useState('');
-
-    const costPerItem = useMemo(() => {
-        const tc = parseFloat(totalCost);
-        const ni = parseInt(numItems);
-        if (tc > 0 && ni > 0) {
-            return (tc / ni);
-        }
-        return 0;
-    }, [totalCost, numItems]);
-
-    const handleApply = () => {
-        onCalculated(costPerItem);
-        onOpenChange(false);
-    };
-
-    useEffect(() => {
-        if (!open) {
-            setTotalCost('');
-            setNumItems('');
-        }
-    }, [open]);
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Calculate Packaging Cost</DialogTitle>
-                    <DialogDescription>Enter the total cost of your packaging materials and the number of packages to find the cost per item.</DialogDescription>
-                </DialogHeader>
-                <div className="py-4 space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="total-packaging-cost">Total Packaging Cost</Label>
-                        <Input id="total-packaging-cost" type="number" placeholder="e.g., 50.00" value={totalCost} onChange={e => setTotalCost(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="num-packages">Number of Packages</Label>
-                        <Input id="num-packages" type="number" placeholder="e.g., 100" value={numItems} onChange={e => setNumItems(e.target.value)} />
-                    </div>
-                    <Card className="bg-muted/50">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <span className="font-medium">Cost Per Item:</span>
-                            <span className="text-2xl font-bold text-primary">${costPerItem.toFixed(2)}</span>
-                        </CardContent>
-                    </Card>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleApply} disabled={costPerItem <= 0}>Apply Cost</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
+type EditableFormulaItem = {
+    id: string; // productId
+    name: string;
+    quantity: number;
+    unit: string;
 };
 
-const ShippingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
-    const [costs, setCosts] = useState<number[]>([]);
-    const [newCost, setNewCost] = useState('');
-
-    const averageCost = useMemo(() => {
-        if (costs.length === 0) return 0;
-        const sum = costs.reduce((a, b) => a + b, 0);
-        return (sum / costs.length);
-    }, [costs]);
-
-    const handleAddCost = () => {
-        const cost = parseFloat(newCost);
-        if (cost > 0) {
-            setCosts([...costs, cost]);
-            setNewCost('');
-        }
-    };
-
-    const handleRemoveCost = (index: number) => {
-        setCosts(costs.filter((_, i) => i !== index));
-    };
-
-    const handleApply = () => {
-        onCalculated(averageCost);
-        onOpenChange(false);
-    };
-
-    useEffect(() => {
-        if (!open) {
-            setCosts([]);
-            setNewCost('');
-        }
-    }, [open]);
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Calculate Average Shipping Cost</DialogTitle>
-                    <DialogDescription>Enter several recent shipping costs to calculate an average for your DTC pricing.</DialogDescription>
-                </DialogHeader>
-                <div className="py-4 space-y-4">
-                    <div className="flex gap-2">
-                        <Input
-                            type="number"
-                            placeholder="Enter a shipping cost..."
-                            value={newCost}
-                            onChange={(e) => setNewCost(e.target.value)}
-                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddCost(); }}}
-                        />
-                        <Button onClick={handleAddCost} type="button">Add</Button>
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Entered Costs</Label>
-                        <ScrollArea className="h-40 border rounded-md">
-                            <div className="p-2 space-y-1">
-                                {costs.length > 0 ? costs.map((cost, index) => (
-                                    <div key={index} className="flex items-center justify-between p-1.5 bg-muted/50 rounded-md">
-                                        <span className="font-mono">${cost.toFixed(2)}</span>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveCost(index)}>
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                )) : (
-                                    <p className="text-sm text-center text-muted-foreground p-4">No costs entered yet.</p>
-                                )}
-                            </div>
-                        </ScrollArea>
-                    </div>
-                    <Card className="bg-muted/50">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <span className="font-medium">Average Shipping Cost:</span>
-                            <span className="text-2xl font-bold text-primary">${averageCost.toFixed(2)}</span>
-                        </CardContent>
-                    </Card>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleApply} disabled={averageCost <= 0}>Apply Average</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
-const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
+const Step2 = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
     const { inventory } = useInventory();
     const { control, setValue, watch } = useFormContext<ServiceFormData>();
 
@@ -429,7 +291,7 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
                     <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
                 </CardContent>
             </Card>
-            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
+            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={selectedProducts as InventoryItem[]} />
             <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
             <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
         </>
@@ -502,7 +364,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
     );
 };
 
-const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
+const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
@@ -632,7 +494,7 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
     );
 };
 
-const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
+const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
@@ -662,26 +524,24 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
 };
 
 
-interface EditServiceDialogProps {
+export const EditServiceDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  service: Service;
-  onServiceUpdated: (service: Service) => void;
+  service: Service | null;
+  services: Service[];
   categories: string[];
   onNewCategory: (category: string) => void;
+  onServiceUpdated: (service: Service) => void;
   resources: Resource[];
-  services: Service[];
-}
-
-export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
-    open, 
-    onOpenChange, 
-    service,
-    services,
-    onServiceUpdated,
-    categories,
-    onNewCategory,
-    resources,
+}> = ({
+  open,
+  onOpenChange,
+  service,
+  services,
+  onServiceUpdated,
+  categories,
+  onNewCategory,
+  resources,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -701,10 +561,10 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             isPrivate: service.isPrivate,
             category: service.category,
             duration: service.duration,
-            padBefore: service.padBefore || undefined,
-            padAfter: service.padAfter || undefined,
-            description: service.description || undefined,
-            imageUrl: service.imageUrl || undefined,
+            padBefore: service.padBefore,
+            padAfter: service.padAfter,
+            description: service.description,
+            imageUrl: service.imageUrl,
             price: service.price,
             serviceTiers: service.serviceTiers || [],
             products: service.products || [],
@@ -717,18 +577,18 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             requiredFormIds: service.requiredFormIds || [],
             capacity: service.capacity,
         });
-      setStep(1); // Reset to first step when dialog opens with new service
+      setStep(1);
     }
   }, [service, open, methods]);
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
   const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers, price, serviceTiers } = values;
-  const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
-  
-  const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
+
+  const { firestore } = useFirebase();
   const consentFormsQuery = useMemoFirebase(() => {
       if (!firestore || !selectedTenant) return null;
       return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
@@ -741,12 +601,6 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   }, [firestore, selectedTenant]);
   const { data: pricingTiersData } = useCollection<PricingTier>(pricingTiersQuery);
 
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-    }
-  }, []);
 
   const breakEvenCost = useMemo(() => {
       const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
@@ -768,22 +622,15 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           return acc + (costPerUse * quantity);
       }, 0);
 
-      const equipmentDepreciation = (requiredResourceIds || []).reduce((acc, resourceId) => {
-          const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-          if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * totalDuration);
-      }, 0);
-
-      return timeCost + productCost + equipmentDepreciation;
-  }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
+      return timeCost + productCost;
+  }, [duration, padBefore, padAfter, products, tmhr, inventory]);
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
   }
 
   const onSubmit = (data: ServiceFormData) => {
+      if (!service) return;
       
       let finalPrice = data.price || 0;
       let margin = 0;
@@ -812,9 +659,8 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         margin: margin,
         serviceTiers: finalTiers,
       };
-      
       onServiceUpdated(updatedService);
-      handleOpenChange(false);
+      onOpenChange(false);
   };
   
     const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -823,7 +669,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         if (step === 1) {
             fieldsToValidate.push('name', 'category', 'duration');
         }
-        if (step === 3) {
+         if (step === 3) {
             if ((pricingTiersData || []).length > 0) {
                  fieldsToValidate.push('serviceTiers');
             } else {
@@ -847,20 +693,21 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   const getStepContent = () => {
       switch(step) {
-          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => {}} resources={resources} allServices={services} />;
-          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />;
-          case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
+          case 1: return <Step1 categories={categories} onNewCategory={onNewCategory} />;
+          case 2: return <Step2 onScanClick={() => {}} resources={resources} allServices={services} />;
+          case 3: return <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />;
+          case 4: return <Step4 consentForms={consentForms || []} />;
           default: return null;
       }
   }
   
+  if (!service) return null;
   const formId = `edit-service-form-${service.id}`;
   const title = `Edit Service`;
   const description = `Update the details for "${service.name}".`;
 
   const formBody = (
-    <FormProvider {...methods}>
+     <FormProvider {...methods}>
       <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>

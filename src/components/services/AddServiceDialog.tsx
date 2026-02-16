@@ -2,28 +2,8 @@
 
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
-import { nanoid } from 'nanoid';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
-import { z } from 'zod';
-import {
-  AlertTriangle,
-  Calculator,
-  Check,
-  Clock,
-  DollarSign,
-  Hammer,
-  Package,
-  PlusCircle,
-  QrCode,
-  ShoppingCart,
-  Trash2,
-} from 'lucide-react';
-
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -32,18 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Sheet,
   SheetContent,
@@ -52,30 +20,38 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Switch } from '@/components/ui/switch';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useCollection, useMemoFirebase } from '@/firebase';
-import { useInventory } from '@/context/InventoryContext';
-import { useTenant } from '@/context/TenantContext';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useToast } from '@/hooks/use-toast';
+import { Progress } from '@/components/ui/progress';
 import {
-  type ConsentForm,
-  type InventoryItem,
-  type Location,
-  type PricingTier,
-  type Resource,
-  type Service,
-} from '@/lib/data';
-import { cn } from '@/lib/utils';
-import { collection, query } from 'firebase/firestore';
-
-import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
-import { BrowseProductsDialog } from './BrowseProductsDialog';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { type ConsentForm, type InventoryItem, type PricingTier, type Resource } from '@/lib/data';
+import { useToast } from '@/hooks/use-toast';
+import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2 } from 'lucide-react';
+import { type Service } from '@/lib/data';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
-
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
+import { Switch } from '../ui/switch';
+import { useInventory } from '@/context/InventoryContext';
+import { cn } from '@/lib/utils';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { ScrollArea } from '../ui/scroll-area';
+import { useTenant } from '@/context/TenantContext';
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -121,7 +97,7 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
-const Step1_BasicDetails = ({ 
+const Step1 = ({ 
     categories, 
     onNewCategory 
 }: { 
@@ -222,7 +198,7 @@ type EditableFormulaItem = {
     unit: string;
 };
 
-const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
+const Step2 = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
     const { inventory } = useInventory();
     const { control, setValue, watch } = useFormContext<ServiceFormData>();
 
@@ -320,7 +296,7 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
                     <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
                 </CardContent>
             </Card>
-            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
+            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={selectedProducts as InventoryItem[]} />
             <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
             <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
         </>
@@ -393,7 +369,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
     );
 };
 
-const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
+const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
@@ -486,10 +462,10 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
                         <Label>Deposit Requirement</Label>
                         <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                <div><RadioGroupItem value="none" id="none-add" className="peer sr-only" /><Label htmlFor="none-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
-                                <div><RadioGroupItem value="deposit" id="deposit-add" className="peer sr-only" /><Label htmlFor="deposit-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
-                                <div><RadioGroupItem value="breakeven" id="breakeven-add" className="peer sr-only" /><Label htmlFor="breakeven-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
-                                <div><RadioGroupItem value="full" id="full-add" className="peer sr-only" /><Label htmlFor="full-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
+                                <div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
+                                <div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
+                                <div><RadioGroupItem value="breakeven" id="breakeven" className="peer sr-only" /><Label htmlFor="breakeven" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
+                                <div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
                             </RadioGroup>
                         )}/>
                         {['deposit', 'breakeven'].includes(depositType!) && (
@@ -523,7 +499,7 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
     );
 };
 
-const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
+const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
@@ -556,7 +532,7 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
 export const AddServiceDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialType: 'professional' | 'retail';
+  initialType: 'professional' | 'retail' | 'addon';
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
@@ -581,7 +557,7 @@ export const AddServiceDialog: React.FC<{
     defaultValues: {
       isAddon: initialType === 'addon',
       isPrivate: false,
-      type: initialType,
+      type: initialType === 'addon' ? 'addon' : 'service',
       capacity: 1,
       products: [],
       requiredResourceIds: [],
@@ -595,7 +571,19 @@ export const AddServiceDialog: React.FC<{
 
   useEffect(() => {
     if (open) {
-      methods.reset({ type: initialType });
+      methods.reset({ 
+        isAddon: initialType === 'addon', 
+        type: initialType === 'addon' ? 'addon' : 'service',
+        isPrivate: false,
+        capacity: 1,
+        products: [],
+        requiredResourceIds: [],
+        compatibleAddOnIds: [],
+        depositType: 'none',
+        serviceTiers: [],
+        requiredFormIds: [],
+        price: 0,
+       });
       setStep(1);
     }
   }, [open, initialType, methods]);
@@ -603,9 +591,11 @@ export const AddServiceDialog: React.FC<{
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
   const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers, price, serviceTiers } = values;
-  const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
-  const { firestore, selectedTenant } = useTenant();
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
+  
+  const { firestore } = useFirebase();
   const consentFormsQuery = useMemoFirebase(() => {
       if (!firestore || !selectedTenant) return null;
       return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
@@ -618,12 +608,6 @@ export const AddServiceDialog: React.FC<{
   }, [firestore, selectedTenant]);
   const { data: pricingTiersData } = useCollection<PricingTier>(pricingTiersQuery);
 
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-    }
-  }, []);
 
   const breakEvenCost = useMemo(() => {
       const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
@@ -645,16 +629,8 @@ export const AddServiceDialog: React.FC<{
           return acc + (costPerUse * quantity);
       }, 0);
 
-      const equipmentDepreciation = (requiredResourceIds || []).reduce((acc, resourceId) => {
-          const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-          if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * totalDuration);
-      }, 0);
-
-      return timeCost + productCost + equipmentDepreciation;
-  }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
+      return timeCost + productCost;
+  }, [duration, padBefore, padAfter, products, tmhr, inventory]);
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
@@ -739,10 +715,10 @@ export const AddServiceDialog: React.FC<{
 
   const getStepContent = () => {
       switch(step) {
-          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => {}} resources={resources} allServices={services} />;
-          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />;
-          case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
+          case 1: return <Step1 categories={categories} onNewCategory={onNewCategory} />;
+          case 2: return <Step2 onScanClick={() => {}} resources={resources} allServices={services} />;
+          case 3: return <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />;
+          case 4: return <Step4 consentForms={consentForms || []} />;
           default: return null;
       }
   }

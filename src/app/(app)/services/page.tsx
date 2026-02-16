@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark, Link as LinkIcon, EyeOff, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark, Link as LinkIcon, EyeOff, Trash2, Calculator } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +53,7 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     setTestPrice(service.price);
   }, [service.price]);
 
-  const { profit, margin, breakEvenPoint } = useMemo(() => {
+  const { profit, margin, breakEvenCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
     
@@ -70,21 +70,10 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
             costPerUse = product.costPerUnit || 0;
         }
         
-        return acc + (costPerUse * (p.quantityUsed || 1));
-    }, 0);
-
-    const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
-        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-    
-        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
-        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year (40/wk * 52)
-        const serviceDurationHours = totalDuration / 60;
-        
-        return acc + (hourlyDepreciation * serviceDurationHours);
+        return acc + (costPerUse * p.quantityUsed);
     }, 0);
     
-    const breakEvenPoint = timeCost + productCost + equipmentDepreciation;
+    const breakEvenPoint = timeCost + productCost;
 
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
@@ -175,37 +164,11 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
         location: 'Back Room - Shelf A' // Mock location
       }
     });
-
-    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
-        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) {
-            return {
-                id: resourceId,
-                name: equipmentItem?.name || 'Unknown Equipment',
-                cost: 0,
-                imageUrl: equipmentItem?.imageUrl
-            };
-        }
-
-        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
-        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
-        const serviceDurationHours = totalDuration / 60;
-        const depreciationForService = hourlyDepreciation * serviceDurationHours;
-        
-        return {
-            id: resourceId,
-            name: equipmentItem.name,
-            cost: depreciationForService,
-            imageUrl: equipmentItem.imageUrl
-        };
-    });
-
+    
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
-    const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
-    const totalCost = timeCost + totalProductCost + totalEquipmentCost;
+    const totalCost = timeCost + totalProductCost;
 
-    return { timeCost, productCosts, equipmentCosts, totalCost };
+    return { timeCost, productCosts, equipmentCosts: [], totalCost };
   }, [service, tmhr, inventory]);
 
   return (
@@ -243,24 +206,6 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
         </div>
-        <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2"><Hammer className="w-4 h-4 text-muted-foreground"/>Equipment Depreciation</h4>
-            {equipmentCosts.length > 0 ? equipmentCosts.map(e => (
-                 <div key={e.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
-                <div className='flex items-center gap-2'>
-                    <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
-                     {e.imageUrl ? (
-                        <Image src={e.imageUrl} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
-                     ) : (
-                        <Hammer className="w-5 h-5 text-muted-foreground" />
-                     )}
-                </div>
-                <span className="font-medium text-xs">{e.name}</span>
-            </div>
-            <span className="font-semibold text-xs">${e.cost.toFixed(3)}</span>
-        </div>
-         )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
-      </div>
         </CardContent>
          <CardFooter className="bg-muted/50 p-4">
             <div className="flex justify-between font-bold text-base w-full">
@@ -373,7 +318,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
             <AccordionItem value="details" className="border-b-0">
                 <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
-                         <Sparkles className='w-4 h-4 text-primary' /> More Details
+                         <Calculator className='w-4 h-4 text-primary' /> Profit & Cost
                     </div>
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
@@ -521,11 +466,12 @@ export default function ServicesPage() {
   }, [selectedItems, firestore, tenantId, toast]);
 
   useEffect(() => {
-    const storedTmhr = localStorage.getItem('tmhr');
-    if (storedTmhr) {
-      setTmhr(parseFloat(storedTmhr));
+      if (selectedTenant && typeof selectedTenant.tmhr === 'number') {
+        setTmhr(selectedTenant.tmhr);
+    } else {
+        setTmhr(50); // Fallback
     }
-  }, []);
+  }, [selectedTenant]);
 
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
