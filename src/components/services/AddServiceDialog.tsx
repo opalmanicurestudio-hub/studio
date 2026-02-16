@@ -1,8 +1,6 @@
-
-
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -52,6 +50,9 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where } from 'firebase/firestore';
+
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -693,9 +694,9 @@ export const AddServiceDialog: React.FC<{
         }
         if (step === 3) {
             if ((pricingTiersData || []).length > 0) {
-                fieldsToValidate.push('serviceTiers');
+                 fieldsToValidate.push('serviceTiers');
             } else {
-                fieldsToValidate.push('price');
+                 fieldsToValidate.push('price');
             }
         }
         
