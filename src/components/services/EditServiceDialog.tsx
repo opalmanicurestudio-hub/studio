@@ -1,6 +1,8 @@
+
+
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -401,57 +403,6 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                         {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
                     </div>
                 )}
-                
-                <Card className="bg-muted/50">
-                    <CardContent className="p-4 space-y-4">
-                        <h4 className="font-semibold text-center">Profitability Preview</h4>
-                        
-                        {pricingTiers.length > 0 ? (
-                            <>
-                                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                                    <p className="font-semibold">Level</p>
-                                    <p className="font-semibold">Profit</p>
-                                    <p className="font-semibold">Margin</p>
-                                </div>
-                                {(serviceTiers || []).map(tier => {
-                                    const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
-                                    if (!tierInfo) return null;
-
-                                    const netProfit = tier.price - breakEvenCost;
-                                    const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
-                                    return (
-                                        <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                            <p className="capitalize font-medium">{tierInfo.name}</p>
-                                            <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
-                                            <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
-                                        </div>
-                                    )
-                                })}
-                            </>
-                        ) : (
-                            <div className="space-y-1 text-sm text-center">
-                                <div className="flex justify-between items-center"><span>Price:</span> <span className="font-mono">${standardPrice.toFixed(2)}</span></div>
-                                <div className="flex justify-between items-center font-semibold">
-                                    <span>Profit:</span> 
-                                    <span className={cn("font-mono", (standardPrice - breakEvenCost) >= 0 ? 'text-primary' : 'text-destructive')}>
-                                        ${(standardPrice - breakEvenCost).toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span>Margin:</span>
-                                    <span className={cn("font-mono", (standardPrice - breakEvenCost) >= 0 ? 'text-primary' : 'text-destructive')}>
-                                        {standardPrice > 0 ? (((standardPrice - breakEvenCost) / standardPrice) * 100).toFixed(1) : 0}%
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                        
-                        <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
-                            <p className="text-muted-foreground">Break-Even Cost:</p>
-                            <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
-                        </div>
-                    </CardContent>
-                </Card>
                 
                 {!isAddon && (
                     <div className="space-y-4 pt-4 border-t">

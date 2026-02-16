@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -6,9 +7,9 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -20,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment, type Resource, type Transaction } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
@@ -42,179 +42,6 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
 
-
-const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service, tmhr: number, onPriceUpdate: (newPrice: number) => void; }) => {
-  const [testPrice, setTestPrice] = useState(service.price);
-  const { toast } = useToast();
-  const { inventory } = useInventory();
-
-  useEffect(() => {
-    setTestPrice(service.price);
-  }, [service.price]);
-
-  const { profit, margin, breakEvenCost } = useMemo(() => {
-    const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-    const timeCost = (totalDuration / 60) * tmhr;
-    
-    const productCost = (service.products || []).reduce((acc, p) => {
-        const product = inventory.find(i => i.id === p.id);
-        if (!product) return acc;
-
-        let costPerUse = 0;
-        if (product.costingMethod === 'size' && product.size && product.size > 0) {
-            costPerUse = (product.costPerUnit || 0) / product.size;
-        } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-            costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-        } else {
-            costPerUse = product.costPerUnit || 0;
-        }
-        
-        return acc + (costPerUse * p.quantityUsed);
-    }, 0);
-    
-    const breakEvenPoint = timeCost + productCost;
-
-    const profitValue = testPrice - breakEvenPoint;
-    const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
-
-    return { profit: profitValue, margin: marginValue, breakEvenCost: breakEvenPoint };
-  }, [service, testPrice, tmhr, inventory]);
-  
-  const handleUpdateClick = () => {
-    onPriceUpdate(testPrice);
-    toast({
-        title: "Price Updated",
-        description: `${service.name} price is now $${testPrice.toFixed(2)}.`,
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
-          <div className="relative w-24">
-            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              id={`price-input-${service.id}`}
-              type="number"
-              value={testPrice}
-              onChange={(e) => setTestPrice(Number(e.target.value) || 0)}
-              className="h-8 pl-7 text-right font-semibold text-primary bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </div>
-        </div>
-        <Slider
-          id={`price-slider-${service.id}`}
-          min={0}
-          max={Math.max(service.price * 2 + 50, testPrice + 50)}
-          step={1}
-          value={[testPrice]}
-          onValueChange={(value) => setTestPrice(value[0])}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2">
-        <div className="text-center">
-          <p className="text-xs text-muted-foreground">Potential Profit</p>
-          <p className={`text-lg font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-            ${profit.toFixed(2)}
-          </p>
-        </div>
-        <div className="text-center">
-          <p className="text-xs text-muted-foreground">Profit Margin</p>
-          <p className={`text-lg font-bold ${margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-            {margin.toFixed(1)}%
-          </p>
-        </div>
-      </div>
-       <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
-          <p>Break-Even: ${breakEvenCost?.toFixed(2)}</p>
-       </div>
-       <Button size="sm" className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
-            Update Service Price
-        </Button>
-    </div>
-  );
-};
-
-const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
-  const { inventory } = useInventory();
-  const { timeCost, productCosts, equipmentCosts, totalCost } = useMemo(() => {
-    const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-    const timeCost = (totalDuration / 60) * tmhr;
-
-    const productCosts = (service.products || []).map(p => {
-        const product = inventory.find(i => i.id === p.id);
-        let cost = 0;
-        if (product) {
-            let costPerUse = 0;
-            if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.size;
-            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-            } else {
-                costPerUse = product.costPerUnit || 0;
-            }
-            cost = costPerUse * (p.quantityUsed || 1);
-        }
-      return {
-        ...p,
-        cost: cost,
-        location: 'Back Room - Shelf A' // Mock location
-      }
-    });
-    
-    const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
-    const totalCost = timeCost + totalProductCost;
-
-    return { timeCost, productCosts, equipmentCosts: [], totalCost };
-  }, [service, tmhr, inventory]);
-
-  return (
-    <Card>
-        <CardHeader>
-            <CardTitle>Cost Breakdown</CardTitle>
-            <CardDescription>The true cost to perform this service once.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-        <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground"/>Time Cost</h4>
-            <div className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
-                <span>Your TMHR @ {((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0))} min</span>
-                <span className="font-semibold">${timeCost.toFixed(2)}</span>
-            </div>
-        </div>
-        <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-muted-foreground"/>Product Costs</h4>
-            {productCosts.length > 0 ? productCosts.map(p => (
-                 <div key={p.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
-                    <div className='flex items-center gap-2'>
-                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
-                            {p.imageUrl ? (
-                                <Image src={p.imageUrl} alt={p.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
-                            ) : (
-                                <Box className="w-5 h-5 text-muted-foreground" />
-                            )}
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="font-medium text-xs">{p.name}</span>
-                            <span className='text-xs text-muted-foreground flex items-center gap-1'><MapPin className="w-2.5 h-2.5"/>{p.location}</span>
-                        </div>
-                    </div>
-                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(3)}</span>
-                </div>
-            )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
-        </div>
-        </CardContent>
-         <CardFooter className="bg-muted/50 p-4">
-            <div className="flex justify-between font-bold text-base w-full">
-                <span>Total Service Cost (Break-Even):</span>
-                <span>${totalCost.toFixed(2)}</span>
-            </div>
-        </CardFooter>
-    </Card>
-  );
-};
 
 const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, isSelected, onSelectItem }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelectItem: () => void }) => {
   const { toast } = useToast();
@@ -313,29 +140,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
             </div>
         </div>
 
-        <Accordion type="multiple" className="w-full">
-            <AccordionItem value="details" className="border-b-0">
-                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
-                    <div className='flex items-center gap-2'>
-                         <Calculator className='w-4 h-4 text-primary' /> Profit & Cost
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className='pt-4 space-y-4'>
-                    <Tabs defaultValue="profit">
-                        <TabsList className="grid w-full grid-cols-2 text-xs rounded-md bg-muted p-1">
-                            <TabsTrigger value="profit" className="py-2">Profit Tester</TabsTrigger>
-                            <TabsTrigger value="cost" className="py-2">Cost Breakdown</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="profit" className="mt-4">
-                             <InlineProfitTester service={service} tmhr={tmhr} onPriceUpdate={(newPrice) => onPriceUpdate(service.id, newPrice)} />
-                        </TabsContent>
-                         <TabsContent value="cost" className="mt-4">
-                            <CostBreakdown service={service} tmhr={tmhr} />
-                        </TabsContent>
-                    </Tabs>
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
       </CardContent>
        <CardFooter className="p-2 border-t bg-muted/50">
             <div className="grid grid-cols-2 gap-2 w-full">
@@ -703,6 +507,7 @@ export default function ServicesPage() {
       <AddServiceDialog 
         open={isAddServiceDialogOpen} 
         onOpenChange={setIsAddServiceDialogOpen}
+        initialType="service"
         categories={serviceCategories}
         onNewCategory={handleNewCategory}
         onServiceAdded={handleAddNewService}
@@ -742,4 +547,3 @@ export default function ServicesPage() {
   );
 }
 
-    
