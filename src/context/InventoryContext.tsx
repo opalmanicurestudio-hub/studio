@@ -24,6 +24,7 @@ import {
     type Event,
     type Discount,
     type Review,
+    type PricingTier,
 } from '@/lib/data';
 import {
     type BillDefinition as Bill,
@@ -53,6 +54,7 @@ interface InventoryContextType {
   events: Event[];
   discounts: Discount[];
   reviews: Review[];
+  pricingTiers: PricingTier[];
   isLoading: boolean;
 }
 
@@ -83,8 +85,9 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: events, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]));
   const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'discounts') : null, [firestore, tenantId]));
   const { data: reviews, isLoading: reviewsLoading } = useCollection<Review>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'reviews') : null, [firestore, tenantId]));
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
   
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading;
   
   const value = {
     inventory: inventory || [],
@@ -107,6 +110,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     events: events || [],
     discounts: discounts || [],
     reviews: reviews || [],
+    pricingTiers: pricingTiers || [],
     isLoading,
   };
 
@@ -124,3 +128,5 @@ export const useInventory = () => {
   }
   return context;
 };
+
+    

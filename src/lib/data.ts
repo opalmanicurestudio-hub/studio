@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -45,7 +46,6 @@ export type Staff = {
   phone?: string;
   role: 'admin' | 'staff';
   pricingTierId?: string;
-  skillLevel?: 'apprentice' | 'junior' | 'senior' | 'master';
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
@@ -189,7 +189,6 @@ export type MaintenanceRecord = {
 
 export type ServiceTier = {
     tierId: string;
-    level: string; // Add level to ServiceTier
     price: number;
     durationMinutes: number;
 };
@@ -702,7 +701,7 @@ export const staff: Staff[] = [
     name: 'Brenda Barnes', 
     email: 'brenda@example.com', 
     role: 'staff', 
-    skillLevel: 'senior',
+    pricingTierId: 'tier-senior',
     avatarUrl: 'https://picsum.photos/seed/staff1/100/100', 
     payStructure: 'commission', 
     commissionRate: 45,
@@ -730,7 +729,7 @@ export const staff: Staff[] = [
     name: 'Carlos Reyes', 
     email: 'carlos@example.com', 
     role: 'admin', 
-    skillLevel: 'master',
+    pricingTierId: 'tier-master',
     avatarUrl: 'https://picsum.photos/seed/staff2/100/100', 
     payStructure: 'salary', 
     commissionRate: 0,
@@ -1304,6 +1303,9 @@ export const resources: Resource[] = [
 
 
 export { nanoid };
+
+
+    
 
 
     

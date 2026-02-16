@@ -188,10 +188,9 @@
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
-        "skillLevel": {
+        "pricingTierId": {
             "type": "string",
-            "enum": ["apprentice", "junior", "senior", "master"],
-            "description": "The skill level of the staff member, used for tiered pricing."
+            "description": "The ID of the pricing tier this staff member belongs to."
         },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
@@ -1193,3 +1192,4 @@
 
     
 
+    
