@@ -125,16 +125,6 @@
         "twilioPhoneNumber": {
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
-        },
-        "pricingTiers": {
-            "type": "object",
-            "description": "Customizable names for the pricing tiers.",
-            "properties": {
-                "apprentice": { "type": "string", "default": "Apprentice" },
-                "junior": { "type": "string", "default": "Junior" },
-                "senior": { "type": "string", "default": "Senior" },
-                "master": { "type": "string", "default": "Master" }
-            }
         }
       },
       "required": [
@@ -251,6 +241,28 @@
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
     },
+    "PricingTier": {
+      "title": "Pricing Tier",
+      "type": "object",
+      "description": "A customizable skill level for staff that determines service pricing and duration.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "description": "The display name of the tier (e.g., 'Senior Stylist')." },
+        "rank": { "type": "number", "description": "The rank of the tier for sorting purposes (lower is more junior)." }
+      },
+      "required": ["id", "name", "rank"]
+    },
+    "ServiceTier": {
+      "title": "Service Tier",
+      "type": "object",
+      "description": "Defines the price and duration of a specific service for a given pricing tier.",
+      "properties": {
+        "tierId": { "type": "string", "description": "The ID of the pricing tier this applies to." },
+        "price": { "type": "number" },
+        "durationMinutes": { "type": "number" }
+      },
+      "required": ["tierId", "price", "durationMinutes"]
+    },
     "ActivityLog": {
         "title": "Activity Log",
         "description": "An immutable record of staff activity like clock-in/out and breaks.",
@@ -279,17 +291,11 @@
           "description": "URL for the primary service image."
         },
         "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
-        "pricingTiers": {
+        "serviceTiers": {
             "type": "array",
-            "description": "Tiered pricing and duration based on stylist skill level.",
+            "description": "Tiered pricing and duration based on staff pricing tiers.",
             "items": {
-                "type": "object",
-                "properties": {
-                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
-                    "price": { "type": "number" },
-                    "durationMinutes": { "type": "number" }
-                },
-                "required": ["level", "price", "durationMinutes"]
+                "$ref": "#/entities/ServiceTier"
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -1051,6 +1057,10 @@
         "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
+    },
+    "/tenants/{tenantId}/pricingTiers/{tierId}": {
+      "schema": { "$ref": "#/entities/PricingTier" },
+      "description": "Customizable pricing tiers for a tenant."
     },
     "/appointmentCheckIns/{token}": {
         "schema": {

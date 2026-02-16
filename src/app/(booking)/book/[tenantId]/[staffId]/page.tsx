@@ -6,7 +6,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
-import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
+import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, PricingTier } from '@/lib/data';
 import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -80,7 +80,7 @@ const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (ser
                 </div>
                 <div className="flex items-center gap-2 font-medium text-foreground">
                 <DollarSign className="w-4 h-4" />
-                <span>From ${service.price.toFixed(2)}</span>
+                <span>${service.price.toFixed(2)}</span>
                 </div>
             </div>
             </CardContent>
@@ -120,23 +120,38 @@ export default function StaffDetailPage() {
   const allStaffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: staff, isLoading: allStaffLoading } = useCollection<Staff>(allStaffQuery);
 
+  const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
 
   // Filter services offered by this staff member
   const staffServices = useMemo(() => {
-    if (!staffMember || !allServices) return [];
-    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    if (!staffMember || !allServices || !pricingTiers) return [];
+    
+    // Find the pricing tier object for the current staff member
+    const staffTier = pricingTiers.find(tier => tier.id === staffMember.pricingTierId);
+
     return allServices
-        .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate)
-        .map(service => {
-            const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-            // Fallback to senior price or base price if specific tier not found
-            const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
-            return {
-                ...service,
-                price: finalPrice, // Override the service price with the correct tier price
-            };
-        });
-  }, [staffMember, allServices]);
+      .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate)
+      .map(service => {
+        let finalPrice = service.price; // Default to base price
+        let finalDuration = service.duration;
+
+        if (staffTier && service.serviceTiers) {
+            const tierPricing = service.serviceTiers.find(t => t.tierId === staffTier.id);
+            if (tierPricing) {
+                finalPrice = tierPricing.price;
+                finalDuration = tierPricing.durationMinutes;
+            }
+        }
+        
+        return {
+          ...service,
+          price: finalPrice, // Override the service price with the correct tier price
+          duration: finalDuration,
+        };
+      });
+  }, [staffMember, allServices, pricingTiers]);
 
   const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -214,7 +229,7 @@ export default function StaffDetailPage() {
     }
   };
 
-  const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading;
+  const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading || pricingTiersLoading;
 
     const formattedSchedule = useMemo(() => {
         const availability = staffMember?.availability;
