@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -14,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Appointment, type Service, type InventoryItem } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
-import { services } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import Image from 'next/image';
 import { Checkbox } from '../ui/checkbox';
@@ -41,7 +41,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
   onOpenChange,
   appointments,
 }) => {
-  const { inventory, locations, clients } = useInventory();
+  const { inventory, locations, clients, services } = useInventory();
 
   const pickingListByLocation = useMemo(() => {
     const productMap = new Map<string, AggregatedProduct>();
@@ -104,7 +104,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
       location: locations.find(l => l.id === locationId) || { id: 'unassigned', name: 'Unassigned', locationTypeId: '' },
       products,
     }));
-  }, [appointments, inventory, locations, clients]);
+  }, [appointments, inventory, locations, clients, services]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
