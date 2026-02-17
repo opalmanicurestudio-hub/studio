@@ -38,7 +38,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
+import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
@@ -357,7 +357,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       name: '',
       email: '',
       role: 'staff',
-      pricingTierId: pricingTiers.length > 0 ? pricingTiers[0].id : '',
+      pricingTierId: '',
       payStructure: 'commission',
       commissionRate: 40,
       retailCommissionRate: 10,
@@ -368,6 +368,22 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const { handleSubmit, reset } = methods;
   const isMobile = useIsMobile();
+  
+  useEffect(() => {
+    if (open) {
+      reset({
+        name: '',
+        email: '',
+        role: 'staff',
+        pricingTierId: pricingTiers && pricingTiers.length > 0 ? pricingTiers[0].id : '',
+        payStructure: 'commission',
+        commissionRate: 40,
+        retailCommissionRate: 10,
+        services: [],
+        assignedFormIds: [],
+      });
+    }
+  }, [open, reset, pricingTiers]);
 
   const handleSave = (data: AddStaffFormData) => {
     const formatUrl = (url?: string) => {

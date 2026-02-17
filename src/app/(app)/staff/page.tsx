@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm, PricingTier } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -35,7 +35,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
-import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
@@ -51,8 +51,13 @@ import {
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { Input } from '@/components/ui/input';
+import { toast } from '@/hooks/use-toast';
+import { Reorder } from 'framer-motion';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[] }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -112,7 +117,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                 <h3 className="text-lg font-semibold">{member.name}</h3>
                 <div className="flex items-center justify-center gap-2">
                     <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
-                    {member.skillLevel && <Badge variant="outline" className="capitalize">{member.skillLevel}</Badge>}
+                    {member.pricingTierId && <Badge variant="outline" className="capitalize">{pricingTiers.find(pt => pt.id === member.pricingTierId)?.name}</Badge>}
                 </div>
                 <div className="text-xs text-muted-foreground mt-2 space-y-1 text-center">
                     {member.email && (
@@ -170,6 +175,121 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
 };
 
 
+const PricingTierCard = ({
+    onSave,
+    onDelete,
+    pricingTiers,
+}: {
+    onSave: (tiers: PricingTier[]) => void;
+    onDelete: (tierId: string) => void;
+    pricingTiers: PricingTier[];
+}) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [localTiers, setLocalTiers] = useState(pricingTiers);
+    const [tierToDelete, setTierToDelete] = useState<PricingTier | null>(null);
+
+    useEffect(() => {
+        setLocalTiers(pricingTiers);
+    }, [pricingTiers]);
+
+    const handleTierChange = (index: number, field: 'name' | 'rank', value: string | number) => {
+        const newTiers = [...localTiers];
+        (newTiers[index] as any)[field] = value;
+        setLocalTiers(newTiers);
+    };
+
+    const handleAddTier = () => {
+        const newRank = localTiers.length > 0 ? Math.max(...localTiers.map(t => t.rank)) + 1 : 1;
+        setLocalTiers([
+            ...localTiers,
+            { id: nanoid(), name: `New Tier ${localTiers.length + 1}`, rank: newRank }
+        ]);
+    };
+
+    const handleDeleteClick = (tier: PricingTier) => {
+        setTierToDelete(tier);
+    }
+    
+    const confirmDeleteTier = () => {
+        if (tierToDelete) {
+            onDelete(tierToDelete.id);
+            setLocalTiers(localTiers.filter(t => t.id !== tierToDelete.id));
+            setTierToDelete(null);
+        }
+    }
+
+    const handleSave = () => {
+        onSave(localTiers);
+        setIsEditing(false);
+    };
+    
+    const handleCancel = () => {
+        setLocalTiers(pricingTiers);
+        setIsEditing(false);
+    }
+
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                            <CardTitle>Pricing Tiers</CardTitle>
+                            <CardDescription>Define the pricing levels for your staff.</CardDescription>
+                        </div>
+                        {isEditing ? (
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <Button variant="outline" onClick={handleCancel} className="flex-1">Cancel</Button>
+                                <Button onClick={handleSave} className="flex-1">Save Tiers</Button>
+                            </div>
+                        ) : (
+                            <Button onClick={() => setIsEditing(true)}>Edit Tiers</Button>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    {localTiers.sort((a,b) => a.rank - b.rank).map((tier, index) => (
+                        <div key={tier.id} className="flex items-center gap-2">
+                             {isEditing && <p className="text-muted-foreground font-bold">{index + 1}.</p>}
+                             <Input
+                                value={tier.name}
+                                onChange={(e) => handleTierChange(index, 'name', e.target.value)}
+                                disabled={!isEditing}
+                                className={cn(!isEditing && "border-none text-base font-medium p-0 h-auto focus-visible:ring-0")}
+                            />
+                            {isEditing && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteClick(tier)}>
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            )}
+                        </div>
+                    ))}
+                    {isEditing && (
+                        <Button variant="outline" className="w-full border-dashed" onClick={handleAddTier}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Tier
+                        </Button>
+                    )}
+                </CardContent>
+            </Card>
+            <AlertDialog open={!!tierToDelete} onOpenChange={() => setTierToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the &quot;{tierToDelete?.name}&quot; tier. Staff members assigned to this tier will need to be reassigned. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeleteTier} className={buttonVariants({ variant: "destructive" })}>Delete Tier</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
+};
+
+
 export default function StaffPage() {
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
@@ -183,32 +303,37 @@ export default function StaffPage() {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   
+  const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
+  const pricingTiersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]);
+  
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
   const {
-      staff,
-      services,
-      transactions: rawTransactions,
-      appointments: rawAppointments,
-      activityLogs: rawActivityLogs,
-      stockCorrections,
-      consentForms,
-      inventory,
-      isLoading,
+    services,
+    transactions: rawTransactions,
+    appointments: rawAppointments,
+    activityLogs: rawActivityLogs,
+    stockCorrections,
+    consentForms,
+    inventory,
+    isLoading,
   } = useInventory();
 
   // Normalize all date-like fields into Date objects
   const transactions = useMemo(() => {
     if (!rawTransactions) return [];
-    return rawTransactions.map(t => ({...t, date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date as any) }));
+    return rawTransactions.map(t => ({...t, date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date) }));
   }, [rawTransactions]);
 
   const appointments = useMemo(() => {
     if (!rawAppointments) return [];
     return rawAppointments.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
-      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
-      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
+      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime as any)) : undefined,
+      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime as any)) : undefined,
     }));
   }, [rawAppointments]);
 
@@ -456,6 +581,44 @@ export default function StaffPage() {
       });
   }
 
+  const handleSaveTiers = (tiersToSave: PricingTier[]) => {
+    if (!firestore || !tenantId) return;
+
+    const batch = writeBatch(firestore);
+    
+    // Process additions/updates
+    tiersToSave.forEach(tier => {
+        const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tier.id);
+        batch.set(tierRef, tier);
+    });
+    
+    // Process deletions
+    const tiersToSaveIds = new Set(tiersToSave.map(t => t.id));
+    const originalTiers = pricingTiers || [];
+    originalTiers.forEach(originalTier => {
+        if (!tiersToSaveIds.has(originalTier.id)) {
+            const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, originalTier.id);
+            batch.delete(tierRef);
+        }
+    });
+
+    batch.commit()
+        .then(() => {
+            toast({ title: 'Pricing Tiers Saved!' });
+        })
+        .catch((error) => {
+            console.error("Error saving tiers:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' });
+        });
+  };
+  
+  const handleDeleteTier = (tierId: string) => {
+    if (!firestore || !tenantId) return;
+    const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tierId);
+    deleteDocumentNonBlocking(tierRef);
+    toast({ title: 'Tier Deleted', variant: 'destructive' });
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Staff Management" />
@@ -508,23 +671,34 @@ export default function StaffPage() {
                 </PopoverContent>
             </Popover>
         </div>
+        
+         <div className="grid lg:grid-cols-3 gap-8 items-start">
+             <div className="lg:col-span-1 space-y-6">
+                <PricingTierCard 
+                    pricingTiers={pricingTiers || []}
+                    onSave={handleSaveTiers}
+                    onDelete={handleDeleteTier}
+                />
+            </div>
 
-
-        {(staff || []).length > 0 ? (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {staffWithStats.map((member) => (
-              <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
-                <Users className="w-16 h-16 mb-4"/>
-              <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
-              <p className="mb-4">Click the button to add your first team member.</p>
-            </CardContent>
-          </Card>
-        )}
+            <div className="lg:col-span-2">
+                {(staff || []).length > 0 ? (
+                    <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+                        {staffWithStats.map((member) => (
+                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} pricingTiers={pricingTiers || []} />
+                        ))}
+                    </div>
+                    ) : (
+                    <Card>
+                        <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
+                            <Users className="w-16 h-16 mb-4"/>
+                        <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
+                        <p className="mb-4">Click the button to add your first team member.</p>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+        </div>
       </main>
       <AddStaffDialog 
         open={isAddStaffOpen} 
@@ -532,6 +706,7 @@ export default function StaffPage() {
         onSave={handleAddStaff}
         services={services || []}
         consentForms={consentForms || []}
+        pricingTiers={pricingTiers || []}
       />
       <EditStaffDialog 
         open={isEditStaffOpen} 
@@ -540,6 +715,7 @@ export default function StaffPage() {
         staffMember={editingStaff}
         services={services || []}
         consentForms={consentForms || []}
+        pricingTiers={pricingTiers || []}
       />
        <StaffDetailsSheet
         open={isDetailsSheetOpen}
