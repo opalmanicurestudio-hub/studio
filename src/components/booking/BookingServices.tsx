@@ -18,19 +18,40 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign } from 'lucide-react';
-import { Service } from '@/lib/data';
+import { Service, Staff } from '@/lib/data';
 import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
-const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
+const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onSelect: () => void, staffMember?: Staff }) => {
+    const { priceText } = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0) {
+            return { priceText: `$${service.price.toFixed(2)}` };
+        }
 
-  const lowestPrice = useMemo(() => {
-    if (!service.pricingTiers || service.pricingTiers.length === 0) {
-      return service.price;
-    }
-    return Math.min(...service.pricingTiers.map(t => t.price));
-  }, [service]);
+        // If a specific staff member is passed, find their price.
+        if (staffMember && staffMember.pricingTierId) {
+            const tierInfo = service.serviceTiers.find(t => t.tierId === staffMember.pricingTierId);
+            if (tierInfo) {
+                return { priceText: `$${tierInfo.price.toFixed(2)}` };
+            }
+            // Fallback to base price if no specific tier price for that staff
+            return { priceText: `$${service.price.toFixed(2)}` };
+        }
+        
+        // Otherwise, show a price range.
+        const prices = service.serviceTiers.map(t => t.price);
+        if (!prices || prices.length === 0) {
+            return { priceText: `$${service.price.toFixed(2)}` };
+        }
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
 
+        if (minPrice === maxPrice) {
+            return { priceText: `$${minPrice.toFixed(2)}` };
+        }
+        
+        return { priceText: `From $${minPrice.toFixed(2)}` };
+    }, [service, staffMember]);
 
   if (service.imageUrl) {
     return (
@@ -61,7 +82,7 @@ const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => 
                 </div>
                 <div className="flex items-center gap-2 font-medium text-foreground">
                   <DollarSign className="w-4 h-4" />
-                  <span>From ${lowestPrice.toFixed(2)}</span>
+                  <span>{priceText}</span>
                 </div>
               </div>
             </div>
@@ -91,7 +112,7 @@ const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => 
             </div>
             <div className="flex items-center gap-2 font-medium text-foreground">
                 <DollarSign className="w-4 h-4" />
-                <span>From ${lowestPrice.toFixed(2)}</span>
+                <span>{priceText}</span>
             </div>
           </div>
         </CardContent>

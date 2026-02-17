@@ -19,75 +19,8 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { format, parseISO, getDay } from 'date-fns';
+import { BookingServices } from '@/components/booking/BookingServices';
 
-const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
-    if (service.imageUrl) {
-        return (
-        <div className="cursor-pointer group h-full" onClick={onBookNow}>
-            <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col">
-            <CardContent className="p-0 flex flex-col flex-1">
-                <div className="relative aspect-[4/3] w-full bg-muted/30">
-                <Image
-                    src={service.imageUrl}
-                    alt={service.name}
-                    fill
-                    className="object-cover transition-transform duration-300 group-hover:scale-110"
-                />
-                </div>
-                <div className="p-4 space-y-2 flex flex-col flex-1">
-                <h3 className="font-semibold truncate">{service.name}</h3>
-                <div className="flex-grow min-h-[32px]">
-                    {service.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                        {service.description}
-                    </p>
-                    )}
-                </div>
-                <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
-                    <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    <span>{service.duration} min</span>
-                    </div>
-                    <div className="flex items-center gap-2 font-medium text-foreground">
-                    <DollarSign className="w-4 h-4" />
-                    <span>{service.price.toFixed(2)}</span>
-                    </div>
-                </div>
-                </div>
-            </CardContent>
-            </Card>
-        </div>
-        );
-    }
-
-    // Text-based card
-    return (
-        <div className="cursor-pointer group h-full" onClick={onBookNow}>
-        <Card className="transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col bg-muted/30">
-            <CardContent className="p-4 flex flex-col flex-1">
-            <div className="flex-grow">
-                <h3 className="font-semibold text-lg mb-2">{service.name}</h3>
-                {service.description && (
-                <p className="text-xs text-muted-foreground line-clamp-3">
-                    {service.description}
-                </p>
-                )}
-            </div>
-            <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t mt-4">
-                <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                <span>{service.duration} min</span>
-                </div>
-                <div className="flex items-center gap-2 font-medium text-foreground">
-                <DollarSign className="w-4 h-4" />
-                <span>${service.price.toFixed(2)}</span>
-                </div>
-            </div>
-            </CardContent>
-        </Card>
-        </div>
-    );
-};
 
 export default function StaffDetailPage() {
   const params = useParams();
@@ -126,32 +59,10 @@ export default function StaffDetailPage() {
 
   // Filter services offered by this staff member
   const staffServices = useMemo(() => {
-    if (!staffMember || !allServices || !pricingTiers) return [];
-    
-    // Find the pricing tier object for the current staff member
-    const staffTier = pricingTiers.find(tier => tier.id === staffMember.pricingTierId);
-
+    if (!staffMember || !allServices) return [];
     return allServices
-      .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate)
-      .map(service => {
-        let finalPrice = service.price; // Default to base price
-        let finalDuration = service.duration;
-
-        if (staffTier && service.serviceTiers) {
-            const tierPricing = service.serviceTiers.find(t => t.tierId === staffTier.id);
-            if (tierPricing) {
-                finalPrice = tierPricing.price;
-                finalDuration = tierPricing.durationMinutes;
-            }
-        }
-        
-        return {
-          ...service,
-          price: finalPrice, // Override the service price with the correct tier price
-          duration: finalDuration,
-        };
-      });
-  }, [staffMember, allServices, pricingTiers]);
+      .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate);
+  }, [staffMember, allServices]);
 
   const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -383,7 +294,7 @@ export default function StaffDetailPage() {
                     <div id="services" className="space-y-4 pt-6">
                         <h2 className="text-2xl font-bold text-center">Services</h2>
                         {staffServices.map(service => (
-                            <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
+                            <BookingServices services={[service]} onServiceSelect={handleServiceSelect} />
                         ))}
                     </div>
 
@@ -427,6 +338,10 @@ export default function StaffDetailPage() {
                 consentForms={consentForms || []}
                 tenant={tenant || null}
                 onConfirm={handleConfirmBooking}
+                appointments={appointmentsFromDB || []}
+                events={eventsFromDB || []}
+                scheduleProfiles={scheduleProfiles || []}
+                services={allServices || []}
             />
         )}
     </div>

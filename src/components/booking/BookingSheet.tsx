@@ -19,6 +19,7 @@ import {
   type Event,
   type Tenant,
   type ConsentForm,
+  type PricingTier,
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -270,29 +271,36 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
     }, [service, consentForms]);
     
-  const { price, priceRange } = useMemo(() => {
-    if (!service.pricingTiers || service.pricingTiers.length === 0) {
-      return { price: service.price, priceRange: null };
-    }
-
-    if (selectedStaffId && selectedStaffId !== 'any') {
-      const staffMember = staff.find(s => s.id === selectedStaffId);
-      const skillLevel = staffMember?.skillLevel || 'senior';
-      const tierPrice = service.pricingTiers.find(t => t.level === skillLevel)?.price;
-      return { price: tierPrice || service.price, priceRange: null };
-    }
+    const { price, priceRange } = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0) {
+          return { price: service.price, priceRange: null };
+        }
     
-    const prices = service.pricingTiers.map(t => t.price);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-
-    if (minPrice === maxPrice) {
-        return { price: minPrice, priceRange: null };
-    }
+        if (selectedStaffId && selectedStaffId !== 'any') {
+          const staffMember = staff.find(s => s.id === selectedStaffId);
+          const staffPricingTierId = staffMember?.pricingTierId;
     
-    return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
-
-  }, [service, selectedStaffId, staff]);
+          if (staffPricingTierId) {
+            const tierPricing = service.serviceTiers.find(t => t.tierId === staffPricingTierId);
+            if (tierPricing) {
+              return { price: tierPricing.price, priceRange: null };
+            }
+          }
+          return { price: service.price, priceRange: null }; // Fallback
+        }
+        
+        const prices = service.serviceTiers.map(t => t.price);
+        if (prices.length === 0) return { price: service.price, priceRange: null };
+    
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+    
+        if (minPrice === maxPrice) {
+            return { price: minPrice, priceRange: null };
+        }
+        
+        return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
+      }, [service, selectedStaffId, staff]);
 
     const depositAmount = useMemo(() => {
         if (!service || service.depositType === 'none') return 0;
@@ -447,7 +455,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <p className="font-semibold">{service?.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
                                             <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service?.duration} min</span>
-                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{priceRange ? `From $${priceRange.min.toFixed(2)}` : price?.toFixed(2)}</span>
+                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{priceRange ? `From $${priceRange.min.toFixed(2)}` : price?.toFixed(2) ?? '0.00'}</span>
                                         </div>
                                     </div>
                                 </CardContent>
