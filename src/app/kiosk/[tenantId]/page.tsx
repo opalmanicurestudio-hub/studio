@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
@@ -192,7 +192,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
     );
 };
 
-const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[] }) => {
+const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
     const getInitialDatePart = (part: 'month' | 'day' | 'year') => {
         try {
             if (!member.birthday) return '';
@@ -256,9 +256,9 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                     value={member.name}
                     onChange={(e) => onUpdate(member.id, { name: e.target.value })}
                     className="text-base font-semibold border-0 shadow-none focus-visible:ring-0 p-0"
-                    placeholder={`Person ${member.id.slice(0,4)}`}
+                    placeholder={isPrimary ? 'Your Name' : `Person ${member.id.slice(0,4)}`}
                 />
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>
+                {!isPrimary && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
             </CardHeader>
             <CardContent>
                 <Accordion type="multiple" className="w-full space-y-2">
@@ -282,14 +282,18 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                     <AccordionItem value="details" className="border-b-0">
                          <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">Contact Details (Optional)</AccordionTrigger>
                          <AccordionContent className="pt-4 space-y-4">
-                            <div className="space-y-2">
-                                <Label>Phone Number</Label>
-                                <Input type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
-                            </div>
-                             <div className="space-y-2">
-                                <Label>Email Address</Label>
-                                <Input type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
-                            </div>
+                            {isPrimary ? (
+                                <>
+                                 <div className="space-y-2">
+                                    <Label>Phone Number</Label>
+                                    <Input type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Email Address</Label>
+                                    <Input type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
+                                </div>
+                                </>
+                            ) : null}
                              <div className="space-y-2">
                                 <Label>Birthday</Label>
                                 <div className="grid grid-cols-3 gap-2">
@@ -329,6 +333,33 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services }: { member: P
                                 </div>
                             </div>
                          </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="preferences" className="border-b-0">
+                        <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">Preferences (Optional)</AccordionTrigger>
+                        <AccordionContent className="pt-4 space-y-4">
+                            <div className="space-y-2">
+                                <Label>Preferred Staff</Label>
+                                <RadioGroup 
+                                    value={member.preferredStaffId || 'any'} 
+                                    onValueChange={(staffId) => onUpdate(member.id, { preferredStaffId: staffId })} 
+                                    className="grid grid-cols-2 md:grid-cols-3 gap-4"
+                                >
+                                    <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                                    {staff?.map(s => (
+                                        <StaffSelectionCard key={s.id} staff={s} />
+                                    ))}
+                                </RadioGroup>
+                            </div>
+                            {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+                                <div className="flex items-center justify-between rounded-lg border p-4">
+                                    <div className="space-y-0.5">
+                                        <Label htmlFor={`wait-${member.id}`}>Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                                        <p className="text-xs text-muted-foreground">If they are busy, your wait may be longer.</p>
+                                    </div>
+                                    <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate(member.id, { waitForPreferredStaff: checked })} />
+                                </div>
+                            )}
+                        </AccordionContent>
                     </AccordionItem>
                 </Accordion>
             </CardContent>
@@ -474,8 +505,21 @@ export default function WalkInPage() {
     );
   };
   
+    const handlePartyTypeSelect = (type: 'individual' | 'group') => {
+        setPartyType(type);
+        if (type === 'group') {
+            setPartyMembers([
+                { id: nanoid(), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false },
+                { id: nanoid(), name: 'Person 2', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }
+            ]);
+            setSelectedServices([]); // Not used in group mode
+        } else {
+            setPartyMembers([]);
+        }
+    };
+  
   const handleAddPartyMember = () => {
-      setPartyMembers(prev => [...prev, { id: nanoid(), name: `Person ${prev.length + 2}`, serviceIds: [] }]);
+      setPartyMembers(prev => [...prev, { id: nanoid(), name: `Person ${prev.length + 1}`, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
   };
 
   const handleUpdatePartyMember = useCallback((id: string, updates: Partial<PartyMember>) => {
@@ -540,42 +584,66 @@ export default function WalkInPage() {
 
 
     const { totalDuration, totalPrice } = useMemo(() => {
-    const allServices = [...selectedServices, ...partyMembers.flatMap(m => m.serviceIds.map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[])];
+    const allServices = partyType === 'group' 
+        ? partyMembers.flatMap(m => m.serviceIds.map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[])
+        : selectedServices;
 
-    if (!staff) {
-        // Fallback if staff data isn't loaded yet
+    if (!staff || allServices.length === 0) {
         const duration = allServices.reduce((acc, s) => acc + s.duration, 0);
         const price = allServices.reduce((acc, s) => acc + s.price, 0);
         return { totalDuration: duration, totalPrice: price };
     }
     
-    const selectedStaffMember = staff.find(s => s.id === preferredStaffId);
-    const tierId = selectedStaffMember?.pricingTierId;
-
     let duration = 0;
     let price = 0;
 
-    allServices.forEach(s => {
-        let servicePrice = s.price;
-        let serviceDuration = s.duration;
+    if (partyType === 'group') {
+        partyMembers.forEach(member => {
+            const memberServices = (services || []).filter(s => member.serviceIds.includes(s.id));
+            const staffMember = staff.find(s => s.id === member.preferredStaffId);
+            const tierId = staffMember?.pricingTierId;
 
-        if (tierId && s.serviceTiers) {
-            const tierInfo = s.serviceTiers.find(t => t.tierId === tierId);
-            if (tierInfo) {
-                servicePrice = tierInfo.price;
-                serviceDuration = tierInfo.durationMinutes;
-            }
-        }
+            memberServices.forEach(s => {
+                let servicePrice = s.price;
+                let serviceDuration = s.duration;
+                if (tierId && s.serviceTiers) {
+                    const tierInfo = s.serviceTiers.find(t => t.tierId === tierId);
+                    if (tierInfo) {
+                        servicePrice = tierInfo.price;
+                        serviceDuration = tierInfo.durationMinutes;
+                    }
+                }
+                price += servicePrice;
+                duration += serviceDuration;
+            });
+        });
+    } else { // Individual
+        const staffMember = staff.find(s => s.id === preferredStaffId);
+        const tierId = staffMember?.pricingTierId;
         
-        price += servicePrice;
-        duration += serviceDuration;
-    });
+        allServices.forEach(s => {
+            let servicePrice = s.price;
+            let serviceDuration = s.duration;
+            if (tierId && s.serviceTiers) {
+                const tierInfo = s.serviceTiers.find(t => t.tierId === tierId);
+                if (tierInfo) {
+                    servicePrice = tierInfo.price;
+                    serviceDuration = tierInfo.durationMinutes;
+                }
+            }
+            price += servicePrice;
+            duration += serviceDuration;
+        });
+    }
 
     return { totalDuration: duration, totalPrice: price };
-  }, [selectedServices, partyMembers, services, preferredStaffId, staff]);
+  }, [selectedServices, partyMembers, services, preferredStaffId, staff, partyType]);
 
   const requiredForms = useMemo(() => {
-    const allServiceIds = new Set([...selectedServices.map(s => s.id), ...partyMembers.flatMap(m => m.serviceIds)]);
+    const allServiceIds = partyType === 'group'
+      ? new Set(partyMembers.flatMap(m => m.serviceIds))
+      : new Set(selectedServices.map(s => s.id));
+      
     if (allServiceIds.size === 0 || !consentForms) return [];
     
     const allSelectedServices = (services || []).filter(s => allServiceIds.has(s.id));
@@ -583,23 +651,39 @@ export default function WalkInPage() {
 
     if (formIds.size === 0) return [];
     return consentForms.filter(f => formIds.has(f.id));
-  }, [selectedServices, partyMembers, consentForms, services]);
+  }, [selectedServices, partyMembers, consentForms, services, partyType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (!customerName || (selectedServices.length === 0 && partyMembers.every(m => m.serviceIds.length === 0))) {
-      toast({
-        variant: 'destructive',
-        title: 'Missing Information',
-        description: 'Please enter your name and select at least one service for someone in your party.',
-      });
-      return;
-    }
-    if (customerEmail && !/^\S+@\S+\.\S+$/.test(customerEmail)) {
-        toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
-        return;
+    if (partyType === 'group') {
+        const primaryMember = partyMembers.find(m => m.isPrimary);
+        if (!primaryMember || !primaryMember.name.trim() || partyMembers.every(m => m.serviceIds.length === 0)) {
+            toast({
+                variant: 'destructive',
+                title: 'Missing Information',
+                description: "Please enter the primary contact's name and select at least one service for someone in your party.",
+            });
+            return;
+        }
+        if (primaryMember.email && !/^\S+@\S+\.\S+$/.test(primaryMember.email)) {
+            toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email for the primary contact.' });
+            return;
+        }
+    } else {
+        if (!customerName || selectedServices.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Missing Information',
+                description: 'Please enter your name and select at least one service.',
+            });
+            return;
+        }
+        if (customerEmail && !/^\S+@\S+\.\S+$/.test(customerEmail)) {
+            toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
+            return;
+        }
     }
 
     if (requiredForms.length > 0 && step === 'services') {
@@ -612,60 +696,67 @@ export default function WalkInPage() {
     const batch = writeBatch(firestore);
     
     const groupId = nanoid();
-    const groupName = partyType === 'group' ? `${customerName}'s Group` : undefined;
     const checkInTime = new Date().toISOString();
     const currentTime = Date.now();
+    let primaryContactName = '';
+    let primaryWalkInId = '';
 
-    // 1. Create walk-in for the primary contact
-    const primaryWalkInId = nanoid();
-    const primaryWalkIn: Omit<WalkIn, 'id'> = {
-      groupId,
-      ...groupName && { groupName },
-      isPrimaryContact: true,
-      customerName,
-      customerPhone,
-      customerEmail,
-      ...(customerBirthday && { customerBirthday: customerBirthday.toISOString() }),
-      clientId: selectedClientId,
-      serviceIds: selectedServices.map(s => s.id),
-      requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
-      estimatedDuration: totalDuration,
-      checkInTime,
-      status: 'waiting',
-      ...(preferredStaffId !== 'any' && { preferredStaffId: preferredStaffId }),
-      waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
-      notes,
-      queueOrder: currentTime,
-    };
-    const primaryWalkInRef = doc(walkInsRef, primaryWalkInId);
-    batch.set(primaryWalkInRef, { ...primaryWalkIn, id: primaryWalkInId });
+    if (partyType === 'group') {
+        const primaryMember = partyMembers.find(m => m.isPrimary)!;
+        primaryContactName = primaryMember.name;
+        const groupName = `${primaryContactName}'s Group`;
 
-    // 2. Create walk-ins for party members
-    partyMembers.forEach((member, index) => {
-      if (member.serviceIds.length === 0) return;
-      
-      const memberWalkInId = nanoid();
-      const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
-      const memberWalkIn: Omit<WalkIn, 'id'> = {
-          groupId,
-          ...groupName && { groupName },
-          isPrimaryContact: false,
-          customerName: member.name,
-          customerPhone: member.phone,
-          customerEmail: member.email,
-          ...(member.birthday && { customerBirthday: member.birthday }),
-          serviceIds: member.serviceIds,
-          requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
-          estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
+        partyMembers.forEach((member, index) => {
+            if (member.serviceIds.length === 0) return;
+            const memberWalkInId = nanoid();
+            if (member.isPrimary) primaryWalkInId = memberWalkInId;
+
+            const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
+            const memberWalkIn: Omit<WalkIn, 'id'> = {
+                groupId,
+                groupName,
+                isPrimaryContact: member.isPrimary || false,
+                customerName: member.name,
+                customerPhone: member.phone,
+                customerEmail: member.email,
+                ...(member.birthday && { customerBirthday: member.birthday }),
+                serviceIds: member.serviceIds,
+                requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
+                estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
+                checkInTime,
+                status: 'waiting',
+                ...(member.preferredStaffId && member.preferredStaffId !== 'any' && { preferredStaffId: member.preferredStaffId }),
+                waitForPreferredStaff: (member.preferredStaffId && member.preferredStaffId !== 'any') ? member.waitForPreferredStaff : false,
+                notes,
+                queueOrder: currentTime + index,
+            };
+            const memberWalkInRef = doc(walkInsRef, memberWalkInId);
+            batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
+        });
+    } else { // Individual
+        primaryContactName = customerName;
+        primaryWalkInId = nanoid();
+        const primaryWalkIn: Omit<WalkIn, 'id'> = {
+          groupId: primaryWalkInId, // For individual, groupId is their own ID
+          isPrimaryContact: true,
+          customerName,
+          customerPhone,
+          customerEmail,
+          ...(customerBirthday && { customerBirthday: customerBirthday.toISOString() }),
+          clientId: selectedClientId,
+          serviceIds: selectedServices.map(s => s.id),
+          requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
+          estimatedDuration: totalDuration,
           checkInTime,
           status: 'waiting',
           ...(preferredStaffId !== 'any' && { preferredStaffId: preferredStaffId }),
           waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
-          queueOrder: currentTime + index + 1,
-      };
-      const memberWalkInRef = doc(walkInsRef, memberWalkInId);
-      batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
-    });
+          notes,
+          queueOrder: currentTime,
+        };
+        const primaryWalkInRef = doc(walkInsRef, primaryWalkInId);
+        batch.set(primaryWalkInRef, { ...primaryWalkIn, id: primaryWalkInId });
+    }
 
     try {
         const q = query(walkInsRef, where("status", "==", "waiting"));
@@ -677,7 +768,7 @@ export default function WalkInPage() {
         
         const ticketData: WalkInTicketData = {
             id: primaryWalkInId,
-            name: customerName,
+            name: primaryContactName,
             services: selectedServices,
             queuePosition: newPosition,
             checkInTime: checkInTime,
@@ -770,9 +861,9 @@ export default function WalkInPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card
             className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center"
-            onClick={() => setPartyType('individual')}
+            onClick={() => handlePartyTypeSelect('individual')}
             tabIndex={0}
-            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setPartyType('individual')}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handlePartyTypeSelect('individual')}
           >
             <CardContent className="p-8 flex flex-col items-center justify-center h-full">
               <User className="w-16 h-16 mx-auto mb-4 text-primary" />
@@ -782,9 +873,9 @@ export default function WalkInPage() {
           </Card>
           <Card
             className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center"
-            onClick={() => setPartyType('group')}
+            onClick={() => handlePartyTypeSelect('group')}
             tabIndex={0}
-            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setPartyType('group')}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handlePartyTypeSelect('group')}
           >
             <CardContent className="p-8 flex flex-col items-center justify-center h-full">
               <Users className="w-16 h-16 mx-auto mb-4 text-primary" />
@@ -827,119 +918,119 @@ export default function WalkInPage() {
                       <CardTitle>{partyType === 'group' ? "Build Your Party's Request" : "Select Your Services"}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
-                      <div className="space-y-4 pb-6 border-b">
-                          <h4 className="font-semibold text-lg">Primary Contact Information</h4>
-                           {selectedClientId && (
-                              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                      <CheckCircle className="w-5 h-5 text-primary" />
-                                      <div>
-                                          <p className="text-sm font-medium">Welcome back, {customerName}!</p>
-                                          <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
-                                      </div>
-                                  </div>
-                                  <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
-                              </div>
-                          )}
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                  <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
-                                  <div className="relative">
-                                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                      <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
-                                  </div>
-                              </div>
-                              <div className="space-y-2">
-                                  <Label htmlFor="email">Email Address</Label>
-                                  <div className="relative">
-                                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                      <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
-                                  </div>
-                              </div>
-                          </div>
-                          {potentialMatches.length > 0 && !selectedClientId && (
-                              <div className="space-y-3">
-                                  <p className="text-sm font-medium text-center">Are you an existing client?</p>
-                                  <Card>
-                                      <CardContent className="p-2 space-y-1">
-                                          {potentialMatches.map(client => (
-                                              <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
-                                                  <Avatar className="w-10 h-10 mr-4">
-                                                      <AvatarImage src={client.avatarUrl} />
-                                                      <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                                                  </Avatar>
-                                                  <div>
-                                                      <p className="font-semibold text-base">{client.name}</p>
-                                                      <p className="text-sm text-muted-foreground">{client.email}</p>
-                                                  </div>
-                                              </Button>
-                                          ))}
-                                      </CardContent>
-                                  </Card>
-                              </div>
-                          )}
-                           <div className="space-y-2">
-                              <Label htmlFor="name">Your Name</Label>
-                              <div className="relative">
-                                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                  <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
-                              </div>
-                          </div>
-                      </div>
-
-                      <div className="space-y-2">
-                          <Label className="font-semibold text-base">Your Services</Label>
-                          <BookingServices services={mainServices} onServiceSelect={handleServiceToggle} />
-                      </div>
-
-                      {partyType === 'group' && (
-                        <div className="space-y-4">
-                          <Label className="font-semibold text-base">Your Group</Label>
-                          <div className="space-y-4">
-                              {partyMembers.map(member => (
-                                  <PartyMemberEditor
-                                      key={member.id}
-                                      member={member}
-                                      onUpdate={handleUpdatePartyMember}
-                                      onRemove={handleRemovePartyMember}
-                                      services={mainServices}
-                                  />
-                              ))}
-                          </div>
-                          <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
-                              <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
-                          </Button>
-                        </div>
-                      )}
-                      
-                       <div className="space-y-4 pt-6 border-t">
-                          <h4 className="font-semibold text-lg">Preferences & Notes</h4>
-                          <div className="space-y-2">
-                            <Label>Preferred Staff</Label>
-                            <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
-                                {staff?.map(s => (
-                                    <StaffSelectionCard
-                                        key={s.id}
-                                        staff={s}
+                        {partyType === 'group' ? (
+                            <div className="space-y-4">
+                                {partyMembers.map(member => (
+                                    <PartyMemberEditor
+                                        key={member.id}
+                                        member={member}
+                                        onUpdate={handleUpdatePartyMember}
+                                        onRemove={handleRemovePartyMember}
+                                        services={mainServices}
+                                        staff={staff || []}
+                                        isPrimary={member.isPrimary}
                                     />
                                 ))}
-                            </RadioGroup>
-                          </div>
-                          {preferredStaffId !== 'any' && (
-                              <div className="flex items-center justify-between rounded-lg border p-4">
-                                  <div className="space-y-0.5">
-                                      <Label htmlFor="wait-for-preferred">Wait for {staff?.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</Label>
-                                      <p className="text-xs text-muted-foreground">If they are busy, your wait may be longer.</p>
-                                  </div>
-                                  <Switch id="wait-for-preferred" checked={waitForPreferred} onCheckedChange={setWaitForPreferred} />
-                              </div>
-                          )}
-                          <div className="space-y-2">
-                              <Label htmlFor="notes">Notes for Staff</Label>
-                              <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., celebrating an anniversary, prefers not to talk much." />
-                          </div>
-                      </div>
+                                <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
+                                </Button>
+                            </div>
+                        ) : (
+                             <>
+                                <div className="space-y-4 pb-6 border-b">
+                                <h4 className="font-semibold text-lg">Contact Information</h4>
+                                {selectedClientId && (
+                                    <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <CheckCircle className="w-5 h-5 text-primary" />
+                                            <div>
+                                                <p className="text-sm font-medium">Welcome back, {customerName}!</p>
+                                                <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
+                                            </div>
+                                        </div>
+                                        <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
+                                        <div className="relative">
+                                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="email">Email Address</Label>
+                                        <div className="relative">
+                                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                        </div>
+                                    </div>
+                                </div>
+                                {potentialMatches.length > 0 && !selectedClientId && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm font-medium text-center">Are you an existing client?</p>
+                                        <Card>
+                                            <CardContent className="p-2 space-y-1">
+                                                {potentialMatches.map(client => (
+                                                    <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
+                                                        <Avatar className="w-10 h-10 mr-4">
+                                                            <AvatarImage src={client.avatarUrl} />
+                                                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <div>
+                                                            <p className="font-semibold text-base">{client.name}</p>
+                                                            <p className="text-sm text-muted-foreground">{client.email}</p>
+                                                        </div>
+                                                    </Button>
+                                                ))}
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                )}
+                                <div className="space-y-2">
+                                    <Label htmlFor="name">Your Name</Label>
+                                    <div className="relative">
+                                        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
+                                    </div>
+                                </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="font-semibold text-base">Your Services</Label>
+                                    <BookingServices services={mainServices} onServiceSelect={handleServiceToggle} selectedServices={selectedServices}/>
+                                </div>
+                                <div className="space-y-4 pt-6 border-t">
+                                    <h4 className="font-semibold text-lg">Preferences & Notes</h4>
+                                    <div className="space-y-2">
+                                      <Label>Preferred Staff</Label>
+                                      <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                          <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                                          {staff?.map(s => (
+                                              <StaffSelectionCard
+                                                  key={s.id}
+                                                  staff={s}
+                                              />
+                                          ))}
+                                      </RadioGroup>
+                                    </div>
+                                    {preferredStaffId !== 'any' && (
+                                        <div className="flex items-center justify-between rounded-lg border p-4">
+                                            <div className="space-y-0.5">
+                                                <Label htmlFor="wait-for-preferred">Wait for {staff?.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                                                <p className="text-xs text-muted-foreground">If they are busy, your wait may be longer.</p>
+                                            </div>
+                                            <Switch id="wait-for-preferred" checked={waitForPreferred} onCheckedChange={setWaitForPreferred} />
+                                        </div>
+                                    )}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="notes">Notes for Staff</Label>
+                                        <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., celebrating an anniversary, prefers not to talk much." />
+                                    </div>
+                                </div>
+                             </>
+                        )}
+                        
 
                     </CardContent>
                     <CardFooter className="flex justify-between">
