@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -21,7 +22,7 @@ import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/fir
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -45,8 +46,33 @@ import {
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { BookingServices } from '@/components/booking/BookingServices';
+import Image from 'next/image';
 
 type Step = 'services' | 'consents' | 'confirmation';
+
+const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Service; isSelected: boolean; onToggle: () => void; }) => {
+  return (
+    <div onClick={onToggle} className={cn("rounded-lg border bg-background text-card-foreground cursor-pointer transition-all", isSelected ? "border-primary ring-2 ring-primary" : "hover:shadow-md")}>
+      <div className="p-3 flex items-start gap-3">
+        <Checkbox checked={isSelected} onCheckedChange={onToggle} className="mt-1" />
+        <div className="flex-1">
+          <p className="font-semibold text-sm">{service.name}</p>
+          {service.description && <p className="text-xs text-muted-foreground line-clamp-2 h-8">{service.description}</p>}
+          <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3"/>{service.duration} min</span>
+            <span className="flex items-center gap-1"><DollarSign className="w-3 h-3"/>{service.price.toFixed(2)}</span>
+          </div>
+        </div>
+        {service.imageUrl && (
+          <div className="w-16 h-16 bg-muted rounded-md flex-shrink-0 relative">
+            <Image src={service.imageUrl} alt={service.name} fill className="object-cover rounded-md" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 const StaffSelectionCard = ({ staff }: { staff: Staff | { id: string, name: string, avatarUrl: string } }) => {
     const isAnyStaff = staff.id === 'any';
@@ -209,11 +235,11 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrim
                 {!isPrimary && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
             </CardHeader>
             <CardContent className="space-y-4">
-                <div className="space-y-2">
+                 <div className="space-y-2">
                     <Label>Services</Label>
-                    <Card className="bg-background">
-                        <CardContent className="p-3">
-                            {selectedServices.length > 0 ? (
+                    {selectedServices.length > 0 ? (
+                        <Card className="bg-background">
+                            <CardContent className="p-3">
                                 <div className="space-y-1">
                                     {selectedServices.map(s => (
                                         <div key={s.id} className="flex items-center justify-between text-sm font-medium">
@@ -224,11 +250,11 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrim
                                         </div>
                                     ))}
                                 </div>
-                            ) : (
-                                <p className="text-sm text-muted-foreground text-center py-2">No services selected.</p>
-                            )}
-                        </CardContent>
-                    </Card>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="text-sm text-muted-foreground text-center py-3 px-2 border rounded-md">No services selected.</div>
+                    )}
 
                     <Card>
                         <CardContent className="p-2 space-y-2">
@@ -245,19 +271,15 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrim
                                     <Button variant="ghost" size="sm" onClick={() => setServiceSelectionView('categories')} className="mb-2">
                                         <ArrowLeft className="mr-2 h-4 w-4" /> Back to Categories
                                     </Button>
-                                    <ScrollArea className="h-48">
+                                    <ScrollArea className="h-64">
                                     <div className="space-y-2 pr-4">
                                         {servicesForCategory.map(service => (
-                                            <div key={service.id} className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted">
-                                                <Checkbox
-                                                    id={`svc-${member.id}-${service.id}`}
-                                                    checked={member.serviceIds.includes(service.id)}
-                                                    onCheckedChange={() => handleServiceToggle(service.id)}
-                                                />
-                                                <label htmlFor={`svc-${member.id}-${service.id}`} className="text-sm font-medium flex-1 cursor-pointer">
-                                                    {service.name}
-                                                </label>
-                                            </div>
+                                            <ServiceSelectionCard 
+                                                key={service.id}
+                                                service={service}
+                                                isSelected={member.serviceIds.includes(service.id)}
+                                                onToggle={() => handleServiceToggle(service.id)}
+                                            />
                                         ))}
                                     </div>
                                     </ScrollArea>
@@ -266,6 +288,7 @@ const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrim
                         </CardContent>
                     </Card>
                 </div>
+
 
                 <div className="space-y-2">
                     <Label>Preferred Staff</Label>
