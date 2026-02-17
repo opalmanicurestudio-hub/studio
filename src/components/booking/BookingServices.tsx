@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import {
@@ -122,12 +123,12 @@ const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onS
 };
 
 
-export const BookingServices = ({ services, onServiceSelect }: { services: Service[], onServiceSelect: (service: Service) => void }) => {
+export const BookingServices = ({ services, onServiceSelect, staffMember, showPrivateServices = false }: { services: Service[], onServiceSelect: (service: Service) => void, staffMember?: Staff, showPrivateServices?: boolean }) => {
 
     const servicesByCategory = useMemo(() => {
         if (!services) return {};
         return services
-            .filter(s => !s.isPrivate && s.type !== 'addon')
+            .filter(s => (showPrivateServices || !s.isPrivate) && s.type !== 'addon')
             .reduce((acc, service) => {
                 const category = service.category || 'Other Services';
                 if (!acc[category]) {
@@ -136,7 +137,7 @@ export const BookingServices = ({ services, onServiceSelect }: { services: Servi
                 acc[category].push(service);
                 return acc;
             }, {} as Record<string, Service[]>);
-    }, [services]);
+    }, [services, showPrivateServices]);
 
     const categories = useMemo(() => Object.keys(servicesByCategory).sort(), [servicesByCategory]);
     const [selectedCategory, setSelectedCategory] = useState('');

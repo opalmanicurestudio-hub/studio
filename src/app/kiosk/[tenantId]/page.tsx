@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
+import { BookingServices } from '@/components/booking/BookingServices';
 
 type Step = 'services' | 'consents' | 'confirmation';
 
@@ -860,16 +861,7 @@ export default function WalkInPage() {
 
                       <div className="space-y-2">
                           <Label className="font-semibold text-base">Your Services</Label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {mainServices.map(service => (
-                                  <ServiceSelectionCard
-                                      key={service.id}
-                                      service={service}
-                                      isSelected={selectedServices.some(s => s.id === service.id)}
-                                      onToggle={() => handleServiceToggle(service)}
-                                  />
-                              ))}
-                          </div>
+                          <BookingServices services={mainServices} onServiceSelect={handleServiceToggle} showPrivateServices={true}/>
                       </div>
 
                       {partyType === 'group' && (

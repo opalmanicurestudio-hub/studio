@@ -156,13 +156,15 @@ export default function POSPage() {
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
 
-                if (service && staffMember?.skillLevel) {
-                    const tierPrice = service.pricingTiers?.find(t => t.level === staffMember.skillLevel)?.price;
-                    const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
-                    service = {
-                        ...service,
-                        price: finalPrice
-                    };
+                if (service && staffMember?.pricingTierId) {
+                    const tierInfo = service.serviceTiers?.find(t => t.tierId === staffMember.pricingTierId);
+                    if (tierInfo) {
+                        service = {
+                            ...service,
+                            price: tierInfo.price,
+                            duration: tierInfo.durationMinutes
+                        };
+                    }
                 }
                 
                 let groupInfo: { name: string; id: string } | null = null;
