@@ -22,7 +22,6 @@ import { type Service, type Staff, type ConsentForm, type Tenant, type Client, t
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -47,7 +46,263 @@ import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/P
 import Image from 'next/image';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
-type MemberSubStep = 'details' | 'services' | 'staff';
+type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
+
+const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
+    <>
+        <CardHeader className="text-center">
+            <CardTitle className="text-2xl">Who are we serving today?</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('individual')}>
+                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+                    <User className="w-16 h-16 mx-auto mb-4 text-primary" />
+                    <h3 className="text-2xl font-semibold">Just Me</h3>
+                    <p className="text-muted-foreground mt-1">I'm checking in for myself.</p>
+                </CardContent>
+            </Card>
+            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('group')}>
+                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+                    <Users className="w-16 h-16 mx-auto mb-4 text-primary" />
+                    <h3 className="text-2xl font-semibold">My Group</h3>
+                    <p className="text-muted-foreground mt-1">I'm checking in for myself and others.</p>
+                </CardContent>
+            </Card>
+        </CardContent>
+    </>
+);
+
+const StepDetails = ({ member, onUpdate }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void }) => (
+    <div className="space-y-4">
+        <div className="space-y-2">
+            <Label htmlFor={`name-${member.id}`}>Name</Label>
+            <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} />
+        </div>
+        {member.isPrimary && (
+            <>
+                <div className="space-y-2">
+                    <Label htmlFor={`phone-${member.id}`}>Phone</Label>
+                    <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor={`email-${member.id}`}>Email</Label>
+                    <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" />
+                </div>
+            </>
+        )}
+    </div>
+);
+
+const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; staff: Staff[]; pricingTiers: PricingTier[] }) => {
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const handleServiceToggle = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [...member.serviceIds, serviceId];
+        onUpdate({ serviceIds: newServiceIds });
+    };
+    
+    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
+
+    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+
+    if (!selectedCategory) {
+        return (
+             <div className="grid grid-cols-2 gap-4">
+                {categories.map(category => (
+                    <Button key={category} variant="outline" className="h-20 text-base" onClick={() => setSelectedCategory(category)}>{category}</Button>
+                ))}
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
+            <div className="space-y-3">
+                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => (
+                    <ServiceSelectionCard
+                        key={service.id}
+                        service={service}
+                        isSelected={member.serviceIds.includes(service.id)}
+                        onToggle={() => handleServiceToggle(service.id)}
+                        staffTierId={selectedStaffMember?.pricingTierId}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const StepAddons = ({ member, onUpdate, compatibleAddons, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; compatibleAddons: Service[]; staff: Staff[]; pricingTiers: PricingTier[]; }) => {
+    
+    const handleServiceToggle = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [...member.serviceIds, serviceId];
+        onUpdate({ serviceIds: newServiceIds });
+    };
+
+    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
+
+    return (
+        <div className="space-y-3">
+            {compatibleAddons.map(service => (
+                <ServiceSelectionCard
+                    key={service.id}
+                    service={service}
+                    isSelected={member.serviceIds.includes(service.id)}
+                    onToggle={() => handleServiceToggle(service.id)}
+                    staffTierId={selectedStaffMember?.pricingTierId}
+                />
+            ))}
+        </div>
+    );
+};
+
+const StepStaff = ({ member, onUpdate, staff }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[] }) => (
+    <div className="space-y-4">
+        <RadioGroup 
+            value={member.preferredStaffId || 'any'} 
+            onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} 
+            className="grid grid-cols-2 md:grid-cols-3 gap-4"
+        >
+            <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
+        </RadioGroup>
+        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+            <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
+                <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
+            </div>
+        )}
+    </div>
+);
+
+const MemberSetup = ({
+    member,
+    onUpdate,
+    memberSubStep,
+    setMemberSubStep,
+    services,
+    staff,
+    pricingTiers,
+    compatibleAddons,
+    onNext,
+    onBack,
+    isGroup,
+    isLastMember,
+    onAddAnother,
+    onSubmit,
+    isSubmitting
+}: any) => {
+
+    const subStepTitles = {
+        details: 'Guest Details',
+        services: 'Select Service(s)',
+        addons: 'Select Add-on(s)',
+        staff: 'Preferred Staff',
+    };
+    
+    const selectedServices = services.filter((s: Service) => member.serviceIds.includes(s.id));
+
+    const renderStepContent = () => {
+        switch (memberSubStep) {
+            case 'details': return <StepDetails member={member} onUpdate={onUpdate} />;
+            case 'services': return <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>;
+            case 'addons': return <StepAddons member={member} onUpdate={onUpdate} compatibleAddons={compatibleAddons} staff={staff} pricingTiers={pricingTiers}/>;
+            case 'staff': return <StepStaff member={member} onUpdate={onUpdate} staff={staff} />;
+            default: return null;
+        }
+    }
+
+    return (
+        <>
+            <CardHeader>
+                <CardTitle className="text-2xl">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
+                <CardDescription>{subStepTitles[memberSubStep]}</CardDescription>
+                {selectedServices.length > 0 && (
+                    <div className="pt-2">
+                        <div className="flex flex-wrap gap-2">
+                            {selectedServices.map((s: Service) => <Badge key={s.id}>{s.name}</Badge>)}
+                        </div>
+                    </div>
+                )}
+            </CardHeader>
+            <CardContent>
+                {renderStepContent()}
+            </CardContent>
+            <CardFooter className="flex justify-between">
+                <Button variant="ghost" onClick={onBack} disabled={isSubmitting}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                {isGroup ? (
+                    <div className="flex gap-2">
+                        {!isLastMember && <Button onClick={onNext} disabled={isSubmitting}>Next Person <ArrowRight className="ml-2 h-4 w-4"/></Button>}
+                        <Button variant="outline" onClick={onAddAnother} disabled={isSubmitting}>Add Another Person</Button>
+                        <Button onClick={onSubmit} disabled={isSubmitting}>Finish & Join Queue</Button>
+                    </div>
+                ) : (
+                    <Button onClick={onNext} disabled={isSubmitting}>
+                        {memberSubStep === 'staff' ? 'Join Waitlist' : 'Next'}
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                )}
+            </CardFooter>
+        </>
+    );
+};
+
+const ConfirmationScreen = ({
+    queuePosition,
+    onPrint,
+    onDone
+}: {
+    queuePosition: number | null;
+    onPrint: () => void;
+    onDone: () => void;
+}) => {
+    const [resetProgress, setResetProgress] = useState(100);
+
+    useEffect(() => {
+        const DURATION = 15000;
+        const timer = setTimeout(onDone, DURATION);
+        const progressInterval = setInterval(() => {
+            setResetProgress(prev => Math.max(0, prev - (100 / (DURATION / 100))));
+        }, 100);
+
+        return () => {
+            clearTimeout(timer);
+            clearInterval(progressInterval);
+        };
+    }, [onDone]);
+    
+    return (
+        <>
+            <CardContent className="p-8 text-center space-y-4">
+                <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                <h2 className="text-2xl font-bold">You're on the list!</h2>
+                <p className="text-muted-foreground">
+                    You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
+                    We will send a text message to the provided phone number when it's your turn.
+                </p>
+                <div className="pt-6">
+                    <Button className="w-full" onClick={onPrint}>
+                        <Printer className="mr-2 h-4 w-4" />
+                        Print Ticket
+                    </Button>
+                </div>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+                <Button className="w-full" variant="ghost" onClick={onDone}>Done</Button>
+                <div className="w-full text-center">
+                    <p className="text-xs text-muted-foreground">Resetting for the next guest...</p>
+                    <Progress value={resetProgress} className="h-1 mt-2" />
+                </div>
+            </CardFooter>
+        </>
+    )
+};
+
 
 const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string }) => {
     const { price, duration } = useMemo(() => {
@@ -116,6 +371,7 @@ const StaffSelectionCard = ({ staff }: { staff: Staff | { id: string, name: stri
         </div>
     );
 };
+
 
 type DayHours = { enabled: boolean; start: string; end: string };
 type BusinessHours = {
@@ -209,111 +465,6 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
-const PartyMemberEditor = ({
-    member,
-    onUpdate,
-    services,
-    staff,
-    pricingTiers,
-}: {
-    member: PartyMember;
-    onUpdate: (updates: Partial<PartyMember>) => void;
-    services: Service[];
-    staff: Staff[];
-    pricingTiers: PricingTier[];
-}) => {
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-    const handleServiceToggle = (serviceId: string) => {
-        const newServiceIds = member.serviceIds.includes(serviceId)
-            ? member.serviceIds.filter(id => id !== serviceId)
-            : [...member.serviceIds, serviceId];
-        onUpdate({ serviceIds: newServiceIds });
-    };
-
-    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
-    
-    const selectedServices = useMemo(() => services.filter(s => member.serviceIds.includes(s.id)), [services, member.serviceIds]);
-    
-    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
-
-    return (
-        <div className="space-y-6">
-            <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} />
-            </div>
-            {member.isPrimary && (
-                <>
-                    <div className="space-y-2"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates"/></div>
-                    <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" /></div>
-                </>
-            )}
-
-            <div className="space-y-4">
-                <h3 className="font-medium text-lg">Select Service(s)</h3>
-                
-                <div className="p-3 border rounded-lg">
-                    {selectedServices.length > 0 && (
-                        <div className="mb-4">
-                            <h4 className="font-semibold text-sm mb-2">Selected Services:</h4>
-                            <div className="flex flex-wrap gap-2">
-                            {selectedServices.map(s => (
-                                <Badge key={s.id} variant="secondary">{s.name} <button onClick={() => handleServiceToggle(s.id)} className="ml-1.5 -mr-1 rounded-full p-0.5 hover:bg-destructive/20"><Trash2 className="w-3 h-3"/></button></Badge>
-                            ))}
-                            </div>
-                        </div>
-                    )}
-                    {!selectedCategory ? (
-                        <div className="grid grid-cols-2 gap-3">
-                            {categories.map(category => (
-                                <Button key={category} variant="outline" className="h-14" onClick={() => setSelectedCategory(category)}>{category}</Button>
-                            ))}
-                        </div>
-                    ) : (
-                        <div>
-                            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
-                            <div className="space-y-2">
-                                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => (
-                                    <ServiceSelectionCard
-                                        key={service.id}
-                                        service={service}
-                                        isSelected={member.serviceIds.includes(service.id)}
-                                        onToggle={() => handleServiceToggle(service.id)}
-                                        staffTierId={selectedStaffMember?.pricingTierId}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                <h3 className="font-medium text-lg">Preferred Staff</h3>
-                <ScrollArea>
-                    <RadioGroup 
-                        value={member.preferredStaffId || 'any'} 
-                        onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} 
-                        className="flex gap-4 pb-4"
-                    >
-                        <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
-                        {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
-                    </RadioGroup>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-                    {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-                    <div className="flex items-center justify-between rounded-lg border p-3">
-                        <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
-                        <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const router = useRouter();
@@ -342,6 +493,7 @@ export default function WalkInPage() {
   const [isGroup, setIsGroup] = useState(false);
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
+  const [memberSubStep, setMemberSubStep] = useState<MemberSubStep>('details');
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
 
   // Final confirmation state
@@ -361,6 +513,7 @@ export default function WalkInPage() {
     setIsGroup(type === 'group');
     setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
     setCurrentMemberIndex(0);
+    setMemberSubStep('details');
     setStep('memberSetup');
   };
 
@@ -368,6 +521,20 @@ export default function WalkInPage() {
     setPartyMembers(prev => prev.map((m, index) => index === currentMemberIndex ? { ...m, ...updates } : m));
   };
 
+  const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
+    const steps: MemberSubStep[] = ['details', 'services'];
+    if (hasCompatibleAddons) {
+      steps.push('addons');
+    }
+    steps.push('staff');
+  
+    const currentIndex = steps.indexOf(current);
+    if (currentIndex < steps.length - 1) {
+      return steps[currentIndex + 1];
+    }
+    return null;
+  };
+  
   const handleNextMember = () => {
     if (isSubmitting) return;
 
@@ -376,11 +543,21 @@ export default function WalkInPage() {
         toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
         return;
     }
+    
+    const primaryService = services?.find(s => s.id === currentMember.serviceIds[0]);
+    const hasCompatibleAddons = primaryService?.compatibleAddOnIds && primaryService.compatibleAddOnIds.length > 0;
 
-    if (currentMemberIndex < partyMembers.length - 1) {
-      setCurrentMemberIndex(prev => prev + 1);
+    const nextStep = getNextSubStep(memberSubStep, hasCompatibleAddons);
+
+    if (nextStep) {
+        setMemberSubStep(nextStep);
     } else {
-      handleSubmit();
+        if (isGroup && currentMemberIndex < partyMembers.length - 1) {
+            setCurrentMemberIndex(prev => prev + 1);
+            setMemberSubStep('details');
+        } else {
+            handleSubmit();
+        }
     }
   };
   
@@ -393,11 +570,22 @@ export default function WalkInPage() {
     }
     setPartyMembers(prev => [...prev, { id: nanoid(5), name: ``, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
     setCurrentMemberIndex(partyMembers.length);
+    setMemberSubStep('details');
   }
 
   const handleBack = () => {
-    if (currentMemberIndex > 0) {
+    if (memberSubStep !== 'details') {
+      const currentMember = partyMembers[currentMemberIndex];
+      const primaryService = services?.find(s => s.id === currentMember.serviceIds[0]);
+      const hasCompatibleAddons = primaryService?.compatibleAddOnIds && primaryService.compatibleAddOnIds.length > 0;
+      const steps: MemberSubStep[] = ['details', 'services'];
+      if (hasCompatibleAddons) steps.push('addons');
+      steps.push('staff');
+      const currentIndex = steps.indexOf(memberSubStep);
+      setMemberSubStep(steps[currentIndex - 1]);
+    } else if (currentMemberIndex > 0) {
         setCurrentMemberIndex(prev => prev - 1);
+        setMemberSubStep('staff'); // Go to last step of previous member
     } else {
         setStep('partyType');
         setPartyMembers([]);
@@ -413,20 +601,6 @@ export default function WalkInPage() {
     setQueuePosition(null);
     setTicketToPrint(null);
   }, []);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    let progressInterval: NodeJS.Timeout;
-    if (step === 'confirmation') {
-      const DURATION = 15000;
-      setResetProgress(100);
-      timer = setTimeout(resetFlow, DURATION);
-      progressInterval = setInterval(() => {
-        setResetProgress(prev => Math.max(0, prev - (100 / (DURATION / 100))));
-      }, 100);
-    }
-    return () => { clearTimeout(timer); clearInterval(progressInterval); };
-  }, [step, resetFlow]);
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -503,7 +677,11 @@ export default function WalkInPage() {
   if (!businessIsOpen) return <div>Closed</div>;
 
   const currentMember = partyMembers[currentMemberIndex];
-  
+  const primaryService = services?.find(s => s.id === currentMember?.serviceIds[0]);
+  const compatibleAddons = primaryService?.compatibleAddOnIds
+    ? services?.filter(s => primaryService.compatibleAddOnIds!.includes(s.id))
+    : [];
+
   return (
     <>
     <div className="w-full max-w-2xl mx-auto">
@@ -516,72 +694,35 @@ export default function WalkInPage() {
         </header>
         
         <Card className="overflow-hidden">
-            <AnimatePresence mode="wait">
-                <motion.div key={step + currentMemberIndex}>
-                    {step === 'partyType' && (
-                         <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}>
-                            <CardHeader className="text-center"><CardTitle className="text-2xl">Who are we serving today?</CardTitle></CardHeader>
-                            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-                                <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => handlePartyTypeSelect('individual')}><CardContent className="p-8 flex flex-col items-center justify-center h-full"><User className="w-16 h-16 mx-auto mb-4 text-primary" /><h3 className="text-2xl font-semibold">Just Me</h3><p className="text-muted-foreground mt-1">I'm checking in for myself.</p></CardContent></Card>
-                                <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => handlePartyTypeSelect('group')}><CardContent className="p-8 flex flex-col items-center justify-center h-full"><Users className="w-16 h-16 mx-auto mb-4 text-primary" /><h3 className="text-2xl font-semibold">My Group</h3><p className="text-muted-foreground mt-1">I'm checking in for myself and others.</p></CardContent></Card>
-                            </CardContent>
-                         </motion.div>
-                    )}
-                    {step === 'memberSetup' && currentMember && (
-                        <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}>
-                           <CardHeader>
-                               <CardTitle className="text-2xl">{isGroup ? `Person ${currentMemberIndex + 1}` : 'Your Details'}</CardTitle>
-                               <CardDescription>Tell us who we're serving and what they need.</CardDescription>
-                           </CardHeader>
-                           <CardContent>
-                               <PartyMemberEditor
-                                   member={currentMember}
-                                   onUpdate={handleMemberUpdate}
-                                   services={services || []}
-                                   staff={staff || []}
-                                   pricingTiers={pricingTiers || []}
-                               />
-                           </CardContent>
-                           <CardFooter className="flex justify-between">
-                               <Button variant="ghost" onClick={handleBack} disabled={isSubmitting}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
-                                {isGroup ? (
-                                    <div className="flex gap-2">
-                                        <Button variant="outline" onClick={handleAddAnother} disabled={isSubmitting}>Add Another Person</Button>
-                                        <Button onClick={handleSubmit} disabled={isSubmitting}>Finish & Join Queue</Button>
-                                    </div>
-                                ) : (
-                                    <Button onClick={handleSubmit} disabled={isSubmitting}>Join Waitlist <ArrowRight className="ml-2 h-4 w-4" /></Button>
-                                )}
-                           </CardFooter>
-                        </motion.div>
-                    )}
-                    {step === 'confirmation' && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                            <CardContent className="p-8 text-center space-y-4">
-                              <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                              <h2 className="text-2xl font-bold">You're on the list!</h2>
-                              <p className="text-muted-foreground">
-                                  You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
-                                  We will send a text message to the provided phone number when it's your turn.
-                              </p>
-                               <div className="pt-6">
-                                   <Button className="w-full" onClick={() => setIsPrintDialogOpen(true)}>
-                                       <Printer className="mr-2 h-4 w-4" />
-                                       Print Ticket
-                                   </Button>
-                               </div>
-                            </CardContent>
-                            <CardFooter className="flex flex-col gap-4">
-                                <Button className="w-full" variant="ghost" onClick={resetFlow}>Done</Button>
-                                <div className="w-full text-center">
-                                    <p className="text-xs text-muted-foreground">Resetting for the next guest...</p>
-                                    <Progress value={resetProgress} className="h-1 mt-2" />
-                                </div>
-                            </CardFooter>
-                        </motion.div>
-                    )}
-                </motion.div>
-            </AnimatePresence>
+            {step === 'partyType' && (
+                <PartyTypeSelection onSelect={handlePartyTypeSelect} />
+            )}
+            {step === 'memberSetup' && currentMember && (
+                <MemberSetup
+                    member={{...currentMember, index: currentMemberIndex}}
+                    onUpdate={handleMemberUpdate}
+                    memberSubStep={memberSubStep}
+                    setMemberSubStep={setMemberSubStep}
+                    services={services || []}
+                    staff={staff || []}
+                    pricingTiers={pricingTiers || []}
+                    compatibleAddons={compatibleAddons || []}
+                    onNext={handleNextMember}
+                    onBack={handleBack}
+                    isGroup={isGroup}
+                    isLastMember={currentMemberIndex === partyMembers.length - 1}
+                    onAddAnother={handleAddAnother}
+                    onSubmit={handleSubmit}
+                    isSubmitting={isSubmitting}
+                />
+            )}
+            {step === 'confirmation' && (
+                <ConfirmationScreen
+                    queuePosition={queuePosition}
+                    onPrint={() => setIsPrintDialogOpen(true)}
+                    onDone={resetFlow}
+                />
+            )}
         </Card>
     </div>
     <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
