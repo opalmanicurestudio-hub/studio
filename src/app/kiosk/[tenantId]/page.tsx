@@ -358,7 +358,7 @@ export default function WalkInPage() {
 
   const servicesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/services`);
+    return query(collection(firestore, `tenants/${tenantId}/services`), where('isPrivate', '!=', true));
   }, [firestore, tenantId]);
 
   const staffQuery = useMemoFirebase(() => {
@@ -539,12 +539,40 @@ export default function WalkInPage() {
   }, [step, resetFlow]);
 
 
-  const { totalDuration, totalPrice } = useMemo(() => {
+    const { totalDuration, totalPrice } = useMemo(() => {
     const allServices = [...selectedServices, ...partyMembers.flatMap(m => m.serviceIds.map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[])];
-    const duration = allServices.reduce((acc, s) => acc + s.duration, 0);
-    const price = allServices.reduce((acc, s) => acc + s.price, 0);
+
+    if (!staff) {
+        // Fallback if staff data isn't loaded yet
+        const duration = allServices.reduce((acc, s) => acc + s.duration, 0);
+        const price = allServices.reduce((acc, s) => acc + s.price, 0);
+        return { totalDuration: duration, totalPrice: price };
+    }
+    
+    const selectedStaffMember = staff.find(s => s.id === preferredStaffId);
+    const tierId = selectedStaffMember?.pricingTierId;
+
+    let duration = 0;
+    let price = 0;
+
+    allServices.forEach(s => {
+        let servicePrice = s.price;
+        let serviceDuration = s.duration;
+
+        if (tierId && s.serviceTiers) {
+            const tierInfo = s.serviceTiers.find(t => t.tierId === tierId);
+            if (tierInfo) {
+                servicePrice = tierInfo.price;
+                serviceDuration = tierInfo.durationMinutes;
+            }
+        }
+        
+        price += servicePrice;
+        duration += serviceDuration;
+    });
+
     return { totalDuration: duration, totalPrice: price };
-  }, [selectedServices, partyMembers, services]);
+  }, [selectedServices, partyMembers, services, preferredStaffId, staff]);
 
   const requiredForms = useMemo(() => {
     const allServiceIds = new Set([...selectedServices.map(s => s.id), ...partyMembers.flatMap(m => m.serviceIds)]);
@@ -601,7 +629,7 @@ export default function WalkInPage() {
       clientId: selectedClientId,
       serviceIds: selectedServices.map(s => s.id),
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
-      estimatedDuration: selectedServices.reduce((acc, s) => acc + s.duration, 0),
+      estimatedDuration: totalDuration,
       checkInTime,
       status: 'waiting',
       ...(preferredStaffId !== 'any' && { preferredStaffId: preferredStaffId }),
