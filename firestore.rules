@@ -164,6 +164,17 @@ service cloud.firestore {
     }
 
     /**
+     * @description Rules for pricing tiers.
+     * @path /tenants/{tenantId}/pricingTiers/{tierId}
+     */
+    match /tenants/{tenantId}/pricingTiers/{tierId} {
+      // PUBLIC: Allow anyone to read pricing tiers for booking pages.
+      allow get, list: if true;
+      // PRIVATE: Restrict write access to owner or admin staff.
+      allow write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+    }
+
+    /**
      * @description Rules for staff members of a tenant.
      * @path /tenants/{tenantId}/staff/{staffId}
      */

@@ -184,33 +184,21 @@ export default function SettingsPage() {
   const [isPoliciesEditing, setIsPoliciesEditing] = useState(false);
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
-  const [isTiersEditing, setIsTiersEditing] = useState(false);
 
   // Data states
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('profile');
-  
-  const [editableTiers, setEditableTiers] = useState<PricingTier[]>([]);
-  const [newTierName, setNewTierName] = useState('');
 
   // Backup states for cancellation
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
-  const [backupTiers, setBackupTiers] = useState<PricingTier[]>([]);
 
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!selectedTenant || !firestore) return null;
     return collection(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`);
   }, [selectedTenant, firestore]);
   const { data: initialScheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
-
-  const pricingTiersQuery = useMemoFirebase(() => {
-    if (!selectedTenant || !firestore) return null;
-    return collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`);
-  }, [selectedTenant, firestore]);
-  const { data: pricingTiersData, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
-
 
   useEffect(() => {
     if (selectedTenant) {
@@ -225,47 +213,41 @@ export default function SettingsPage() {
   }, [initialScheduleProfiles]);
   
   useEffect(() => {
-    if (pricingTiersData) {
-      setEditableTiers([...pricingTiersData].sort((a, b) => a.rank - b.rank));
-    }
-  }, [pricingTiersData]);
+      if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
 
-    useEffect(() => {
-        if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
-
-        if (initialScheduleProfiles && initialScheduleProfiles.length === 0) {
-            const defaultProfileId = nanoid();
-            const defaultProfile = {
-                id: defaultProfileId,
-                name: 'Default Schedule',
-                isActive: true,
-                isPublic: true,
-                bookingSlotInterval: 15,
-                week: {
-                    sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-                    monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-                },
-                timeOff: {
-                    vacationDays: 10,
-                    holidays: 8,
-                }
-            };
-            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
-            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-        } else if (initialScheduleProfiles && initialScheduleProfiles.length > 0) {
-            const hasActiveProfile = initialScheduleProfiles.some(p => p.isActive);
-            if (!hasActiveProfile) {
-                const firstProfile = initialScheduleProfiles[0];
-                const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
-                updateDocumentNonBlocking(profileDocRef, { isActive: true });
-            }
-        }
-    }, [scheduleProfilesLoading, initialScheduleProfiles, firestore, user, tenantId]);
+      if (initialScheduleProfiles && initialScheduleProfiles.length === 0) {
+          const defaultProfileId = nanoid();
+          const defaultProfile = {
+              id: defaultProfileId,
+              name: 'Default Schedule',
+              isActive: true,
+              isPublic: true,
+              bookingSlotInterval: 15,
+              week: {
+                  sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                  monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                  tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                  wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                  thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                  friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                  saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+              },
+              timeOff: {
+                  vacationDays: 10,
+                  holidays: 8,
+              }
+          };
+          const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
+          setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+      } else if (initialScheduleProfiles && initialScheduleProfiles.length > 0) {
+          const hasActiveProfile = initialScheduleProfiles.some(p => p.isActive);
+          if (!hasActiveProfile) {
+              const firstProfile = initialScheduleProfiles[0];
+              const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
+              updateDocumentNonBlocking(profileDocRef, { isActive: true });
+          }
+      }
+  }, [scheduleProfilesLoading, initialScheduleProfiles, firestore, user, tenantId]);
 
   const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const activeScheduleProfile = useMemo(() => scheduleProfiles.find(p => p.isActive), [scheduleProfiles]);
@@ -371,63 +353,6 @@ export default function SettingsPage() {
     };
     return { handleEdit, handleCancel, handleSave };
   };
-  
-  const handleAddTier = () => {
-    if (!newTierName.trim()) return;
-    const newTier: PricingTier = {
-        id: nanoid(),
-        name: newTierName.trim(),
-        rank: editableTiers.length,
-    };
-    setEditableTiers([...editableTiers, newTier]);
-    setNewTierName('');
-  };
-  
-  const handleTierNameChange = (id: string, name: string) => {
-      setEditableTiers(editableTiers.map(t => t.id === id ? {...t, name} : t));
-  };
-
-  const handleDeleteTier = (id: string) => {
-    if (editableTiers.length <= 1) {
-        toast({
-            variant: "destructive",
-            title: "Cannot Delete",
-            description: "You must have at least one pricing tier.",
-        });
-        return;
-    }
-    setEditableTiers(editableTiers.filter(t => t.id !== id));
-  };
-  
-  const handleTiersSave = async () => {
-    if (!tenantId || !firestore) return;
-    try {
-        const batch = writeBatch(firestore);
-        const originalIds = new Set(pricingTiersData?.map(t => t.id));
-        const newIds = new Set(editableTiers.map(t => t.id));
-
-        // Add or update tiers
-        editableTiers.forEach((tier, index) => {
-            const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tier.id);
-            batch.set(tierRef, { ...tier, rank: index });
-        });
-        
-        // Delete removed tiers
-        originalIds.forEach(id => {
-            if (!newIds.has(id)) {
-                const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, id);
-                batch.delete(tierRef);
-            }
-        });
-        
-        await batch.commit();
-        toast({ title: "Pricing Tiers Updated" });
-        setIsTiersEditing(false);
-    } catch (e) {
-        console.error("Error saving tiers:", e);
-        toast({ variant: 'destructive', title: "Save Failed" });
-    }
-  };
 
   const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
@@ -463,7 +388,7 @@ export default function SettingsPage() {
     return policy;
   }
 
-  const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading || pricingTiersLoading));
+  const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading));
   
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building /> },
@@ -471,7 +396,6 @@ export default function SettingsPage() {
     { value: "policies", label: "Policies", icon: <FileText /> },
     { value: "queue", label: "Queue", icon: <ListChecks /> },
     { value: "messaging", label: "Messaging", icon: <MessageSquare /> },
-    { value: "tiers", label: "Tiers", icon: <PercentIcon /> }
   ];
 
   if (isLoading) {
@@ -755,78 +679,6 @@ export default function SettingsPage() {
                     </CardContent>
                 </Card>
             </TabsContent>
-            <TabsContent value="tiers" className="mt-6">
-                 <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2"><PercentIcon className="w-5 h-5 text-primary" />Pricing Tiers</CardTitle>
-                             <CardDescription>Customize the names for your staff skill levels.</CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                            {isTiersEditing ? (
-                                <>
-                                <Button variant="outline" onClick={() => { setIsTiersEditing(false); setEditableTiers(pricingTiersData || []); }}>Cancel</Button>
-                                <Button onClick={handleTiersSave}><Save className="mr-2 h-4 w-4" />Save Tiers</Button>
-                                </>
-                            ) : (
-                                <Button onClick={() => {setBackupTiers(editableTiers); setIsTiersEditing(true);}}>
-                                    {pricingTiersData && pricingTiersData.length > 0 ? (
-                                        <><Edit className="mr-2 h-4 w-4"/>Edit Tiers</>
-                                    ) : (
-                                        <><PlusCircle className="mr-2 h-4 w-4"/>Create Tiers</>
-                                    )}
-                                </Button>
-                            )}
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {!isTiersEditing && (!pricingTiersData || pricingTiersData.length === 0) ? (
-                            <div className="text-center py-10 px-6">
-                                <div className="mx-auto bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
-                                    <PercentIcon className="w-8 h-8 text-muted-foreground" />
-                                </div>
-                                <h3 className="text-xl font-semibold">No Pricing Tiers Defined</h3>
-                                <p className="text-muted-foreground mt-2 mb-6 max-w-sm mx-auto">
-                                    Create skill levels like "Level 1" or "Master" to apply different prices and durations to your services.
-                                </p>
-                                <Button onClick={() => {setBackupTiers(editableTiers); setIsTiersEditing(true);}}>
-                                    <PlusCircle className="mr-2 h-4 w-4" />
-                                    Create Your First Tier
-                                </Button>
-                            </div>
-                        ) : (
-                            <>
-                                {editableTiers.map((tier, index) => (
-                                    <div key={tier.id} className="flex items-center gap-2">
-                                        <Input 
-                                            value={tier.name}
-                                            onChange={(e) => handleTierNameChange(tier.id, e.target.value)}
-                                            disabled={!isTiersEditing}
-                                            className="h-9"
-                                        />
-                                        {isTiersEditing && (
-                                            <Button variant="ghost" size="icon" className="text-destructive h-9 w-9" onClick={() => handleDeleteTier(tier.id)} disabled={editableTiers.length <= 1}>
-                                                <Trash2 className="w-4 w-4" />
-                                            </Button>
-                                        )}
-                                    </div>
-                                ))}
-                                {isTiersEditing && (
-                                    <div className="flex items-center gap-2 border-t pt-4">
-                                        <Input
-                                            placeholder="New tier name..."
-                                            value={newTierName}
-                                            onChange={e => setNewTierName(e.target.value)}
-                                            onKeyDown={e => e.key === 'Enter' && handleAddTier()}
-                                        />
-                                        <Button onClick={handleAddTier} type="button">Add Tier</Button>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            </TabsContent>
           </Tabs>
         </div>
       </main>
@@ -850,3 +702,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

@@ -38,7 +38,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service, type DayHours, type ConsentForm } from '@/lib/data';
+import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
@@ -117,7 +117,7 @@ const editStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
-  skillLevel: z.enum(['apprentice', 'junior', 'senior', 'master']),
+  pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -170,9 +170,10 @@ interface EditStaffDialogProps {
   staffMember: Staff | null;
   services: Service[];
   consentForms: ConsentForm[];
+  pricingTiers: PricingTier[];
 }
 
-const EditStaffForm = ({ services, consentForms }: { services: Service[], consentForms: ConsentForm[] }) => {
+const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[] }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
@@ -245,7 +246,7 @@ const EditStaffForm = ({ services, consentForms }: { services: Service[], consen
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
                                     <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
-                                    <Controller name="skillLevel" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="skillLevel">Skill Level</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="skillLevel"><SelectValue placeholder="Select a level" /></SelectTrigger><SelectContent><SelectItem value="apprentice">Apprentice</SelectItem><SelectItem value="junior">Junior</SelectItem><SelectItem value="senior">Senior</SelectItem><SelectItem value="master">Master</SelectItem></SelectContent></Select>{errors.skillLevel && <p className="text-sm text-destructive">{errors.skillLevel.message}</p>}</div> )}/>
+                                    <Controller name="pricingTierId" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="pricingTierId">Pricing Tier</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="pricingTierId"><SelectValue placeholder="Select a tier" /></SelectTrigger><SelectContent>{pricingTiers.map(tier => (<SelectItem key={tier.id} value={tier.id}>{tier.name}</SelectItem>))}</SelectContent></Select>{errors.pricingTierId && <p className="text-sm text-destructive">{errors.pricingTierId.message}</p>}</div> )}/>
                                 </div>
                             </div>
                             <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
@@ -426,7 +427,7 @@ const EditStaffForm = ({ services, consentForms }: { services: Service[], consen
                                     ))}
                                     <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
                                         <PlusCircle className="mr-2 h-4 w-4" />
-                                        Assign Forms
+                                        Assign Consent Forms
                                     </Button>
                                 </div>
                             </div>
@@ -462,6 +463,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
   staffMember,
   services,
   consentForms,
+  pricingTiers,
 }) => {
   const methods = useForm<EditStaffFormData>({
     resolver: zodResolver(editStaffSchema),
@@ -477,7 +479,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             ...staffMember,
             specialties: specialtiesString,
             avatarUrl: staffMember.avatarUrl || '',
-            skillLevel: staffMember.skillLevel || 'junior',
+            pricingTierId: staffMember.pricingTierId || '',
             instagramUrl: staffMember.instagramUrl || '',
             facebookUrl: staffMember.facebookUrl || '',
             tiktokUrl: staffMember.tiktokUrl || '',
@@ -519,7 +521,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     const staffDataToSave: Staff = {
         ...staffMember,
         ...data,
-        skillLevel: data.skillLevel,
+        pricingTierId: data.pricingTierId,
         specialties: typeof data.specialties === 'string' ? data.specialties.split(',').map(s => s.trim()).filter(s => s) : data.specialties,
         avatarUrl: data.avatarUrl || staffMember.avatarUrl,
         commissionRate: data.commissionRate || 0,
@@ -576,7 +578,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <EditStaffForm services={services} consentForms={consentForms} />
+                        <EditStaffForm services={services} consentForms={consentForms} pricingTiers={pricingTiers}/>
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -588,3 +590,4 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
+

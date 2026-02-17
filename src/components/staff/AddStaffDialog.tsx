@@ -38,10 +38,10 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service, type ConsentForm } from '@/lib/data';
+import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -66,7 +66,7 @@ const addStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
-  skillLevel: z.enum(['apprentice', 'junior', 'senior', 'master']),
+  pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -111,9 +111,10 @@ interface AddStaffDialogProps {
   onSave: (staffData: Omit<Staff, 'id' | 'avatarUrl'>) => void;
   services: Service[];
   consentForms: ConsentForm[];
+  pricingTiers: PricingTier[];
 }
 
-const AddStaffForm = ({ services, consentForms }: { services: Service[], consentForms: ConsentForm[] }) => {
+const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[] }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
@@ -157,7 +158,7 @@ const AddStaffForm = ({ services, consentForms }: { services: Service[], consent
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
                                     <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
-                                    <Controller name="skillLevel" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="skillLevel">Skill Level</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="skillLevel"><SelectValue placeholder="Select a level" /></SelectTrigger><SelectContent><SelectItem value="apprentice">Apprentice</SelectItem><SelectItem value="junior">Junior</SelectItem><SelectItem value="senior">Senior</SelectItem><SelectItem value="master">Master</SelectItem></SelectContent></Select>{errors.skillLevel && <p className="text-sm text-destructive">{errors.skillLevel.message}</p>}</div> )}/>
+                                    <Controller name="pricingTierId" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="pricingTierId">Pricing Tier</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="pricingTierId"><SelectValue placeholder="Select a tier" /></SelectTrigger><SelectContent>{pricingTiers.map(tier => (<SelectItem key={tier.id} value={tier.id}>{tier.name}</SelectItem>))}</SelectContent></Select>{errors.pricingTierId && <p className="text-sm text-destructive">{errors.pricingTierId.message}</p>}</div> )}/>
                                 </div>
                             </div>
                             <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
@@ -348,6 +349,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   onSave,
   services,
   consentForms,
+  pricingTiers,
 }) => {
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
@@ -355,7 +357,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       name: '',
       email: '',
       role: 'staff',
-      skillLevel: 'junior',
+      pricingTierId: pricingTiers.length > 0 ? pricingTiers[0].id : '',
       payStructure: 'commission',
       commissionRate: 40,
       retailCommissionRate: 10,
@@ -384,7 +386,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         hourlyRate: data.hourlyRate,
         services: data.services || [],
         assignedFormIds: data.assignedFormIds || [],
-        skillLevel: data.skillLevel,
+        pricingTierId: data.pricingTierId,
         instagramUrl: formatUrl(data.instagramUrl),
         facebookUrl: formatUrl(data.facebookUrl),
         tiktokUrl: formatUrl(data.tiktokUrl),
@@ -416,7 +418,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <AddStaffForm services={services} consentForms={consentForms}/>
+                        <AddStaffForm services={services} consentForms={consentForms} pricingTiers={pricingTiers} />
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
