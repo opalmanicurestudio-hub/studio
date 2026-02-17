@@ -194,10 +194,28 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
 
 const ServiceSelectionDialog = ({ open, onOpenChange, services, selectedIds, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, services: Service[], selectedIds: string[], onSave: (newIds: string[]) => void }) => {
     const [currentSelectedIds, setCurrentSelectedIds] = useState(new Set(selectedIds));
+    const [view, setView] = useState<'categories' | 'services'>('categories');
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const categories = useMemo(() => {
+        const categorySet = new Set<string>();
+        services.forEach(s => {
+            if (s.category) categorySet.add(s.category);
+            else categorySet.add('Uncategorized');
+        });
+        return Array.from(categorySet).sort();
+    }, [services]);
+
+    const servicesForCategory = useMemo(() => {
+        if (!selectedCategory) return [];
+        return services.filter(s => (s.category || 'Uncategorized') === selectedCategory);
+    }, [services, selectedCategory]);
 
     useEffect(() => {
         if(open) {
             setCurrentSelectedIds(new Set(selectedIds));
+            setView('categories');
+            setSelectedCategory(null);
         }
     }, [selectedIds, open]);
 
@@ -215,33 +233,64 @@ const ServiceSelectionDialog = ({ open, onOpenChange, services, selectedIds, onS
         onSave(Array.from(currentSelectedIds));
         onOpenChange(false);
     };
+    
+    const CategoryCard = ({ category, onSelect }: { category: string, onSelect: () => void }) => (
+        <Card onClick={onSelect} className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardContent className="p-4 flex items-center justify-between">
+                <h4 className="font-semibold">{category}</h4>
+                <ArrowRight className="w-4 h-4 text-muted-foreground" />
+            </CardContent>
+        </Card>
+    );
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Select Services</DialogTitle>
+                    {view === 'services' && selectedCategory && (
+                         <Button variant="ghost" size="sm" onClick={() => setView('categories')} className="absolute left-4 top-4 px-2">
+                             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Categories
+                         </Button>
+                    )}
                 </DialogHeader>
                 <ScrollArea className="h-96 -mx-6">
-                    <div className="grid grid-cols-1 gap-2 px-6">
-                        {services.map(service => (
-                            <ServiceSelectionCard
-                                key={service.id}
-                                service={service}
-                                isSelected={currentSelectedIds.has(service.id)}
-                                onToggle={() => handleToggle(service.id)}
-                            />
-                        ))}
+                    <div className="px-6">
+                    {view === 'categories' ? (
+                        <div className="space-y-2">
+                            {categories.map(category => (
+                                <CategoryCard 
+                                    key={category} 
+                                    category={category} 
+                                    onSelect={() => {
+                                        setSelectedCategory(category);
+                                        setView('services');
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {servicesForCategory.map(service => (
+                                <ServiceSelectionCard
+                                    key={service.id}
+                                    service={service}
+                                    isSelected={currentSelectedIds.has(service.id)}
+                                    onToggle={() => handleToggle(service.id)}
+                                />
+                            ))}
+                        </div>
+                    )}
                     </div>
                 </ScrollArea>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleConfirm}>Confirm</Button>
+                    <Button onClick={handleConfirm}>Confirm ({currentSelectedIds.size})</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
     );
-}
+};
 
 const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
     const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
