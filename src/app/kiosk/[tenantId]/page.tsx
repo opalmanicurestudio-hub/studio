@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -17,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn } from '@/lib/data';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign } from 'lucide-react';
@@ -43,16 +44,16 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
-import { BookingServices } from '@/components/booking/BookingServices';
 import Image from 'next/image';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
-type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
+type MemberSubStep = 'details' | 'services' | 'staff';
 
 const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string }) => {
     const { price, duration } = useMemo(() => {
         let finalPrice = service.price;
-        let finalDuration = service.duration;
+        let finalDuration = service.durationMinutes;
+
         if (staffTierId && service.serviceTiers) {
             const tier = service.serviceTiers.find(t => t.tierId === staffTierId);
             if (tier) {
@@ -69,7 +70,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId }: { 
         <Label
             htmlFor={id}
             className={cn(
-                "block cursor-pointer rounded-lg border bg-background text-card-foreground transition-all",
+                "block cursor-pointer rounded-lg border bg-card text-card-foreground transition-all",
                 isSelected ? "border-primary ring-2 ring-primary" : "hover:shadow-md"
             )}
         >
@@ -208,34 +209,21 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
-const MemberSetupWizard = ({
+const PartyMemberEditor = ({
     member,
     onUpdate,
-    onNext,
-    onBack,
     services,
     staff,
+    pricingTiers,
 }: {
     member: PartyMember;
     onUpdate: (updates: Partial<PartyMember>) => void;
-    onNext: () => void;
-    onBack: () => void;
     services: Service[];
     staff: Staff[];
+    pricingTiers: PricingTier[];
 }) => {
-    const [subStep, setSubStep] = useState<MemberSubStep>('details');
-    const [serviceCategory, setServiceCategory] = useState<string | null>(null);
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-    const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
-    const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
-
-    const compatibleAddons = useMemo(() => {
-        const selectedMainServices = mainServices.filter(s => member.serviceIds.includes(s.id));
-        if (selectedMainServices.length === 0) return [];
-        const compatibleIds = new Set(selectedMainServices.flatMap(s => s.compatibleAddOnIds || []));
-        return addOnServices.filter(addon => compatibleIds.has(addon.id));
-    }, [member.serviceIds, mainServices, addOnServices]);
-    
     const handleServiceToggle = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
             ? member.serviceIds.filter(id => id !== serviceId)
@@ -243,133 +231,88 @@ const MemberSetupWizard = ({
         onUpdate({ serviceIds: newServiceIds });
     };
 
-    const categories = useMemo(() => Array.from(new Set(mainServices.map(s => s.category || 'Uncategorized'))).sort(), [mainServices]);
-
-    const nextSubStep = () => {
-        if (subStep === 'details') setSubStep('services');
-        else if (subStep === 'services' && compatibleAddons.length > 0) setSubStep('addons');
-        else if (subStep === 'services' || subStep === 'addons') setSubStep('staff');
-        else if (subStep === 'staff') onNext();
-    };
-
-    const prevSubStep = () => {
-        if (subStep === 'staff') setSubStep('services');
-        else if (subStep === 'addons') setSubStep('services');
-        else if (subStep === 'services') setSubStep('details');
-        else if (subStep === 'details') onBack();
-    };
-
-    const isNextDisabled = () => {
-        if (subStep === 'details' && !member.name.trim()) return true;
-        if (subStep === 'services' && member.serviceIds.length === 0) return true;
-        return false;
-    }
+    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+    
+    const selectedServices = useMemo(() => services.filter(s => member.serviceIds.includes(s.id)), [services, member.serviceIds]);
+    
+    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
 
     return (
         <div className="space-y-6">
-             <AnimatePresence mode="wait">
-                <motion.div
-                    key={subStep}
-                    initial={{ opacity: 0, x: 50 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -50 }}
-                    transition={{ duration: 0.3 }}
-                >
-                    {subStep === 'details' && (
-                        <div className="space-y-4">
-                            <h3 className="font-semibold text-lg">Your Information</h3>
-                             <div className="space-y-2">
-                                <Label htmlFor="name">Name</Label>
-                                <Input id="name" value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} />
+            <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input id="name" value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} />
+            </div>
+            {member.isPrimary && (
+                <>
+                    <div className="space-y-2"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates"/></div>
+                    <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" /></div>
+                </>
+            )}
+
+            <div className="space-y-4">
+                <h3 className="font-medium text-lg">Select Service(s)</h3>
+                
+                <div className="p-3 border rounded-lg">
+                    {selectedServices.length > 0 && (
+                        <div className="mb-4">
+                            <h4 className="font-semibold text-sm mb-2">Selected Services:</h4>
+                            <div className="flex flex-wrap gap-2">
+                            {selectedServices.map(s => (
+                                <Badge key={s.id} variant="secondary">{s.name} <button onClick={() => handleServiceToggle(s.id)} className="ml-1.5 -mr-1 rounded-full p-0.5 hover:bg-destructive/20"><Trash2 className="w-3 h-3"/></button></Badge>
+                            ))}
                             </div>
-                            {member.isPrimary && (
-                                <>
-                                    <div className="space-y-2"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates"/></div>
-                                    <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" /></div>
-                                </>
-                            )}
                         </div>
                     )}
-
-                    {subStep === 'services' && (
-                         <div className="space-y-4">
-                            <h3 className="font-semibold text-lg">Select Service(s)</h3>
-                            {!serviceCategory ? (
-                                 <div className="grid grid-cols-2 gap-3">
-                                    {categories.map(category => (
-                                        <Button key={category} variant="outline" className="h-14" onClick={() => setSelectedCategory(category)}>{category}</Button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div>
-                                    <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
-                                    <div className="space-y-2">
-                                        {mainServices.filter(s => (s.category || 'Uncategorized') === serviceCategory).map(service => (
-                                            <ServiceSelectionCard
-                                                key={service.id}
-                                                service={service}
-                                                isSelected={member.serviceIds.includes(service.id)}
-                                                onToggle={() => handleServiceToggle(service.id)}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                    {!selectedCategory ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            {categories.map(category => (
+                                <Button key={category} variant="outline" className="h-14" onClick={() => setSelectedCategory(category)}>{category}</Button>
+                            ))}
                         </div>
-                    )}
-
-                    {subStep === 'addons' && (
-                        <div className="space-y-4">
-                            <h3 className="font-semibold text-lg">Available Add-ons</h3>
-                             <div className="space-y-2">
-                                {compatibleAddons.map(service => (
+                    ) : (
+                        <div>
+                            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
+                            <div className="space-y-2">
+                                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => (
                                     <ServiceSelectionCard
                                         key={service.id}
                                         service={service}
                                         isSelected={member.serviceIds.includes(service.id)}
                                         onToggle={() => handleServiceToggle(service.id)}
+                                        staffTierId={selectedStaffMember?.pricingTierId}
                                     />
                                 ))}
                             </div>
                         </div>
                     )}
+                </div>
+            </div>
 
-                    {subStep === 'staff' && (
-                         <div className="space-y-4">
-                            <h3 className="font-semibold text-lg">Preferred Staff</h3>
-                             <ScrollArea>
-                                <RadioGroup 
-                                    value={member.preferredStaffId || 'any'} 
-                                    onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} 
-                                    className="flex gap-4 pb-4"
-                                >
-                                    <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
-                                    {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
-                                </RadioGroup>
-                                <ScrollBar orientation="horizontal" />
-                            </ScrollArea>
-                             {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-                                <div className="flex items-center justify-between rounded-lg border p-3">
-                                    <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
-                                    <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
-                                </div>
-                            )}
-                        </div>
-                    )}
-                 </motion.div>
-            </AnimatePresence>
-
-            <div className="flex justify-between items-center pt-6">
-                <Button variant="ghost" onClick={prevSubStep}>
-                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                </Button>
-                <Button onClick={nextSubStep} disabled={isNextDisabled()}>
-                    Next <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
+            <div className="space-y-4">
+                <h3 className="font-medium text-lg">Preferred Staff</h3>
+                <ScrollArea>
+                    <RadioGroup 
+                        value={member.preferredStaffId || 'any'} 
+                        onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} 
+                        className="flex gap-4 pb-4"
+                    >
+                        <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                        {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
+                    </RadioGroup>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
+                    {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                        <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                        <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
+                    </div>
+                )}
             </div>
         </div>
-    )
-}
+    );
+};
+
 
 export default function WalkInPage() {
   const { firestore } = useFirebase();
@@ -384,10 +327,13 @@ export default function WalkInPage() {
   const servicesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/services`), where('isPrivate', '!=', true)), [firestore, tenantId]);
   const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
+  const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
 
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
 
   const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
@@ -396,6 +342,7 @@ export default function WalkInPage() {
   const [isGroup, setIsGroup] = useState(false);
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
 
   // Final confirmation state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -422,23 +369,39 @@ export default function WalkInPage() {
   };
 
   const handleNextMember = () => {
+    if (isSubmitting) return;
+
+    const currentMember = partyMembers[currentMemberIndex];
+    if (!currentMember.name.trim() || currentMember.serviceIds.length === 0) {
+        toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
+        return;
+    }
+
     if (currentMemberIndex < partyMembers.length - 1) {
       setCurrentMemberIndex(prev => prev + 1);
     } else {
-      // Last member, go to group overview/summary
-      // For now, let's just trigger submit
-       handleSubmit();
+      handleSubmit();
     }
   };
   
   const handleAddAnother = () => {
-    setPartyMembers(prev => [...prev, { id: nanoid(5), name: `Guest ${prev.length + 1}`, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
+    if (isSubmitting) return;
+    const currentMember = partyMembers[currentMemberIndex];
+     if (!currentMember.name.trim() || currentMember.serviceIds.length === 0) {
+        toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
+        return;
+    }
+    setPartyMembers(prev => [...prev, { id: nanoid(5), name: ``, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
     setCurrentMemberIndex(partyMembers.length);
   }
 
-  const handleBackToPartyType = () => {
-      setStep('partyType');
-      setPartyMembers([]);
+  const handleBack = () => {
+    if (currentMemberIndex > 0) {
+        setCurrentMemberIndex(prev => prev - 1);
+    } else {
+        setStep('partyType');
+        setPartyMembers([]);
+    }
   }
 
   const resetFlow = useCallback(() => {
@@ -497,7 +460,11 @@ export default function WalkInPage() {
             customerEmail: index === 0 ? primaryMember.email : undefined,
             serviceIds: member.serviceIds,
             requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
-            estimatedDuration: memberServices.reduce((acc, s) => acc + s.duration, 0),
+            estimatedDuration: memberServices.reduce((acc, s) => {
+                const staffMember = staff?.find(st => st.id === member.preferredStaffId);
+                const tier = s.serviceTiers?.find(t => t.tierId === staffMember?.pricingTierId);
+                return acc + (tier?.durationMinutes || s.durationMinutes);
+            }, 0),
             checkInTime,
             status: 'waiting',
             preferredStaffId: member.preferredStaffId === 'any' ? undefined : member.preferredStaffId,
@@ -531,7 +498,7 @@ export default function WalkInPage() {
     }
   };
   
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading;
   if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
   if (!businessIsOpen) return <div>Closed</div>;
 
@@ -550,7 +517,7 @@ export default function WalkInPage() {
         
         <Card className="overflow-hidden">
             <AnimatePresence mode="wait">
-                <motion.div key={step}>
+                <motion.div key={step + currentMemberIndex}>
                     {step === 'partyType' && (
                          <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}>
                             <CardHeader className="text-center"><CardTitle className="text-2xl">Who are we serving today?</CardTitle></CardHeader>
@@ -567,15 +534,25 @@ export default function WalkInPage() {
                                <CardDescription>Tell us who we're serving and what they need.</CardDescription>
                            </CardHeader>
                            <CardContent>
-                               <MemberSetupWizard
+                               <PartyMemberEditor
                                    member={currentMember}
                                    onUpdate={handleMemberUpdate}
-                                   onNext={isGroup ? handleAddAnother : handleSubmit}
-                                   onBack={handleBackToPartyType}
                                    services={services || []}
                                    staff={staff || []}
+                                   pricingTiers={pricingTiers || []}
                                />
                            </CardContent>
+                           <CardFooter className="flex justify-between">
+                               <Button variant="ghost" onClick={handleBack} disabled={isSubmitting}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                                {isGroup ? (
+                                    <div className="flex gap-2">
+                                        <Button variant="outline" onClick={handleAddAnother} disabled={isSubmitting}>Add Another Person</Button>
+                                        <Button onClick={handleSubmit} disabled={isSubmitting}>Finish & Join Queue</Button>
+                                    </div>
+                                ) : (
+                                    <Button onClick={handleSubmit} disabled={isSubmitting}>Join Waitlist <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                                )}
+                           </CardFooter>
                         </motion.div>
                     )}
                     {step === 'confirmation' && (
