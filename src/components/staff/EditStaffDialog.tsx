@@ -52,11 +52,11 @@ import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
-  const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
-    const hour = Math.floor(i / 2) + 8;
+  const timeOptions = Array.from({ length: 48 }, (_, i) => {
+    const hour = Math.floor(i / 2);
     const minute = i % 2 === 0 ? '00' : '30';
     const period = hour < 12 ? 'AM' : 'PM';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
     return `${displayHour}:${minute} ${period}`;
   });
 
@@ -456,6 +456,7 @@ const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Ser
     )
 }
 
+
 export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
   open,
   onOpenChange,
@@ -590,4 +591,3 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
-
