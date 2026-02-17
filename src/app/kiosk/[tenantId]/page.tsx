@@ -192,179 +192,142 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Serv
     );
 };
 
-const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
-    const getInitialDatePart = (part: 'month' | 'day' | 'year') => {
-        try {
-            if (!member.birthday) return '';
-            const date = parseISO(member.birthday);
-            if (part === 'month') return String(date.getMonth() + 1);
-            if (part === 'day') return String(date.getDate());
-            if (part === 'year') return String(date.getFullYear());
-            return '';
-        } catch {
-            return '';
-        }
-    };
-    
-    const [month, setMonth] = useState(getInitialDatePart('month'));
-    const [day, setDay] = useState(getInitialDatePart('day'));
-    const [year, setYear] = useState(getInitialDatePart('year'));
-    
+const ServiceSelectionDialog = ({ open, onOpenChange, services, selectedIds, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, services: Service[], selectedIds: string[], onSave: (newIds: string[]) => void }) => {
+    const [currentSelectedIds, setCurrentSelectedIds] = useState(new Set(selectedIds));
+
     useEffect(() => {
-        setMonth(getInitialDatePart('month'));
-        setDay(getInitialDatePart('day'));
-        setYear(getInitialDatePart('year'));
-    }, [member.birthday]);
-
-    const handleDatePartChange = useCallback((part: 'month' | 'day' | 'year', value: string) => {
-        let newMonth = month, newDay = day, newYear = year;
-        if (part === 'month') { newMonth = value; setMonth(value); }
-        if (part === 'day') { newDay = value; setDay(value); }
-        if (part === 'year') { newYear = value; setYear(value); }
-        
-        if (newYear && newMonth && newDay) {
-            const y = parseInt(newYear, 10);
-            const m = parseInt(newMonth, 10) - 1;
-            const d = parseInt(newDay, 10);
-
-            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-                const newDate = new Date(y, m, d);
-                if (newDate.getFullYear() === y && newDate.getMonth() === m && newDate.getDate() === d) {
-                    if (newDate.toISOString() !== member.birthday) {
-                        onUpdate(member.id, { birthday: newDate.toISOString() });
-                    }
-                } else if (member.birthday) {
-                    onUpdate(member.id, { birthday: undefined });
-                }
-            }
-        } else if (member.birthday) {
-            onUpdate(member.id, { birthday: undefined });
+        if(open) {
+            setCurrentSelectedIds(new Set(selectedIds));
         }
-    }, [day, month, year, member.id, member.birthday, onUpdate]);
-    
-    const toggleService = (serviceId: string) => {
-        const newServiceIds = member.serviceIds.includes(serviceId)
-            ? member.serviceIds.filter(id => id !== serviceId)
-            : [...member.serviceIds, serviceId];
-        onUpdate(member.id, { serviceIds: newServiceIds });
+    }, [selectedIds, open]);
+
+    const handleToggle = (serviceId: string) => {
+        const newSet = new Set(currentSelectedIds);
+        if (newSet.has(serviceId)) {
+            newSet.delete(serviceId);
+        } else {
+            newSet.add(serviceId);
+        }
+        setCurrentSelectedIds(newSet);
+    };
+
+    const handleConfirm = () => {
+        onSave(Array.from(currentSelectedIds));
+        onOpenChange(false);
     };
 
     return (
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <Input
-                    value={member.name}
-                    onChange={(e) => onUpdate(member.id, { name: e.target.value })}
-                    className="text-base font-semibold border-0 shadow-none focus-visible:ring-0 p-0"
-                    placeholder={isPrimary ? 'Your Name' : `Person ${member.id.slice(0,4)}`}
-                />
-                {!isPrimary && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
-            </CardHeader>
-            <CardContent>
-                <Accordion type="multiple" className="w-full space-y-2">
-                    <AccordionItem value="services" className="border-b-0">
-                        <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">
-                            {member.serviceIds.length > 0 ? `${member.serviceIds.length} service(s) selected` : 'Select Services'}
-                        </AccordionTrigger>
-                        <AccordionContent className="pt-4">
-                             <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2">
-                                {services.map(service => (
-                                    <ServiceSelectionCard
-                                        key={service.id}
-                                        service={service}
-                                        isSelected={member.serviceIds.includes(service.id)}
-                                        onToggle={() => toggleService(service.id)}
-                                    />
-                                ))}
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="details" className="border-b-0">
-                         <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">Contact Details (Optional)</AccordionTrigger>
-                         <AccordionContent className="pt-4 space-y-4">
-                            {isPrimary ? (
-                                <>
-                                 <div className="space-y-2">
-                                    <Label>Phone Number</Label>
-                                    <Input type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Email Address</Label>
-                                    <Input type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
-                                </div>
-                                </>
-                            ) : null}
-                             <div className="space-y-2">
-                                <Label>Birthday</Label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <Select value={month} onValueChange={(v) => handleDatePartChange('month', v)}>
-                                        <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 12 }, (_, i) => (
-                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                    {format(new Date(2000, i, 1), 'MMMM')}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Select value={day} onValueChange={(v) => handleDatePartChange('day', v)}>
-                                        <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 31 }, (_, i) => (
-                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                    {i + 1}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                     <Select value={year} onValueChange={(v) => handleDatePartChange('year', v)}>
-                                        <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 100 }, (_, i) => {
-                                                const yearValue = new Date().getFullYear() - i;
-                                                return (
-                                                    <SelectItem key={yearValue} value={yearValue.toString()}>
-                                                        {yearValue}
-                                                    </SelectItem>
-                                                );
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                         </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="preferences" className="border-b-0">
-                        <AccordionTrigger className="p-2 hover:no-underline text-sm bg-muted/50 rounded-md">Preferences (Optional)</AccordionTrigger>
-                        <AccordionContent className="pt-4 space-y-4">
-                            <div className="space-y-2">
-                                <Label>Preferred Staff</Label>
-                                <RadioGroup 
-                                    value={member.preferredStaffId || 'any'} 
-                                    onValueChange={(staffId) => onUpdate(member.id, { preferredStaffId: staffId })} 
-                                    className="grid grid-cols-2 md:grid-cols-3 gap-4"
-                                >
-                                    <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
-                                    {staff?.map(s => (
-                                        <StaffSelectionCard key={s.id} staff={s} />
-                                    ))}
-                                </RadioGroup>
-                            </div>
-                            {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-                                <div className="flex items-center justify-between rounded-lg border p-4">
-                                    <div className="space-y-0.5">
-                                        <Label htmlFor={`wait-${member.id}`}>Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
-                                        <p className="text-xs text-muted-foreground">If they are busy, your wait may be longer.</p>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Select Services</DialogTitle>
+                </DialogHeader>
+                <ScrollArea className="h-96 -mx-6">
+                    <div className="grid grid-cols-1 gap-2 px-6">
+                        {services.map(service => (
+                            <ServiceSelectionCard
+                                key={service.id}
+                                service={service}
+                                isSelected={currentSelectedIds.has(service.id)}
+                                onToggle={() => handleToggle(service.id)}
+                            />
+                        ))}
+                    </div>
+                </ScrollArea>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleConfirm}>Confirm</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
+    const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
+    
+    const selectedServices = services.filter(s => member.serviceIds.includes(s.id));
+
+    return (
+        <>
+            <Card className="overflow-visible bg-muted/30">
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <Input
+                        value={member.name}
+                        onChange={(e) => onUpdate(member.id, { name: e.target.value })}
+                        className="text-lg font-semibold border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent"
+                        placeholder={isPrimary ? 'Your Name' : `Person ${member.id.slice(0,4)}`}
+                    />
+                    {!isPrimary && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label>Services</Label>
+                        <Card className="bg-background">
+                            <CardContent className="p-3 min-h-[60px]">
+                                {selectedServices.length > 0 ? (
+                                    <div className="space-y-1">
+                                        {selectedServices.map(s => <p key={s.id} className="text-sm font-medium">{s.name}</p>)}
                                     </div>
-                                    <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate(member.id, { waitForPreferredStaff: checked })} />
-                                </div>
-                            )}
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-            </CardContent>
-        </Card>
-    )
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">No services selected.</p>
+                                )}
+                            </CardContent>
+                            <CardFooter className="p-3 pt-0">
+                                <Button variant="outline" size="sm" className="w-full" type="button" onClick={() => setIsServiceSelectorOpen(true)}>
+                                    {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Preferred Staff</Label>
+                         <ScrollArea>
+                            <RadioGroup 
+                                value={member.preferredStaffId || 'any'} 
+                                onValueChange={(staffId) => onUpdate(member.id, { preferredStaffId: staffId })} 
+                                className="flex gap-2 w-max pb-2"
+                            >
+                                <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                                {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
+                            </RadioGroup>
+                             <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    </div>
+                     {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+                        <div className="flex items-center justify-between rounded-lg border p-3 bg-background">
+                            <div className="space-y-0.5">
+                                <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                            </div>
+                            <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate(member.id, { waitForPreferredStaff: checked })} />
+                        </div>
+                    )}
+                    
+                    {isPrimary && (
+                         <div className="space-y-4 pt-4 border-t">
+                            <Label className="font-medium">Contact Details</Label>
+                             <div className="space-y-2">
+                                <Label htmlFor="phone">Phone Number</Label>
+                                <Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email Address</Label>
+                                <Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
+                            </div>
+                         </div>
+                    )}
+                </CardContent>
+            </Card>
+            <ServiceSelectionDialog 
+                open={isServiceSelectorOpen}
+                onOpenChange={setIsServiceSelectorOpen}
+                services={services}
+                selectedIds={member.serviceIds}
+                onSave={(newIds) => onUpdate(member.id, { serviceIds: newIds })}
+            />
+        </>
+    );
 };
 
 
