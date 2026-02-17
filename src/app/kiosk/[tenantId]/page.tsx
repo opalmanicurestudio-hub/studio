@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -165,37 +164,18 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
-const ServiceSelectionCard = ({ service, isSelected, onToggle }: { service: Service; isSelected: boolean; onToggle: () => void; }) => {
-    return (
-        <Card
-            onClick={onToggle}
-            className={cn(
-                "cursor-pointer hover:shadow-lg transition-shadow overflow-hidden",
-                isSelected && "ring-2 ring-primary"
-            )}
-        >
-            <CardContent className="p-3">
-                <div className="flex items-start gap-3">
-                     <div className={cn(
-                        "w-6 h-6 rounded-md border flex items-center justify-center mt-1 flex-shrink-0",
-                        isSelected ? "bg-primary border-primary" : "bg-transparent"
-                    )}>
-                        {isSelected && <Check className="w-4 h-4 text-primary-foreground" />}
-                    </div>
-                    <div className="flex-1">
-                        <h4 className="font-semibold leading-tight">{service.name}</h4>
-                        <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                    </div>
-                </div>
-            </CardContent>
-        </Card>
-    );
-};
-
-const ServiceSelectionDialog = ({ open, onOpenChange, services, selectedIds, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, services: Service[], selectedIds: string[], onSave: (newIds: string[]) => void }) => {
-    const [currentSelectedIds, setCurrentSelectedIds] = useState(new Set(selectedIds));
-    const [view, setView] = useState<'categories' | 'services'>('categories');
+const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
+    const [serviceSelectionView, setServiceSelectionView] = useState<'categories' | 'services'>('categories');
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const selectedServices = services.filter(s => member.serviceIds.includes(s.id));
+
+    const handleServiceToggle = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [...member.serviceIds, serviceId];
+        onUpdate(member.id, { serviceIds: newServiceIds });
+    };
 
     const categories = useMemo(() => {
         const categorySet = new Set<string>();
@@ -212,170 +192,119 @@ const ServiceSelectionDialog = ({ open, onOpenChange, services, selectedIds, onS
     }, [services, selectedCategory]);
 
     useEffect(() => {
-        if(open) {
-            setCurrentSelectedIds(new Set(selectedIds));
-            setView('categories');
+        if (serviceSelectionView === 'categories') {
             setSelectedCategory(null);
         }
-    }, [selectedIds, open]);
+    }, [serviceSelectionView]);
 
-    const handleToggle = (serviceId: string) => {
-        const newSet = new Set(currentSelectedIds);
-        if (newSet.has(serviceId)) {
-            newSet.delete(serviceId);
-        } else {
-            newSet.add(serviceId);
-        }
-        setCurrentSelectedIds(newSet);
-    };
+    return (
+        <Card className="overflow-visible bg-muted/30">
+            <CardHeader className="flex flex-row items-center justify-between">
+                <Input
+                    value={member.name}
+                    onChange={(e) => onUpdate(member.id, { name: e.target.value })}
+                    className="text-lg font-semibold border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent"
+                    placeholder={isPrimary ? 'Your Name' : `Person ${member.id.slice(0,4)}`}
+                />
+                {!isPrimary && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-2">
+                    <Label>Services</Label>
+                    <Card className="bg-background">
+                        <CardContent className="p-3">
+                            {selectedServices.length > 0 ? (
+                                <div className="space-y-1">
+                                    {selectedServices.map(s => (
+                                        <div key={s.id} className="flex items-center justify-between text-sm font-medium">
+                                            <span>{s.name}</span>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleServiceToggle(s.id)}>
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground text-center py-2">No services selected.</p>
+                            )}
+                        </CardContent>
+                    </Card>
 
-    const handleConfirm = () => {
-        onSave(Array.from(currentSelectedIds));
-        onOpenChange(false);
-    };
-    
-    const CategoryCard = ({ category, onSelect }: { category: string, onSelect: () => void }) => (
-        <Card onClick={onSelect} className="cursor-pointer hover:shadow-lg transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between">
-                <h4 className="font-semibold">{category}</h4>
-                <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    <Card>
+                        <CardContent className="p-2 space-y-2">
+                            {serviceSelectionView === 'categories' ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                    {categories.map(category => (
+                                        <Button variant="outline" key={category} onClick={() => { setSelectedCategory(category); setServiceSelectionView('services'); }}>
+                                            {category}
+                                        </Button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div>
+                                    <Button variant="ghost" size="sm" onClick={() => setServiceSelectionView('categories')} className="mb-2">
+                                        <ArrowLeft className="mr-2 h-4 w-4" /> Back to Categories
+                                    </Button>
+                                    <ScrollArea className="h-48">
+                                    <div className="space-y-2 pr-4">
+                                        {servicesForCategory.map(service => (
+                                            <div key={service.id} className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted">
+                                                <Checkbox
+                                                    id={`svc-${member.id}-${service.id}`}
+                                                    checked={member.serviceIds.includes(service.id)}
+                                                    onCheckedChange={() => handleServiceToggle(service.id)}
+                                                />
+                                                <label htmlFor={`svc-${member.id}-${service.id}`} className="text-sm font-medium flex-1 cursor-pointer">
+                                                    {service.name}
+                                                </label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    </ScrollArea>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <div className="space-y-2">
+                    <Label>Preferred Staff</Label>
+                        <ScrollArea>
+                        <RadioGroup 
+                            value={member.preferredStaffId || 'any'} 
+                            onValueChange={(staffId) => onUpdate(member.id, { preferredStaffId: staffId })} 
+                            className="flex gap-2 w-max pb-2"
+                        >
+                            <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
+                            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
+                        </RadioGroup>
+                            <ScrollBar orientation="horizontal" />
+                    </ScrollArea>
+                </div>
+                {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+                    <div className="flex items-center justify-between rounded-lg border p-3 bg-background">
+                        <div className="space-y-0.5">
+                            <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                        </div>
+                        <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate(member.id, { waitForPreferredStaff: checked })} />
+                    </div>
+                )}
+                
+                {isPrimary && (
+                        <div className="space-y-4 pt-4 border-t">
+                        <Label className="font-medium">Contact Details</Label>
+                            <div className="space-y-2">
+                            <Label htmlFor="phone">Phone Number</Label>
+                            <Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="email">Email Address</Label>
+                            <Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
+                        </div>
+                        </div>
+                )}
             </CardContent>
         </Card>
-    );
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Select Services</DialogTitle>
-                    {view === 'services' && selectedCategory && (
-                         <Button variant="ghost" size="sm" onClick={() => setView('categories')} className="absolute left-4 top-4 px-2">
-                             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Categories
-                         </Button>
-                    )}
-                </DialogHeader>
-                <ScrollArea className="h-96 -mx-6">
-                    <div className="px-6">
-                    {view === 'categories' ? (
-                        <div className="space-y-2">
-                            {categories.map(category => (
-                                <CategoryCard 
-                                    key={category} 
-                                    category={category} 
-                                    onSelect={() => {
-                                        setSelectedCategory(category);
-                                        setView('services');
-                                    }}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {servicesForCategory.map(service => (
-                                <ServiceSelectionCard
-                                    key={service.id}
-                                    service={service}
-                                    isSelected={currentSelectedIds.has(service.id)}
-                                    onToggle={() => handleToggle(service.id)}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    </div>
-                </ScrollArea>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleConfirm}>Confirm ({currentSelectedIds.size})</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
-const PartyMemberEditor = ({ member, onUpdate, onRemove, services, staff, isPrimary }: { member: PartyMember; onUpdate: (id: string, updates: Partial<PartyMember>) => void; onRemove: (id: string) => void; services: Service[]; staff: Staff[]; isPrimary?: boolean; }) => {
-    const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
-    
-    const selectedServices = services.filter(s => member.serviceIds.includes(s.id));
-
-    return (
-        <>
-            <Card className="overflow-visible bg-muted/30">
-                <CardHeader className="flex flex-row items-center justify-between">
-                    <Input
-                        value={member.name}
-                        onChange={(e) => onUpdate(member.id, { name: e.target.value })}
-                        className="text-lg font-semibold border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent"
-                        placeholder={isPrimary ? 'Your Name' : `Person ${member.id.slice(0,4)}`}
-                    />
-                    {!isPrimary && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(member.id)}><Trash2 className="w-4 h-4" /></Button>}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label>Services</Label>
-                        <Card className="bg-background">
-                            <CardContent className="p-3 min-h-[60px]">
-                                {selectedServices.length > 0 ? (
-                                    <div className="space-y-1">
-                                        {selectedServices.map(s => <p key={s.id} className="text-sm font-medium">{s.name}</p>)}
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-muted-foreground">No services selected.</p>
-                                )}
-                            </CardContent>
-                            <CardFooter className="p-3 pt-0">
-                                <Button variant="outline" size="sm" className="w-full" type="button" onClick={() => setIsServiceSelectorOpen(true)}>
-                                    {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label>Preferred Staff</Label>
-                         <ScrollArea>
-                            <RadioGroup 
-                                value={member.preferredStaffId || 'any'} 
-                                onValueChange={(staffId) => onUpdate(member.id, { preferredStaffId: staffId })} 
-                                className="flex gap-2 w-max pb-2"
-                            >
-                                <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} />
-                                {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} />)}
-                            </RadioGroup>
-                             <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    </div>
-                     {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-                        <div className="flex items-center justify-between rounded-lg border p-3 bg-background">
-                            <div className="space-y-0.5">
-                                <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
-                            </div>
-                            <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate(member.id, { waitForPreferredStaff: checked })} />
-                        </div>
-                    )}
-                    
-                    {isPrimary && (
-                         <div className="space-y-4 pt-4 border-t">
-                            <Label className="font-medium">Contact Details</Label>
-                             <div className="space-y-2">
-                                <Label htmlFor="phone">Phone Number</Label>
-                                <Input id="phone" type="tel" value={member.phone || ''} onChange={(e) => onUpdate(member.id, { phone: e.target.value })} placeholder="(555) 123-4567" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email Address</Label>
-                                <Input id="email" type="email" value={member.email || ''} onChange={(e) => onUpdate(member.id, { email: e.target.value })} placeholder="email@example.com" />
-                            </div>
-                         </div>
-                    )}
-                </CardContent>
-            </Card>
-            <ServiceSelectionDialog 
-                open={isServiceSelectorOpen}
-                onOpenChange={setIsServiceSelectorOpen}
-                services={services}
-                selectedIds={member.serviceIds}
-                onSave={(newIds) => onUpdate(member.id, { serviceIds: newIds })}
-            />
-        </>
     );
 };
 
