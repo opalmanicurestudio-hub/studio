@@ -79,7 +79,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, CustomFormula, services, Resource, type Transaction } from '@/lib/data';
+import { type Appointment, type Client, type Service, CustomFormula, Resource, type Transaction } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -492,6 +492,7 @@ export function AppointmentCard({
   const { toast } = useToast();
 
   const isMobile = useIsMobile();
+  const { services } = useInventory();
   
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
