@@ -25,7 +25,7 @@ interface WalkInQueueProps {
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
-    onStartService: (walkInId: string) => void;
+    onStartService: (appointmentId: string) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
@@ -132,7 +132,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                             walkIn={walkIn} 
                                             services={services} 
                                             staff={staff}
-                                            onStartService={onStartService}
+                                            onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)}
                                             onSkip={onSkip}
                                             onCancel={onCancel}
                                             onReturnToQueue={onReturnToQueue}

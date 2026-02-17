@@ -16,42 +16,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign } from 'lucide-react';
-import { Service, Staff } from '@/lib/data';
+import { Service, Staff, PricingTier } from '@/lib/data';
 import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onSelect: () => void, staffMember?: Staff }) => {
-    const { priceText } = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0) {
-            return { priceText: `$${service.price.toFixed(2)}` };
-        }
+    const { priceText, durationText } = useMemo(() => {
+        let price = service.price;
+        let duration = service.duration;
 
-        // If a specific staff member is passed, find their price.
-        if (staffMember && staffMember.pricingTierId) {
+        if (staffMember && staffMember.pricingTierId && service.serviceTiers) {
             const tierInfo = service.serviceTiers.find(t => t.tierId === staffMember.pricingTierId);
             if (tierInfo) {
-                return { priceText: `$${tierInfo.price.toFixed(2)}` };
+                price = tierInfo.price;
+                duration = tierInfo.durationMinutes;
+                return { priceText: `$${price.toFixed(2)}`, durationText: `${duration} min` };
             }
-            // Fallback to base price if no specific tier price for that staff
-            return { priceText: `$${service.price.toFixed(2)}` };
         }
-        
-        // Otherwise, show a price range.
-        const prices = service.serviceTiers.map(t => t.price);
-        if (!prices || prices.length === 0) {
-            return { priceText: `$${service.price.toFixed(2)}` };
-        }
-        const minPrice = Math.min(...prices);
-        const maxPrice = Math.max(...prices);
 
-        if (minPrice === maxPrice) {
-            return { priceText: `$${minPrice.toFixed(2)}` };
+        if (service.serviceTiers && service.serviceTiers.length > 0) {
+            const prices = service.serviceTiers.map(t => t.price);
+            const minPrice = Math.min(...prices);
+            
+            if (service.price > 0 && service.price < minPrice) {
+                 return { priceText: `From $${service.price.toFixed(2)}`, durationText: `${service.duration} min` };
+            }
+            
+            if (minPrice === Math.max(...prices)) {
+                return { priceText: `$${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
+            }
+
+            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
         }
         
-        return { priceText: `From $${minPrice.toFixed(2)}` };
+        return { priceText: `$${price.toFixed(2)}`, durationText: `${duration} min` };
     }, [service, staffMember]);
 
   if (service.imageUrl) {
@@ -79,7 +80,7 @@ const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onS
               <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4" />
-                  <span>{service.duration} min</span>
+                  <span>{durationText}</span>
                 </div>
                 <div className="flex items-center gap-2 font-medium text-foreground">
                   <DollarSign className="w-4 h-4" />
@@ -109,7 +110,7 @@ const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onS
           <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t mt-4">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
-              <span>{service.duration} min</span>
+              <span>{durationText}</span>
             </div>
             <div className="flex items-center gap-2 font-medium text-foreground">
                 <DollarSign className="w-4 h-4" />
@@ -181,7 +182,7 @@ export const BookingServices = ({ services, onServiceSelect, staffMember, showPr
                         <CarouselContent>
                             {servicesToShow.map((service) => (
                                 <CarouselItem key={service.id} className="basis-4/5 sm:basis-1/2 md:basis-1/3">
-                                    <ServiceCard service={service} onSelect={() => onServiceSelect(service)} />
+                                    <ServiceCard service={service} onSelect={() => onServiceSelect(service)} staffMember={staffMember} />
                                 </CarouselItem>
                             ))}
                         </CarouselContent>

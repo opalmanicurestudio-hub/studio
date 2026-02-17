@@ -32,7 +32,7 @@ import {
   Clock,
   Loader,
 } from 'lucide-react';
-import { services as initialServices, type Service, Staff, DayHours, ActivityLog } from '@/lib/data';
+import { type Service, Staff, DayHours, ActivityLog, type PricingTier } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,6 +45,7 @@ import { collection, doc } from 'firebase/firestore';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 type ClientPhoto = {
   url: string;
@@ -98,11 +99,7 @@ export default function StaffDetailPage() {
   }, [firestore, tenantId, staffId]);
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-  const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/services`);
-  }, [firestore, tenantId]);
-  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { services, pricingTiers, isLoading: inventoryLoading } = useInventory();
 
   const activityLogsQuery = useMemoFirebase(() => {
       if (!firestore || !staffId || !tenantId) return null;
@@ -128,7 +125,7 @@ export default function StaffDetailPage() {
     setIsAddAppointmentOpen(false);
   };
 
-  const isLoading = isUserLoading || isTenantLoading || staffLoading || servicesLoading || activityLogsLoading;
+  const isLoading = isUserLoading || isTenantLoading || staffLoading || inventoryLoading || activityLogsLoading;
 
     const formattedSchedule = useMemo(() => {
         const availability = staffMember?.availability;
@@ -178,22 +175,30 @@ export default function StaffDetailPage() {
     }, [staffMember?.availability]);
   
   const staffServices = useMemo(() => {
-    if (!staffMember?.services || !services || !staffMember.skillLevel) return [];
+    if (!staffMember?.services || !services || !pricingTiers) return [];
     
-    const staffSkillLevel = staffMember.skillLevel;
+    const staffPricingTierId = staffMember.pricingTierId;
 
     return services
       .filter(s => staffMember.services?.includes(s.id) && !s.isPrivate)
       .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-        // Fallback to senior price or base price if specific tier not found
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        let finalPrice = service.price;
+        let finalDuration = service.duration;
+
+        if (staffPricingTierId && service.serviceTiers) {
+            const tierInfo = service.serviceTiers.find(t => t.tierId === staffPricingTierId);
+            if (tierInfo) {
+                finalPrice = tierInfo.price;
+                finalDuration = tierInfo.durationMinutes;
+            }
+        }
         return {
           ...service,
-          price: finalPrice, // Override the service price with the correct tier price
+          price: finalPrice,
+          duration: finalDuration
         };
       });
-  }, [staffMember, services]);
+  }, [staffMember, services, pricingTiers]);
 
   if (isLoading) {
       return (
@@ -330,14 +335,6 @@ export default function StaffDetailPage() {
                     if (!isOpen) setServiceToBook(null);
                     setIsAddAppointmentOpen(isOpen);
                 }}
-                clients={[]}
-                services={services || []}
-                staff={[]}
-                appointments={[]}
-                events={[]}
-                scheduleProfiles={[]}
-                onConfirm={handleAddAppointment}
-                initialClientId={''}
                 appointmentToRebook={{...{} as any, serviceId: serviceToBook.id, staffId: staffMember.id}}
             />
         )}

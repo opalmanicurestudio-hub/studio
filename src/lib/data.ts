@@ -592,7 +592,6 @@ export type Review = {
   createdAt: string; // ISO date string
 };
 
-// This type was moved from EditServiceDialog to be more globally available.
 export type PricingTier = {
     id: string;
     name: string;
@@ -613,10 +612,3 @@ export type PartyMember = {
 
 
 export { nanoid };
-
-
-    
-
-
-    
-
