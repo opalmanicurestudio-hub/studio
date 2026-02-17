@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -43,6 +44,7 @@ import {
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import Image from 'next/image';
+import { Badge } from '@/components/ui/badge';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
@@ -92,13 +94,58 @@ const StepDetails = ({ member, onUpdate }: { member: PartyMember; onUpdate: (upd
     </div>
 );
 
+const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
+    const { price, duration } = useMemo(() => {
+        let finalPrice = service.price;
+        let finalDuration = service.durationMinutes;
+
+        if (staffTierId) {
+            const tier = service.serviceTiers?.find(t => t.tierId === staffTierId);
+            if (tier) {
+                finalPrice = tier.price;
+                finalDuration = tier.durationMinutes;
+            }
+        }
+        return { price: finalPrice, duration: finalDuration };
+    }, [service, staffTierId]);
+
+    const id = `service-card-${service.id}`;
+
+    return (
+        <div>
+            <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
+            <Label
+                htmlFor={id}
+                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+            >
+                <div className="flex flex-col items-center justify-between gap-3 h-full">
+                    <div className="w-20 h-20 relative bg-muted rounded-lg overflow-hidden">
+                        {service.imageUrl ? (
+                            <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                <Scissors className="w-8 h-8"/>
+                            </div>
+                        )}
+                    </div>
+                    <div className="text-center">
+                        <p className="font-semibold text-sm">{service.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{duration} min &middot; ${price.toFixed(2)}</p>
+                    </div>
+                </div>
+            </Label>
+        </div>
+    );
+};
+
+
 const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; staff: Staff[]; pricingTiers: PricingTier[] }) => {
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
     const handleServiceToggle = (serviceId: string) => {
         const newServiceIds = member.serviceIds.includes(serviceId)
             ? member.serviceIds.filter(id => id !== serviceId)
-            : [...member.serviceIds, serviceId];
+            : [serviceId]; // Only allow one service selection
         onUpdate({ serviceIds: newServiceIds });
     };
     
@@ -119,7 +166,7 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     return (
         <div className="space-y-4">
             <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
-            <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
                 {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => (
                     <ServiceSelectionCard
                         key={service.id}
@@ -127,6 +174,7 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
                         isSelected={member.serviceIds.includes(service.id)}
                         onToggle={() => handleServiceToggle(service.id)}
                         staffTierId={selectedStaffMember?.pricingTierId}
+                        pricingTiers={pricingTiers}
                     />
                 ))}
             </div>
@@ -146,7 +194,7 @@ const StepAddons = ({ member, onUpdate, compatibleAddons, staff, pricingTiers }:
     const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
 
     return (
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
             {compatibleAddons.map(service => (
                 <ServiceSelectionCard
                     key={service.id}
@@ -154,6 +202,7 @@ const StepAddons = ({ member, onUpdate, compatibleAddons, staff, pricingTiers }:
                     isSelected={member.serviceIds.includes(service.id)}
                     onToggle={() => handleServiceToggle(service.id)}
                     staffTierId={selectedStaffMember?.pricingTierId}
+                    pricingTiers={pricingTiers}
                 />
             ))}
         </div>
@@ -183,7 +232,6 @@ const MemberSetup = ({
     member,
     onUpdate,
     memberSubStep,
-    setMemberSubStep,
     services,
     staff,
     pricingTiers,
@@ -327,52 +375,6 @@ const ConfirmationScreen = ({
     )
 };
 
-
-const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string }) => {
-    const { price, duration } = useMemo(() => {
-        let finalPrice = service.price;
-        let finalDuration = service.durationMinutes;
-
-        if (staffTierId && service.serviceTiers) {
-            const tier = service.serviceTiers.find(t => t.tierId === staffTierId);
-            if (tier) {
-                finalPrice = tier.price;
-                finalDuration = tier.durationMinutes;
-            }
-        }
-        return { price: finalPrice, duration: finalDuration };
-    }, [service, staffTierId]);
-
-    const id = `service-card-${service.id}-${nanoid()}`;
-
-    return (
-        <Label
-            htmlFor={id}
-            className={cn(
-                "block cursor-pointer rounded-lg border bg-card text-card-foreground transition-all",
-                isSelected ? "border-primary ring-2 ring-primary" : "hover:shadow-md"
-            )}
-        >
-            <div className="p-3 flex items-start gap-3">
-                <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="mt-1" />
-                <div className="flex-1">
-                    <p className="font-semibold text-sm">{service.name}</p>
-                    {service.description && <p className="text-xs text-muted-foreground line-clamp-2 h-8">{service.description}</p>}
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
-                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{duration} min</span>
-                        <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{price.toFixed(2)}</span>
-                    </div>
-                </div>
-                {service.imageUrl && (
-                    <div className="w-16 h-16 bg-muted rounded-md flex-shrink-0 relative">
-                        <Image src={service.imageUrl} alt={service.name} fill className="object-cover rounded-md" />
-                    </div>
-                )}
-            </div>
-        </Label>
-    );
-};
-
 const StaffSelectionCard = ({ staff }: { staff: Staff | { id: string, name: string, avatarUrl: string } }) => {
     const isAnyStaff = staff.id === 'any';
     return (
@@ -380,9 +382,9 @@ const StaffSelectionCard = ({ staff }: { staff: Staff | { id: string, name: stri
             <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="peer sr-only" />
             <Label
                 htmlFor={`staff-${staff.id}`}
-                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary"
+                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
-                <div className="flex flex-col items-center gap-3">
+                <div className="flex flex-col items-center justify-between gap-3 h-full">
                     <Avatar className="w-16 h-16">
                         {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
                         <AvatarFallback className="text-muted-foreground">
@@ -524,7 +526,6 @@ export default function WalkInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
-  const [resetProgress, setResetProgress] = useState(100);
 
   const { open: businessIsOpen, nextOpen } = useMemo(() => {
     return isBusinessOpen(new Date(), scheduleProfile);
