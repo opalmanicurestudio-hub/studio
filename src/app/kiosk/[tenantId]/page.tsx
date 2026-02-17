@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -73,26 +74,41 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
     </>
 );
 
-const StepDetails = ({ member, onUpdate }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void }) => (
-    <div className="space-y-6">
-        <div className="space-y-2">
-            <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base"><User className="w-5 h-5 text-muted-foreground"/>Name</Label>
-            <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-12 text-lg"/>
+const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; primaryMember?: PartyMember; isGroup: boolean; }) => {
+
+    const usePrimaryContact = () => {
+        if (primaryMember) {
+            onUpdate({
+                phone: primaryMember.phone,
+                email: primaryMember.email,
+            });
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-2">
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base"><User className="w-5 h-5 text-muted-foreground"/>Name</Label>
+                <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-12 text-lg"/>
+            </div>
+            
+            {isGroup && !member.isPrimary && (
+                 <Button variant="outline" onClick={usePrimaryContact} className="w-full">
+                    Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}
+                </Button>
+            )}
+
+            <div className="space-y-2">
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground"/>Phone</Label>
+                <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-12 text-lg"/>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground"/>Email</Label>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-12 text-lg"/>
+            </div>
         </div>
-        {member.isPrimary && (
-            <>
-                <div className="space-y-2">
-                    <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground"/>Phone</Label>
-                    <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-12 text-lg"/>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground"/>Email</Label>
-                    <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-12 text-lg"/>
-                </div>
-            </>
-        )}
-    </div>
-);
+    );
+};
 
 const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
     const { price, duration } = useMemo(() => {
@@ -116,23 +132,25 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
             <Label
                 htmlFor={id}
-                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
-                <div className="flex flex-col items-center justify-between gap-3 h-full">
-                    <div className="w-20 h-20 relative bg-muted rounded-lg overflow-hidden">
-                        {service.imageUrl ? (
-                            <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                                <Scissors className="w-8 h-8"/>
-                            </div>
-                        )}
+                <CardContent className="p-3">
+                    <div className="flex flex-col items-center justify-between gap-3 h-full">
+                        <div className="w-24 h-24 relative bg-muted rounded-lg overflow-hidden">
+                            {service.imageUrl ? (
+                                <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                    <Scissors className="w-8 h-8"/>
+                                </div>
+                            )}
+                        </div>
+                        <div className="text-center">
+                            <p className="font-semibold text-sm">{service.name}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{duration} min &middot; ${price.toFixed(2)}</p>
+                        </div>
                     </div>
-                    <div className="text-center">
-                        <p className="font-semibold text-sm">{service.name}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{duration} min &middot; ${price.toFixed(2)}</p>
-                    </div>
-                </div>
+                </CardContent>
             </Label>
         </div>
     );
@@ -231,6 +249,7 @@ const StepStaff = ({ member, onUpdate, staff }: { member: PartyMember; onUpdate:
 const MemberSetup = ({
     member,
     onUpdate,
+    partyMembers,
     memberSubStep,
     services,
     staff,
@@ -256,7 +275,7 @@ const MemberSetup = ({
 
     const renderStepContent = () => {
         switch (memberSubStep) {
-            case 'details': return <StepDetails member={member} onUpdate={onUpdate} />;
+            case 'details': return <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} />;
             case 'services': return <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>;
             case 'addons': return <StepAddons member={member} onUpdate={onUpdate} compatibleAddons={compatibleAddons} staff={staff} pricingTiers={pricingTiers}/>;
             case 'staff': return <StepStaff member={member} onUpdate={onUpdate} staff={staff} />;
@@ -729,6 +748,7 @@ export default function WalkInPage() {
             {step === 'memberSetup' && currentMember && (
                 <MemberSetup
                     member={{...currentMember, index: currentMemberIndex}}
+                    partyMembers={partyMembers}
                     onUpdate={handleMemberUpdate}
                     memberSubStep={memberSubStep}
                     setMemberSubStep={setMemberSubStep}
