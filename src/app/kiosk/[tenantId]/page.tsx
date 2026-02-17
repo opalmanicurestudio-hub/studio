@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -21,7 +20,7 @@ import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/fir
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -73,20 +72,20 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
 );
 
 const StepDetails = ({ member, onUpdate }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void }) => (
-    <div className="space-y-4">
+    <div className="space-y-6">
         <div className="space-y-2">
-            <Label htmlFor={`name-${member.id}`}>Name</Label>
-            <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} />
+            <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base"><User className="w-5 h-5 text-muted-foreground"/>Name</Label>
+            <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-12 text-lg"/>
         </div>
         {member.isPrimary && (
             <>
                 <div className="space-y-2">
-                    <Label htmlFor={`phone-${member.id}`}>Phone</Label>
-                    <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" />
+                    <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground"/>Phone</Label>
+                    <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-12 text-lg"/>
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor={`email-${member.id}`}>Email</Label>
-                    <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" />
+                    <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground"/>Email</Label>
+                    <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-12 text-lg"/>
                 </div>
             </>
         )}
@@ -199,10 +198,10 @@ const MemberSetup = ({
 }: any) => {
 
     const subStepTitles = {
-        details: 'Guest Details',
-        services: 'Select Service(s)',
-        addons: 'Select Add-on(s)',
-        staff: 'Preferred Staff',
+        details: { title: 'Guest Details', icon: <User className="w-5 h-5" /> },
+        services: { title: 'Select Service(s)', icon: <Scissors className="w-5 h-5" /> },
+        addons: { title: 'Select Add-on(s)', icon: <PlusCircle className="w-5 h-5" /> },
+        staff: { title: 'Preferred Staff', icon: <Users className="w-5 h-5" /> },
     };
     
     const selectedServices = services.filter((s: Service) => member.serviceIds.includes(s.id));
@@ -216,12 +215,31 @@ const MemberSetup = ({
             default: return null;
         }
     }
+    
+    const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
+      const steps: MemberSubStep[] = ['details', 'services'];
+      if (hasCompatibleAddons) {
+        steps.push('addons');
+      }
+      steps.push('staff');
+    
+      const currentIndex = steps.indexOf(current);
+      if (currentIndex < steps.length - 1) {
+        return steps[currentIndex + 1];
+      }
+      return null;
+    };
+    const hasNextSubStep = getNextSubStep(memberSubStep, compatibleAddons && compatibleAddons.length > 0);
+
 
     return (
         <>
             <CardHeader>
                 <CardTitle className="text-2xl">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
-                <CardDescription>{subStepTitles[memberSubStep]}</CardDescription>
+                <CardDescription className="flex items-center gap-2">
+                    {subStepTitles[memberSubStep].icon}
+                    {subStepTitles[memberSubStep].title}
+                </CardDescription>
                 {selectedServices.length > 0 && (
                     <div className="pt-2">
                         <div className="flex flex-wrap gap-2">
@@ -233,19 +251,25 @@ const MemberSetup = ({
             <CardContent>
                 {renderStepContent()}
             </CardContent>
-            <CardFooter className="flex justify-between">
-                <Button variant="ghost" onClick={onBack} disabled={isSubmitting}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
-                {isGroup ? (
-                    <div className="flex gap-2">
-                        {!isLastMember && <Button onClick={onNext} disabled={isSubmitting}>Next Person <ArrowRight className="ml-2 h-4 w-4"/></Button>}
-                        <Button variant="outline" onClick={onAddAnother} disabled={isSubmitting}>Add Another Person</Button>
-                        <Button onClick={onSubmit} disabled={isSubmitting}>Finish & Join Queue</Button>
-                    </div>
-                ) : (
-                    <Button onClick={onNext} disabled={isSubmitting}>
-                        {memberSubStep === 'staff' ? 'Join Waitlist' : 'Next'}
-                        <ArrowRight className="ml-2 h-4 w-4" />
+             <CardFooter className="flex flex-col sm:flex-row gap-2">
+                <Button variant="ghost" onClick={onBack} disabled={isSubmitting} className="w-full sm:w-auto"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                <div className="flex-1" />
+                {hasNextSubStep ? (
+                    <Button onClick={onNext} disabled={isSubmitting} className="w-full sm:w-auto">
+                        Next <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
+                ) : (
+                    isGroup ? (
+                        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                            {!isLastMember && <Button onClick={onNext} disabled={isSubmitting} className="w-full sm:w-auto">Next Person <ArrowRight className="ml-2 h-4 w-4"/></Button>}
+                            <Button variant="outline" onClick={onAddAnother} disabled={isSubmitting} className="w-full sm:w-auto">Add Person</Button>
+                            <Button onClick={onSubmit} disabled={isSubmitting} className="w-full sm:w-auto">Finish & Join Queue</Button>
+                        </div>
+                    ) : (
+                        <Button onClick={onSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
+                            Join Waitlist
+                        </Button>
+                    )
                 )}
             </CardFooter>
         </>
@@ -539,8 +563,12 @@ export default function WalkInPage() {
     if (isSubmitting) return;
 
     const currentMember = partyMembers[currentMemberIndex];
-    if (!currentMember.name.trim() || currentMember.serviceIds.length === 0) {
-        toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
+    if (memberSubStep === 'details' && !currentMember.name.trim()) {
+      toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name." });
+      return;
+    }
+    if (memberSubStep === 'services' && currentMember.serviceIds.length === 0) {
+        toast({ variant: 'destructive', title: 'Missing Information', description: "Please select at least one service." });
         return;
     }
     
