@@ -861,7 +861,7 @@ export default function WalkInPage() {
 
                       <div className="space-y-2">
                           <Label className="font-semibold text-base">Your Services</Label>
-                          <BookingServices services={mainServices} onServiceSelect={handleServiceToggle} showPrivateServices={true}/>
+                          <BookingServices services={mainServices} onServiceSelect={handleServiceToggle} />
                       </div>
 
                       {partyType === 'group' && (
