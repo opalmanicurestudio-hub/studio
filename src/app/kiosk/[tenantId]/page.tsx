@@ -116,10 +116,11 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
         let finalPrice = service.price;
 
         if (staffTierId) {
-            const tier = service.serviceTiers?.find(t => t.tierId === staffTierId);
-            if (tier) {
-                finalDuration = tier.durationMinutes;
-                finalPrice = tier.price;
+            const tier = pricingTiers.find(t => t.id === staffTierId);
+            const tierInfo = service.serviceTiers?.find(t => t.tierId === tier?.id);
+            if (tierInfo) {
+                finalDuration = tierInfo.durationMinutes;
+                finalPrice = tierInfo.price;
                 return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
             }
         }
@@ -710,8 +711,9 @@ export default function WalkInPage() {
             requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
             estimatedDuration: memberServices.reduce((acc, s) => {
                 const staffMember = staff?.find(st => st.id === member.preferredStaffId);
-                const tier = s.serviceTiers?.find(t => t.tierId === staffMember?.pricingTierId);
-                return acc + (tier?.durationMinutes || s.duration);
+                const tier = pricingTiers?.find(t => t.id === staffMember?.pricingTierId);
+                const tierInfo = s.serviceTiers?.find(t => t.tierId === tier?.id);
+                return acc + (tierInfo?.durationMinutes || s.duration);
             }, 0),
             checkInTime,
             status: 'waiting',
@@ -843,188 +845,3 @@ export default function WalkInPage() {
   );
 }
 
-
-```
-- src/hooks/use-onclick-outside.tsx:
-```tsx
-import * as React from "react"
-
-type EventType = "mousedown" | "mouseup" | "touchstart" | "touchend" | "pointerdown" | "pointerup";
-
-export function useOnClickOutside<T extends HTMLElement = HTMLElement>(
-  ref: React.RefObject<T>,
-  handler: (event: MouseEvent | TouchEvent) => void,
-  eventType: EventType = "mousedown",
-  eventListenerOptions: AddEventListenerOptions = {}
-): void {
-  React.useEffect(() => {
-    const listener = (event: MouseEvent | TouchEvent) => {
-      const { target } = event ?? {};
-      if (!target || !ref.current || ref.current.contains(target as Node)) {
-        return;
-      }
-      handler(event);
-    };
-    
-    document.addEventListener(eventType, listener, eventListenerOptions);
-    return () => {
-      document.removeEventListener(eventType, listener, eventListenerOptions);
-    };
-  }, [ref, handler, eventType, eventListenerOptions]);
-}
-
-```
-- src/lib/fonts.ts:
-```ts
-import { Figtree, JetBrains_Mono } from "next/font/google"
-
-export const fontBody = Figtree({
-  subsets: ["latin"],
-  variable: "--font-body",
-})
-
-export const fontHeadline = Figtree({
-  subsets: ["latin"],
-  variable: "--font-headline",
-  weight: "800",
-})
-
-export const fontCode = JetBrains_Mono({
-    subsets: ['latin'],
-    variable: '--font-code',
-});
-
-```
-- tailwind.config.ts:
-```ts
-import type {Config} from 'tailwindcss';
-
-export default {
-  darkMode: ['class'],
-  content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
-  theme: {
-    extend: {
-      fontFamily: {
-        body: ['Figtree', 'sans-serif'],
-        headline: ['Figtree', 'sans-serif'],
-        code: ['JetBrains Mono', 'monospace'],
-      },
-      colors: {
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
-        },
-        popover: {
-          DEFAULT: 'hsl(var(--popover))',
-          foreground: 'hsl(var(--popover-foreground))',
-        },
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
-        },
-        secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
-        },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
-        },
-        destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        chart: {
-          '1': 'hsl(var(--chart-1))',
-          '2': 'hsl(var(--chart-2))',
-          '3': 'hsl(var(--chart-3))',
-          '4': 'hsl(var(--chart-4))',
-          '5': 'hsl(var(--chart-5))',
-        },
-        sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background))',
-          foreground: 'hsl(var(--sidebar-foreground))',
-          primary: 'hsl(var(--sidebar-primary))',
-          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-          accent: 'hsl(var(--sidebar-accent))',
-          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-          border: 'hsl(var(--sidebar-border))',
-          ring: 'hsl(var(--sidebar-ring))',
-        },
-      },
-      borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
-      },
-      keyframes: {
-        'accordion-down': {
-          from: {
-            height: '0',
-          },
-          to: {
-            height: 'var(--radix-accordion-content-height)',
-          },
-        },
-        'accordion-up': {
-          from: {
-            height: 'var(--radix-accordion-content-height)',
-          },
-          to: {
-            height: '0',
-          },
-        },
-      },
-      animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
-      },
-    },
-  },
-  plugins: [require('tailwindcss-animate')],
-} satisfies Config;
-
-```
-- tsconfig.json:
-```json
-{
-  "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-}
-```
