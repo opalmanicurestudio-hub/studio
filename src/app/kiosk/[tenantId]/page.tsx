@@ -99,11 +99,11 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: Par
             )}
 
             <div className="space-y-2">
-                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground"/><span>Phone</span></Label>
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground" /><span>Phone</span></Label>
                 <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-12 text-lg"/>
             </div>
             <div className="space-y-2">
-                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground"/><span>Email</span></Label>
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground" /><span>Email</span></Label>
                 <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-12 text-lg"/>
             </div>
         </div>
@@ -149,7 +149,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
     const id = `service-card-${service.id}`;
 
     return (
-        <div>
+        <div className="relative">
             <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
             <Label
                 htmlFor={id}
@@ -705,8 +705,8 @@ export default function WalkInPage() {
             groupName: isGroup ? `${primaryMember.name}'s Group` : undefined,
             isPrimaryContact: index === 0,
             customerName: member.name,
-            customerPhone: index === 0 ? primaryMember.phone : undefined,
-            customerEmail: index === 0 ? primaryMember.email : undefined,
+            customerPhone: member.phone || '',
+            customerEmail: member.email || '',
             serviceIds: member.serviceIds,
             requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
             estimatedDuration: memberServices.reduce((acc, s) => {
@@ -843,5 +843,3 @@ export default function WalkInPage() {
     </>
   );
 }
-
-    
