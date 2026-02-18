@@ -111,38 +111,37 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: Par
 };
 
 const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
-    const { priceText, duration, hasTiers } = useMemo(() => {
-        let finalDuration = service.durationMinutes;
+    const { priceText, durationText, hasTiers } = useMemo(() => {
+        let finalDuration = service.duration;
+        let finalPrice = service.price;
 
-        // If a staff member with a specific tier is already selected
         if (staffTierId) {
             const tier = service.serviceTiers?.find(t => t.tierId === staffTierId);
             if (tier) {
                 finalDuration = tier.durationMinutes;
-                return { priceText: `$${tier.price.toFixed(2)}`, duration: finalDuration, hasTiers: true };
+                finalPrice = tier.price;
+                return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
             }
         }
 
-        // If no staff is selected, or the selected staff doesn't have a specific tier price
         if (service.serviceTiers && service.serviceTiers.length > 0) {
             const prices = service.serviceTiers.map(t => t.price);
             const minPrice = Math.min(...prices);
-            const maxPrice = Math.max(...prices);
             
-            // If there's a base price that's lower than the lowest tier price
             if (service.price > 0 && service.price < minPrice) {
-                 return { priceText: `From $${service.price.toFixed(2)}`, duration: finalDuration, hasTiers: true };
+                 finalPrice = service.price;
+                 return { priceText: `From $${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
             }
             
-            if (minPrice === maxPrice) {
-                 return { priceText: `$${minPrice.toFixed(2)}`, duration: finalDuration, hasTiers: true };
+            if (minPrice === Math.max(...prices)) {
+                 finalPrice = minPrice;
+                 return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
             }
 
-            return { priceText: `From $${minPrice.toFixed(2)}`, duration: finalDuration, hasTiers: true };
+            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
         }
         
-        // Fallback to base price
-        return { priceText: `$${service.price.toFixed(2)}`, duration: finalDuration, hasTiers: false };
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: false };
 
     }, [service, staffTierId, pricingTiers]);
 
@@ -157,7 +156,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             >
                 <CardContent className="p-3">
                     <div className="flex flex-col items-center justify-between gap-3 h-full">
-                        <div className="w-24 h-24 relative bg-muted rounded-lg overflow-hidden">
+                        <div className="w-full aspect-[4/3] relative bg-muted rounded-lg overflow-hidden">
                             {service.imageUrl ? (
                                 <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
                             ) : (
@@ -168,7 +167,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                         </div>
                         <div className="text-center">
                             <p className="font-semibold text-sm">{service.name}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{duration} min &middot; {priceText}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
                             {hasTiers && !staffTierId && <p className="text-[10px] text-muted-foreground">Price varies by provider</p>}
                         </div>
                     </div>
@@ -258,7 +257,7 @@ const StaffSelectionCard = ({ staff, pricingTiers }: { staff: Staff | { id: stri
             <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="peer sr-only" />
             <Label
                 htmlFor={`staff-${staff.id}`}
-                className="block cursor-pointer rounded-md border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
                 <div className="flex flex-col items-center justify-between gap-3 h-full">
                     <Avatar className="w-16 h-16">
@@ -712,7 +711,7 @@ export default function WalkInPage() {
             estimatedDuration: memberServices.reduce((acc, s) => {
                 const staffMember = staff?.find(st => st.id === member.preferredStaffId);
                 const tier = s.serviceTiers?.find(t => t.tierId === staffMember?.pricingTierId);
-                return acc + (tier?.durationMinutes || s.durationMinutes);
+                return acc + (tier?.durationMinutes || s.duration);
             }, 0),
             checkInTime,
             status: 'waiting',
@@ -843,3 +842,1048 @@ export default function WalkInPage() {
     </>
   );
 }
+
+```
+- src/firebase/auth/use-user.tsx:
+```tsx
+'use client';
+import { useAuth } from '@/firebase/provider';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { useEffect, useState } from 'react';
+
+/**
+ * A hook that provides the current user's authentication state.
+ *
+ * @returns An object containing the user, loading state, and error.
+ */
+export function useUser() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const auth = useAuth();
+
+  useEffect(() => {
+    if (auth) {
+      const unsubscribe = onAuthStateChanged(
+        auth,
+        (user) => {
+          setUser(user);
+          setIsLoading(false);
+        },
+        (error) => {
+          setError(error);
+          setIsLoading(false);
+        }
+      );
+      return unsubscribe;
+    } else {
+      setIsLoading(false);
+    }
+  }, [auth]);
+
+  return { user, isLoading, error };
+}
+
+```
+- src/hooks/use-onclick-outside.tsx:
+```tsx
+import * as React from "react"
+
+type EventType = "mousedown" | "mouseup" | "touchstart" | "touchend" | "pointerdown" | "pointerup";
+
+export function useOnClickOutside<T extends HTMLElement = HTMLElement>(
+  ref: React.RefObject<T>,
+  handler: (event: MouseEvent | TouchEvent) => void,
+  eventType: EventType = "mousedown",
+  eventListenerOptions: AddEventListenerOptions = {}
+): void {
+  React.useEffect(() => {
+    const listener = (event: MouseEvent | TouchEvent) => {
+      const { target } = event ?? {};
+      if (!target || !ref.current || ref.current.contains(target as Node)) {
+        return;
+      }
+      handler(event);
+    };
+    
+    document.addEventListener(eventType, listener, eventListenerOptions);
+    return () => {
+      document.removeEventListener(eventType, listener, eventListenerOptions);
+    };
+  }, [ref, handler, eventType, eventListenerOptions]);
+}
+
+```
+- src/lib/fonts.ts:
+```ts
+import { Figtree, JetBrains_Mono } from "next/font/google"
+
+export const fontBody = Figtree({
+  subsets: ["latin"],
+  variable: "--font-body",
+})
+
+export const fontHeadline = Figtree({
+  subsets: ["latin"],
+  variable: "--font-headline",
+  weight: "800",
+})
+
+export const fontCode = JetBrains_Mono({
+    subsets: ['latin'],
+    variable: '--font-code',
+});
+
+```
+- tailwind.config.js:
+```js
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+	],
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      fontFamily: {
+        body: ["var(--font-body)"],
+        headline: ["var(--font-headline)"],
+        code: ["var(--font-code)"],
+      },
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-background))",
+          foreground: "hsl(var(--sidebar-foreground))",
+          primary: "hsl(var(--sidebar-primary))",
+          'primary-foreground': "hsl(var(--sidebar-primary-foreground))",
+          accent: "hsl(var(--sidebar-accent))",
+          'accent-foreground': "hsl(var(--sidebar-accent-foreground))",
+          border: "hsl(var(--sidebar-border))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: 0 },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: 0 },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+}
+```My apologies for the continued issues with the walk-in kiosk. It seems there was another calculation error that was causing the process to fail when you tried to add a walk-in to the queue. I've located and fixed the bug.
+
+Here's what happened:
+
+*   **The Bug:** The system was incorrectly trying to calculate the estimated duration for a service using a field that doesn't exist (`durationMinutes` instead of `duration`). This resulted in an invalid number, which caused the database write to fail.
+
+*   **The Fix:** I've corrected the code to use the proper `duration` field from the service data, ensuring that the time estimate is always calculated correctly.
+
+The walk-in feature should now be fully functional. Thank you for your patience as I work to get this right. Here is the change:
+
+<changes>
+  <description>Fixes a bug in the walk-in kiosk that caused an error when joining the queue. The estimated duration calculation was referencing a non-existent field. This has been corrected to use the proper `duration` field, ensuring the walk-in can be saved successfully.</description>
+  <change>
+    <file>src/app/kiosk/[tenantId]/page.tsx</file>
+    <content><![CDATA[
+
+'use client';
+
+import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useToast } from '@/hooks/use-toast';
+import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
+import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
+import { Progress } from '@/components/ui/progress';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, getDay, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { nanoid } from 'nanoid';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
+import Image from 'next/image';
+import { Badge } from '@/components/ui/badge';
+
+type Step = 'partyType' | 'memberSetup' | 'confirmation';
+type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
+
+const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
+    <>
+        <CardHeader className="text-center">
+            <CardTitle className="text-2xl">Who are we serving today?</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('individual')}>
+                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+                    <User className="w-16 h-16 mx-auto mb-4 text-primary" />
+                    <h3 className="text-2xl font-semibold">Just Me</h3>
+                    <p className="text-muted-foreground mt-1">I'm checking in for myself.</p>
+                </CardContent>
+            </Card>
+            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('group')}>
+                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+                    <Users className="w-16 h-16 mx-auto mb-4 text-primary" />
+                    <h3 className="text-2xl font-semibold">My Group</h3>
+                    <p className="text-muted-foreground mt-1">I'm checking in for myself and others.</p>
+                </CardContent>
+            </Card>
+        </CardContent>
+    </>
+);
+
+const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; primaryMember?: PartyMember; isGroup: boolean; }) => {
+
+    const usePrimaryContact = () => {
+        if (primaryMember) {
+            onUpdate({
+                phone: primaryMember.phone,
+                email: primaryMember.email,
+            });
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-2">
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base"><User className="w-5 h-5 text-muted-foreground" /><span>Name</span></Label>
+                <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-12 text-lg"/>
+            </div>
+            
+            {isGroup && !member.isPrimary && (
+                 <Button variant="outline" onClick={usePrimaryContact} className="w-full">
+                    Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}
+                </Button>
+            )}
+
+            <div className="space-y-2">
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base"><Phone className="w-5 h-5 text-muted-foreground" /><span>Phone</span></Label>
+                <Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-12 text-lg"/>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base"><Mail className="w-5 h-5 text-muted-foreground" /><span>Email</span></Label>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-12 text-lg"/>
+            </div>
+        </div>
+    );
+};
+
+const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
+    const { priceText, durationText, hasTiers } = useMemo(() => {
+        let finalDuration = service.duration;
+        let finalPrice = service.price;
+
+        if (staffTierId) {
+            const tier = service.serviceTiers?.find(t => t.tierId === staffTierId);
+            if (tier) {
+                finalDuration = tier.durationMinutes;
+                finalPrice = tier.price;
+                return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+            }
+        }
+
+        if (service.serviceTiers && service.serviceTiers.length > 0) {
+            const prices = service.serviceTiers.map(t => t.price);
+            const minPrice = Math.min(...prices);
+            
+            if (service.price > 0 && service.price < minPrice) {
+                 finalPrice = service.price;
+                 return { priceText: `From $${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+            }
+            
+            if (minPrice === Math.max(...prices)) {
+                 finalPrice = minPrice;
+                 return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+            }
+
+            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+        }
+        
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: false };
+
+    }, [service, staffTierId, pricingTiers]);
+
+    const id = `service-card-${service.id}`;
+
+    return (
+        <div className="relative">
+            <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
+            <Label
+                htmlFor={id}
+                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+            >
+                <CardContent className="p-3">
+                    <div className="flex flex-col items-center justify-between gap-3 h-full">
+                        <div className="w-full aspect-[4/3] relative bg-muted rounded-lg overflow-hidden">
+                            {service.imageUrl ? (
+                                <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                    <Scissors className="w-8 h-8"/>
+                                </div>
+                            )}
+                        </div>
+                        <div className="text-center">
+                            <p className="font-semibold text-sm">{service.name}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
+                            {hasTiers && !staffTierId && <p className="text-[10px] text-muted-foreground">Price varies by provider</p>}
+                        </div>
+                    </div>
+                </CardContent>
+            </Label>
+        </div>
+    );
+};
+
+
+const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; staff: Staff[]; pricingTiers: PricingTier[]; }) => {
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const handleServiceToggle = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [serviceId]; // Only allow one service selection
+        onUpdate({ serviceIds: newServiceIds });
+    };
+    
+    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
+
+    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+
+    if (!selectedCategory) {
+        return (
+             <div className="grid grid-cols-2 gap-4">
+                {categories.map(category => (
+                    <Button key={category} variant="outline" className="h-20 text-base" onClick={() => setSelectedCategory(category)}>{category}</Button>
+                ))}
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
+            <div className="grid grid-cols-2 gap-4">
+                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => (
+                    <ServiceSelectionCard
+                        key={service.id}
+                        service={service}
+                        isSelected={member.serviceIds.includes(service.id)}
+                        onToggle={() => handleServiceToggle(service.id)}
+                        staffTierId={selectedStaffMember?.pricingTierId}
+                        pricingTiers={pricingTiers}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const StepAddons = ({ member, onUpdate, compatibleAddons, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; compatibleAddons: Service[]; staff: Staff[]; pricingTiers: PricingTier[]; }) => {
+    
+    const handleServiceToggle = (serviceId: string) => {
+        const newServiceIds = member.serviceIds.includes(serviceId)
+            ? member.serviceIds.filter(id => id !== serviceId)
+            : [...member.serviceIds, serviceId];
+        onUpdate({ serviceIds: newServiceIds });
+    };
+
+    const selectedStaffMember = useMemo(() => staff.find(s => s.id === member.preferredStaffId), [staff, member.preferredStaffId]);
+
+    return (
+        <div className="grid grid-cols-2 gap-4">
+            {compatibleAddons.map(service => (
+                <ServiceSelectionCard
+                    key={service.id}
+                    service={service}
+                    isSelected={member.serviceIds.includes(service.id)}
+                    onToggle={() => handleServiceToggle(service.id)}
+                    staffTierId={selectedStaffMember?.pricingTierId}
+                    pricingTiers={pricingTiers}
+                />
+            ))}
+        </div>
+    );
+};
+
+const StaffSelectionCard = ({ staff, pricingTiers }: { staff: Staff | { id: string, name: string, avatarUrl: string }, pricingTiers: PricingTier[] }) => {
+    const isAnyStaff = staff.id === 'any';
+    const tier = !isAnyStaff ? pricingTiers.find(t => t.id === (staff as Staff).pricingTierId) : null;
+
+    return (
+        <div>
+            <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="peer sr-only" />
+            <Label
+                htmlFor={`staff-${staff.id}`}
+                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+            >
+                <div className="flex flex-col items-center justify-between gap-3 h-full">
+                    <Avatar className="w-16 h-16">
+                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
+                        <AvatarFallback className="text-muted-foreground">
+                            {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div className="text-center">
+                        <p className="font-semibold text-sm">{staff.name}</p>
+                        {tier && <p className="text-xs text-muted-foreground capitalize">{tier.name}</p>}
+                    </div>
+                </div>
+            </Label>
+        </div>
+    );
+};
+
+
+const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
+    <div className="space-y-4">
+        <RadioGroup 
+            value={member.preferredStaffId || 'any'} 
+            onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} 
+            className="grid grid-cols-2 md:grid-cols-3 gap-4"
+        >
+            <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
+            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
+        </RadioGroup>
+        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+            <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
+                <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
+                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
+            </div>
+        )}
+    </div>
+);
+
+const MemberSetup = ({
+    member,
+    onUpdate,
+    partyMembers,
+    memberSubStep,
+    services,
+    staff,
+    pricingTiers,
+    compatibleAddons,
+    onNext,
+    onBack,
+    isGroup,
+    isLastMember,
+    onAddAnother,
+    onSubmit,
+    isSubmitting
+}: any) => {
+
+    const subStepTitles = {
+        details: { title: 'Guest Details', icon: <User className="w-5 h-5" /> },
+        services: { title: 'Select Service(s)', icon: <Scissors className="w-5 h-5" /> },
+        addons: { title: 'Select Add-on(s)', icon: <PlusCircle className="w-5 h-5" /> },
+        staff: { title: 'Preferred Staff', icon: <Users className="w-5 h-5" /> },
+    };
+    
+    const selectedServices = services.filter((s: Service) => member.serviceIds.includes(s.id));
+
+    const renderStepContent = () => {
+        switch (memberSubStep) {
+            case 'details': return <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} />;
+            case 'services': return <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>;
+            case 'addons': return <StepAddons member={member} onUpdate={onUpdate} compatibleAddons={compatibleAddons} staff={staff} pricingTiers={pricingTiers}/>;
+            case 'staff': return <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />;
+            default: return null;
+        }
+    }
+    
+    const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
+      const steps: MemberSubStep[] = ['details', 'services'];
+      if (hasCompatibleAddons) {
+        steps.push('addons');
+      }
+      steps.push('staff');
+    
+      const currentIndex = steps.indexOf(current);
+      if (currentIndex < steps.length - 1) {
+        return steps[currentIndex + 1];
+      }
+      return null;
+    };
+    const hasNextSubStep = getNextSubStep(memberSubStep, compatibleAddons && compatibleAddons.length > 0);
+
+
+    return (
+        <>
+            <CardHeader>
+                <CardTitle className="text-2xl">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
+                <CardDescription className="flex items-center gap-2">
+                    {subStepTitles[memberSubStep].icon}
+                    {subStepTitles[memberSubStep].title}
+                </CardDescription>
+                {selectedServices.length > 0 && (
+                    <div className="pt-2">
+                        <div className="flex flex-wrap gap-2">
+                            {selectedServices.map((s: Service) => <Badge key={s.id}>{s.name}</Badge>)}
+                        </div>
+                    </div>
+                )}
+            </CardHeader>
+            <CardContent>
+                {renderStepContent()}
+            </CardContent>
+             <CardFooter className="flex flex-col sm:flex-row gap-2">
+                <Button variant="ghost" onClick={onBack} disabled={isSubmitting} className="w-full sm:w-auto"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                <div className="flex-1" />
+                {hasNextSubStep ? (
+                    <Button onClick={onNext} disabled={isSubmitting} className="w-full sm:w-auto">
+                        Next <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                ) : (
+                    isGroup ? (
+                        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                            {!isLastMember && <Button onClick={onNext} disabled={isSubmitting} className="w-full sm:w-auto">Next Person <ArrowRight className="ml-2 h-4 w-4"/></Button>}
+                            <Button variant="outline" onClick={onAddAnother} disabled={isSubmitting} className="w-full sm:w-auto">Add Person</Button>
+                            <Button onClick={onSubmit} disabled={isSubmitting} className="w-full sm:w-auto">Finish & Join Queue</Button>
+                        </div>
+                    ) : (
+                        <Button onClick={onSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
+                            Join Waitlist
+                        </Button>
+                    )
+                )}
+            </CardFooter>
+        </>
+    );
+};
+
+const ConfirmationScreen = ({
+    queuePosition,
+    onPrint,
+    onDone
+}: {
+    queuePosition: number | null;
+    onPrint: () => void;
+    onDone: () => void;
+}) => {
+    const [resetProgress, setResetProgress] = useState(100);
+
+    useEffect(() => {
+        const DURATION = 15000;
+        const timer = setTimeout(onDone, DURATION);
+        const progressInterval = setInterval(() => {
+            setResetProgress(prev => Math.max(0, prev - (100 / (DURATION / 100))));
+        }, 100);
+
+        return () => {
+            clearTimeout(timer);
+            clearInterval(progressInterval);
+        };
+    }, [onDone]);
+    
+    return (
+        <>
+            <CardContent className="p-8 text-center space-y-4">
+                <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                <h2 className="text-2xl font-bold">You're on the list!</h2>
+                <p className="text-muted-foreground">
+                    You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
+                    We will send a text message to the provided phone number when it's your turn.
+                </p>
+                <div className="pt-6">
+                    <Button className="w-full" onClick={onPrint}>
+                        <Printer className="mr-2 h-4 w-4" />
+                        Print Ticket
+                    </Button>
+                </div>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+                <Button className="w-full" variant="ghost" onClick={onDone}>Done</Button>
+                <div className="w-full text-center">
+                    <p className="text-xs text-muted-foreground">Resetting for the next guest...</p>
+                    <Progress value={resetProgress} className="h-1 mt-2" />
+                </div>
+            </CardFooter>
+        </>
+    )
+};
+
+type DayHours = { enabled: boolean; start: string; end: string };
+type BusinessHours = {
+    sunday: DayHours;
+    monday: DayHours;
+    tuesday: DayHours;
+    wednesday: DayHours;
+    thursday: DayHours;
+    friday: DayHours;
+    saturday: DayHours;
+};
+
+const parseLenientTime = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (!timeStr) {
+        return d;
+    }
+
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    
+    if (period) {
+      if (period.toUpperCase() === 'PM' && hours < 12) {
+          hours += 12;
+      }
+      if (period.toUpperCase() === 'AM' && hours === 12) {
+          hours = 0;
+      }
+    }
+
+    d.setHours(hours, minutes);
+    return d;
+};
+
+function isBusinessOpen(now: Date, scheduleProfile: { week: BusinessHours } | null): { open: boolean, nextOpen?: { day: string, time: string } } {
+    if (!scheduleProfile) {
+        return { open: false };
+    }
+
+    const hours = scheduleProfile.week;
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayOfWeek = days[getDay(now)];
+
+    const todayHours = hours[dayOfWeek as keyof BusinessHours];
+
+    if (todayHours && todayHours.enabled) {
+        const openTime = parseLenientTime(todayHours.start, now);
+        const closeTime = parseLenientTime(todayHours.end, now);
+        openTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+        closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+
+        if (now >= openTime && now < closeTime) {
+            return { open: true };
+        }
+    }
+
+    let currentDayIndex = getDay(now);
+    for (let i = 0; i < 7; i++) {
+        const nextDayIndex = (currentDayIndex + i) % 7;
+        const nextDayName = days[nextDayIndex];
+        const nextDayHours = hours[nextDayName as keyof BusinessHours];
+        if (nextDayHours && nextDayHours.enabled) {
+            const closeTime = parseLenientTime(nextDayHours.end, now);
+            closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+            if (i === 0 && now > closeTime) continue;
+
+            return {
+                open: false,
+                nextOpen: {
+                    day: i === 0 ? 'today' : i === 1 ? 'tomorrow' : `on ${nextDayName}`,
+                    time: nextDayHours.start
+                }
+            };
+        }
+    }
+
+    return { open: false };
+}
+
+const formatTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    if (timeStr.includes('AM') || timeStr.includes('PM')) {
+        return timeStr;
+    }
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours);
+    date.setMinutes(minutes);
+    return format(date, 'h:mm a');
+};
+
+export default function WalkInPage() {
+  const { firestore } = useFirebase();
+  const router = useRouter();
+  const { toast } = useToast();
+  const params = useParams();
+  const tenantId = params.tenantId as string;
+
+  // Data fetching
+  const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+  const servicesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/services`), where('isPrivate', '!=', true)), [firestore, tenantId]);
+  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
+  const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
+
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
+
+  const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
+
+  // UI State
+  const [step, setStep] = useState<Step>('partyType');
+  const [isGroup, setIsGroup] = useState(false);
+  const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
+  const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
+  const [memberSubStep, setMemberSubStep] = useState<MemberSubStep>('details');
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+
+  // Final confirmation state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
+
+  const { open: businessIsOpen, nextOpen } = useMemo(() => {
+    return isBusinessOpen(new Date(), scheduleProfile);
+  }, [scheduleProfile]);
+  
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => { setHasMounted(true); }, []);
+  
+  const handlePartyTypeSelect = (type: 'individual' | 'group') => {
+    setIsGroup(type === 'group');
+    setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
+    setCurrentMemberIndex(0);
+    setMemberSubStep('details');
+    setStep('memberSetup');
+  };
+
+  const handleMemberUpdate = (updates: Partial<PartyMember>) => {
+    setPartyMembers(prev => prev.map((m, index) => index === currentMemberIndex ? { ...m, ...updates } : m));
+  };
+
+  const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
+    const steps: MemberSubStep[] = ['details', 'services'];
+    if (hasCompatibleAddons) {
+      steps.push('addons');
+    }
+    steps.push('staff');
+  
+    const currentIndex = steps.indexOf(current);
+    if (currentIndex < steps.length - 1) {
+      return steps[currentIndex + 1];
+    }
+    return null;
+  };
+  
+  const handleNextMember = () => {
+    if (isSubmitting) return;
+
+    const currentMember = partyMembers[currentMemberIndex];
+    if (memberSubStep === 'details' && !currentMember.name.trim()) {
+      toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name." });
+      return;
+    }
+    if (memberSubStep === 'services' && currentMember.serviceIds.length === 0) {
+        toast({ variant: 'destructive', title: 'Missing Information', description: "Please select at least one service." });
+        return;
+    }
+    
+    const primaryService = services?.find(s => s.id === currentMember.serviceIds[0]);
+    const hasCompatibleAddons = primaryService?.compatibleAddOnIds && primaryService.compatibleAddOnIds.length > 0;
+
+    const nextStep = getNextSubStep(memberSubStep, hasCompatibleAddons);
+
+    if (nextStep) {
+        setMemberSubStep(nextStep);
+    } else {
+        if (isGroup && currentMemberIndex < partyMembers.length - 1) {
+            setCurrentMemberIndex(prev => prev + 1);
+            setMemberSubStep('details');
+        } else {
+            handleSubmit();
+        }
+    }
+  };
+  
+  const handleAddAnother = () => {
+    if (isSubmitting) return;
+    const currentMember = partyMembers[currentMemberIndex];
+     if (!currentMember.name.trim() || currentMember.serviceIds.length === 0) {
+        toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
+        return;
+    }
+    setPartyMembers(prev => [...prev, { id: nanoid(5), name: ``, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
+    setCurrentMemberIndex(partyMembers.length);
+    setMemberSubStep('details');
+  }
+
+  const handleBack = () => {
+    if (memberSubStep !== 'details') {
+      const currentMember = partyMembers[currentMemberIndex];
+      const primaryService = services?.find(s => s.id === currentMember.serviceIds[0]);
+      const hasCompatibleAddons = primaryService?.compatibleAddOnIds && primaryService.compatibleAddOnIds.length > 0;
+      const steps: MemberSubStep[] = ['details', 'services'];
+      if (hasCompatibleAddons) steps.push('addons');
+      steps.push('staff');
+      const currentIndex = steps.indexOf(memberSubStep);
+      setMemberSubStep(steps[currentIndex - 1]);
+    } else if (currentMemberIndex > 0) {
+        setCurrentMemberIndex(prev => prev - 1);
+        setMemberSubStep('staff'); // Go to last step of previous member
+    } else {
+        setStep('partyType');
+        setPartyMembers([]);
+    }
+  }
+
+  const resetFlow = useCallback(() => {
+    setStep('partyType');
+    setIsGroup(false);
+    setPartyMembers([]);
+    setCurrentMemberIndex(0);
+    setIsSubmitting(false);
+    setQueuePosition(null);
+    setTicketToPrint(null);
+  }, []);
+
+  const handleSubmit = async () => {
+    if (isSubmitting) return;
+
+    const primaryMember = partyMembers[0];
+    if (!primaryMember.name.trim() || partyMembers.every(m => m.serviceIds.length === 0)) {
+      toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the primary contact's name and select at least one service." });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
+    const batch = writeBatch(firestore);
+    
+    const groupId = nanoid();
+    const checkInTime = new Date().toISOString();
+    const currentTime = Date.now();
+    let primaryWalkInId = '';
+
+    partyMembers.forEach((member, index) => {
+        if (member.serviceIds.length === 0) return;
+        const memberWalkInId = nanoid();
+        if (index === 0) primaryWalkInId = memberWalkInId;
+        const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
+        const memberWalkIn: Omit<WalkIn, 'id'> = {
+            groupId,
+            groupName: isGroup ? `${primaryMember.name}'s Group` : undefined,
+            isPrimaryContact: index === 0,
+            customerName: member.name,
+            customerPhone: member.phone || '',
+            customerEmail: member.email || '',
+            serviceIds: member.serviceIds,
+            requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
+            estimatedDuration: memberServices.reduce((acc, s) => {
+                const staffMember = staff?.find(st => st.id === member.preferredStaffId);
+                const tier = s.serviceTiers?.find(t => t.tierId === staffMember?.pricingTierId);
+                return acc + (tier?.durationMinutes || s.duration);
+            }, 0),
+            checkInTime,
+            status: 'waiting',
+            preferredStaffId: member.preferredStaffId === 'any' ? undefined : member.preferredStaffId,
+            waitForPreferredStaff: member.preferredStaffId !== 'any' ? member.waitForPreferredStaff : false,
+            queueOrder: currentTime + index,
+        };
+        const memberWalkInRef = doc(walkInsRef, memberWalkInId);
+        batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
+    });
+
+    try {
+        const q = query(walkInsRef, where("status", "==", "waiting"));
+        const querySnapshot = await getDocs(q);
+        const newPosition = querySnapshot.size + 1;
+        setQueuePosition(newPosition);
+        await batch.commit();
+
+        setTicketToPrint({
+            id: primaryWalkInId,
+            name: primaryMember.name,
+            services: services?.filter(s => primaryMember.serviceIds.includes(s.id)) || [],
+            queuePosition: newPosition,
+            checkInTime: checkInTime,
+        });
+        setStep('confirmation');
+
+    } catch (error) {
+        console.error("Error adding walk-in:", error);
+        toast({ variant: 'destructive', title: 'Something went wrong', description: 'Could not add you to the waitlist.' });
+        setIsSubmitting(false);
+    }
+  };
+  
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading;
+  if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
+  if (!businessIsOpen) return <div>Closed</div>;
+
+  const currentMember = partyMembers[currentMemberIndex];
+  const primaryService = services?.find(s => s.id === currentMember?.serviceIds[0]);
+  const compatibleAddons = primaryService?.compatibleAddOnIds
+    ? services?.filter(s => primaryService.compatibleAddOnIds!.includes(s.id))
+    : [];
+
+  return (
+    <>
+    <div className="w-full max-w-2xl mx-auto">
+        <header className="mb-8 text-center">
+          <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
+            <ClarityFlowLogo />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
+          <p className="text-muted-foreground mt-2">Walk-in Check-in</p>
+        </header>
+        
+        <Card className="overflow-hidden">
+            {step === 'partyType' && (
+                <PartyTypeSelection onSelect={handlePartyTypeSelect} />
+            )}
+            {step === 'memberSetup' && currentMember && (
+                <MemberSetup
+                    member={{...currentMember, index: currentMemberIndex}}
+                    partyMembers={partyMembers}
+                    onUpdate={handleMemberUpdate}
+                    memberSubStep={memberSubStep}
+                    setMemberSubStep={setMemberSubStep}
+                    services={services || []}
+                    staff={staff || []}
+                    pricingTiers={pricingTiers || []}
+                    compatibleAddons={compatibleAddons || []}
+                    onNext={handleNextMember}
+                    onBack={handleBack}
+                    isGroup={isGroup}
+                    isLastMember={currentMemberIndex === partyMembers.length - 1}
+                    onAddAnother={handleAddAnother}
+                    onSubmit={handleSubmit}
+                    isSubmitting={isSubmitting}
+                />
+            )}
+            {step === 'confirmation' && (
+                <ConfirmationScreen
+                    queuePosition={queuePosition}
+                    onPrint={() => setIsPrintDialogOpen(true)}
+                    onDone={resetFlow}
+                />
+            )}
+        </Card>
+    </div>
+    <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+        <DialogContent className="max-w-sm print:hidden">
+            <DialogHeader>
+                <DialogTitle>Walk-in Ticket</DialogTitle>
+            </DialogHeader>
+            <div id="print-ticket-area">
+                {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                <Button onClick={() => window.print()}>
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    <div className="hidden print:block print-only">
+        <div id="printable-ticket">
+            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+        </div>
+    </div>
+
+    <style jsx global>{`
+        @media print {
+            body > *:not(.print-only) {
+            display: none !important;
+            }
+            .print-only, .print-only * {
+            display: block !important;
+            visibility: visible !important;
+            }
+            .print-only {
+            position: absolute;
+            left: 0;
+            top: 0;
+            }
+        }
+    `}</style>
+    </>
+  );
+}
+
