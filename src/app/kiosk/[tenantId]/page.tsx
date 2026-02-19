@@ -700,7 +700,8 @@ export default function WalkInPage() {
         const memberWalkInId = nanoid();
         if (index === 0) primaryWalkInId = memberWalkInId;
         const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
-        const memberWalkIn: Omit<WalkIn, 'id'> = {
+        
+        const memberWalkIn: Partial<WalkIn> = {
             groupId,
             groupName: isGroup ? `${primaryMember.name}'s Group` : undefined,
             isPrimaryContact: index === 0,
@@ -717,10 +718,14 @@ export default function WalkInPage() {
             }, 0),
             checkInTime,
             status: 'waiting',
-            preferredStaffId: member.preferredStaffId === 'any' ? undefined : member.preferredStaffId,
             waitForPreferredStaff: member.preferredStaffId !== 'any' ? member.waitForPreferredStaff : false,
             queueOrder: currentTime + index,
         };
+
+        if (member.preferredStaffId && member.preferredStaffId !== 'any') {
+            memberWalkIn.preferredStaffId = member.preferredStaffId;
+        }
+
         const memberWalkInRef = doc(walkInsRef, memberWalkInId);
         batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
     });
@@ -844,4 +849,3 @@ export default function WalkInPage() {
     </>
   );
 }
-
