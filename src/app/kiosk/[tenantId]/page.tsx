@@ -114,10 +114,12 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
     const { priceText, durationText, hasTiers } = useMemo(() => {
         let finalDuration = service.duration;
         let finalPrice = service.price;
+        let hasTiers = false;
 
-        if (staffTierId) {
-            const tier = pricingTiers.find(t => t.id === staffTierId);
-            const tierInfo = service.serviceTiers?.find(t => t.tierId === tier?.id);
+        const staffTier = pricingTiers.find(t => t.id === staffTierId);
+        
+        if (staffTierId && staffTier) {
+            const tierInfo = service.serviceTiers?.find(t => t.tierId === staffTierId);
             if (tierInfo) {
                 finalDuration = tierInfo.durationMinutes;
                 finalPrice = tierInfo.price;
@@ -126,23 +128,24 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
         }
 
         if (service.serviceTiers && service.serviceTiers.length > 0) {
+            hasTiers = true;
             const prices = service.serviceTiers.map(t => t.price);
             const minPrice = Math.min(...prices);
             
             if (service.price > 0 && service.price < minPrice) {
                  finalPrice = service.price;
-                 return { priceText: `From $${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+                 return { priceText: `From $${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
             }
             
             if (minPrice === Math.max(...prices)) {
                  finalPrice = minPrice;
-                 return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+                 return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
             }
 
-            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: true };
+            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
         }
         
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: false };
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
 
     }, [service, staffTierId, pricingTiers]);
 
@@ -159,7 +162,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                     <div className="flex flex-col items-center justify-between gap-3 h-full">
                         <div className="w-full aspect-[4/3] relative bg-muted rounded-lg overflow-hidden">
                             {service.imageUrl ? (
-                                <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                                <Image src={service.imageUrl} alt={service.name} fill className="object-cover" data-ai-hint="service image" />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                                     <Scissors className="w-8 h-8"/>
@@ -169,7 +172,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                         <div className="text-center">
                             <p className="font-semibold text-sm">{service.name}</p>
                             <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
-                            {hasTiers && !staffTierId && <p className="text-[10px] text-muted-foreground">Price varies by provider</p>}
+                            {hasTiers && <p className="text-[10px] text-muted-foreground">Price varies by provider</p>}
                         </div>
                     </div>
                 </CardContent>
@@ -262,14 +265,14 @@ const StaffSelectionCard = ({ staff, pricingTiers }: { staff: Staff | { id: stri
             >
                 <div className="flex flex-col items-center justify-between gap-3 h-full">
                     <Avatar className="w-16 h-16">
-                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
+                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} alt={staff.name}/> : null}
                         <AvatarFallback className="text-muted-foreground">
                             {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
                         </AvatarFallback>
                     </Avatar>
                     <div className="text-center">
                         <p className="font-semibold text-sm">{staff.name}</p>
-                        {tier && <p className="text-xs text-muted-foreground capitalize">{tier.name}</p>}
+                        {tier && <Badge variant="outline" className="capitalize text-xs">{tier.name}</Badge>}
                     </div>
                 </div>
             </Label>
@@ -594,7 +597,7 @@ export default function WalkInPage() {
   
   const handlePartyTypeSelect = (type: 'individual' | 'group') => {
     setIsGroup(type === 'group');
-    setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
+    setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false, phone: '', email: '' }]);
     setCurrentMemberIndex(0);
     setMemberSubStep('details');
     setStep('memberSetup');
@@ -655,7 +658,7 @@ export default function WalkInPage() {
         toast({ variant: 'destructive', title: 'Missing Information', description: "Please enter the guest's name and select at least one service." });
         return;
     }
-    setPartyMembers(prev => [...prev, { id: nanoid(5), name: ``, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]);
+    setPartyMembers(prev => [...prev, { id: nanoid(5), name: ``, serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false, phone: '', email: '' }]);
     setCurrentMemberIndex(partyMembers.length);
     setMemberSubStep('details');
   }
@@ -737,6 +740,8 @@ export default function WalkInPage() {
 
         if (member.preferredStaffId && member.preferredStaffId !== 'any') {
             memberWalkIn.preferredStaffId = member.preferredStaffId;
+        } else {
+            delete memberWalkIn.preferredStaffId;
         }
 
         walkInsToAdd.push({ ...memberWalkIn, id: memberWalkInId });
@@ -839,7 +844,7 @@ export default function WalkInPage() {
                 <DialogTitle>Walk-in Ticket</DialogTitle>
             </DialogHeader>
             <div id="print-ticket-area">
-                {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                {ticketToPrint && <PrintWalkInTicket key={ticketToPrint.id} data={ticketToPrint} />}
             </div>
             <DialogFooter>
                 <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
@@ -852,7 +857,7 @@ export default function WalkInPage() {
     </Dialog>
     <div className="hidden print:block print-only">
         <div id="printable-ticket">
-            {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+            {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}
         </div>
     </div>
 
