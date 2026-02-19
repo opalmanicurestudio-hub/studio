@@ -395,12 +395,12 @@ const MemberSetup = ({
 };
 
 const ConfirmationScreen = ({
-    queuePosition,
+    confirmedParty,
     onPrint,
     onDone
 }: {
-    queuePosition: number | null;
-    onPrint: () => void;
+    confirmedParty: WalkInTicketData[];
+    onPrint: (ticket: WalkInTicketData) => void;
     onDone: () => void;
 }) => {
     const [resetProgress, setResetProgress] = useState(100);
@@ -424,15 +424,27 @@ const ConfirmationScreen = ({
                 <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
                 <h2 className="text-2xl font-bold">You're on the list!</h2>
                 <p className="text-muted-foreground">
-                    You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
                     We will send a text message to the provided phone number when it's your turn.
                 </p>
-                <div className="pt-6">
-                    <Button className="w-full" onClick={onPrint}>
-                        <Printer className="mr-2 h-4 w-4" />
-                        Print Ticket
-                    </Button>
-                </div>
+                <Card className="text-left">
+                    <CardHeader>
+                        <CardTitle>Your Party</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {confirmedParty.map(member => (
+                            <div key={member.id} className="flex justify-between items-center p-3 bg-muted/50 rounded-md">
+                                <div>
+                                    <p className="font-semibold">#{member.queuePosition} - {member.name}</p>
+                                    <p className="text-xs text-muted-foreground">{member.services.map(s => s.name).join(', ')}</p>
+                                </div>
+                                <Button size="sm" variant="outline" onClick={() => onPrint(member)}>
+                                    <Printer className="mr-2 h-4 w-4" />
+                                    Print Ticket
+                                </Button>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
                 <Button className="w-full" variant="ghost" onClick={onDone}>Done</Button>
@@ -570,7 +582,7 @@ export default function WalkInPage() {
 
   // Final confirmation state
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [confirmedParty, setConfirmedParty] = useState<WalkInTicketData[]>([]);
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
 
   const { open: businessIsOpen, nextOpen } = useMemo(() => {
@@ -673,7 +685,7 @@ export default function WalkInPage() {
     setPartyMembers([]);
     setCurrentMemberIndex(0);
     setIsSubmitting(false);
-    setQueuePosition(null);
+    setConfirmedParty([]);
     setTicketToPrint(null);
   }, []);
 
@@ -693,13 +705,15 @@ export default function WalkInPage() {
     const groupId = nanoid();
     const checkInTime = new Date().toISOString();
     const currentTime = Date.now();
-    let primaryWalkInId = '';
+
+    const walkInsToAdd: (Partial<WalkIn> & { id: string })[] = [];
 
     partyMembers.forEach((member, index) => {
         if (member.serviceIds.length === 0) return;
+
         const memberWalkInId = nanoid();
-        if (index === 0) primaryWalkInId = memberWalkInId;
         const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
+        const staffMember = staff?.find(st => st.id === member.preferredStaffId);
         
         const memberWalkIn: Partial<WalkIn> = {
             groupId,
@@ -711,14 +725,13 @@ export default function WalkInPage() {
             serviceIds: member.serviceIds,
             requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
             estimatedDuration: memberServices.reduce((acc, s) => {
-                const staffMember = staff?.find(st => st.id === member.preferredStaffId);
                 const tier = pricingTiers?.find(t => t.id === staffMember?.pricingTierId);
                 const tierInfo = s.serviceTiers?.find(t => t.tierId === tier?.id);
-                return acc + (tierInfo?.durationMinutes || s.duration);
+                return acc + (tierInfo?.durationMinutes || s.duration || 0);
             }, 0),
             checkInTime,
             status: 'waiting',
-            waitForPreferredStaff: member.preferredStaffId !== 'any' ? member.waitForPreferredStaff : false,
+            waitForPreferredStaff: (member.preferredStaffId && member.preferredStaffId !== 'any') ? member.waitForPreferredStaff : false,
             queueOrder: currentTime + index,
         };
 
@@ -726,24 +739,32 @@ export default function WalkInPage() {
             memberWalkIn.preferredStaffId = member.preferredStaffId;
         }
 
-        const memberWalkInRef = doc(walkInsRef, memberWalkInId);
-        batch.set(memberWalkInRef, { ...memberWalkIn, id: memberWalkInId });
+        walkInsToAdd.push({ ...memberWalkIn, id: memberWalkInId });
     });
 
     try {
         const q = query(walkInsRef, where("status", "==", "waiting"));
         const querySnapshot = await getDocs(q);
-        const newPosition = querySnapshot.size + 1;
-        setQueuePosition(newPosition);
+        const startingPosition = querySnapshot.size + 1;
+        
+        const confirmedTickets: WalkInTicketData[] = [];
+
+        walkInsToAdd.forEach((walkInData, index) => {
+            const memberWalkInRef = doc(walkInsRef, walkInData.id);
+            batch.set(memberWalkInRef, walkInData);
+
+            confirmedTickets.push({
+                id: walkInData.id!,
+                name: walkInData.customerName!,
+                services: services?.filter(s => walkInData.serviceIds!.includes(s.id)) || [],
+                queuePosition: startingPosition + index,
+                checkInTime: checkInTime,
+            });
+        });
+        
         await batch.commit();
 
-        setTicketToPrint({
-            id: primaryWalkInId,
-            name: primaryMember.name,
-            services: services?.filter(s => primaryMember.serviceIds.includes(s.id)) || [],
-            queuePosition: newPosition,
-            checkInTime: checkInTime,
-        });
+        setConfirmedParty(confirmedTickets);
         setStep('confirmation');
 
     } catch (error) {
@@ -762,6 +783,11 @@ export default function WalkInPage() {
   const compatibleAddons = primaryService?.compatibleAddOnIds
     ? services?.filter(s => primaryService.compatibleAddOnIds!.includes(s.id))
     : [];
+
+  const handlePrintTicket = (ticket: WalkInTicketData) => {
+    setTicketToPrint(ticket);
+    setIsPrintDialogOpen(true);
+  };
 
   return (
     <>
@@ -800,8 +826,8 @@ export default function WalkInPage() {
             )}
             {step === 'confirmation' && (
                 <ConfirmationScreen
-                    queuePosition={queuePosition}
-                    onPrint={() => setIsPrintDialogOpen(true)}
+                    confirmedParty={confirmedParty}
+                    onPrint={handlePrintTicket}
                     onDone={resetFlow}
                 />
             )}
