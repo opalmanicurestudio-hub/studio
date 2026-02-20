@@ -16,13 +16,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type WalkIn, type Staff, type Service } from '@/lib/data';
-import { ScrollArea } from '../ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useInventory } from '@/context/InventoryContext';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
+import { cn } from '@/lib/utils';
 
 interface AssignStaffDialogProps {
   open: boolean;
@@ -39,7 +36,11 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
 
     useEffect(() => {
         if (walkIn) {
-            setSelectedStaffId(walkIn.assignedStaffId || (walkIn.preferredStaffId && !walkIn.waitForPreferredStaff ? '' : walkIn.preferredStaffId || ''));
+            // Pre-select preferred staff if they are waiting for them
+            const initialSelection = (walkIn.preferredStaffId && walkIn.waitForPreferredStaff) 
+                ? walkIn.preferredStaffId 
+                : '';
+            setSelectedStaffId(walkIn.assignedStaffId || initialSelection);
         } else {
             setSelectedStaffId('');
         }
@@ -67,53 +68,43 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
                 </DialogHeader>
                 <div className="py-4 space-y-4">
                     {preferredStaff && (
-                        <>
-                            <Card className="bg-muted/50">
-                                <CardHeader>
-                                    <CardTitle className="text-base">Client's Preference: {preferredStaff.name}</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-sm font-medium">Status</span>
-                                        <Badge variant={preferredStaff.status === 'idle' ? 'default' : 'destructive'} className={preferredStaff.status === 'idle' ? 'bg-green-100 text-green-800' : ''}>
-                                            {preferredStaff.status === 'idle' ? 'Available' : 'Busy'}
-                                        </Badge>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="wait-for-preferred">Wait for {preferredStaff.name.split(' ')[0]}?</Label>
-                                        <Switch
-                                            id="wait-for-preferred"
-                                            checked={walkIn.waitForPreferredStaff}
-                                            onCheckedChange={(checked) => onToggleWaitForStaff(walkIn.id, checked)}
-                                        />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                            <Separator />
-                             <Label className="text-sm font-medium">Assign Alternative Staff</Label>
-                        </>
+                        <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
+                            <Label htmlFor="wait-for-preferred" className="font-medium">Wait for {preferredStaff.name.split(' ')[0]}?</Label>
+                            <Switch
+                                id="wait-for-preferred"
+                                checked={walkIn.waitForPreferredStaff}
+                                onCheckedChange={(checked) => onToggleWaitForStaff(walkIn.id, checked)}
+                            />
+                        </div>
                     )}
                     <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId}>
                         <div className="space-y-2">
-                        {availableStaff.filter(s => s.id !== preferredStaff?.id).map(member => (
-                            <Label key={member.id} htmlFor={`staff-assign-${member.id}`} className="flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted has-[:checked]:border-primary">
+                        {availableStaff.length > 0 ? availableStaff.map(member => (
+                            <Label key={member.id} htmlFor={`staff-assign-${member.id}`} className={cn("flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted has-[:checked]:border-primary", {
+                                "bg-primary/5 border-primary": member.id === walkIn.preferredStaffId
+                            })}>
                                 <RadioGroupItem value={member.id} id={`staff-assign-${member.id}`} />
                                 <Avatar className="w-10 h-10">
                                     <AvatarImage src={member.avatarUrl} />
                                     <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
-                                <span className="font-semibold">{member.name}</span>
+                                <div className="flex-1">
+                                    <span className="font-semibold">{member.name}</span>
+                                    {member.id === walkIn.preferredStaffId && <p className="text-xs text-primary">Client's Preference</p>}
+                                </div>
+                                {member.id === walkIn.preferredStaffId && !walkIn.waitForPreferredStaff && (
+                                     <Badge variant="destructive">Not Waiting</Badge>
+                                )}
                             </Label>
-                        ))}
-                        {availableStaff.filter(s => s.id !== preferredStaff?.id).length === 0 && (
-                            <div className="p-4 text-center text-sm text-muted-foreground">No other staff available.</div>
+                        )) : (
+                            <div className="p-4 text-center text-sm text-muted-foreground">No staff available.</div>
                         )}
                         </div>
                     </RadioGroup>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleAssign} disabled={!selectedStaffId || selectedStaffId === preferredStaff?.id}>Assign & Notify</Button>
+                    <Button onClick={handleAssign} disabled={!selectedStaffId}>Assign & Notify</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
