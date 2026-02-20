@@ -79,10 +79,6 @@ export default function POSPage() {
     
     const retailItems = cart.filter(item => item.type === 'product');
     
-    const handleCartChange = useCallback((newCart: any[]) => {
-        setCart(newCart);
-    }, []);
-
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -358,8 +354,6 @@ export default function POSPage() {
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
-
-    const handleConfirmAndClose = async () => {};
     
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -815,14 +809,10 @@ export default function POSPage() {
 
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
+    const handleConfirmAndClose = async () => {};
     
     const handleStartService = (appointmentId: string) => {
         const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-        if (!appointmentToStart && !appointmentId.startsWith('apt-walkin-')) {
-            toast({ title: 'Error', description: 'Appointment not found.' });
-            return;
-        }
-
         if (appointmentToStart) { // It's a pre-existing appointment document
             if (!firestore || !selectedTenant) return;
             const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
@@ -979,9 +969,13 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
+    const handleCartChange = (newCart: any[]) => {
+        setCart(newCart);
+    };
+
     const checkoutHubProps = {
-        cart: retailItems, 
-        onCartChange,
+        cart: retailItems,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1097,7 +1091,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
+                        <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
             </div>
@@ -1117,7 +1111,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
+                                <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
                     </Sheet>
