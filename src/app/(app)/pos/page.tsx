@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -749,7 +748,7 @@ export default function POSPage() {
             onConfirm: async () => {
                 const batch = writeBatch(firestore);
 
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
                 batch.update(walkInRef, { status: 'skipped' });
 
                 if (walkIn.assignedStaffId) {
@@ -828,8 +827,9 @@ export default function POSPage() {
         // Update staff statuses and last served timestamps
         const staffToUpdate = new Set<string>();
         appointmentsData.forEach(data => {
-            if (data.appointment.staffId) staffToUpdate.add(data.appointment.staffId);
-            Object.values(data.checkoutState?.serviceStaffOverrides || {}).forEach(id => staffToUpdate.add(id));
+            if (data.appointment.staffId) {
+              staffToUpdate.add(data.appointment.staffId);
+            }
         });
         staffToUpdate.forEach(staffId => {
             const staffRef = doc(firestore, `tenants/${tenantId}/staff`, staffId);
