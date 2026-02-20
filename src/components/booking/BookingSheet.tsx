@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -401,20 +402,47 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   
   const handleConfirmBooking = (data: BookingFormData) => {
     if (!service || !selectedTime) return;
-    
+
     const [hours, minutes] = selectedTime.split(':').map(Number);
     const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, service.duration);
 
     const clientData = {
-        clientName: data.clientName,
-        clientEmail: data.clientEmail,
-        clientPhone: data.clientPhone,
+      clientName: data.clientName,
+      clientEmail: data.clientEmail,
+      clientPhone: data.clientPhone,
     };
+
+    let finalStaffId = selectedStaffId;
+    if (finalStaffId === 'any') {
+      const availableQualifiedStaff = qualifiedStaff.filter(staffMember => {
+        const isBusy = appointments.some(apt => 
+            apt.staffId === staffMember.id &&
+            areIntervalsOverlapping(
+                { start: startDateTime, end: endDateTime },
+                { start: apt.startTime, end: apt.endTime },
+                { inclusive: false }
+            )
+        );
+        return !isBusy;
+      });
+
+      if (availableQualifiedStaff.length > 0) {
+        // Simple logic: pick the first available. A more complex system could use 'fair play'.
+        finalStaffId = availableQualifiedStaff[0].id; 
+      } else {
+        toast({
+            variant: 'destructive',
+            title: 'No staff available',
+            description: 'We apologize, but no staff members are available for the selected time. Please choose another time.',
+        });
+        return;
+      }
+    }
 
     const appointmentDetails = {
       serviceId: service.id,
-      staffId: selectedStaffId !== 'any' ? selectedStaffId : undefined,
+      staffId: finalStaffId,
       startTime: startDateTime.toISOString(),
       endTime: endDateTime.toISOString(),
       status: 'confirmed' as const,
