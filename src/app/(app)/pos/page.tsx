@@ -848,32 +848,60 @@ export default function POSPage() {
     };
     
     const handleStartService = (appointmentId: string) => {
-      const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+        if (!appointmentId.startsWith('apt-walkin-')) {
+            const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+            if (!appointmentToStart || !firestore || !selectedTenant) return;
+            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+            const nowISO = new Date().toISOString();
+            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+            if (appointmentToStart.staffId) {
+                const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+                updateDocumentNonBlocking(staffRef, { status: 'busy' });
+            }
+            toast({ title: "Service Started!", description: `The service for ${appointmentToStart.clientName} has begun.` });
+            return;
+        }
 
-      if (!appointmentToStart || !firestore || !selectedTenant) return;
-      
-      const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-      
-      const nowISO = new Date().toISOString();
-      
-      if (appointmentToStart.isWalkIn) {
         const walkInId = appointmentId.replace('apt-walkin-', '');
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        const walkIn = (walkIns || []).find(w => w.id === walkInId);
+        if (!walkIn || !walkIn.assignedStaffId || !firestore || !selectedTenant || !services) return;
+        
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        
+        const nowISO = new Date().toISOString();
+        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+        const startTime = walkIn.notifiedTimestamp ? parseISO(walkIn.notifiedTimestamp) : new Date();
+
+        const appointmentData = {
+            id: appointmentId,
+            tenantId: tenantId,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            clientEmail: walkIn.customerEmail,
+            clientPhone: walkIn.customerPhone,
+            serviceId: walkIn.serviceIds[0],
+            addOnIds: walkIn.serviceIds.slice(1),
+            staffId: walkIn.assignedStaffId,
+            status: 'servicing' as const,
+            source: 'walk-in' as const,
+            isWalkIn: true,
+            startTime: startTime.toISOString(),
+            endTime: addMinutes(startTime, duration).toISOString(),
+            actualStartTime: nowISO,
+        };
+        
+        setDocumentNonBlocking(appointmentRef, appointmentData, { merge: true });
+
         updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-      }
 
-      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
-      
-      if (appointmentToStart.staffId) {
-        const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-        updateDocumentNonBlocking(staffRef, { status: 'busy' });
-      }
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
+        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
 
-      toast({
-        title: "Service Started!",
-        description: `The service for ${appointmentToStart.clientName} has begun.`
-      });
+        toast({ title: "Service Started!", description: `The service for ${walkIn.customerName} has begun.` });
     };
+
     
     useEffect(() => {
         if (scannedData) {
@@ -947,12 +975,16 @@ export default function POSPage() {
           }
         };
         
-        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+        const newDocRef = doc(collection(firestore, 'tenants', selectedTenant.id, 'clients'));
+        const newId = newDocRef.id;
+
+        setDocumentNonBlocking(newDocRef, {...newClient, id: newId});
     
         toast({
           title: "Client Added",
           description: `${data.name} has been added to your client list.`,
         });
+        setIsAddClientOpen(false);
       }
 
     const payerOptions = useMemo(() => {
@@ -971,7 +1003,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1147,7 +1179,7 @@ export default function POSPage() {
                         <DialogTitle>Walk-in Ticket</DialogTitle>
                     </DialogHeader>
                     <div id="print-ticket-area">
-                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                        {ticketToPrint && <PrintWalkInTicket key={ticketToPrint.id} data={ticketToPrint} />}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
@@ -1178,7 +1210,7 @@ export default function POSPage() {
             </Dialog>
             <div className="hidden print:block print-only">
                 <div id="printable-ticket-pos">
-                    {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                    {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}
                 </div>
                 {receiptToPrint && (
                     <div id="printable-receipt-pos">
@@ -1205,3 +1237,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
