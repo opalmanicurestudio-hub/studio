@@ -368,6 +368,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const { handleSubmit, reset } = methods;
   const isMobile = useIsMobile();
+  const { firestore, tenantId } = useFirebase();
   
   useEffect(() => {
     if (open) {
