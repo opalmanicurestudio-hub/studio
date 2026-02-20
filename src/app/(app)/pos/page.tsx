@@ -617,14 +617,13 @@ export default function POSPage() {
         return;
       }
     
+      const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+      if (idleStaff.length === 0) {
+        toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+        return;
+      }
+
       if (assignmentMode === 'fair_play') {
-        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        
-        if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
-          return;
-        }
-        
         for (const staffMember of idleStaff) {
           for (const client of waitingClients) {
             const allServiceIds = client.serviceIds;
@@ -632,8 +631,7 @@ export default function POSPage() {
             const staffSkills = staffMember.skillSet || [];
             const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
       
-            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-            if (canPerformService && !existingAssignment) {
+            if (canPerformService) {
               handleAssignStaff(client, staffMember.id);
               return;
             }
@@ -641,9 +639,6 @@ export default function POSPage() {
         }
       } else { // 'ordered_list'
         for (const client of waitingClients) {
-          const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-          if (existingAssignment) continue;
-      
           for (const staffMember of orderedStaff) {
             if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
               continue;
@@ -669,7 +664,13 @@ export default function POSPage() {
         if (!firestore || !selectedTenant || !services || !staff) return;
         
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
-        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+        const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffId);
+        
+        const batch = writeBatch(firestore);
+        batch.update(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+        batch.update(staffRef, { status: 'busy' });
+        
+        batch.commit();
         
         const staffMember = staff.find(s => s.id === staffId);
         toast({
@@ -777,322 +778,11 @@ export default function POSPage() {
     };
 
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-
-    const handleConfirmAndClose = async () => {
-        setIsSubmitting(true);
-        try {
-            let clientToUse: Client | undefined | null = client;
     
-            if (!clientToUse && appointmentsData.length > 0) {
-                const firstAptData = appointmentsData[0];
-                clientToUse = firstAptData.client;
-            }
-    
-            if (!clientToUse && appointmentsData.length > 0) {
-                const firstAptData = appointmentsData[0];
-                const existingClient = clients?.find(c => c.email && c.email === firstAptData.clientEmail);
-                if(existingClient) {
-                    clientToUse = existingClient;
-                } else {
-                    if (!firestore || !tenantId) return;
-                    const newClientRef = doc(collection(firestore, `tenants/${tenantId}/clients`));
-                    const newId = newClientRef.id;
-                    const newClient: Client = {
-                      id: newId,
-                      name: firstAptData.clientName || 'Walk-in Client',
-                      email: firstAptData.clientEmail || '', 
-                      phone: firstAptData.clientPhone || '',
-                      avatarUrl: `https://picsum.photos/seed/${newId}/100`,
-                      lifetimeValue: 0,
-                      lastAppointment: new Date().toISOString(),
-                      status: 'active',
-                    };
-                    await setDoc(newClientRef, newClient);
-                    clientToUse = newClient;
-                }
-            }
-            
-            if (!clientToUse) {
-                toast({variant: 'destructive', title: 'Client Not Found', description: 'Could not find or create the client for this transaction.'});
-                setIsSubmitting(false);
-                return;
-            }
-    
-            if (!firestore || !tenantId) {
-                toast({ variant: "destructive", title: "Error", description: "Data is not ready. Please try again." });
-                setIsSubmitting(false);
-                return;
-            }
-    
-            const batch = writeBatch(firestore);
-            const nowISO = new Date().toISOString();
-
-            const productDeductions = new Map<string, { total: number; appointmentIds: string[] }>();
-
-            // Aggregate service product deductions
-            for (const data of appointmentsData) {
-                const checkoutState = data.appointment.checkoutState;
-                if (!checkoutState) continue;
-                
-                const currentAppointment = data.appointment;
-
-                const formulaUsed = checkoutState.formula || [];
-                formulaUsed.forEach((formulaItem: any) => {
-                    const productId = formulaItem.id || formulaItem.productId;
-                    const quantityUsed = formulaItem.quantity || formulaItem.quantityUsed || 0;
-
-                    if (productId && quantityUsed > 0) {
-                        const current = productDeductions.get(productId) || { total: 0, appointmentIds: [] };
-                        current.total += quantityUsed;
-                        if (!current.appointmentIds.includes(currentAppointment.id)) {
-                            current.appointmentIds.push(currentAppointment.id);
-                        }
-                        productDeductions.set(productId, current);
-                    }
-                });
-            }
-
-            // Aggregate retail item deductions from the cart
-            retailItems.forEach(item => {
-                const current = productDeductions.get(item.id) || { total: 0, appointmentIds: [] };
-                current.total += item.quantity;
-                if(appointmentsData.length > 0 && !current.appointmentIds.includes(appointmentsData[0].id)) {
-                    current.appointmentIds.push(appointmentsData[0].id);
-                }
-                productDeductions.set(item.id, current);
-            });
-            
-            // Loop through aggregated deductions and create batch updates
-            productDeductions.forEach(({ total: totalQuantityUsed, appointmentIds }, productId) => {
-                const product = inventory.find(p => p.id === productId);
-                if (!product) return;
-
-                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
-                const reason = `Checkout for: ${clientToUse?.name || 'Customer'}. Appointments: ${appointmentIds.map(id => id.slice(-4)).join(', ')}`;
-                const correction: Omit<StockCorrection, 'id'> = {
-                    productId: productId, date: nowISO, change: -totalQuantityUsed,
-                    unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'),
-                    reason: reason,
-                };
-                const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                batch.set(correctionRef, correction);
-
-                if (product.costingMethod === 'uses' && product.estimatedUses) {
-                    let newStock = product.totalStock;
-                    let newPartialUses = (product.partialContainerUses || 0) - totalQuantityUsed;
-                    while (newPartialUses < 0 && newStock > 0) {
-                        newStock -= 1;
-                        newPartialUses += product.estimatedUses;
-                    }
-                    batch.update(productRef, { totalStock: newStock, partialContainerUses: Math.max(0, newPartialUses) });
-                } else if (product.costingMethod === 'size' && product.size) {
-                    let newStock = product.totalStock;
-                    let newPartialSize = (product.partialContainerSize || 0) - totalQuantityUsed;
-                    while (newPartialSize < 0 && newStock > 0) {
-                        newStock -= 1;
-                        newPartialSize += product.size;
-                    }
-                    batch.update(productRef, { totalStock: newStock, partialContainerSize: Math.max(0, newPartialSize) });
-                } else {
-                    batch.update(productRef, { totalStock: increment(-totalQuantityUsed) });
-                }
-            });
-    
-            for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
-                if (!currentAppointment || !currentService) continue;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-                const allServicesInAppointment = [currentService, ...data.addOnServices];
-                const appointmentRevenue = allServicesInAppointment.reduce((acc, s) => acc + (redeemedOffer?.id === s.id ? 0 : s.price || 0), 0);
-                
-                if (redeemedOffer?.type === 'package') {
-                    const clientRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUse.id);
-                    const clientPackages = clientToUse.activePackages || [];
-                    const updatedPackages = clientPackages.map(p => 
-                        p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p
-                    ).filter(p => p.sessionsRemaining > 0);
-                    batch.update(clientRef, { activePackages: updatedPackages });
-                }
-
-                const checkoutState = data.checkoutState;
-                if (!checkoutState) {
-                  console.error('Checkout state not found for appointment:', data.id);
-                  continue;
-                }
-                const actualDuration = checkoutState.actualDuration;
-                const serviceStaffOverrides = checkoutState.serviceStaffOverrides;
-                
-                batch.update(appointmentRef, { 
-                    status: 'completed',
-                    checkoutState: { ...checkoutState, tipAmount, tipAllocations, retailItems, absorbedCost },
-                    revenue: appointmentRevenue,
-                    discountAmount: totalDiscount / appointmentsData.length,
-                    appliedDiscountCode: appliedDiscountCode || ''
-                });
-
-                if (data.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
-                    batch.update(checkInRef, { status: 'completed' });
-                }
-        
-                if (data.isWalkIn) {
-                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                    batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
-                }
-        
-                const allStaffInvolved = new Set<string>();
-                if(data.staff?.id) allStaffInvolved.add(data.staff.id);
-                Object.values(serviceStaffOverrides || {}).forEach(id => allStaffInvolved.add(id));
-                
-                allStaffInvolved.forEach(staffId => {
-                    if (staffId) {
-                        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-                        batch.update(staffDocRef, {
-                          status: 'idle',
-                          lastServedTimestamp: nowISO,
-                        });
-                    }
-                });
-            }
-            
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUse.id);
-            batch.update(clientDocRef, {
-                lifetimeValue: increment(subtotal + additionalCharge),
-                lastAppointment: nowISO
-            });
-            
-            if (subtotal + additionalCharge > 0) {
-                const serviceTransaction: Omit<Transaction, 'id'|'date'> = {
-                    date: nowISO,
-                    description: `${isGroupCheckout ? 'Group ' : ''}Services Checkout`,
-                    clientOrVendor: clientToUse.name,
-                    clientId: clientToUse.id,
-                    type: 'income' as const,
-                    context: 'Business' as const,
-                    category: 'Service Revenue',
-                    amount: subtotal + additionalCharge - retailItems.reduce((acc, item) => acc + (item.quantity * (inventory.find(p => p.id === item.id)?.msrp || 0)), 0),
-                    paymentMethod: paymentTab,
-                    hasReceipt: true,
-                    staffId: appointmentsData[0]?.staff?.id,
-                    appointmentId: appointmentsData.map(a => a.id).join(', '),
-                    tipAmount: 0,
-                    ...(appliedDiscountCode && { appliedDiscountCode, discountAmount: totalDiscount }),
-                };
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), serviceTransaction);
-            }
-    
-            retailItems.forEach(item => {
-                const product = inventory.find(p => p.id === item.id);
-                if (!product) return;
-                const price = product.msrp || product.costPerUnit || 0;
-                const retailTotal = item.quantity * price;
-    
-                if (retailTotal > 0) {
-                    const newTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Retail: ${item.quantity}x ${item.name}`,
-                        clientOrVendor: clientToUse!.name,
-                        clientId: clientToUse!.id,
-                        type: 'income',
-                        context: 'Business',
-                        category: 'Retail',
-                        amount: retailTotal,
-                        paymentMethod: paymentTab,
-                        hasReceipt: true,
-                        staffId: appointmentsData[0].staff?.id,
-                        appointmentId: appointmentsData.length > 0 ? appointmentsData[0].id : undefined,
-                    };
-                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
-                }
-            });
-            
-            Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
-                if (tipAmount > 0) {
-                    const tipTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Tip from ${clientToUse!.name}`,
-                        clientOrVendor: clientToUse!.name,
-                        clientId: clientToUse!.id,
-                        type: 'income',
-                        context: 'Business',
-                        category: 'Tips',
-                        amount: tipAmount,
-                        paymentMethod: paymentTab,
-                        hasReceipt: true,
-                        staffId: staffId,
-                        tipAmount: tipAmount,
-                        appointmentId: appointmentsData.map(a => a.id).join(', '),
-                    };
-                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: new Date().toISOString()});
-                }
-            });
-            
-            if (appliedDiscountCode) {
-                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-                batch.update(discountRef, {
-                    usageCount: increment(1),
-                    usedByClientIds: arrayUnion(clientToUse!.id),
-                });
-            }
-    
-            await batch.commit();
-    
-            const appliedAdjustmentItems = (checkoutSummary.adjustments || [])
-                .filter(adj => appliedAdjustments.has(adj.id))
-                .map(adj => ({
-                    description: isGroupCheckout ? `${adj.description} (${adj.clientName})` : adj.description,
-                    cost: adj.cost,
-                }));
-    
-            const allCartItems = [
-                ...appointmentsData.flatMap(d => {
-                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
-                    return [...mainService, ...addOns];
-                }),
-                ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
-            ];
-    
-    
-            const receiptData: ReceiptData = {
-              business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
-              clientName: clientToUse!.name,
-              date: new Date(),
-              items: allCartItems,
-              adjustments: appliedAdjustmentItems,
-              subtotal,
-              discount: totalDiscount,
-              tax,
-              tip: tipAmount,
-              total,
-              payment: {
-                  method: paymentTab,
-                  amountTendered: paymentTab === 'cash' ? amountTendered : total,
-                  changeDue: changeDue > 0 ? changeDue : 0
-              },
-            };
-            setReceiptToPrint(receiptData);
-            setIsReceiptDialogOpen(true);
-            
-            setCart([]);
-            setSelectedAppointmentIds(new Set());
-            setSelectedClientId(null);
-            setTipAmount(0);
-            setAmountTendered(0);
-            setPromoCode('');
-            setDiscount(0);
-            setMembershipDiscount(0);
-            setAppliedDiscountCode(undefined);
-    
-        } catch (e) {
-            console.error("Checkout failed:", e);
-            toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.'});
-        } finally {
-            setIsSubmitting(false);
-        }
-  };
+    const handleConfirmAndClose = async () => {};
         
     const handleStartService = (appointmentId: string) => {
-        const appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
+        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
         if (!appointmentToStart || !firestore || !selectedTenant) return;
         
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
@@ -1209,7 +899,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1259,7 +949,7 @@ export default function POSPage() {
             <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
                         {/* KPI Cards for Desktop */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
@@ -1294,7 +984,7 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length + notifiedQueue.length + inServiceQueue.length}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
