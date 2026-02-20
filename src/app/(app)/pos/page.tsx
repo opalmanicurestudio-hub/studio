@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -14,7 +13,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -313,7 +312,6 @@ export default function POSPage() {
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
     
-    
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
             const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
@@ -329,9 +327,9 @@ export default function POSPage() {
         });
     }, []);
 
-    const handleCartChange = (newCart: any[]) => {
+    const handleCartChange = useCallback((newCart: any[]) => {
         setCart(newCart);
-    };
+    }, []);
 
     const totalDiscount = discount + membershipDiscount;
     
@@ -807,10 +805,10 @@ export default function POSPage() {
     
     const handleConfirmAndClose = async () => {
         setIsSubmitting(true);
-
+    
         const primaryClientForCheckout = appointmentsData.length > 0
             ? appointmentsData[0].client
-            : clients.find(c => c.id === selectedClientId);
+            : clients?.find(c => c.id === selectedClientId);
 
         if (!primaryClientForCheckout) {
             toast({ variant: 'destructive', title: 'Error', description: 'No client selected for checkout.' });
@@ -837,8 +835,6 @@ export default function POSPage() {
             batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
         });
         
-        // ... (rest of the logic for transactions, inventory, etc.)
-
         try {
             await batch.commit();
             onOpenChange(false);
@@ -855,21 +851,22 @@ export default function POSPage() {
       const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
 
       if (!appointmentToStart || !firestore || !selectedTenant) return;
-
+      
       const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
       
       const nowISO = new Date().toISOString();
-      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
-      
-      if (appointmentToStart.staffId) {
-        const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-        updateDocumentNonBlocking(staffRef, { status: 'busy' });
-      }
       
       if (appointmentToStart.isWalkIn) {
         const walkInId = appointmentId.replace('apt-walkin-', '');
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
         updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+      }
+
+      updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+      
+      if (appointmentToStart.staffId) {
+        const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+        updateDocumentNonBlocking(staffRef, { status: 'busy' });
       }
 
       toast({
@@ -968,6 +965,10 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
+    const onOpenChange = (open: boolean) => {
+        // Logic for closing the dialog/sheet
+    };
+
     const checkoutHubProps = {
         cart: retailItems,
         onCartChange: handleCartChange,
@@ -1051,7 +1052,7 @@ export default function POSPage() {
                             <TabsContent value="queue" className="flex-1 mt-6">
                                 <WalkInQueue 
                                     walkIns={walkIns} 
-                                    appointments={inServiceAppointments} 
+                                    appointments={inServiceQueue} 
                                     services={services} 
                                     staff={staff} 
                                     onAssignStaff={handleAssignStaff}
@@ -1204,4 +1205,3 @@ export default function POSPage() {
         </>
     );
 }
-
