@@ -33,6 +33,7 @@ interface WalkInQueueProps {
     onSkip: (walkInId: string) => void;
     onReturnToQueue: (walkInId: string) => void;
     groupSizes: Map<string, number>;
+    onToggleWaitForStaff: (walkInId: string, wait: boolean) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -51,6 +52,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onSkip,
     onReturnToQueue,
     groupSizes,
+    onToggleWaitForStaff,
 }) => {
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -159,7 +161,14 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                      ) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
                 </TabsContent>
             </Tabs>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
+            <AssignStaffDialog
+                open={!!walkInToAssign}
+                onOpenChange={() => setWalkInToAssign(null)}
+                walkIn={walkInToAssign}
+                staff={staff}
+                onAssign={handleAssignConfirm}
+                onToggleWaitForStaff={onToggleWaitForStaff}
+            />
         </>
     );
 };

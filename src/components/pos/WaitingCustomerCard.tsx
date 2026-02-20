@@ -27,6 +27,7 @@ interface WaitingCustomerCardProps {
 export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize }) => {
     const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
     const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
+    const preferredStaff = staffList?.find(s => s.id === walkIn.preferredStaffId);
     
     const isGroup = groupSize > 1;
 
@@ -56,10 +57,11 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn
                             <p className="text-xs text-muted-foreground">{walkIn.estimatedDuration} min total</p>
                         </div>
                     </div>
-                     {walkIn.assignedStaffId && (
+                     {preferredStaff && (
                         <div className="text-xs mt-2 space-y-1">
                             <div className="flex items-center gap-2">
-                                <Badge variant="secondary">Assigned to: {staffList?.find(s => s.id === walkIn.assignedStaffId)?.name || 'N/A'}</Badge>
+                                <Badge variant="outline">Prefers: {preferredStaff.name}</Badge>
+                                {walkIn.waitForPreferredStaff && <Badge variant="secondary">Waiting</Badge>}
                             </div>
                         </div>
                     )}
