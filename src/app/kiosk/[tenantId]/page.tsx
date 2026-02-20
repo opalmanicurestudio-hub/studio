@@ -566,12 +566,13 @@ export default function WalkInPage() {
   const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
   const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
-
+  const clientsQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
+  
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
-
+  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
 
   const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
@@ -703,69 +704,96 @@ export default function WalkInPage() {
 
     setIsSubmitting(true);
     const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
+    const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
     const batch = writeBatch(firestore);
     
     const groupId = nanoid();
     const checkInTime = new Date().toISOString();
     const currentTime = Date.now();
-
-    const walkInsToAdd: (Partial<WalkIn> & { id: string })[] = [];
-
-    partyMembers.forEach((member, index) => {
-        if (member.serviceIds.length === 0) return;
-
-        const memberWalkInId = nanoid();
-        const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
-        const staffMember = staff?.find(st => st.id === member.preferredStaffId);
-        
-        const memberWalkIn: Partial<WalkIn> = {
-            groupId,
-            groupName: isGroup ? `${primaryMember.name}'s Group` : undefined,
-            isPrimaryContact: index === 0,
-            customerName: member.name,
-            customerPhone: member.phone || '',
-            customerEmail: member.email || '',
-            serviceIds: member.serviceIds,
-            requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
-            estimatedDuration: memberServices.reduce((acc, s) => {
-                const tier = pricingTiers?.find(t => t.id === staffMember?.pricingTierId);
-                const tierInfo = s.serviceTiers?.find(t => t.tierId === tier?.id);
-                return acc + (tierInfo?.durationMinutes || s.duration || 0);
-            }, 0),
-            checkInTime,
-            status: 'waiting',
-            waitForPreferredStaff: (member.preferredStaffId && member.preferredStaffId !== 'any') ? member.waitForPreferredStaff : false,
-            queueOrder: currentTime + index,
-        };
-
-        if (member.preferredStaffId && member.preferredStaffId !== 'any') {
-            memberWalkIn.preferredStaffId = member.preferredStaffId;
-        } else {
-            delete memberWalkIn.preferredStaffId;
-        }
-
-        walkInsToAdd.push({ ...memberWalkIn, id: memberWalkInId });
-    });
-
+    
+    const confirmedTickets: WalkInTicketData[] = [];
+    
     try {
         const q = query(walkInsRef, where("status", "==", "waiting"));
         const querySnapshot = await getDocs(q);
         const startingPosition = querySnapshot.size + 1;
-        
-        const confirmedTickets: WalkInTicketData[] = [];
 
-        walkInsToAdd.forEach((walkInData, index) => {
-            const memberWalkInRef = doc(walkInsRef, walkInData.id);
-            batch.set(memberWalkInRef, walkInData);
+        let memberIndex = 0;
+        for (const member of partyMembers) {
+            if (member.serviceIds.length === 0) continue;
+
+            let clientId: string | undefined;
+
+            // Try to find existing client
+            if (member.email) {
+                const existingClientByEmail = clients?.find(c => c.email && c.email.toLowerCase() === member.email!.toLowerCase());
+                if (existingClientByEmail) {
+                    clientId = existingClientByEmail.id;
+                }
+            }
+            if (!clientId && member.phone) {
+                 const existingClientByPhone = clients?.find(c => c.phone && c.phone === member.phone);
+                 if (existingClientByPhone) {
+                    clientId = existingClientByPhone.id;
+                }
+            }
+
+            // If no client, create one
+            if (!clientId) {
+                clientId = nanoid();
+                const newClient: Omit<Client, 'id'> = {
+                    name: member.name,
+                    email: member.email || '',
+                    phone: member.phone || '',
+                    avatarUrl: `https://picsum.photos/seed/${clientId}/100`,
+                    lifetimeValue: 0,
+                    lastAppointment: checkInTime,
+                    status: 'active',
+                    birthday: member.birthday,
+                };
+                const clientDocRef = doc(clientsRef, clientId);
+                batch.set(clientDocRef, { ...newClient, id: clientId });
+            }
+
+            const memberWalkInId = nanoid();
+            const memberServices = services?.filter(s => member.serviceIds.includes(s.id)) || [];
+            const staffMember = staff?.find(st => st.id === member.preferredStaffId);
+            
+            const memberWalkIn: Omit<WalkIn, 'id'> = {
+                groupId,
+                groupName: isGroup ? `${primaryMember.name}'s Group` : undefined,
+                isPrimaryContact: member.isPrimary,
+                clientId: clientId, // Important part
+                customerName: member.name,
+                customerPhone: member.phone || '',
+                customerEmail: member.email || '',
+                customerBirthday: member.birthday,
+                serviceIds: member.serviceIds,
+                requiredSkills: [...new Set(memberServices.flatMap(s => s.requiredSkills || []))],
+                estimatedDuration: memberServices.reduce((acc, s) => {
+                    const tier = pricingTiers?.find(t => t.id === staffMember?.pricingTierId);
+                    const tierInfo = s.serviceTiers?.find(t => t.tierId === tier?.id);
+                    return acc + (tierInfo?.durationMinutes || s.duration || 0);
+                }, 0),
+                checkInTime,
+                status: 'waiting',
+                waitForPreferredStaff: (member.preferredStaffId && member.preferredStaffId !== 'any') ? member.waitForPreferredStaff : false,
+                queueOrder: currentTime + memberIndex,
+                preferredStaffId: (member.preferredStaffId && member.preferredStaffId !== 'any') ? member.preferredStaffId : undefined,
+            };
+
+            const walkInDocRef = doc(walkInsRef, memberWalkInId);
+            batch.set(walkInDocRef, { ...memberWalkIn, id: memberWalkInId });
 
             confirmedTickets.push({
-                id: walkInData.id!,
-                name: walkInData.customerName!,
-                services: services?.filter(s => walkInData.serviceIds!.includes(s.id)) || [],
-                queuePosition: startingPosition + index,
+                id: memberWalkInId,
+                name: memberWalkIn.customerName!,
+                services: services?.filter(s => memberWalkIn.serviceIds!.includes(s.id)) || [],
+                queuePosition: startingPosition + memberIndex,
                 checkInTime: checkInTime,
             });
-        });
+            memberIndex++;
+        }
         
         await batch.commit();
 
@@ -779,7 +807,7 @@ export default function WalkInPage() {
     }
   };
   
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading || clientsLoading;
   if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
   if (!businessIsOpen) return <div>Closed</div>;
 
