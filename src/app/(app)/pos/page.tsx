@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -79,12 +78,9 @@ export default function POSPage() {
     
     const retailItems = cart.filter(item => item.type === 'product');
     
-    const handleCartChange = (newRetailItems: EditableFormulaItem[]) => {
-        setCart(prevCart => {
-            const serviceItems = prevCart.filter(item => item.type === 'service');
-            return [...serviceItems, ...newRetailItems];
-        });
-    };
+    const handleCartChange = useCallback((newCart: any[]) => {
+        setCart(newCart);
+    }, []);
 
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -795,75 +791,75 @@ export default function POSPage() {
     
     
     const handleStartService = (appointmentId: string) => {
-        if (!firestore || !selectedTenant) return;
+      if (!firestore || !selectedTenant) return;
+  
+      const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
+  
+      // This handles regular appointments that are somehow in the POS.
+      if (appointmentToStart) {
+          const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+          updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+          
+          if (appointmentToStart.staffId) {
+              const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+              updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+          }
+          toast({ title: "Service Started!" });
+          return;
+      }
+  
+      // This handles walk-ins that need an appointment document created.
+      if (appointmentId.startsWith('apt-walkin-')) {
+          const walkInId = appointmentId.replace('apt-walkin-', '');
+          const walkIn = (walkIns || []).find(w => w.id === walkInId);
+  
+          if (!walkIn || !walkIn.assignedStaffId || !services) {
+              toast({ title: "Error", description: "Walk-in or required data not found." });
+              return;
+          }
+  
+          const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+          const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+          const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+          
+          const nowISO = new Date().toISOString();
+          const startTime = parseISO(walkIn.notifiedTimestamp || nowISO);
+          
+          const memberServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+          const totalDuration = memberServices.reduce((acc, s) => acc + (s.duration || 0), 0);
+          const endTime = addMinutes(startTime, totalDuration);
 
-        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
+          const appointmentData = {
+            id: appointmentId,
+            tenantId: selectedTenant.id,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            serviceId: walkIn.serviceIds[0],
+            addOnIds: walkIn.serviceIds.slice(1),
+            staffId: walkIn.assignedStaffId,
+            status: 'servicing' as const,
+            actualStartTime: nowISO,
+            source: 'walk-in' as const,
+            isWalkIn: true,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+          };
 
-        // This handles regular appointments that are somehow in the POS.
-        if (appointmentToStart) {
-            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-            
-            if (appointmentToStart.staffId) {
-                const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-                updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-            }
-            toast({ title: "Service Started!" });
-            return;
-        }
+          const batch = writeBatch(firestore);
+          batch.set(appointmentRef, appointmentData);
+          batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+          batch.update(staffRef, { status: 'busy' });
 
-        // This handles walk-ins that need an appointment document created.
-        if (appointmentId.startsWith('apt-walkin-')) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkIn = (walkIns || []).find(w => w.id === walkInId);
-
-            if (!walkIn || !walkIn.assignedStaffId || !services) {
-                toast({ title: "Error", description: "Walk-in or required data not found." });
-                return;
-            }
-
-            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-            
-            const nowISO = new Date().toISOString();
-            const startTime = parseISO(walkIn.notifiedTimestamp || nowISO);
-            
-            const memberServices = services.filter(s => walkIn.serviceIds.includes(s.id));
-            const totalDuration = memberServices.reduce((acc, s) => acc + (s.duration || 0), 0);
-            const endTime = addMinutes(startTime, totalDuration);
-
-            const appointmentData = {
-              id: appointmentId,
-              tenantId: selectedTenant.id,
-              clientId: walkIn.clientId || walkIn.id,
-              clientName: walkIn.customerName,
-              serviceId: walkIn.serviceIds[0],
-              addOnIds: walkIn.serviceIds.slice(1),
-              staffId: walkIn.assignedStaffId,
-              status: 'servicing' as const,
-              actualStartTime: nowISO,
-              source: 'walk-in' as const,
-              isWalkIn: true,
-              startTime: startTime.toISOString(),
-              endTime: endTime.toISOString(),
-            };
-
-            const batch = writeBatch(firestore);
-            batch.set(appointmentRef, appointmentData);
-            batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-            batch.update(staffRef, { status: 'busy' });
-
-            batch.commit().then(() => {
-                toast({
-                    title: "Service Started!",
-                    description: `The service for ${walkIn.customerName} has begun.`
-                });
-            }).catch(err => {
-                console.error("Failed to start service:", err);
-                toast({ variant: 'destructive', title: "Error", description: "Could not start the service." });
-            });
-        }
+          batch.commit().then(() => {
+              toast({
+                  title: "Service Started!",
+                  description: `The service for ${walkIn.customerName} has begun.`
+              });
+          }).catch(err => {
+              console.error("Failed to start service:", err);
+              toast({ variant: 'destructive', title: "Error", description: "Could not start the service." });
+          });
+      }
     };
     
     useEffect(() => {
@@ -957,8 +953,8 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart: retailItems, 
-        onCartChange,
+        cart: retailItems,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1033,7 +1029,7 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{waitingQueue.length + notifiedQueue.length + inServiceQueue.length}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length + notifiedQueue.length + inServiceQueue.length}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
@@ -1191,4 +1187,3 @@ export default function POSPage() {
         </>
     );
 }
-
