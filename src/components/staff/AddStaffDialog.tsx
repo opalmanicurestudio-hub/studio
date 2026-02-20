@@ -279,23 +279,26 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                     </AccordionItem>
                      <AccordionItem value="item-4" className="border rounded-lg">
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><FileText className="w-5 h-5 text-primary"/>Compliance & Licensing</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                                <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
-                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
-                                    <div className="space-y-2">
-                                        <Label>License Expiry</Label>
-                                        <Input
-                                            type="date"
-                                            value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
-                                            onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                                        />
-                                    </div> 
-                                )}/>
-                                <div className="space-y-2 md:col-span-2"><Label>Upload License Document</Label><Controller name="compliance.documentUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
+                        <AccordionContent className="p-4 pt-0 mt-4 space-y-6">
+                            <div>
+                                <h4 className="font-semibold text-sm mb-2">Licensing</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                    <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
+                                    <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
+                                        <div className="space-y-2">
+                                            <Label>License Expiry</Label>
+                                            <Input
+                                                type="date"
+                                                value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                                onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                            />
+                                        </div> 
+                                    )}/>
+                                    <div className="space-y-2 md:col-span-2"><Label>Upload License Document</Label><Controller name="compliance.documentUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
+                                </div>
                             </div>
                             <div className="space-y-2 mt-4">
-                                <Label>Assign Forms</Label>
+                                <h4 className="font-semibold text-sm mb-2">Assigned Forms</h4>
                                 {assignedForms.length > 0 ? (
                                     <div className="space-y-2">
                                         {assignedForms.map(form => (
