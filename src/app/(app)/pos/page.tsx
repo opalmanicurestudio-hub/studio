@@ -362,6 +362,8 @@ export default function POSPage() {
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
 
+    const handleConfirmAndClose = async () => {};
+    
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
         toast({
@@ -640,9 +642,23 @@ export default function POSPage() {
                   return false;
               }
               const allServiceIds = client.serviceIds;
-              const allRequiredSkills = [...new Set(services?.filter(svc => allServiceIds.includes(svc.id)).flatMap(svc => svc.requiredSkills || []))];
-              const staffSkills = s.skillSet || [];
-              return allRequiredSkills.every(skill => staffSkills.includes(skill));
+              // Check if staff can perform ALL requested services
+              return allServiceIds.every(serviceId => {
+                  const service = services?.find(svc => svc.id === serviceId);
+                  if (!service) return false; // Service doesn't exist
+
+                  const requiredSkills = service.requiredSkills || [];
+                  const staffSkills = s.skillSet || [];
+                  
+                  // Condition A: Staff is directly assigned to the service
+                  const isDirectlyAssigned = (s.services || []).includes(serviceId);
+
+                  // Condition B: Staff has all the required skills for the service
+                  const hasAllSkills = requiredSkills.every(skill => staffSkills.includes(skill));
+
+                  // Staff is qualified if they are directly assigned OR have all the necessary skills
+                  return isDirectlyAssigned || hasAllSkills;
+              });
           });
   
           if (staffMember) {
@@ -777,30 +793,77 @@ export default function POSPage() {
 
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
-    const handleConfirmAndClose = async () => {};
-        
+    
     const handleStartService = (appointmentId: string) => {
+        if (!firestore || !selectedTenant) return;
+
         const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-        if (!appointmentToStart || !firestore || !selectedTenant) return;
-        
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
-        
-        if (appointmentToStart.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: new Date().toISOString() });
+
+        // This handles regular appointments that are somehow in the POS.
+        if (appointmentToStart) {
+            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+            
+            if (appointmentToStart.staffId) {
+                const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+                updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+            }
+            toast({ title: "Service Started!" });
+            return;
         }
 
-        if (appointmentToStart.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        // This handles walk-ins that need an appointment document created.
+        if (appointmentId.startsWith('apt-walkin-')) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkIn = (walkIns || []).find(w => w.id === walkInId);
+
+            if (!walkIn || !walkIn.assignedStaffId || !services) {
+                toast({ title: "Error", description: "Walk-in or required data not found." });
+                return;
+            }
+
+            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
+            
+            const nowISO = new Date().toISOString();
+            const startTime = parseISO(walkIn.notifiedTimestamp || nowISO);
+            
+            const memberServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+            const totalDuration = memberServices.reduce((acc, s) => acc + (s.duration || 0), 0);
+            const endTime = addMinutes(startTime, totalDuration);
+
+            const appointmentData = {
+              id: appointmentId,
+              tenantId: selectedTenant.id,
+              clientId: walkIn.clientId || walkIn.id,
+              clientName: walkIn.customerName,
+              serviceId: walkIn.serviceIds[0],
+              addOnIds: walkIn.serviceIds.slice(1),
+              staffId: walkIn.assignedStaffId,
+              status: 'servicing' as const,
+              actualStartTime: nowISO,
+              source: 'walk-in' as const,
+              isWalkIn: true,
+              startTime: startTime.toISOString(),
+              endTime: endTime.toISOString(),
+            };
+
+            const batch = writeBatch(firestore);
+            batch.set(appointmentRef, appointmentData);
+            batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+            batch.update(staffRef, { status: 'busy' });
+
+            batch.commit().then(() => {
+                toast({
+                    title: "Service Started!",
+                    description: `The service for ${walkIn.customerName} has begun.`
+                });
+            }).catch(err => {
+                console.error("Failed to start service:", err);
+                toast({ variant: 'destructive', title: "Error", description: "Could not start the service." });
+            });
         }
-    
-        toast({
-            title: "Service Started!",
-            description: `The service for ${appointmentToStart.clientName} has begun.`
-        });
     };
     
     useEffect(() => {
@@ -848,9 +911,7 @@ export default function POSPage() {
           return () => {
               clearTimeout(timer);
               if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {
-                    console.error("Failed to stop QR Code scanner.", err);
-                });
+                html5QrCode.stop().catch(err => console.error("Failed to stop QR scanner.", err));
               }
           };
         }
@@ -897,7 +958,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems, 
-        handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -931,16 +992,6 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
-
-    const tipAllocations: Record<string, number> = {};
-    const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
-    const allServicesInCart = useMemo(() => {
-        return appointmentsData.flatMap(data => {
-            const main = data.service ? [data.service] : [];
-            const addOns = data.addOnServices;
-            return [...main, ...addOns];
-        });
-      }, [appointmentsData]);
 
     return (
         <>
@@ -982,7 +1033,7 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length + notifiedQueue.length + inServiceQueue.length}</Badge></TabsTrigger>
+                                <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{waitingQueue.length + notifiedQueue.length + inServiceQueue.length}</Badge></TabsTrigger>
                             </TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
@@ -1140,3 +1191,4 @@ export default function POSPage() {
         </>
     );
 }
+
