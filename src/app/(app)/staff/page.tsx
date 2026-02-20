@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -495,13 +494,14 @@ export default function StaffPage() {
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     if (!firestore || !tenantId) return;
 
-    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string, avatarUrl: string, tenantId: string, active: boolean, onBreak: boolean } = {
+    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; tenantId: string; active: boolean; onBreak: boolean; status: 'idle'; } = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
       tenantId: tenantId,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
       active: false,
       onBreak: false,
+      status: 'idle',
     };
     
     const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
@@ -746,3 +746,5 @@ export default function StaffPage() {
     </div>
   );
 }
+
+    
