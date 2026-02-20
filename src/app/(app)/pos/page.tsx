@@ -611,54 +611,52 @@ export default function POSPage() {
         return;
       }
     
+      let availableStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
+      if (assignmentMode === 'fair_play') {
+        availableStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+      } else { // ordered_list
+          const orderedMap = new Map(orderedStaff.map(s => [s.id, s]));
+          availableStaff = availableStaff.filter(s => orderedMap.has(s.id)).sort((a,b) => (orderedMap.get(a.id)?.turnOrder || 0) - (orderedMap.get(b.id)?.turnOrder || 0));
+      }
+  
       const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
+      
       if (waitingClients.length === 0) {
         toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
         return;
       }
-    
-      const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-      if (idleStaff.length === 0) {
+  
+      if (availableStaff.length === 0) {
         toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
         return;
       }
-
-      if (assignmentMode === 'fair_play') {
-        for (const staffMember of idleStaff) {
-          for (const client of waitingClients) {
-            const allServiceIds = client.serviceIds;
-            const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-            const staffSkills = staffMember.skillSet || [];
-            const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
       
-            if (canPerformService) {
+      let assignmentsMade = 0;
+      const assignedStaffIds = new Set<string>();
+  
+      for (const client of waitingClients) {
+          const staffMember = availableStaff.find(s => {
+              if (assignedStaffIds.has(s.id)) {
+                  return false;
+              }
+              const allServiceIds = client.serviceIds;
+              const allRequiredSkills = [...new Set(services?.filter(svc => allServiceIds.includes(svc.id)).flatMap(svc => svc.requiredSkills || []))];
+              const staffSkills = s.skillSet || [];
+              return allRequiredSkills.every(skill => staffSkills.includes(skill));
+          });
+  
+          if (staffMember) {
               handleAssignStaff(client, staffMember.id);
-              return;
-            }
+              assignedStaffIds.add(staffMember.id);
+              assignmentsMade++;
           }
-        }
-      } else { // 'ordered_list'
-        for (const client of waitingClients) {
-          for (const staffMember of orderedStaff) {
-            if (!staffMember.active || staffMember.onBreak || staffMember.status !== 'idle') {
-              continue;
-            }
-      
-            const allServiceIds = client.serviceIds;
-            const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-            const staffSkills = staffMember.skillSet || [];
-            const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-      
-            if (canPerformService) {
-              handleAssignStaff(client, staffMember.id);
-              return;
-            }
-          }
-        }
       }
-    
-      toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for the next client in queue." });
+  
+      if (assignmentsMade === 0) {
+          toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for any waiting client." });
+      }
     };
+    
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
         if (!firestore || !selectedTenant || !services || !staff) return;
@@ -946,7 +944,7 @@ export default function POSPage() {
 
     return (
         <>
-            <div className="h-full w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+            <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
