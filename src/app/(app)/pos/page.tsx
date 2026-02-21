@@ -312,7 +312,7 @@ export default function POSPage() {
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
     
-    const handleCartChange = (newCart: any[]) => {
+    const handleCartChange = (newCart: EditableFormulaItem[]) => {
       setCart(newCart);
     };
     
