@@ -93,6 +93,7 @@ export const CheckoutHub = ({
     
     const [promoCode, setPromoCode] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
+    const { inventory } = useInventory();
 
     useEffect(() => {
         setPromoCode(appliedDiscountCode || '');
@@ -143,6 +144,31 @@ export const CheckoutHub = ({
 
         return Array.from(options).sort((a,b) => a - b).slice(0, 3);
     }, [total]);
+
+    const servicesInCart = useMemo(() => {
+        return appointmentsData.flatMap(data => {
+            const items: { service: Service; appointmentId: string; clientName: string; isAddOn: boolean; }[] = [];
+            if (data.service) {
+                items.push({
+                    service: data.service,
+                    appointmentId: data.id,
+                    clientName: data.client.name,
+                    isAddOn: false
+                });
+            }
+            if (data.addOnServices) {
+                data.addOnServices.forEach(addon => {
+                    items.push({
+                        service: addon,
+                        appointmentId: data.id,
+                        clientName: data.client.name,
+                        isAddOn: true
+                    });
+                });
+            }
+            return items;
+        });
+    }, [appointmentsData]);
 
     return (
         <div className="flex flex-col h-full">
@@ -209,30 +235,21 @@ export const CheckoutHub = ({
                 )}
                 
                 {/* SEPARATOR */}
-                {cart.length > 0 && appointmentsData.length > 0 && <Separator className="my-3" />}
+                {cart.length > 0 && servicesInCart.length > 0 && <Separator className="my-3" />}
 
                 {/* SERVICE ITEMS */}
-                {appointmentsData.length > 0 && (
+                {servicesInCart.length > 0 && (
                      <div className="space-y-3">
-                        {appointmentsData.map(aptData => (
-                             <div key={aptData.id} className="text-sm p-2 rounded-md bg-muted/50">
-                                {isGroupCheckout && (
-                                    <p className="font-semibold text-xs text-muted-foreground flex items-center gap-2 mb-2 pb-2 border-b">
-                                        <Avatar className="w-5 h-5"><AvatarImage src={aptData.client.avatarUrl} /><AvatarFallback>{aptData.client.name.charAt(0)}</AvatarFallback></Avatar>
-                                        {aptData.client.name}
-                                    </p>
-                                )}
+                        {servicesInCart.map((item, index) => (
+                             <div key={`${item.appointmentId}-${item.service.id}-${index}`} className="text-sm">
                                 <div className="flex items-center gap-2">
-                                    <p className="flex-1 font-medium">{aptData.service.name}</p>
-                                    <p className="font-semibold">${(aptData.service.price || 0).toFixed(2)}</p>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(aptData.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                                    <p className={cn("flex-1", item.isAddOn && "pl-4 text-xs text-muted-foreground")}>
+                                        {item.service.name}
+                                        {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({item.clientName})</span>}
+                                    </p>
+                                    <p className="font-semibold">${(item.service.price || 0).toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(item.appointmentId)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
                                 </div>
-                                {aptData.addOnServices.map(addon => (
-                                    <div key={addon.id} className="flex items-center gap-2 pl-4">
-                                        <p className="flex-1 text-xs text-muted-foreground">+ {addon.name}</p>
-                                        <p className="font-semibold text-xs">${(addon.price || 0).toFixed(2)}</p>
-                                    </div>
-                                ))}
                             </div>
                         ))}
                     </div>
@@ -416,4 +433,3 @@ export const CheckoutHub = ({
         </div>
     );
 };
-
