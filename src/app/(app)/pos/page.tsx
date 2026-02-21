@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -14,7 +13,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -313,7 +312,7 @@ export default function POSPage() {
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
     
-    const onCartChange = (newCart: any[]) => {
+    const handleCartChange = (newCart: any[]) => {
       setCart(newCart);
     };
     
@@ -751,8 +750,8 @@ export default function POSPage() {
     };
     
     const handleToggleWaitForStaff = async (walkInId: string, wait: boolean) => {
-        if (!firestore || !tenantId) return;
-        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        if (!firestore || !selectedTenant) return;
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
         await updateDocumentNonBlocking(walkInRef, { waitForPreferredStaff: wait });
         toast({
           title: wait ? "Client will wait" : "Client will not wait",
@@ -1319,7 +1318,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
