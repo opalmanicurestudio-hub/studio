@@ -552,6 +552,26 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
+const ClosedView = ({ nextOpen }: { nextOpen?: { day: string; time: string } }) => (
+    <Card className="w-full max-w-md text-center">
+      <CardHeader>
+        <div className="flex justify-center mb-4 text-muted-foreground">
+          <Clock className="w-12 h-12" />
+        </div>
+        <CardTitle className="text-2xl">We're Currently Closed</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {nextOpen ? (
+          <p className="text-lg text-muted-foreground">
+            We will reopen {nextOpen.day} at <strong>{nextOpen.time}</strong>.
+          </p>
+        ) : (
+          <p className="text-muted-foreground">Please check back later for our hours.</p>
+        )}
+      </CardContent>
+    </Card>
+);
+
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const router = useRouter();
@@ -809,7 +829,13 @@ export default function WalkInPage() {
   
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading || clientsLoading;
   if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
-  if (!businessIsOpen) return <div>Closed</div>;
+  if (!businessIsOpen) {
+      return (
+          <div className="w-full max-w-2xl mx-auto flex items-center justify-center h-screen -mt-24">
+              <ClosedView nextOpen={nextOpen} />
+          </div>
+      )
+  }
 
   const currentMember = partyMembers[currentMemberIndex];
   const primaryService = services?.find(s => s.id === currentMember?.serviceIds[0]);
