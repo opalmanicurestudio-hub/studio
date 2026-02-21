@@ -555,7 +555,7 @@ export default function POSPage() {
         const notified = (walkIns || []).filter(w => w.status === 'notified');
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue, readyForCheckoutQueue: ready };
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -705,7 +705,7 @@ export default function POSPage() {
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
-        if (!firestore || !selectedTenant) return;
+        if (!firestore || !selectedTenant || !appointments) return;
     
         setConfirmation({
             isOpen: true,
@@ -719,8 +719,9 @@ export default function POSPage() {
     
                 batch.update(walkInRef, { status: 'cancelled' });
     
-                if (walkIn && walkIn.assignedStaffId && ['servicing', 'ready_for_checkout'].includes(walkIn.status)) {
-                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                const appointmentId = `apt-walkin-${walkInId}`;
+                const appointment = appointments.find(a => a.id === appointmentId);
+                if (appointment && ['servicing', 'ready_for_checkout', 'confirmed'].includes(appointment.status)) {
                     const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
                     batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
                 }
@@ -830,10 +831,21 @@ export default function POSPage() {
 
             const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
             batch.update(appointmentRef, { status: 'completed' });
-
+            
             if (currentAppointment.staffId) {
-                const staffRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
-                batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
+              const staffRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
+              batch.update(staffRef, { status: 'idle' });
+            }
+
+            if (currentAppointment.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                batch.update(checkInRef, { status: 'completed' });
+            }
+
+            if (currentAppointment.isWalkIn) {
+                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
             }
         }
         
@@ -850,58 +862,26 @@ export default function POSPage() {
     };
     
     const handleStartService = (appointmentId: string) => {
-        if (!appointmentId.startsWith('apt-walkin-')) {
-            const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
-            if (!appointmentToStart || !firestore || !selectedTenant) return;
-            const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-            const nowISO = new Date().toISOString();
-            updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
-            if (appointmentToStart.staffId) {
-                const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-                updateDocumentNonBlocking(staffRef, { status: 'busy' });
-            }
-            toast({ title: "Service Started!", description: `The service for ${appointmentToStart.clientName} has begun.` });
-            return;
+        const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+        if (!appointmentToStart || !firestore || !selectedTenant) return;
+        
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        const nowISO = new Date().toISOString();
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+
+        if (appointmentToStart.staffId) {
+            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+            updateDocumentNonBlocking(staffRef, { status: 'busy' });
+        }
+        
+        if (appointmentToStart.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
         }
 
-        const walkInId = appointmentId.replace('apt-walkin-', '');
-        const walkIn = (walkIns || []).find(w => w.id === walkInId);
-        if (!walkIn || !walkIn.assignedStaffId || !firestore || !selectedTenant || !services) return;
-        
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-        
-        const nowISO = new Date().toISOString();
-        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-        const startTime = walkIn.notifiedTimestamp ? parseISO(walkIn.notifiedTimestamp) : new Date();
-
-        const appointmentData = {
-            id: appointmentId,
-            tenantId: tenantId,
-            clientId: walkIn.clientId || walkIn.id,
-            clientName: walkIn.customerName,
-            clientEmail: walkIn.customerEmail,
-            clientPhone: walkIn.customerPhone,
-            serviceId: walkIn.serviceIds[0],
-            addOnIds: walkIn.serviceIds.slice(1),
-            staffId: walkIn.assignedStaffId,
-            status: 'servicing' as const,
-            source: 'walk-in' as const,
-            isWalkIn: true,
-            startTime: startTime.toISOString(),
-            endTime: addMinutes(startTime, duration).toISOString(),
-            actualStartTime: nowISO,
-        };
-        
-        setDocumentNonBlocking(appointmentRef, appointmentData, { merge: true });
-
-        updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
-
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
-        updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-
-        toast({ title: "Service Started!", description: `The service for ${walkIn.customerName} has begun.` });
+        toast({ title: "Service Started!", description: `The service for ${appointmentToStart.clientName} has begun.` });
+        return;
     };
 
     
@@ -1005,7 +985,6 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1121,7 +1100,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} />
+                        <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
                     </aside>
                 </div>
             </div>
@@ -1141,7 +1120,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} />
+                                <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
                             </div>
                         </SheetContent>
                     </Sheet>
