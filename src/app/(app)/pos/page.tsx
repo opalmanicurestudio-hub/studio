@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -327,7 +328,7 @@ export default function POSPage() {
         });
     }, []);
 
-    const { subtotal, tax, total } = useMemo(() => {
+    const { subtotal, tax, total, totalDiscount, changeDue } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || [])
@@ -343,15 +344,17 @@ export default function POSPage() {
         
         const subtotalValue = servicesTotal + retailTotal;
         const subWithAdjustments = subtotalValue + additionalCharge;
-
-        const totalDiscount = discount + membershipDiscount;
         
-        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
+        const currentTotalDiscount = discount + membershipDiscount;
+
+        const subtotalAfterDiscounts = subWithAdjustments > currentTotalDiscount ? subWithAdjustments - currentTotalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
-        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount]);
+        const finalChangeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - finalGrandTotal : 0;
+        
+        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, totalDiscount: currentTotalDiscount, changeDue: finalChangeDue };
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount, amountTendered, paymentTab]);
     
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -1066,7 +1069,7 @@ export default function POSPage() {
             actualStartTime: nowISO
         });
 
-        // Update staff status to 'busy'
+        // Update staff status
         if (appointmentToStart.staffId) {
             const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
             updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
@@ -1208,8 +1211,13 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
+    const handleCartChange = (newCart: any[]) => {
+      setRetailItems(newCart);
+    };
+
     const checkoutHubProps = {
         cart: retailItems,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1445,4 +1453,3 @@ export default function POSPage() {
     );
 }
 
-    
