@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -13,7 +11,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
