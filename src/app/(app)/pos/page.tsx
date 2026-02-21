@@ -342,7 +342,7 @@ export default function POSPage() {
         });
     }, []);
 
-    const { subtotal, tax, total, totalDiscount, changeDue } = useMemo(() => {
+    const { subtotal, tax, total, changeDue } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || [])
@@ -359,15 +359,15 @@ export default function POSPage() {
         const subtotalValue = servicesTotal + retailTotal;
         const subWithAdjustments = subtotalValue + additionalCharge;
         
-        const currentTotalDiscount = discount + membershipDiscount;
+        const totalDiscount = discount + membershipDiscount;
 
-        const subtotalAfterDiscounts = subWithAdjustments > currentTotalDiscount ? subWithAdjustments - currentTotalDiscount : 0;
+        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         const finalChangeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - finalGrandTotal : 0;
         
-        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, totalDiscount: currentTotalDiscount, changeDue: finalChangeDue };
+        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, changeDue: finalChangeDue };
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount, amountTendered, paymentTab]);
     
     const handleScan = useCallback((data: string) => {
@@ -903,6 +903,8 @@ export default function POSPage() {
     
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
+        let isDiscountApplied = false;
+        const totalDiscount = discount + membershipDiscount;
         
         // 1. Process all appointments being checked out
         for (const data of appointmentsData) {
@@ -921,8 +923,8 @@ export default function POSPage() {
 
             const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `Service: ${currentService.name}`,
-                clientOrVendor: client?.name || 'Unknown Client',
-                clientId: client?.id,
+                clientOrVendor: currentClient?.name || 'Unknown Client',
+                clientId: currentClient?.id,
                 type: 'income',
                 context: 'Business',
                 category: 'Service Revenue',
@@ -930,11 +932,15 @@ export default function POSPage() {
                 paymentMethod: checkoutDetails.paymentMethod,
                 staffId: staff.id,
                 appointmentId: currentAppointment.id,
-                discountAmount: (discount / appointmentsData.length), // Distribute discount
-                appliedDiscountCode: appliedDiscountCode,
             };
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...serviceTransaction, date: nowISO });
 
+            if (!isDiscountApplied && totalDiscount > 0) {
+                serviceTransaction.discountAmount = totalDiscount;
+                serviceTransaction.appliedDiscountCode = appliedDiscountCode;
+                isDiscountApplied = true;
+            }
+
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...serviceTransaction, date: nowISO });
 
             if (currentClient) {
                 const clientRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
@@ -955,13 +961,17 @@ export default function POSPage() {
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
-                amount: retailTotal - discount, // Apply full remaining discount to retail
+                amount: retailTotal,
                 paymentMethod: checkoutDetails.paymentMethod,
                 staffId: appointmentsData[0]?.staff?.id,
                 appointmentId: appointmentsData[0]?.appointment.id,
-                discountAmount: discount,
-                appliedDiscountCode: appliedDiscountCode,
             };
+
+            if (!isDiscountApplied && totalDiscount > 0) {
+                retailTransaction.discountAmount = totalDiscount;
+                retailTransaction.appliedDiscountCode = appliedDiscountCode;
+                isDiscountApplied = true;
+            }
              batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...retailTransaction, date: nowISO });
         }
         retailItems.forEach(item => {
@@ -1181,13 +1191,13 @@ export default function POSPage() {
         }
     }, [isScannerOpen, handleScan, toast]);
     
-    const handleCartChange = (newCart: any[]) => {
+    const handleCartChange = useCallback((newCart: any[]) => {
       const retailItemsFromCart = newCart.filter(item => item.type === 'product');
       setCart(currentCart => {
         const otherItems = currentCart.filter(item => item.type !== 'product');
         return [...otherItems, ...retailItemsFromCart];
       });
-    };
+    }, []);
 
     const handleAddClient = (data: ClientFormData) => {
         if (!firestore || !selectedTenant) return;
@@ -1322,23 +1332,11 @@ export default function POSPage() {
                                     onAssignNext={handleAssignNext}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
-                                    onSendToCheckout={handleSendToCheckout}
+                                    onSendToCheckout={() => {}}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}
-                                    onPrintTicket={(walkInId: string) => {
-                                        const walkIn = walkIns?.find(w => w.id === walkInId);
-                                        if (walkIn) {
-                                            setTicketToPrint({
-                                                id: walkIn.id,
-                                                name: walkIn.customerName,
-                                                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
-                                                queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
-                                                checkInTime: walkIn.checkInTime,
-                                            });
-                                            setIsPrintDialogOpen(true);
-                                        }
-                                    }}
+                                    onPrintTicket={onPrintTicket}
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
