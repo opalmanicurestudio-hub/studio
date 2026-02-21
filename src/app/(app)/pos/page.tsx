@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -549,12 +550,16 @@ export default function POSPage() {
         };
     }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
     
-    const { waitingQueue, notifiedQueue, inServiceQueue } = useMemo(() => {
+    const { waitingQueue, notifiedQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService };
-    }, [walkIns, appointments]);
+        return { waitingQueue: waiting, notifiedQueue: notified };
+    }, [walkIns]);
+
+    const { inServiceQueue } = useMemo(() => {
+      const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+      return { inServiceQueue: inService };
+    }, [appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
     useEffect(() => {
@@ -605,15 +610,9 @@ export default function POSPage() {
             return;
         }
     
-        let availableStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
-        if (assignmentMode === 'fair_play') {
-            availableStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        } else {
-            const orderedMap = new Map(orderedStaff.map(s => [s.id, s]));
-            availableStaff = availableStaff.filter(s => orderedMap.has(s.id)).sort((a, b) => (orderedMap.get(a.id)?.turnOrder || 0) - (orderedMap.get(b.id)?.turnOrder || 0));
-        }
+        const availableStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
+        const waitingClients = [...orderedWaitingQueue.filter(w => w.status === 'waiting')];
     
-        const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
         if (waitingClients.length === 0) {
             toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
             return;
@@ -623,43 +622,80 @@ export default function POSPage() {
             toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
             return;
         }
-    
+
         let assignmentsMade = 0;
         const assignedStaffIds = new Set<string>();
-    
+        const assignedClientIds = new Set<string>();
+
+        // --- First Pass: Assign clients with an available preferred staff member ---
         for (const client of waitingClients) {
-            if (client.waitForPreferredStaff && client.preferredStaffId) {
-                const preferred = availableStaff.find(s => s.id === client.preferredStaffId);
-                if (preferred && !assignedStaffIds.has(preferred.id)) {
-                    handleAssignStaff(client, preferred.id);
-                    assignedStaffIds.add(preferred.id);
+            if (client.preferredStaffId) {
+                // Check if the preferred staff member is in the list of currently available staff
+                const preferredStaff = availableStaff.find(s => s.id === client.preferredStaffId);
+                
+                // If preferred staff is available, assign immediately regardless of waitForPreferredStaff
+                if (preferredStaff) {
+                    handleAssignStaff(client, preferredStaff.id);
+                    assignedStaffIds.add(preferredStaff.id);
+                    assignedClientIds.add(client.id);
                     assignmentsMade++;
-                    continue; 
-                } else {
-                    continue;
                 }
             }
-    
-            const staffMember = availableStaff.find(s => {
-                if (assignedStaffIds.has(s.id)) return false;
-    
+        }
+        
+        // --- Second Pass: Assign remaining clients based on assignment mode ---
+        
+        // Filter out clients who are waiting for a preferred but currently unavailable staff member.
+        let remainingClients = waitingClients
+            .filter(c => !assignedClientIds.has(c.id)) // Get unassigned clients
+            .filter(client => {
+                // If the client has a preferred staff AND is waiting for them...
+                if (client.preferredStaffId && client.waitForPreferredStaff) {
+                    // ...and that staff was not assigned in the first pass (meaning they are not available)...
+                    const preferredStaffIsAvailable = availableStaff.some(s => s.id === client.preferredStaffId);
+                    if (!preferredStaffIsAvailable) {
+                        // ...then this client should NOT be assigned to anyone else. Filter them out.
+                        return false;
+                    }
+                }
+                // Otherwise, the client is eligible for the general assignment pool.
+                return true;
+            });
+            
+        let remainingStaff = availableStaff.filter(s => !assignedStaffIds.has(s.id));
+
+        // Sort remaining available staff based on the selected mode
+        if (assignmentMode === 'fair_play') {
+            remainingStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+        } else { // 'ordered_list'
+            const orderedMap = new Map(orderedStaff.map(s => [s.id, s]));
+            remainingStaff = remainingStaff
+                .filter(s => orderedMap.has(s.id))
+                .sort((a, b) => (orderedMap.get(a.id)?.turnOrder || 0) - (orderedMap.get(b.id)?.turnOrder || 0));
+        }
+        
+        for (const client of remainingClients) {
+            // Find a staff member who is qualified and hasn't been assigned in this run
+            const staffMember = remainingStaff.find(s => {
                 const clientServices = client.serviceIds.map(id => services.find(svc => svc.id === id)).filter((s): s is Service => !!s);
                 return clientServices.every(service => {
+                    const staffSkills = s.skillSet || [];
+                    const requiredSkills = service.requiredSkills || [];
                     const isDirectlyAssigned = (s.services || []).includes(service.id);
-                    const hasAllSkills = (service.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill));
-                    return isDirectlyAssigned || hasAllSkills;
+                    return isDirectlyAssigned || requiredSkills.every(skill => staffSkills.includes(skill));
                 });
             });
-    
+
             if (staffMember) {
                 handleAssignStaff(client, staffMember.id);
-                assignedStaffIds.add(staffMember.id);
+                // Remove the assigned staff from the pool for this run
+                remainingStaff = remainingStaff.filter(s => s.id !== staffMember.id);
                 assignmentsMade++;
             }
         }
     
-        if (assignmentsMade === 0 && waitingClients.some(c => !c.waitForPreferredStaff)) {
-            toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available staff member with the required skills for any waiting client." });
+        if (assignmentsMade === 0) {
+            toast({ variant: 'destructive', title: 'No Suitable Match', description: "Couldn't find an available and qualified staff member for any waiting client." });
         }
     };
     
@@ -703,37 +739,52 @@ export default function POSPage() {
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
-        if (!firestore || !selectedTenant) return;
+      if (!firestore || !selectedTenant || !walkIns) return;
     
-        const walkIn = walkIns?.find(a => a.id === walkInId);
-        if (!walkIn) return;
-        
-        const appointmentId = `apt-walkin-${walkIn.id}`;
-        const appointment = appointments?.find(a => a.id === appointmentId);
-        
-        setConfirmation({
-            isOpen: true,
-            title: 'Are you sure?',
-            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder on the planner will also be cancelled. This action cannot be undone.',
-            onConfirm: async () => {
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { status: 'cancelled' });
+      const walkIn = walkIns.find((a) => a.id === walkInId);
+      if (!walkIn) return;
     
-                if (appointment) {
-                    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
-                }
+      const appointmentId = `apt-walkin-${walkIn.id}`;
+      const appointment = appointments?.find((a) => a.id === appointmentId);
     
-                await batch.commit();
+      setConfirmation({
+        isOpen: true,
+        title: "Are you sure?",
+        description:
+          "This will remove the client from the queue. This action cannot be undone.",
+        onConfirm: async () => {
+          const walkInRef = doc(
+            firestore,
+            "tenants",
+            selectedTenant.id,
+            "walkIns",
+            walkInId
+          );
+          const batch = writeBatch(firestore);
+          batch.update(walkInRef, { status: "cancelled" });
     
-                toast({
-                    title: "Walk-in Cancelled",
-                    description: "The client has been removed from the queue."
-                });
-                setConfirmation(null);
+          if (appointment) {
+            const appointmentRef = doc(
+              firestore,
+              "tenants",
+              selectedTenant.id,
+              "appointments",
+              appointmentId
+            );
+            if ((await firestore.getDoc(appointmentRef)).exists()) {
+                batch.update(appointmentRef, { status: "cancelled" });
             }
-        });
+          }
+    
+          await batch.commit();
+    
+          toast({
+            title: "Walk-in Cancelled",
+            description: "The client has been removed from the queue.",
+          });
+          setConfirmation(null);
+        },
+      });
     };
     
     const handleSkipWalkIn = async (walkInId: string) => {
@@ -861,7 +912,7 @@ export default function POSPage() {
     };
     
     const handleStartService = (appointmentId: string) => {
-        const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
         if (!appointmentToStart || !firestore || !selectedTenant) return;
         
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
@@ -984,7 +1035,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1091,7 +1142,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
