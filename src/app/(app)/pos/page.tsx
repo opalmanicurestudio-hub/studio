@@ -130,6 +130,8 @@ export default function POSPage() {
         setAppliedDiscountCode(undefined);
         setRedeemedOffer(null);
         setAppliedAdjustments(new Set());
+        setIsReceiptDialogOpen(false);
+        setReceiptToPrint(null);
     }, []);
 
     const appointments = useMemo(() => {
@@ -924,11 +926,14 @@ export default function POSPage() {
         const batch = writeBatch(firestore);
         const nowISO = new Date().toISOString();
         let isDiscountApplied = false;
+        
         const totalDiscount = discount + membershipDiscount;
         
         // 1. Process all appointments being checked out
         for (const data of appointmentsData) {
-            const { appointment: currentAppointment, client: currentClient, service: currentService, staff } = data;
+            const { client: currentClient, service: currentService, staff } = data;
+            const currentAppointment = data;
+
             if (!currentAppointment || !currentService || !staff) continue;
     
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
@@ -984,7 +989,7 @@ export default function POSPage() {
                 amount: retailTotal,
                 paymentMethod: checkoutDetails.paymentMethod,
                 staffId: appointmentsData[0]?.staff?.id,
-                appointmentId: appointmentsData[0]?.appointment.id,
+                appointmentId: appointmentsData[0]?.id,
             };
 
             if (!isDiscountApplied && totalDiscount > 0) {
@@ -1012,7 +1017,7 @@ export default function POSPage() {
                 paymentMethod: checkoutDetails.paymentMethod,
                 staffId: appointmentsData[0]?.staff?.id, // Simple allocation
                 tipAmount,
-                appointmentId: appointmentsData[0]?.appointment.id,
+                appointmentId: appointmentsData[0]?.id,
             };
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...tipTransaction, date: nowISO});
         }
@@ -1029,7 +1034,7 @@ export default function POSPage() {
             const allCartItems = [
                 ...appointmentsData.flatMap(d => {
                     const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-                    const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                    const addOns = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price }));
                     return [...mainService, ...addOns];
                 }),
                 ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1055,9 +1060,6 @@ export default function POSPage() {
             };
             setReceiptToPrint(receiptData);
             setIsReceiptDialogOpen(true);
-
-            resetCheckoutState();
-            
         } catch (error) {
             console.error("Checkout failed:", error);
             toast({ variant: "destructive", title: "Checkout Failed", description: "There was an issue saving the transaction." });
@@ -1447,7 +1449,7 @@ export default function POSPage() {
                         {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
                     </div>
                     <DialogFooter className="print:hidden">
-                        <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>Close</Button>
+                        <Button variant="outline" onClick={() => { setIsReceiptDialogOpen(false); resetCheckoutState(); }}>Close</Button>
                         <Button onClick={() => window.print()}>
                             <Printer className="mr-2 h-4 w-4" />
                             Print
