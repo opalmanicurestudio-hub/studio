@@ -306,7 +306,42 @@ export default function POSPage() {
             .filter(adj => !appliedAdjustments.has(adj.id))
             .reduce((sum, adj) => sum + adj.cost, 0);
     }, [appliedAdjustments, checkoutSummary.adjustments]);
+    
+    const handleCartChange = useCallback((newCart: any[]) => {
+        setCart(currentCart => {
+            const otherItems = currentCart.filter(item => item.type !== 'product');
+            return [...otherItems, ...newCart];
+        });
+    }, []);
 
+    const { subtotal, tax, total, changeDue } = useMemo(() => {
+        const servicesTotal = appointmentsData.reduce((total, data) => {
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || [])
+                .reduce((a, b) => a + (b.price || 0), 0);
+            return total + servicePrice + addOnsPrice;
+        }, 0);
+
+        const retailTotal = retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            const price = product?.msrp || 0;
+            return acc + (item.quantity * price);
+        }, 0);
+        
+        const subtotalValue = servicesTotal + retailTotal;
+        const subWithAdjustments = subtotalValue + additionalCharge;
+        
+        const totalDiscountValue = discount + membershipDiscount;
+
+        const subtotalAfterDiscounts = subWithAdjustments > totalDiscountValue ? subWithAdjustments - totalDiscountValue : 0;
+        const finalTax = subtotalAfterDiscounts * 0.07;
+        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
+        
+        const finalChangeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - finalGrandTotal : 0;
+        
+        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, changeDue: finalChangeDue };
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount, amountTendered, paymentTab]);
+    
     const isGroupCheckout = appointmentsData.length > 1;
 
     useEffect(() => {
@@ -342,34 +377,6 @@ export default function POSPage() {
         });
     }, []);
 
-    const { subtotal, tax, total, changeDue } = useMemo(() => {
-        const servicesTotal = appointmentsData.reduce((total, data) => {
-            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || [])
-                .reduce((a, b) => a + (b.price || 0), 0);
-            return total + servicePrice + addOnsPrice;
-        }, 0);
-
-        const retailTotal = retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            const price = product?.msrp || 0;
-            return acc + (item.quantity * price);
-        }, 0);
-        
-        const subtotalValue = servicesTotal + retailTotal;
-        const subWithAdjustments = subtotalValue + additionalCharge;
-        
-        const totalDiscount = discount + membershipDiscount;
-
-        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
-        const finalTax = subtotalAfterDiscounts * 0.07;
-        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
-        
-        const finalChangeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - finalGrandTotal : 0;
-        
-        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, changeDue: finalChangeDue };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount, amountTendered, paymentTab]);
-    
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
         toast({
@@ -708,6 +715,19 @@ export default function POSPage() {
         }
     };
     
+    const onPrintTicket = (walkInId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        if (walkIn) {
+            setTicketToPrint({
+                id: walkIn.id,
+                name: walkIn.customerName,
+                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
+                queuePosition: orderedWaitingQueue.findIndex(w => w.id === walkInId) + 1,
+                checkInTime: walkIn.checkInTime,
+            });
+            setIsPrintDialogOpen(true);
+        }
+    };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
         if (!firestore || !selectedTenant || !services || !staff) return;
@@ -1036,7 +1056,7 @@ export default function POSPage() {
             setReceiptToPrint(receiptData);
             setIsReceiptDialogOpen(true);
 
-            // State will be reset when dialog closes
+            resetCheckoutState();
             
         } catch (error) {
             console.error("Checkout failed:", error);
@@ -1191,14 +1211,6 @@ export default function POSPage() {
         }
     }, [isScannerOpen, handleScan, toast]);
     
-    const handleCartChange = useCallback((newCart: any[]) => {
-      const retailItemsFromCart = newCart.filter(item => item.type === 'product');
-      setCart(currentCart => {
-        const otherItems = currentCart.filter(item => item.type !== 'product');
-        return [...otherItems, ...retailItemsFromCart];
-      });
-    }, []);
-
     const handleAddClient = (data: ClientFormData) => {
         if (!firestore || !selectedTenant) return;
     
