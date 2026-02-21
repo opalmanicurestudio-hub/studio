@@ -721,6 +721,30 @@ export default function POSPage() {
 
         batch.update(walkInRef, updateData);
         
+        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        
+        const now = new Date();
+
+        const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string, isPlaceholder: boolean } = {
+            id: appointmentId,
+            tenantId: selectedTenant.id,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            serviceId: walkIn.serviceIds[0],
+            staffId: staffId,
+            status: 'confirmed',
+            source: 'walk-in',
+            isWalkIn: true,
+            isPlaceholder: true, // This is a key addition
+            startTime: now.toISOString(),
+            endTime: addMinutes(now, duration).toISOString(),
+        };
+        batch.set(appointmentRef, appointmentData);
+
         batch.commit();
         
         const staffMember = staff.find(s => s.id === staffId);
@@ -911,42 +935,98 @@ export default function POSPage() {
     };
     
     const handleStartService = (appointmentId: string) => {
-        const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
-        if (!appointmentToStart || !firestore || !selectedTenant) return;
+        if (!firestore || !selectedTenant || !walkIns) return;
+
+        let appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
         
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        // If appointment not found in state (due to listener delay), construct it from walk-in data
+        if (!appointmentToStart) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkIn = walkIns.find(w => w.id === walkInId);
+
+            if (walkIn) {
+                appointmentToStart = {
+                    id: appointmentId,
+                    clientId: walkIn.clientId || walkIn.id,
+                    clientName: walkIn.customerName,
+                    serviceId: walkIn.serviceIds[0],
+                    staffId: walkIn.assignedStaffId,
+                    isWalkIn: true,
+                    // These are just for the toast, the actual appointment doc will be updated
+                    startTime: new Date(), 
+                    endTime: new Date(),
+                    status: 'confirmed',
+                    source: 'walk-in',
+                    tenantId: selectedTenant.id,
+                };
+            }
+        }
+
+        if (!appointmentToStart) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Could not find appointment to start. Please try again in a moment.',
+            });
+            return;
+        }
+
         const nowISO = new Date().toISOString();
-        
-        let updateData: Partial<Appointment> = { status: 'servicing', actualStartTime: nowISO };
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
 
-        // For placeholder walk-in appointments, we must set the startTime/endTime as well
-        if ((appointmentToStart as any).isPlaceholder) {
-            const service = services?.find(s => s.id === appointmentToStart.serviceId);
-            const duration = service?.duration || 60;
-            updateData.startTime = new Date().toISOString();
-            updateData.endTime = addMinutes(new Date(), duration).toISOString();
-            
-            // Remove the placeholder flag
-            const { isPlaceholder, ...restOfAppointment } = appointmentToStart as any;
-            updateData = { ...restOfAppointment, ...updateData };
-        }
+        // Update appointment status to 'servicing' and set actual start time
+        updateDocumentNonBlocking(appointmentRef, {
+            status: 'servicing',
+            actualStartTime: nowISO
+        });
 
-        updateDocumentNonBlocking(appointmentRef, updateData);
-
+        // Update staff status to 'busy'
         if (appointmentToStart.staffId) {
-            const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-            updateDocumentNonBlocking(staffRef, { status: 'busy' });
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
         }
-        
+
+        // Update walk-in status
         if (appointmentToStart.isWalkIn) {
             const walkInId = appointmentId.replace('apt-walkin-', '');
             const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+            updateDocumentNonBlocking(walkInRef, {
+                status: 'servicing',
+                serviceStartTime: nowISO,
+            });
         }
-
-        toast({ title: "Service Started!", description: `The service for ${appointmentToStart.clientName} has begun.` });
+        
+        toast({
+            title: "Service Started!",
+            description: `The service for ${appointmentToStart.clientName} has begun.`
+        });
     };
 
+    const handleSendToCheckout = (appointment: Appointment) => {
+        if (!firestore || !selectedTenant) return;
+
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
+        updateDocumentNonBlocking(appointmentRef, {
+            status: 'ready_for_checkout',
+            actualEndTime: new Date().toISOString()
+        });
+
+        if (appointment.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointment.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'idle' });
+        }
+
+        if (appointment.isWalkIn) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+            updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout' });
+        }
+
+        toast({
+            title: 'Ready for Checkout',
+            description: `${appointment.clientName} has been sent to the checkout queue.`
+        });
+    };
     
     useEffect(() => {
         if (scannedData) {
@@ -1136,6 +1216,7 @@ export default function POSPage() {
                                     onAssignNext={handleAssignNext}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
+                                    onSendToCheckout={handleSendToCheckout}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}

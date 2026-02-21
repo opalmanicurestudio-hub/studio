@@ -26,6 +26,7 @@ interface WalkInQueueProps {
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
     onStartService: (appointmentId: string) => void;
+    onSendToCheckout: (appointment: Appointment) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
@@ -45,6 +46,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onAssignNext,
     onCancel,
     onStartService,
+    onSendToCheckout,
     orderedWaitingQueue,
     onReorder,
     assignmentMode,
@@ -81,10 +83,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         if (!item) return;
         const newOrder = [item, ...orderedWaitingQueue.filter(w => w.id !== walkInId)];
         onReorder(newOrder);
-    };
-
-    const handleSendToCheckout = (appointment: Appointment) => {
-        // This logic now lives in the parent POSPage component
     };
 
     return (
@@ -152,7 +150,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             <div className="flex space-x-4 pb-4">
                                 {inServiceQueue.map(appointment => (
                                     <div key={appointment.id} className="w-72 shrink-0">
-                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => {}} />
+                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => onSendToCheckout(appointment)} />
                                     </div>
                                 ))}
                             </div>
