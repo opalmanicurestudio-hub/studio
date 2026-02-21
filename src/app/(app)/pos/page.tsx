@@ -327,12 +327,6 @@ export default function POSPage() {
         });
     }, []);
 
-    const handleCartChange = (newCart: EditableFormulaItem[]) => {
-      setCart(newCart);
-    };
-
-    const totalDiscount = discount + membershipDiscount;
-    
     const { subtotal, tax, total } = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
@@ -355,7 +349,7 @@ export default function POSPage() {
         const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
         
         return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, totalDiscount, tipAmount]);
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount]);
     
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -984,7 +978,11 @@ export default function POSPage() {
         // Finalize
         try {
             await batch.commit();
-            const receiptData = {
+            const receiptData: ReceiptData = {
+                business: {
+                    name: selectedTenant?.name || "ClarityFlow",
+                    phone: selectedTenant?.twilioPhoneNumber || "No phone number available"
+                },
                 clientName: payerClient.name,
                 date: new Date(),
                 items: [
@@ -1210,7 +1208,6 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1276,7 +1273,7 @@ export default function POSPage() {
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChangeWithConfirmation} 
                             appointments={appointments} 
-                            services={services || []} 
+                            services={services} 
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
@@ -1318,7 +1315,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -1445,5 +1442,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
