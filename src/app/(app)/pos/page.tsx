@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -994,7 +993,7 @@ export default function POSPage() {
                 ],
                 subtotal,
                 discount: totalDiscount,
-                tax: mockTax,
+                tax: tax,
                 tip: tipAmount,
                 total: total,
                 payment: { method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.amountTendered || 0, changeDue: Math.max(0, (checkoutDetails.amountTendered || 0) - total) }
@@ -1211,7 +1210,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1319,7 +1318,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -1446,3 +1445,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
