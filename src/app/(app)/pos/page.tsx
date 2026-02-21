@@ -549,12 +549,11 @@ export default function POSPage() {
         };
     }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
     
-    const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
+    const { waitingQueue, notifiedQueue, inServiceQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
-        const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService };
     }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -704,21 +703,23 @@ export default function POSPage() {
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
-        if (!firestore || !selectedTenant || !appointments) return;
+        if (!firestore || !selectedTenant) return;
     
+        const walkIn = walkIns?.find(a => a.id === walkInId);
+        if (!walkIn) return;
+        
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        const appointment = appointments?.find(a => a.id === appointmentId);
+        
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
             description: 'This will remove the client from the queue. If they have already been assigned, their placeholder on the planner will also be cancelled. This action cannot be undone.',
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                
                 const batch = writeBatch(firestore);
-                
                 batch.update(walkInRef, { status: 'cancelled' });
     
-                const appointmentId = `apt-walkin-${walkInId}`;
-                const appointment = appointments.find(a => a.id === appointmentId);
                 if (appointment) {
                     const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
                     batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
@@ -983,7 +984,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
