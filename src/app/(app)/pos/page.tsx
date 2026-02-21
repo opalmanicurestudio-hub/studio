@@ -13,8 +13,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -313,6 +313,10 @@ export default function POSPage() {
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
     
+    const onCartChange = (newCart: any[]) => {
+      setCart(newCart);
+    };
+    
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
             const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
@@ -328,10 +332,6 @@ export default function POSPage() {
         });
     }, []);
 
-    const handleCartChange = (newCart: any[]) => {
-        setCart(newCart);
-    };
-    
     const totalDiscount = discount + membershipDiscount;
     
     const { subtotal, tax, total } = useMemo(() => {
@@ -926,7 +926,7 @@ export default function POSPage() {
 
 
             if (currentClient) {
-                const clientRef = doc(firestore, 'tenants', tenantId, 'clients', currentClient.id);
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, currentClient.id);
                 batch.update(clientRef, {
                     lifetimeValue: increment(servicesTotal),
                     lastAppointment: nowISO
