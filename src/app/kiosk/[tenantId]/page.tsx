@@ -788,7 +788,8 @@ export default function WalkInPage() {
                     birthday: member.birthday,
                 };
                 const clientDocRef = doc(clientsRef, clientId);
-                batch.set(clientDocRef, { ...newClient, id: clientId });
+                const sanitizedClientData = JSON.parse(JSON.stringify({ ...newClient, id: clientId }));
+                batch.set(clientDocRef, sanitizedClientData);
             }
 
             const memberWalkInId = nanoid();
@@ -819,7 +820,8 @@ export default function WalkInPage() {
             };
 
             const walkInDocRef = doc(walkInsRef, memberWalkInId);
-            batch.set(walkInDocRef, { ...memberWalkIn, id: memberWalkInId });
+            const sanitizedWalkIn = JSON.parse(JSON.stringify({ ...memberWalkIn, id: memberWalkInId }));
+            batch.set(walkInDocRef, sanitizedWalkIn);
 
             confirmedTickets.push({
                 id: memberWalkInId,
