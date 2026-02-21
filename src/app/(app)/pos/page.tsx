@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -548,17 +549,13 @@ export default function POSPage() {
         };
     }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
     
-    const { waitingQueue, notifiedQueue } = useMemo(() => {
+    const { waitingQueue, notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        return { waitingQueue: waiting, notifiedQueue: notified };
-    }, [walkIns]);
-
-    const { inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { inServiceQueue: inService, readyForCheckoutQueue: ready };
-    }, [appointments, walkIns]);
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+    }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
     useEffect(() => {
@@ -897,10 +894,10 @@ export default function POSPage() {
         
         // 1. Process all appointments being checked out
         for (const data of appointmentsData) {
-            const { appointment, service, addOnServices, staff } = data;
-            if (!appointment || !service || !staff) continue;
+            const { appointment: currentAppointment, client: currentClient, service: currentService, staff } = data;
+            if (!currentAppointment || !currentService || !staff) continue;
     
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO });
     
             batch.update(doc(firestore, 'tenants', tenantId, 'staff', staff.id), {
@@ -908,10 +905,10 @@ export default function POSPage() {
                 lastServedTimestamp: nowISO,
             });
             
-            const servicesTotal = [service, ...addOnServices].reduce((acc, s) => acc + s.price, 0);
+            const servicesTotal = [currentService, ...data.addOnServices].reduce((acc, s) => acc + s.price, 0);
 
             const serviceTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Service: ${service.name}`,
+                description: `Service: ${currentService.name}`,
                 clientOrVendor: client?.name || 'Unknown Client',
                 clientId: client?.id,
                 type: 'income',
@@ -920,18 +917,20 @@ export default function POSPage() {
                 amount: servicesTotal,
                 paymentMethod: checkoutDetails.paymentMethod,
                 staffId: staff.id,
-                appointmentId: appointment.id,
+                appointmentId: currentAppointment.id,
                 discountAmount: (discount / appointmentsData.length), // Distribute discount
                 appliedDiscountCode: appliedDiscountCode,
             };
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...serviceTransaction, date: nowISO });
 
 
-            const clientRef = doc(firestore, 'tenants', tenantId, 'clients', appointment.clientId);
-            batch.update(clientRef, {
-                lifetimeValue: increment(servicesTotal),
-                lastAppointment: nowISO
-            });
+            if (currentClient) {
+                const clientRef = doc(firestore, 'tenants', tenantId, 'clients', currentClient.id);
+                batch.update(clientRef, {
+                    lifetimeValue: increment(servicesTotal),
+                    lastAppointment: nowISO
+                });
+            }
         }
         
         // 2. Process retail items
@@ -1442,3 +1441,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
