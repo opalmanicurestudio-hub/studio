@@ -145,31 +145,6 @@ export const CheckoutHub = ({
         return Array.from(options).sort((a,b) => a - b).slice(0, 3);
     }, [total]);
 
-    const servicesInCart = useMemo(() => {
-        return appointmentsData.flatMap(data => {
-            const items: { service: Service; appointmentId: string; clientName: string; isAddOn: boolean; }[] = [];
-            if (data.service) {
-                items.push({
-                    service: data.service,
-                    appointmentId: data.id,
-                    clientName: data.client.name,
-                    isAddOn: false
-                });
-            }
-            if (data.addOnServices) {
-                data.addOnServices.forEach(addon => {
-                    items.push({
-                        service: addon,
-                        appointmentId: data.id,
-                        clientName: data.client.name,
-                        isAddOn: true
-                    });
-                });
-            }
-            return items;
-        });
-    }, [appointmentsData]);
-
     return (
         <div className="flex flex-col h-full">
             {showTitle && (
@@ -221,7 +196,35 @@ export const CheckoutHub = ({
             <Separator />
 
             <ScrollArea className="flex-1 my-4 pr-2 -mr-2">
-                 {/* RETAIL ITEMS */}
+                {/* APPOINTMENT ITEMS */}
+                {appointmentsData.length > 0 && (
+                    <div className="space-y-3">
+                        {appointmentsData.map(data => (
+                            <div key={data.id} className="text-sm">
+                                <div className="flex items-center gap-2">
+                                     <p className="flex-1">
+                                        {data.service.name}
+                                        {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({data.client.name})</span>}
+                                    </p>
+                                    <p className="font-semibold">${(data.service.price || 0).toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                                </div>
+                                {data.addOnServices.map(addon => (
+                                     <div key={addon.id} className="flex items-center gap-2 pl-4">
+                                        <p className="flex-1 text-xs text-muted-foreground">+ {addon.name}</p>
+                                        <p className="font-semibold text-xs text-muted-foreground">${(addon.price || 0).toFixed(2)}</p>
+                                        <div className="w-6" />
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* SEPARATOR */}
+                {cart.length > 0 && appointmentsData.length > 0 && <Separator className="my-3" />}
+
+                {/* RETAIL ITEMS */}
                 {cart.length > 0 && (
                     <div className="space-y-3">
                         {cart.map(item => (
@@ -229,27 +232,6 @@ export const CheckoutHub = ({
                                 <p className="flex-1 text-sm">{item.quantity}x {item.name}</p>
                                 <p className="font-semibold text-sm">${(item.price * item.quantity).toFixed(2)}</p>
                                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                
-                {/* SEPARATOR */}
-                {cart.length > 0 && servicesInCart.length > 0 && <Separator className="my-3" />}
-
-                {/* SERVICE ITEMS */}
-                {servicesInCart.length > 0 && (
-                     <div className="space-y-3">
-                        {servicesInCart.map((item, index) => (
-                             <div key={`${item.appointmentId}-${item.service.id}-${index}`} className="text-sm">
-                                <div className="flex items-center gap-2">
-                                    <p className={cn("flex-1", item.isAddOn && "pl-4 text-xs text-muted-foreground")}>
-                                        {item.service.name}
-                                        {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({item.clientName})</span>}
-                                    </p>
-                                    <p className="font-semibold">${(item.service.price || 0).toFixed(2)}</p>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(item.appointmentId)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                                </div>
                             </div>
                         ))}
                     </div>
@@ -344,14 +326,17 @@ export const CheckoutHub = ({
                             <Card className="text-center">
                                 <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-muted-foreground">Amount Tendered</CardTitle></CardHeader>
                                 <CardContent className="p-2">
-                                     <Input
-                                        id="amount-tendered"
-                                        type="number"
-                                        placeholder="$0.00"
-                                        value={amountTendered || ''}
-                                        onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
-                                        className="text-3xl font-bold h-auto border-none shadow-none focus-visible:ring-0 text-center bg-transparent p-0"
-                                    />
+                                    <div className="flex justify-center items-baseline gap-1">
+                                        <span className="text-2xl font-bold text-muted-foreground">$</span>
+                                        <Input
+                                            id="amount-tendered"
+                                            type="number"
+                                            placeholder="0.00"
+                                            value={amountTendered || ''}
+                                            onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
+                                            className="w-auto text-3xl font-bold h-auto border-none shadow-none focus-visible:ring-0 bg-transparent p-0"
+                                        />
+                                    </div>
                                 </CardContent>
                             </Card>
                             <AnimatePresence>
