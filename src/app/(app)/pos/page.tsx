@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -555,10 +556,11 @@ export default function POSPage() {
         return { waitingQueue: waiting, notifiedQueue: notified };
     }, [walkIns]);
 
-    const { inServiceQueue } = useMemo(() => {
+    const { inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
-        return { inServiceQueue: inService };
-    }, [appointments]);
+        const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
+        return { inServiceQueue: inService, readyForCheckoutQueue: ready };
+    }, [appointments, walkIns]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
     useEffect(() => {
@@ -597,6 +599,7 @@ export default function POSPage() {
         });
         batch.commit().catch(err => {
             console.error("Failed to save staff order:", err);
+            // Revert on failure
             const sorted = [...(staff || [])].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
             setOrderedStaff(sorted);
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
@@ -913,7 +916,22 @@ export default function POSPage() {
         
         const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
         const nowISO = new Date().toISOString();
-        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+        
+        let updateData: Partial<Appointment> = { status: 'servicing', actualStartTime: nowISO };
+
+        // For placeholder walk-in appointments, we must set the startTime/endTime as well
+        if ((appointmentToStart as any).isPlaceholder) {
+            const service = services?.find(s => s.id === appointmentToStart.serviceId);
+            const duration = service?.duration || 60;
+            updateData.startTime = new Date().toISOString();
+            updateData.endTime = addMinutes(new Date(), duration).toISOString();
+            
+            // Remove the placeholder flag
+            const { isPlaceholder, ...restOfAppointment } = appointmentToStart as any;
+            updateData = { ...restOfAppointment, ...updateData };
+        }
+
+        updateDocumentNonBlocking(appointmentRef, updateData);
 
         if (appointmentToStart.staffId) {
             const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
@@ -927,7 +945,6 @@ export default function POSPage() {
         }
 
         toast({ title: "Service Started!", description: `The service for ${appointmentToStart.clientName} has begun.` });
-        return;
     };
 
     
@@ -1031,7 +1048,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        handleCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1265,5 +1282,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
