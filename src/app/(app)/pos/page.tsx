@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -312,10 +313,6 @@ export default function POSPage() {
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
     
-    const handleCartChange = (newCart: EditableFormulaItem[]) => {
-      setCart(newCart);
-    };
-    
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
         setCart(prevCart => {
             const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
@@ -330,6 +327,10 @@ export default function POSPage() {
             return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
         });
     }, []);
+
+    const handleCartChange = (newCart: EditableFormulaItem[]) => {
+      setCart(newCart);
+    };
 
     const totalDiscount = discount + membershipDiscount;
     
@@ -1318,7 +1319,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
