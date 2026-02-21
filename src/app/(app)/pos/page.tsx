@@ -116,7 +116,22 @@ export default function POSPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
-    
+    const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+
+    const resetCheckoutState = useCallback(() => {
+        setCart([]);
+        setSelectedAppointmentIds(new Set());
+        setSelectedClientId(null);
+        setTipAmount(0);
+        setAmountTendered(0);
+        setPromoCode('');
+        setDiscount(0);
+        setMembershipDiscount(0);
+        setAppliedDiscountCode(undefined);
+        setRedeemedOffer(null);
+        setAppliedAdjustments(new Set());
+    }, []);
+
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
         return appointmentsFromDB.map(apt => ({
@@ -259,7 +274,6 @@ export default function POSPage() {
     
       }, [appointmentsData, services, inventory, selectedTenant?.tmhr]);
 
-    const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     
     useEffect(() => {
         if (checkoutSummary.adjustments) {
@@ -982,6 +996,14 @@ export default function POSPage() {
         // Finalize
         try {
             await batch.commit();
+            const allCartItems = [
+                ...appointmentsData.flatMap(d => {
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                    const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+                    return [...mainService, ...addOns];
+                }),
+                ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
+            ];
             const receiptData: ReceiptData = {
                 business: {
                     name: selectedTenant?.name || "ClarityFlow",
@@ -989,30 +1011,22 @@ export default function POSPage() {
                 },
                 clientName: payerClient.name,
                 date: new Date(),
-                items: [
-                    ...appointmentsData.flatMap(d => [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }]),
-                    ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price }))
-                ],
+                items: allCartItems,
                 subtotal,
                 discount: totalDiscount,
-                tax: tax,
+                tax,
                 tip: tipAmount,
-                total: total,
-                payment: { method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.amountTendered || 0, changeDue: changeDue > 0 ? changeDue : 0 }
+                total,
+                payment: {
+                    method: checkoutDetails.paymentMethod,
+                    amountTendered: checkoutDetails.amountTendered || 0,
+                    changeDue: changeDue > 0 ? changeDue : 0,
+                }
             };
             setReceiptToPrint(receiptData);
             setIsReceiptDialogOpen(true);
 
-            // Reset state
-            setCart([]);
-            setSelectedAppointmentIds(new Set());
-            setSelectedClientId(null);
-            setTipAmount(0);
-            setAmountTendered(0);
-            setPromoCode('');
-            setDiscount(0);
-            setMembershipDiscount(0);
-            setAppliedDiscountCode(undefined);
+            // State will be reset when dialog closes
             
         } catch (error) {
             console.error("Checkout failed:", error);
@@ -1167,6 +1181,14 @@ export default function POSPage() {
         }
     }, [isScannerOpen, handleScan, toast]);
     
+    const handleCartChange = (newCart: any[]) => {
+      const retailItemsFromCart = newCart.filter(item => item.type === 'product');
+      setCart(currentCart => {
+        const otherItems = currentCart.filter(item => item.type !== 'product');
+        return [...otherItems, ...retailItemsFromCart];
+      });
+    };
+
     const handleAddClient = (data: ClientFormData) => {
         if (!firestore || !selectedTenant) return;
     
@@ -1210,14 +1232,6 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const handleCartChange = (newCart: any[]) => {
-      const retailItemsFromCart = newCart.filter(item => item.type === 'product');
-      setCart(currentCart => {
-        const otherItems = currentCart.filter(item => item.type !== 'product');
-        return [...otherItems, ...retailItemsFromCart];
-      });
-    };
-
     const checkoutHubProps = {
         cart: retailItems,
         onCartChange: handleCartChange,
@@ -1408,7 +1422,12 @@ export default function POSPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-             <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+             <Dialog open={isReceiptDialogOpen} onOpenChange={(isOpen) => {
+                setIsReceiptDialogOpen(isOpen);
+                if (!isOpen) {
+                    resetCheckoutState();
+                }
+            }}>
                 <DialogContent className="max-w-sm">
                     <DialogHeader>
                         <DialogTitle>Receipt</DialogTitle>
