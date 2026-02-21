@@ -326,15 +326,15 @@ export const CheckoutHub = ({
                             <Card className="text-center">
                                 <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-muted-foreground">Amount Tendered</CardTitle></CardHeader>
                                 <CardContent className="p-2">
-                                    <div className="flex justify-center items-baseline gap-1">
-                                        <span className="text-2xl font-bold text-muted-foreground">$</span>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                                         <Input
                                             id="amount-tendered"
                                             type="number"
                                             placeholder="0.00"
                                             value={amountTendered || ''}
                                             onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
-                                            className="w-auto text-3xl font-bold h-auto border-none shadow-none focus-visible:ring-0 bg-transparent p-0"
+                                            className="pl-9 h-12 text-2xl font-bold text-right pr-3"
                                         />
                                     </div>
                                 </CardContent>
