@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -94,7 +95,7 @@ export default function POSPage() {
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [tipAmount, setTipAmount] = useState(0);
     const [paymentTab, setPaymentTab] = useState('card');
-    const [amountTendered, setAmountTendered] = useState(0);
+    const [amountTendered, setAmountTendered] = useState<number>(0);
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
@@ -1210,7 +1211,11 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const handleCartChange = (newCart: any[]) => {
-      setRetailItems(newCart);
+      const retailItemsFromCart = newCart.filter(item => item.type === 'product');
+      setCart(currentCart => {
+        const otherItems = currentCart.filter(item => item.type !== 'product');
+        return [...otherItems, ...retailItemsFromCart];
+      });
     };
 
     const checkoutHubProps = {
@@ -1450,5 +1455,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
