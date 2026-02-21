@@ -42,7 +42,7 @@ import { type Staff, type Service, type DayHours, type ConsentForm, type Pricing
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
@@ -50,6 +50,11 @@ import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
+import { useFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { setDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
+
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -338,13 +343,14 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
             <BrowseConsentFormsDialog
                 open={isConsentFormDialogOpen}
                 onOpenChange={setIsConsentFormDialogOpen}
+                onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })}
                 allForms={consentForms}
                 initialSelected={assignedForms}
-                onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })}
             />
         </>
     )
 }
+
 
 export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   open,
@@ -371,7 +377,9 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const { handleSubmit, reset } = methods;
   const isMobile = useIsMobile();
-  const { firestore, tenantId } = useFirebase();
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   useEffect(() => {
     if (open) {
@@ -390,6 +398,8 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   }, [open, reset, pricingTiers]);
 
   const handleSave = (data: AddStaffFormData) => {
+    if (!firestore || !tenantId) return;
+
     const formatUrl = (url?: string) => {
         if (url && !/^(https?:\/\/)/i.test(url)) {
             return `https://${url}`;
@@ -397,9 +407,8 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         return url;
     };
 
-    const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
+    const newStaffData: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
-        avatarUrl: data.avatarUrl || '',
         specialties: data.specialties?.split(',').map(s => s.trim()).filter(s => s),
         commissionRate: data.commissionRate || 0,
         retailCommissionRate: data.retailCommissionRate || 0,
@@ -418,9 +427,21 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
             : undefined
     };
-    onSave(staffDataToSave);
-    reset();
-    onOpenChange(false);
+
+    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; tenantId: string; active: boolean; onBreak: boolean; status: 'idle'; } = {
+      ...newStaffData,
+      id: `staff-${nanoid()}`,
+      tenantId: tenantId,
+      avatarUrl: data.avatarUrl || '',
+      active: false,
+      onBreak: false,
+      status: 'idle',
+    };
+    
+    const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
+
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
+    setDocumentNonBlocking(staffDocRef, sanitizedData, {});
   };
   
   const DialogComponent = isMobile ? Sheet : Dialog;
