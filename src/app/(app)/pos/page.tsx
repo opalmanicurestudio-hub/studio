@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -127,7 +126,7 @@ export default function POSPage() {
     }, [appointmentsFromDB]);
 
     const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff || !walkIns) return [];
+        if (!appointments || !clients || !services || !staff) return [];
         
         return appointments
             .filter(apt => apt.status === 'ready_for_checkout')
@@ -163,8 +162,8 @@ export default function POSPage() {
                 let groupInfo: { name: string; id: string } | null = null;
                 if (apt.isWalkIn) {
                     const walkInId = apt.id.replace('apt-walkin-', '');
-                    const walkIn = walkIns.find(w => w.id === walkInId);
-                    if (walkIn && walkIn.groupName && (walkIns.filter(w => w.groupId === walkIn.groupId).length) > 1) {
+                    const walkIn = walkIns?.find(w => w.id === walkInId);
+                    if (walkIn && walkIn.groupName && (walkIns?.filter(w => w.groupId === walkIn.groupId).length) > 1) {
                         groupInfo = {
                             name: walkIn.groupName,
                             id: walkIn.groupId,
@@ -555,7 +554,7 @@ export default function POSPage() {
         const notified = (walkIns || []).filter(w => w.status === 'notified');
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -710,18 +709,17 @@ export default function POSPage() {
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
-            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder appointment on the planner will also be cancelled. This action cannot be undone.',
+            description: 'This will remove the client from the queue. If they have already been assigned, their placeholder on the planner will also be cancelled. This action cannot be undone.',
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                const walkIn = walkIns?.find(w => w.id === walkInId);
-    
+                
                 const batch = writeBatch(firestore);
-    
+                
                 batch.update(walkInRef, { status: 'cancelled' });
     
                 const appointmentId = `apt-walkin-${walkInId}`;
                 const appointment = appointments.find(a => a.id === appointmentId);
-                if (appointment && ['servicing', 'ready_for_checkout', 'confirmed'].includes(appointment.status)) {
+                if (appointment) {
                     const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
                     batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
                 }
@@ -834,7 +832,7 @@ export default function POSPage() {
             
             if (currentAppointment.staffId) {
               const staffRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
-              batch.update(staffRef, { status: 'idle' });
+              batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
             }
 
             if (currentAppointment.checkInToken) {
@@ -985,6 +983,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1100,7 +1099,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
+                        <CheckoutHub {...checkoutHubProps} />
                     </aside>
                 </div>
             </div>
@@ -1120,7 +1119,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
+                                <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
                     </Sheet>
