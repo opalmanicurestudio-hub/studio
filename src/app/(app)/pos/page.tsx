@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -127,7 +126,7 @@ export default function POSPage() {
     }, [appointmentsFromDB]);
 
     const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff) return [];
+        if (!appointments || !clients || !services || !staff || !walkIns) return [];
         
         return appointments
             .filter(apt => apt.status === 'ready_for_checkout')
@@ -163,8 +162,8 @@ export default function POSPage() {
                 let groupInfo: { name: string; id: string } | null = null;
                 if (apt.isWalkIn) {
                     const walkInId = apt.id.replace('apt-walkin-', '');
-                    const walkIn = walkIns?.find(w => w.id === walkInId);
-                    if (walkIn && walkIn.groupName && (walkIns?.filter(w => w.groupId === walkIn.groupId).length) > 1) {
+                    const walkIn = walkIns.find(w => w.id === walkInId);
+                    if (walkIn && walkIn.groupName && (walkIns.filter(w => w.groupId === walkIn.groupId).length) > 1) {
                         groupInfo = {
                             name: walkIn.groupName,
                             id: walkIn.groupId,
@@ -557,8 +556,8 @@ export default function POSPage() {
     }, [walkIns]);
 
     const { inServiceQueue } = useMemo(() => {
-      const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
-      return { inServiceQueue: inService };
+        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        return { inServiceQueue: inService };
     }, [appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -744,9 +743,6 @@ export default function POSPage() {
       const walkIn = walkIns.find((a) => a.id === walkInId);
       if (!walkIn) return;
     
-      const appointmentId = `apt-walkin-${walkIn.id}`;
-      const appointment = appointments?.find((a) => a.id === appointmentId);
-    
       setConfirmation({
         isOpen: true,
         title: "Are you sure?",
@@ -763,6 +759,8 @@ export default function POSPage() {
           const batch = writeBatch(firestore);
           batch.update(walkInRef, { status: "cancelled" });
     
+          const appointmentId = `apt-walkin-${walkInId}`;
+          const appointment = appointments?.find((a) => a.id === appointmentId);
           if (appointment) {
             const appointmentRef = doc(
               firestore,
@@ -771,9 +769,7 @@ export default function POSPage() {
               "appointments",
               appointmentId
             );
-            if ((await firestore.getDoc(appointmentRef)).exists()) {
-                batch.update(appointmentRef, { status: "cancelled" });
-            }
+            batch.update(appointmentRef, { status: "cancelled" });
           }
     
           await batch.commit();
@@ -1142,7 +1138,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -1269,3 +1265,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
