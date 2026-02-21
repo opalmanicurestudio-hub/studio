@@ -552,8 +552,8 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
-const ClosedView = ({ nextOpen }: { nextOpen?: { day: string; time: string } }) => (
-    <Card className="w-full max-w-md text-center">
+const ClosedView = ({ nextOpen, schedule }: { nextOpen?: { day: string; time: string }, schedule?: { week: BusinessHours } }) => (
+    <Card className="w-full max-w-lg text-center">
       <CardHeader>
         <div className="flex justify-center mb-4 text-muted-foreground">
           <Clock className="w-12 h-12" />
@@ -567,6 +567,22 @@ const ClosedView = ({ nextOpen }: { nextOpen?: { day: string; time: string } }) 
           </p>
         ) : (
           <p className="text-muted-foreground">Please check back later for our hours.</p>
+        )}
+        {schedule && (
+            <div className="mt-6 text-left max-w-sm mx-auto">
+                <h4 className="font-semibold text-center mb-2">Our Hours</h4>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
+                        const dayInfo = schedule.week[day as keyof BusinessHours];
+                        return (
+                            <div key={day} className="flex justify-between p-2 rounded-md even:bg-muted/50">
+                                <span className="font-medium capitalize">{day}</span>
+                                <span>{dayInfo?.enabled ? `${dayInfo.start} - ${dayInfo.end}` : 'Closed'}</span>
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
         )}
       </CardContent>
     </Card>
@@ -832,7 +848,7 @@ export default function WalkInPage() {
   if (!businessIsOpen) {
       return (
           <div className="w-full max-w-2xl mx-auto flex items-center justify-center h-screen -mt-24">
-              <ClosedView nextOpen={nextOpen} />
+              <ClosedView nextOpen={nextOpen} schedule={scheduleProfile} />
           </div>
       )
   }
