@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -554,7 +555,7 @@ export default function POSPage() {
         const notified = (walkIns || []).filter(w => w.status === 'notified');
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -705,7 +706,7 @@ export default function POSPage() {
 
     const handleCancelWalkIn = (walkInId: string) => {
         if (!firestore || !selectedTenant) return;
-        
+    
         setConfirmation({
             isOpen: true,
             title: 'Are you sure?',
@@ -713,19 +714,19 @@ export default function POSPage() {
             onConfirm: async () => {
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 const walkIn = walkIns?.find(w => w.id === walkInId);
-                
+    
                 const batch = writeBatch(firestore);
-                
+    
                 batch.update(walkInRef, { status: 'cancelled' });
-
-                if (walkIn && walkIn.assignedStaffId) {
+    
+                if (walkIn && walkIn.assignedStaffId && ['servicing', 'ready_for_checkout'].includes(walkIn.status)) {
                     const appointmentId = `apt-walkin-${walkIn.id}`;
                     const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
                     batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
                 }
-
+    
                 await batch.commit();
-
+    
                 toast({
                     title: "Walk-in Cancelled",
                     description: "The client has been removed from the queue."
@@ -748,7 +749,7 @@ export default function POSPage() {
             onConfirm: async () => {
                 const batch = writeBatch(firestore);
 
-                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkIn.id);
+                const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
                 batch.update(walkInRef, { status: 'skipped' });
 
                 if (walkIn.assignedStaffId) {
@@ -801,8 +802,6 @@ export default function POSPage() {
         });
     };
 
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-    
     const handleConfirmAndClose = async () => {
         setIsSubmitting(true);
     
@@ -824,17 +823,19 @@ export default function POSPage() {
         
         const batch = writeBatch(firestore);
 
-        // Update staff statuses and last served timestamps
-        const staffToUpdate = new Set<string>();
-        appointmentsData.forEach(data => {
-            if (data.appointment.staffId) {
-              staffToUpdate.add(data.appointment.staffId);
+        // Loop through each appointment in the checkout
+        for (const data of appointmentsData) {
+            const { appointment: currentAppointment } = data;
+            if (!currentAppointment) continue;
+
+            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
+            batch.update(appointmentRef, { status: 'completed' });
+
+            if (currentAppointment.staffId) {
+                const staffRef = doc(firestore, `tenants/${tenantId}/staff`, currentAppointment.staffId);
+                batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
             }
-        });
-        staffToUpdate.forEach(staffId => {
-            const staffRef = doc(firestore, `tenants/${tenantId}/staff`, staffId);
-            batch.update(staffRef, { status: 'idle', lastServedTimestamp: new Date().toISOString() });
-        });
+        }
         
         try {
             await batch.commit();
@@ -1004,7 +1005,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
