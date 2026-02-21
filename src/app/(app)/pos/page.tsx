@@ -343,6 +343,8 @@ export default function POSPage() {
         
         const subtotalValue = servicesTotal + retailTotal;
         const subWithAdjustments = subtotalValue + additionalCharge;
+
+        const totalDiscount = discount + membershipDiscount;
         
         const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
         const finalTax = subtotalAfterDiscounts * 0.07;
@@ -994,7 +996,7 @@ export default function POSPage() {
                 tax: tax,
                 tip: tipAmount,
                 total: total,
-                payment: { method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.amountTendered || 0, changeDue: Math.max(0, (checkoutDetails.amountTendered || 0) - total) }
+                payment: { method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.amountTendered || 0, changeDue: changeDue > 0 ? changeDue : 0 }
             };
             setReceiptToPrint(receiptData);
             setIsReceiptDialogOpen(true);
@@ -1442,3 +1444,5 @@ export default function POSPage() {
         </>
     );
 }
+
+    
