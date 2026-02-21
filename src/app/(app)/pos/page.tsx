@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -12,8 +13,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -988,10 +989,14 @@ export default function POSPage() {
                 clientName: payerClient.name,
                 date: new Date(),
                 items: [
-                    ...appointmentsData.flatMap(d => [{ name: d.service.name, quantity: 1, price: d.service.price }]),
+                    ...appointmentsData.flatMap(d => [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }]),
                     ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price }))
                 ],
-                subtotal, tax, tip: tipAmount, total, discount: totalDiscount,
+                subtotal,
+                discount: totalDiscount,
+                tax: mockTax,
+                tip: tipAmount,
+                total: total,
                 payment: { method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.amountTendered || 0, changeDue: Math.max(0, (checkoutDetails.amountTendered || 0) - total) }
             };
             setReceiptToPrint(receiptData);
@@ -1441,5 +1446,3 @@ export default function POSPage() {
         </>
     );
 }
-
-    
