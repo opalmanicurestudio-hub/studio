@@ -554,7 +554,7 @@ export default function POSPage() {
         const notified = (walkIns || []).filter(w => w.status === 'notified');
         const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
         const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue, readyForCheckoutQueue: ready };
+        return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
     }, [walkIns, appointments]);
 
     const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
@@ -983,7 +983,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
