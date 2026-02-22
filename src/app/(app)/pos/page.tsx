@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -318,7 +319,7 @@ export default function POSPage() {
 
     const allCartItems = useMemo(() => {
         const servicesInCart = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
             const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
             return [...mainService, ...addOns];
         });
@@ -1019,8 +1020,8 @@ export default function POSPage() {
             }
 
             const staffInvolved = new Set<string>();
-            appointmentsData.forEach(appointmentData => {
-                if (appointmentData.staffId) staffInvolved.add(appointmentData.staffId);
+            appointmentsData.forEach(d => {
+                if (d.staffId) staffInvolved.add(d.staffId);
             });
             Object.values(serviceStaffOverrides).forEach(id => {
                 if (id) staffInvolved.add(id);
@@ -1287,7 +1288,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        handleCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
