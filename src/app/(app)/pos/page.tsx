@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -606,7 +604,7 @@ export default function POSPage() {
     const { waitingQueue, notifiedQueue, inServiceQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
         const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
+        const inService = (appointments || []).filter(apt => apt.status === 'servicing');
         return { waitingQueue: waiting, notifiedQueue: notified, inServiceQueue: inService };
     }, [walkIns, appointments]);
 
@@ -959,9 +957,12 @@ export default function POSPage() {
             const now = new Date();
             const nowISO = now.toISOString();
 
-            for (const appointment of appointmentsData) {
-                const { service } = appointment;
-                const formulaUsed = appointment.checkoutState?.formula || service?.products?.map(p => ({
+            for (const appointmentData of appointmentsData) {
+                const { appointment: currentAppointment, service: currentService } = appointmentData;
+
+                if (!currentAppointment || !currentService) continue;
+                
+                const formulaUsed = currentAppointment.checkoutState?.formula || currentService?.products?.map(p => ({
                     id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses',
                 })) || [];
 
@@ -972,7 +973,7 @@ export default function POSPage() {
                         if (product) {
                             const stockCorrection: Omit<StockCorrection, 'id'> = {
                                 productId: product.id, date: nowISO, change: -usedProduct.quantity,
-                                unit: usedProduct.unit, reason: `Appointment #${appointment.id.slice(-6)}`,
+                                unit: usedProduct.unit, reason: `Appointment #${currentAppointment.id.slice(-6)}`,
                             };
                             const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                             batch.set(scRef, stockCorrection);
@@ -1002,24 +1003,24 @@ export default function POSPage() {
                     }
                 }
 
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
                 batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
 
-                if (appointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+                if (currentAppointment.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
                 
-                if (appointment.isWalkIn) {
-                    const walkInId = appointment.id.replace('apt-walkin-', '');
+                if (currentAppointment.isWalkIn) {
+                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
             }
 
             const staffInvolved = new Set<string>();
-            appointmentsData.forEach(appointment => {
-                if (appointment.staffId) staffInvolved.add(appointment.staffId);
+            appointmentsData.forEach(appointmentData => {
+                if (appointmentData.staffId) staffInvolved.add(appointmentData.staffId);
             });
             Object.values(serviceStaffOverrides).forEach(id => {
                 if (id) staffInvolved.add(id);
