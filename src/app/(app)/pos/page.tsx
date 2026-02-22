@@ -905,8 +905,8 @@ export default function POSPage() {
 
     const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
         setIsSubmitting(true);
-        // This is the main checkout logic, which needs to be updated.
         const { paymentMethod, amountTendered } = checkoutDetails;
+        const client = clients?.find(c => c.id === selectedClientId);
     
         if (!client || !appointmentsData || appointmentsData.length === 0) {
             toast({ variant: 'destructive', title: 'Error', description: 'No client or appointment selected for checkout.' });
@@ -926,7 +926,7 @@ export default function POSPage() {
             const nowISO = now.toISOString();
 
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
+                const { appointment: currentAppointment, service: currentService } = data;
                 if (!currentAppointment || !currentService) continue;
     
                 const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
@@ -982,8 +982,58 @@ export default function POSPage() {
                 });
             }
     
-            // Tip, Retail, and other transactions...
-            // (Keeping the rest of your transaction logic here)
+            Object.entries(tipAllocations).forEach(([staffId, tip]) => {
+              if (tip > 0) {
+                const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                    description: `Tip for ${isGroupCheckout ? 'Group ' : ''}Checkout`,
+                    clientOrVendor: client.name,
+                    clientId: client.id,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Tips',
+                    amount: tip,
+                    paymentMethod: paymentTab,
+                    hasReceipt: true,
+                    staffId: staffId,
+                    tipAmount: tip,
+                    appointmentId: appointmentsData[0].appointment.id,
+                };
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: new Date().toISOString() });
+              }
+            });
+
+            retailItems.forEach(item => {
+                const product = inventory.find(p => p.id === item.id);
+                if (!product) return;
+                const price = product.msrp || product.costPerUnit || 0;
+                const retailTotal = item.quantity * price;
+                if (retailTotal > 0) {
+                    const newTransaction: Omit<Transaction, 'id'|'date'> = {
+                        description: `Retail: ${item.quantity}x ${item.name}`,
+                        clientOrVendor: client.name,
+                        clientId: client.id,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Retail',
+                        amount: retailTotal,
+                        paymentMethod: paymentTab,
+                        hasReceipt: true,
+                        staffId: appointmentsData[0].appointment.staffId,
+                        appointmentId: appointmentsData[0].appointment.id,
+                    };
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
+                }
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                batch.update(productRef, { totalStock: increment(-item.quantity) });
+            });
+            
+            if (appliedDiscountCode) {
+                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+                batch.update(discountRef, {
+                    usageCount: increment(1),
+                    usedByClientIds: arrayUnion(client.id),
+                });
+            }
     
             await batch.commit();
     
@@ -1312,7 +1362,7 @@ export default function POSPage() {
                          <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Current Sale</h2>
                         </div>
-                        <CheckoutHub {...checkoutHubProps} />
+                        <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
                     </aside>
                 </div>
             </div>
@@ -1332,7 +1382,7 @@ export default function POSPage() {
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} />
+                                <CheckoutHub {...checkoutHubProps} onCartChange={handleCartChange} />
                             </div>
                         </SheetContent>
                     </Sheet>
