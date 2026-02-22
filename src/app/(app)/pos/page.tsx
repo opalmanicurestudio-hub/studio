@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -1096,7 +1095,7 @@ export default function POSPage() {
       return [
         ...appointmentsData.flatMap(d => {
             const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-            const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+            const addOns = (d.addOnServices || []).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
             return [...mainService, ...addOns];
         }),
         ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
@@ -1106,7 +1105,7 @@ export default function POSPage() {
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        onCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1202,7 +1201,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -1335,3 +1334,4 @@ export default function POSPage() {
     );
 }
 
+    
