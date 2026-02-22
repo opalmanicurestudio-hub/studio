@@ -925,9 +925,8 @@ export default function POSPage() {
             const now = new Date();
             const nowISO = now.toISOString();
 
-            for (const data of appointmentsData) {
-                const { appointment: currentAppointment, service: currentService } = data;
-                if (!currentAppointment || !currentService) continue;
+            for (const currentAppointment of appointmentsData) {
+                if (!currentAppointment.service) continue;
     
                 const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, currentAppointment.id);
                 batch.update(appointmentRef, {
@@ -950,7 +949,7 @@ export default function POSPage() {
 
             const staffInvolved = new Set(Object.values(serviceStaffOverrides));
             appointmentsData.forEach(d => {
-                if (d.appointment.staffId) staffInvolved.add(d.appointment.staffId);
+                if (d.staffId) staffInvolved.add(d.staffId);
             });
     
             staffInvolved.forEach(staffId => {
@@ -975,8 +974,8 @@ export default function POSPage() {
                     amount: subtotalAfterDiscounts,
                     paymentMethod,
                     hasReceipt: true,
-                    staffId: appointmentsData[0].appointment.staffId,
-                    appointmentId: appointmentsData[0].appointment.id,
+                    staffId: appointmentsData[0].staffId,
+                    appointmentId: appointmentsData[0].id,
                     discountAmount: totalDiscount,
                     appliedDiscountCode: appliedDiscountCode || ''
                 });
@@ -996,7 +995,7 @@ export default function POSPage() {
                     hasReceipt: true,
                     staffId: staffId,
                     tipAmount: tip,
-                    appointmentId: appointmentsData[0].appointment.id,
+                    appointmentId: appointmentsData[0].id,
                 };
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: new Date().toISOString() });
               }
@@ -1018,8 +1017,8 @@ export default function POSPage() {
                         amount: retailTotal,
                         paymentMethod: paymentTab,
                         hasReceipt: true,
-                        staffId: appointmentsData[0].appointment.staffId,
-                        appointmentId: appointmentsData[0].appointment.id,
+                        staffId: appointmentsData[0].staffId,
+                        appointmentId: appointmentsData[0].id,
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
@@ -1245,13 +1244,13 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const allCartItems = useMemo(() => {
-      const services = appointmentsData.flatMap(d => {
-        const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
-        const addons = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-        return [...mainService, ...addons];
-      });
-      const retail = retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false }));
-      return [...services, ...retail];
+        const servicesInCart = appointmentsData.flatMap(d => {
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+            const addOns = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+            return [...mainService, ...addOns];
+        });
+        const retail = retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false }));
+        return [...servicesInCart, ...retail];
     }, [appointmentsData, retailItems, redeemedOffer]);
 
 
