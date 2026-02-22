@@ -959,21 +959,16 @@ export default function POSPage() {
             const now = new Date();
             const nowISO = now.toISOString();
 
-            // Process inventory deductions for professional products
-            for (const data of appointmentsData) {
-                const { appointment, service } = data;
+            for (const appointment of appointmentsData) {
+                const { service } = appointment;
                 const formulaUsed = appointment.checkoutState?.formula || service?.products?.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    quantity: p.quantityUsed,
-                    unit: p.unit || 'uses',
+                    id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses',
                 })) || [];
 
                 if (formulaUsed && formulaUsed.length > 0) {
                     for (const usedProduct of formulaUsed) {
                         const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, usedProduct.id);
                         const product = inventory.find(p => p.id === usedProduct.id);
-
                         if (product) {
                             const stockCorrection: Omit<StockCorrection, 'id'> = {
                                 productId: product.id, date: nowISO, change: -usedProduct.quantity,
@@ -1006,24 +1001,7 @@ export default function POSPage() {
                         }
                     }
                 }
-            }
-            
-            // Process retail inventory deductions
-            retailItems.forEach(item => {
-                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                batch.update(productRef, { totalStock: increment(-item.quantity) });
 
-                const stockCorrection: Omit<StockCorrection, 'id'> = {
-                    productId: item.id, date: nowISO, change: -item.quantity,
-                    unit: 'units', reason: `Retail Sale to ${payerClient.name}`,
-                };
-                const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                batch.set(scRef, stockCorrection);
-            });
-
-            for (const data of appointmentsData) {
-                const { appointment } = data;
-                
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
 
@@ -1034,14 +1012,14 @@ export default function POSPage() {
                 
                 if (appointment.isWalkIn) {
                     const walkInId = appointment.id.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
             }
 
             const staffInvolved = new Set<string>();
-            appointmentsData.forEach(data => {
-                if (data.staffId) staffInvolved.add(data.staffId);
+            appointmentsData.forEach(appointment => {
+                if (appointment.staffId) staffInvolved.add(appointment.staffId);
             });
             Object.values(serviceStaffOverrides).forEach(id => {
                 if (id) staffInvolved.add(id);
@@ -1059,7 +1037,8 @@ export default function POSPage() {
                     date: nowISO, description: `Service(s) for ${payerClient.name}`, clientOrVendor: payerClient.name,
                     clientId: payerClient.id, type: 'income', context: 'Business', category: 'Service Revenue',
                     amount: subtotalAfterDiscounts, paymentMethod, hasReceipt: true,
-                    staffId: appointmentsData[0].staffId, appointmentId: appointmentsData[0].id,
+                    staffId: appointmentsData[0].staffId,
+                    appointmentId: appointmentsData[0].id,
                     discountAmount: totalDiscount, appliedDiscountCode: appliedDiscountCode || ''
                 });
             }
@@ -1087,7 +1066,8 @@ export default function POSPage() {
                         description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: payerClient.name,
                         clientId: payerClient.id, type: 'income', context: 'Business', category: 'Retail',
                         amount: retailTotal, paymentMethod: paymentTab, hasReceipt: true,
-                        staffId: appointmentsData[0].staffId, appointmentId: appointmentsData[0].id,
+                        staffId: appointmentsData[0].staffId,
+                        appointmentId: appointmentsData[0].id,
                     };
                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
                 }
@@ -1102,15 +1082,6 @@ export default function POSPage() {
             }
     
             await batch.commit();
-    
-            const allCartItems = [
-                ...appointmentsData.flatMap(d => {
-                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
-                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-                    return [...mainService, ...addOns];
-                }),
-                ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false })),
-            ];
     
             const receiptData: ReceiptData = {
                 business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
