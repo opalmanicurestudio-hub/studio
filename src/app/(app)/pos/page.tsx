@@ -13,8 +13,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -960,8 +960,14 @@ export default function POSPage() {
             const nowISO = now.toISOString();
 
             // Process inventory deductions for professional products
-            for (const appointment of appointmentsData) {
-                const formulaUsed = appointment.checkoutState?.formula;
+            for (const data of appointmentsData) {
+                const { appointment, service } = data;
+                const formulaUsed = appointment.checkoutState?.formula || service?.products?.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    quantity: p.quantityUsed,
+                    unit: p.unit || 'uses',
+                })) || [];
 
                 if (formulaUsed && formulaUsed.length > 0) {
                     for (const usedProduct of formulaUsed) {
@@ -1015,9 +1021,8 @@ export default function POSPage() {
                 batch.set(scRef, stockCorrection);
             });
 
-            for (const appointment of appointmentsData) {
-                const { client: currentClient, service: currentService } = appointment;
-                if (!currentClient || !currentService) continue;
+            for (const data of appointmentsData) {
+                const { appointment } = data;
                 
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
@@ -1035,8 +1040,8 @@ export default function POSPage() {
             }
 
             const staffInvolved = new Set<string>();
-            appointmentsData.forEach(appointment => {
-                if (appointment.staffId) staffInvolved.add(appointment.staffId);
+            appointmentsData.forEach(data => {
+                if (data.staffId) staffInvolved.add(data.staffId);
             });
             Object.values(serviceStaffOverrides).forEach(id => {
                 if (id) staffInvolved.add(id);
@@ -1076,6 +1081,7 @@ export default function POSPage() {
                 if (!product) return;
                 const price = product.msrp || product.costPerUnit || 0;
                 const retailTotal = item.quantity * price;
+
                 if (retailTotal > 0) {
                     const newTransaction: Omit<Transaction, 'id'|'date'> = {
                         description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: payerClient.name,
@@ -1109,7 +1115,7 @@ export default function POSPage() {
             const receiptData: ReceiptData = {
                 business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
                 clientName: payerClient.name, date: now, items: allCartItems, subtotal: subtotal,
-                discount: totalDiscount, tax: mockTax, tip: tipAmount, total: total,
+                discount: totalDiscount, tax: tax, tip: tipAmount, total: total,
                 payment: {
                     method: paymentTab, amountTendered: paymentTab === 'cash' ? amountTendered : total,
                     changeDue: changeDue > 0 ? changeDue : 0,
