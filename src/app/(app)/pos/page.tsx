@@ -13,7 +13,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteField } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -942,7 +942,7 @@ export default function POSPage() {
         const { paymentMethod, amountTendered } = checkoutDetails;
         const payerClient = clients?.find(c => c.id === selectedClientId);
 
-        if (!payerClient || !appointmentsData || appointmentsData.length === 0) {
+        if (!payerClient) {
             toast({ variant: 'destructive', title: 'Error', description: 'No client or appointment selected for checkout.' });
             setIsSubmitting(false);
             return;
@@ -960,8 +960,7 @@ export default function POSPage() {
             const nowISO = now.toISOString();
 
             // Process inventory deductions for professional products
-            for (const data of appointmentsData) {
-                const { appointment } = data;
+            for (const appointment of appointmentsData) {
                 const formulaUsed = appointment.checkoutState?.formula;
 
                 if (formulaUsed && formulaUsed.length > 0) {
@@ -1016,28 +1015,28 @@ export default function POSPage() {
                 batch.set(scRef, stockCorrection);
             });
 
-            for (const data of appointmentsData) {
-                const { appointment: currentAppointment, client: currentClient, service: currentService } = data;
-                if (!currentAppointment || !currentService) continue;
+            for (const appointment of appointmentsData) {
+                const { client: currentClient, service: currentService } = appointment;
+                if (!currentClient || !currentService) continue;
                 
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 batch.update(appointmentRef, { status: 'completed', actualEndTime: nowISO, inventoryProcessed: true });
 
-                if (currentAppointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                if (appointment.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
                 
-                if (currentAppointment.isWalkIn) {
-                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                if (appointment.isWalkIn) {
+                    const walkInId = appointment.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
             }
 
             const staffInvolved = new Set<string>();
-            appointmentsData.forEach(d => {
-                if (d.staffId) staffInvolved.add(d.staffId);
+            appointmentsData.forEach(appointment => {
+                if (appointment.staffId) staffInvolved.add(appointment.staffId);
             });
             Object.values(serviceStaffOverrides).forEach(id => {
                 if (id) staffInvolved.add(id);
@@ -1098,10 +1097,19 @@ export default function POSPage() {
     
             await batch.commit();
     
+            const allCartItems = [
+                ...appointmentsData.flatMap(d => {
+                    const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+                    const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+                    return [...mainService, ...addOns];
+                }),
+                ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false })),
+            ];
+    
             const receiptData: ReceiptData = {
                 business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
                 clientName: payerClient.name, date: now, items: allCartItems, subtotal: subtotal,
-                discount: totalDiscount, tax: tax, tip: tipAmount, total: total,
+                discount: totalDiscount, tax: mockTax, tip: tipAmount, total: total,
                 payment: {
                     method: paymentTab, amountTendered: paymentTab === 'cash' ? amountTendered : total,
                     changeDue: changeDue > 0 ? changeDue : 0,
@@ -1301,7 +1309,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
