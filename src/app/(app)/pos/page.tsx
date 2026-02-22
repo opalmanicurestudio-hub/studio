@@ -1096,17 +1096,17 @@ export default function POSPage() {
       return [
         ...appointmentsData.flatMap(d => {
             const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-            const addOns = (d.appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean).map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+            const addOns = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price }));
             return [...mainService, ...addOns];
         }),
         ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
       ];
-    }, [appointmentsData, retailItems, redeemedOffer, services]);
+    }, [appointmentsData, retailItems, redeemedOffer]);
 
 
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange: handleCartChange,
+        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
