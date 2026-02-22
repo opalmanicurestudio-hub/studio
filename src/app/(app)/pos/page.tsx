@@ -318,6 +318,17 @@ export default function POSPage() {
         });
     }, []);
 
+    const allCartItems = useMemo(() => {
+        const servicesInCart = appointmentsData.flatMap(d => {
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+            return [...mainService, ...addOns];
+        });
+        const retail = retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false }));
+        return [...servicesInCart, ...retail];
+    }, [appointmentsData, retailItems, redeemedOffer]);
+
+
     const subtotal = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
@@ -335,6 +346,29 @@ export default function POSPage() {
         return servicesTotal + retailTotal;
     }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
     
+    const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
+    const retailTotalForDiscount = useMemo(() => {
+        return retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            return acc + (item.quantity * (product?.msrp || 0));
+        }, 0);
+    }, [retailItems, inventory]);
+
+    useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
+                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotalForDiscount, memberships]);
+
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = (subtotal + additionalCharge) > totalDiscount ? (subtotal + additionalCharge) - totalDiscount : 0;
     const tax = subtotalAfterDiscounts * 0.07;
@@ -914,7 +948,7 @@ export default function POSPage() {
             return;
         }
     
-        if (!firestore || !tenantId) {
+        if (!firestore || !tenantId || !selectedTenant) {
             toast({ variant: 'destructive', title: 'Database Error' });
             setIsSubmitting(false);
             return;
@@ -1036,7 +1070,11 @@ export default function POSPage() {
     
             await batch.commit();
     
-            const receiptData: Omit<ReceiptData, 'business'> = {
+            const receiptData: ReceiptData = {
+                business: {
+                    name: selectedTenant.name,
+                    phone: selectedTenant.twilioPhoneNumber || 'Not Available'
+                },
                 clientName: client.name,
                 date: now,
                 items: allCartItems,
@@ -1243,20 +1281,8 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const allCartItems = useMemo(() => {
-        const servicesInCart = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
-            const addOns = (d.addOnServices || []).map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-            return [...mainService, ...addOns];
-        });
-        const retail = retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false }));
-        return [...servicesInCart, ...retail];
-    }, [appointmentsData, retailItems, redeemedOffer]);
-
-
     const checkoutHubProps = {
         cart: retailItems,
-        handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
