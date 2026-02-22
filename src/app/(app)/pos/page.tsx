@@ -316,7 +316,7 @@ export default function POSPage() {
         });
     }, []);
 
-    const { subtotal, tax, total, changeDue } = useMemo(() => {
+    const subtotal = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || [])
@@ -330,19 +330,15 @@ export default function POSPage() {
             return acc + (item.quantity * price);
         }, 0);
         
-        const subtotalValue = servicesTotal + retailTotal;
-        const subWithAdjustments = subtotalValue + additionalCharge;
-        
-        const totalDiscount = discount + membershipDiscount;
-
-        const subtotalAfterDiscounts = subWithAdjustments > totalDiscount ? subWithAdjustments - totalDiscount : 0;
-        const finalTax = subtotalAfterDiscounts * 0.07;
-        const finalGrandTotal = subtotalAfterDiscounts + finalTax + tipAmount;
-        
-        const finalChangeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - finalGrandTotal : 0;
-        
-        return { subtotal: subtotalValue, tax: finalTax, total: finalGrandTotal, changeDue: finalChangeDue };
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory, additionalCharge, discount, membershipDiscount, tipAmount, amountTendered, paymentTab]);
+        return servicesTotal + retailTotal;
+    }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
+    
+    const totalDiscount = discount + membershipDiscount;
+    const subtotalAfterDiscounts = (subtotal + additionalCharge) > totalDiscount ? (subtotal + additionalCharge) - totalDiscount : 0;
+    const tax = subtotalAfterDiscounts * 0.07;
+    const total = subtotalAfterDiscounts + tax + tipAmount;
+    
+    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
     const isGroupCheckout = appointmentsData.length > 1;
 
@@ -1100,7 +1096,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
