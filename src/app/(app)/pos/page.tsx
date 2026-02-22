@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -1201,7 +1202,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
