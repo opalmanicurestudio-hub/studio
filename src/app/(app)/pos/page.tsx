@@ -117,6 +117,8 @@ export default function POSPage() {
     const searchParams = useSearchParams();
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+    const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
+    const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
 
     const resetCheckoutState = useCallback(() => {
         setCart([]);
@@ -1094,6 +1096,18 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
+    const allCartItems = useMemo(() => {
+      return [
+        ...appointmentsData.flatMap(d => {
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+            const addOns = d.addOnServices.map(s => ({ name: s!.name, quantity: 1, price: s!.price }));
+            return [...mainService, ...addOns];
+        }),
+        ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
+      ];
+    }, [appointmentsData, retailItems, redeemedOffer]);
+
+
     const checkoutHubProps = {
         cart: retailItems,
         onCartChange: handleCartChange,
@@ -1184,13 +1198,13 @@ export default function POSPage() {
                                     onAssignNext={handleAssignNext}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
-                                    onSendToCheckout={() => {}}
+                                    onSendToCheckout={handleSendToCheckout}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
                                     assignmentMode={assignmentMode}
                                     onPrintTicket={onPrintTicket}
                                     onSkip={handleSkipWalkIn}
-                                    onReturnToQueue={onReturnToQueue}
+                                    onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
                                     onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
