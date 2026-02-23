@@ -2,7 +2,7 @@
 
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Sidebar,
   SidebarHeader,
@@ -50,6 +50,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ClientOnly } from './ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/firebase';
+import { signOut } from 'firebase/auth';
 
 export const ClarityFlowLogo = ({ className }: { className?: string }) => (
     <svg
@@ -107,11 +109,20 @@ export function AppSidebar() {
   const { toggleSidebar } = useSidebar();
   const { selectedTenant, isLoading: isTenantLoading, role } = useTenant();
   const tenantId = selectedTenant?.id;
+  const auth = useAuth();
+  const router = useRouter();
 
   const isNavItemActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
     return pathname.startsWith(href);
   }
+
+  const handleLogout = async () => {
+    if (auth) {
+        await signOut(auth);
+        router.push('/login');
+    }
+  };
 
   const staffNavItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'My Dashboard' },
@@ -239,7 +250,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => {}} tooltip="Logout">
+              <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
                 <LogOut />
                 <span>Logout</span>
               </SidebarMenuButton>
@@ -249,5 +260,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
-

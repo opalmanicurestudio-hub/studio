@@ -24,9 +24,11 @@ import { differenceInDays, isPast, parseISO, format } from 'date-fns';
 import { useTenant } from '@/context/TenantContext'; 
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
-import { useUser } from '@/firebase';
+import { useUser, useAuth } from '@/firebase';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { Input } from '../ui/input';
+import { signOut } from 'firebase/auth';
+import { useRouter } from 'next/navigation';
 
 type Notification = {
     id: number | string;
@@ -40,6 +42,8 @@ type Notification = {
 export function AppHeader({ title }: { title?: string }) {
   const { staff, inventory, billInstances, billDefinitions } = useInventory();
   const { user } = useUser();
+  const auth = useAuth();
+  const router = useRouter();
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
@@ -195,6 +199,13 @@ export function AppHeader({ title }: { title?: string }) {
     setNotifications(prev => prev.map(n => ({...n, read: true})));
   }
 
+  const handleLogout = async () => {
+    if (auth) {
+        await signOut(auth);
+        router.push('/login');
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/20 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
       <div className="flex flex-1 items-center gap-2">
@@ -285,7 +296,7 @@ export function AppHeader({ title }: { title?: string }) {
                 <span>Support</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
                 <LogOut />
                 <span>Log out</span>
               </DropdownMenuItem>
