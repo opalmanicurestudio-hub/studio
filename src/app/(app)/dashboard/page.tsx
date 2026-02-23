@@ -505,6 +505,7 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
+    const { selectedTenant } = useTenant();
     const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading } = useInventory();
     
     const staffMember = useMemo(() => {
@@ -710,4 +711,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
 
