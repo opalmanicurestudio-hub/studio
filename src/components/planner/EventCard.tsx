@@ -17,7 +17,7 @@ import {
   SheetTitle,
   SheetDescription,
   SheetTrigger,
-  SheetFooter
+  SheetFooter,
 } from '@/components/ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
 import { Button } from '../ui/button';

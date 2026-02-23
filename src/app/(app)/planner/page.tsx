@@ -79,6 +79,7 @@ import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
+import { Textarea } from '@/components/ui/textarea';
 
 
 function PlannerPageContent() {
@@ -793,15 +794,37 @@ function PlannerPageContent() {
         setIsEditEventOpen(false);
     }
     
+    const [eventToDeny, setEventToDeny] = useState<Event | null>(null);
+    const [denialReason, setDenialReason] = useState('');
+
     const handleDeleteEvent = (eventId: string) => {
-        if (!firestore || !tenantId) return;
-        const eventRef = doc(firestore, 'tenants', tenantId, 'events', eventId);
-        deleteDocumentNonBlocking(eventRef);
+        const eventToProcess = (events || []).find(e => e.id === eventId);
+        if (eventToProcess && eventToProcess.status === 'pending') {
+            setEventToDeny(eventToProcess);
+        } else {
+            if (!firestore || !tenantId) return;
+            const eventRef = doc(firestore, 'tenants', tenantId, 'events', eventId);
+            deleteDocumentNonBlocking(eventRef);
+            toast({
+                title: "Event Deleted",
+                description: `The event has been removed from the calendar.`
+            });
+        }
+    };
+    
+    const confirmDenyEvent = () => {
+        if (!eventToDeny || !firestore || !tenantId) return;
+        
+        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', eventToDeny.id));
+        
         toast({
             title: "Event Denied",
-            description: `The event has been removed from the calendar.`
+            description: `A notification with your reason has been sent to the staff member.`
         });
+        setEventToDeny(null);
+        setDenialReason('');
     };
+
     
     const addTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
         if (!firestore || !user || !tenantId) {
@@ -1603,6 +1626,32 @@ function PlannerPageContent() {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+        
+        <AlertDialog open={!!eventToDeny} onOpenChange={() => setEventToDeny(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Deny "{eventToDeny?.title}"?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Provide a reason for denying the event request. This will be sent as a notification to the staff member.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <Textarea
+                    placeholder="e.g., We have high booking volume on this day and need all staff available."
+                    value={denialReason}
+                    onChange={(e) => setDenialReason(e.target.value)}
+                />
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setDenialReason('')}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={confirmDenyEvent}
+                        className={buttonVariants({ variant: "destructive" })}
+                    >
+                        Confirm Denial
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
 
         <div id="print-ticket-area" className="hidden">
             {ticketToPrint && <PrintTicket data={ticketToPrint} />}
