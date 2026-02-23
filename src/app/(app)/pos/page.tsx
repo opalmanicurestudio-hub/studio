@@ -78,7 +78,6 @@ type EditableFormulaItem = {
 
 export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
-    const [cart, setCart] = useState<EditableFormulaItem[]>([]);
     
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -91,6 +90,7 @@ export default function POSPage() {
     // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+    const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
 
     const isMobile = useIsMobile();
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
@@ -123,11 +123,11 @@ export default function POSPage() {
     const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
 
     const handleCartChange = (newCart: EditableFormulaItem[]) => {
-        setCart(newCart);
+        setRetailItems(newCart);
     };
 
     const resetCheckoutState = useCallback(() => {
-        setCart([]);
+        setRetailItems([]);
         setSelectedAppointmentIds(new Set());
         setSelectedClientId(null);
         setTipAmount(0);
@@ -321,7 +321,7 @@ export default function POSPage() {
         if ('duration' in item) {
             setServiceToSelectProvider(item);
         } else {
-            setCart(prevCart => {
+            setRetailItems(prevCart => {
                 const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
                 if (existingItem) {
                     return prevCart.map(cartItem => 
@@ -357,7 +357,7 @@ export default function POSPage() {
             quantity: 1,
         };
     
-        setCart(prev => [...prev, cartItem]);
+        setRetailItems(prev => [...prev, cartItem]);
         setServiceToSelectProvider(null);
     };
 
@@ -369,20 +369,20 @@ export default function POSPage() {
             return total + servicePrice + addOnsPrice;
         }, 0);
 
-        const manualItemsTotal = cart.reduce((acc, item) => {
+        const manualItemsTotal = retailItems.reduce((acc, item) => {
             return acc + (item.quantity * item.price);
         }, 0);
         
         return servicesTotal + manualItemsTotal;
-    }, [appointmentsData, cart, redeemedOffer]);
+    }, [appointmentsData, retailItems, redeemedOffer]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     const retailTotalForDiscount = useMemo(() => {
-        return cart.filter(i => i.type === 'product').reduce((acc, item) => {
+        return retailItems.filter(i => i.type === 'product').reduce((acc, item) => {
             return acc + (item.quantity * item.price);
         }, 0);
-    }, [cart]);
+    }, [retailItems]);
 
     useEffect(() => {
         if (client && client.activeMembershipId) {
@@ -832,10 +832,10 @@ export default function POSPage() {
         });
     };
     
-    const handleToggleWaitForStaff = async (walkInId: string, wait: boolean) => {
+    const handleToggleWaitForStaff = (walkInId: string, wait: boolean) => {
         if (!firestore || !selectedTenant) return;
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        await updateDocumentNonBlocking(walkInRef, { waitForPreferredStaff: wait });
+        updateDocumentNonBlocking(walkInRef, { waitForPreferredStaff: wait });
         toast({
           title: wait ? "Client will wait" : "Client will not wait",
           description: `Preference has been updated.`
@@ -982,7 +982,7 @@ export default function POSPage() {
     
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
     
-                const formulaUsed = appointment.checkoutState?.formula || service.products?.map(p => ({
+                const formulaUsed = appointment.checkoutState?.formula || service?.products?.map(p => ({
                     id: p.id,
                     name: p.name,
                     quantity: p.quantityUsed,
@@ -998,7 +998,7 @@ export default function POSPage() {
                             productId: product.id,
                             date: nowISO,
                             change: -usedProduct.quantity,
-                            unit: usedProduct.unit,
+                            unit: usedProduct.unit || 'units',
                             reason: `Appointment #${appointment.id} by ${data.staff?.name}`,
                         };
                         const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
@@ -1062,33 +1062,44 @@ export default function POSPage() {
                 lastAppointment: nowISO
             });
     
-            const createTransaction = (desc: string, cat: string, amt: number, staff?: string, aptId?: string, tip?: number) => {
-                const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+             const createTransaction = (desc: string, cat: string, amt: number, staff?: string, aptId?: string, tip?: number) => {
+                const newTransaction: Omit<Transaction, 'id' | 'date'> & { tipAmount?: number } = {
                     description: desc, clientOrVendor: payerClient.name, clientId: payerClient.id,
                     type: 'income', context: 'Business', category: cat, amount: amt,
                     paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-                    staffId: staff, appointmentId: aptId, tipAmount: tip,
-                    discountAmount: totalDiscount > 0 && cat === 'Service Revenue' ? totalDiscount / appointmentsData.length : undefined, // crude distribution
+                    staffId: staff, appointmentId: aptId, 
+                    ...(totalDiscount > 0 && cat === 'Service Revenue' && { discountAmount: totalDiscount / appointmentsData.length }), // crude distribution
                     appliedDiscountCode: appliedDiscountCode || ''
                 };
+                
+                if (tip !== undefined && tip > 0) {
+                    newTransaction.tipAmount = tip;
+                }
+                
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: nowISO });
             };
     
             appointmentsData.forEach(d => {
-                const serviceRevenue = d.service ? d.service.price : 0;
-                if (serviceRevenue > 0) createTransaction(`Service: ${d.service?.name}`, 'Service Revenue', serviceRevenue, d.staffId, d.id);
+                const {service, addOnServices, staffId, id} = d;
+                const serviceRevenue = service?.price || 0;
+                if (serviceRevenue > 0) createTransaction(`Service: ${service?.name}`, 'Service Revenue', serviceRevenue, staffId, id);
+
+                addOnServices.forEach(addon => {
+                    const addonRevenue = addon.price || 0;
+                    if (addonRevenue > 0) createTransaction(`Add-on: ${addon.name}`, 'Service Revenue', addonRevenue, staffId, id);
+                })
             });
     
             Object.entries(tipAllocations).forEach(([staffId, tip]) => {
                 if (tip > 0) {
-                    createTransaction(`Tip`, 'Tips', tip, staffId, appointmentsData[0].appointment.id, tip);
+                    createTransaction(`Tip`, 'Tips', tip, staffId, appointmentsData[0].id, tip);
                 }
             });
     
-            cart.filter(item => item.type === 'product').forEach(item => {
+            retailItems.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) return;
-                const price = product.msrp || 0;
+                const price = product.msrp || product.costPerUnit || 0;
                 const retailTotal = item.quantity * price;
     
                 if (retailTotal > 0) {
@@ -1109,14 +1120,25 @@ export default function POSPage() {
     
             await batch.commit();
     
-            const allCartItems = appointmentsData.flatMap(d => [
-                { name: d.service!.name, quantity: 1, price: d.service!.price, isDiscount: false },
-                ...d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }))
-            ]);
+            const allCartItems = appointmentsData.flatMap(d => {
+                const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+                return [...main, ...addOns];
+            });
+
+            const retailCartItems = retailItems.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+                isDiscount: false,
+            }));
+            
+            const receiptItems = [...allCartItems, ...retailCartItems];
+
     
             const receiptData: ReceiptData = {
                 business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
-                clientName: payerClient.name, date: now, items: allCartItems, subtotal: subtotal,
+                clientName: payerClient.name, date: now, items: receiptItems, subtotal: subtotal,
                 discount: totalDiscount, tax: tax, tip: tipAmount, total: total,
                 payment: {
                     method: checkoutDetails.paymentMethod,
@@ -1317,7 +1339,7 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart,
+        cart: retailItems,
         onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
@@ -1451,9 +1473,9 @@ export default function POSPage() {
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                         <SheetTrigger asChild>
-                             <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0 && appointmentsData.length === 0}>
+                             <Button className="w-full h-14 text-lg" size="lg" disabled={retailItems.length === 0 && appointmentsData.length === 0}>
                                 <div className="flex justify-between items-center w-full">
-                                    <span><ShoppingCart className="inline-block mr-2" />{cart.length + appointmentsData.length} item(s)</span>
+                                    <span><ShoppingCart className="inline-block mr-2" />{retailItems.length + appointmentsData.length} item(s)</span>
                                     <span>${total.toFixed(2)}</span>
                                 </div>
                             </Button>
