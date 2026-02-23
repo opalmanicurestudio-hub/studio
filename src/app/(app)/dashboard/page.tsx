@@ -505,16 +505,13 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
-    const { selectedTenant, firestore } = useTenant();
-    const tenantId = selectedTenant?.id;
-    const { clients, services, appointments, transactions, activityLogs } = useInventory();
-
-    const staffDocRef = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !user) return null;
-        return doc(firestore, 'tenants', tenantId, 'staff', user.uid);
-    }, [firestore, tenantId, user]);
-    const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
+    const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading } = useInventory();
     
+    const staffMember = useMemo(() => {
+        if (!user || !staff) return null;
+        return staff.find(s => s.id === user.uid);
+    }, [user, staff]);
+
     const todayStart = startOfDay(new Date());
     const todayEnd = endOfDay(new Date());
 
@@ -564,14 +561,15 @@ const StaffDashboardView = () => {
     const nextAppointment = upcomingAppointments?.[0];
 
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        if (!firestore || !user || !tenantId || !staffMember) return;
+        if (!staffMember?.id || !selectedTenant?.id) return;
+        const firestore = useFirebase().firestore;
     
-        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', user.uid);
+        const activityLogsRef = collection(firestore, 'tenants', selectedTenant.id, 'activityLogs');
+        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
         const now = new Date().toISOString();
     
         let staffUpdate: Partial<Staff> = {};
-        let logEntry: Omit<ActivityLog, 'id'> = { staffId: user.uid, type: action, timestamp: now };
+        let logEntry: Omit<ActivityLog, 'id'> = { staffId: staffMember.id, type: action, timestamp: now };
     
         switch (action) {
             case 'clock_in': staffUpdate = { active: true }; break;
@@ -606,7 +604,7 @@ const StaffDashboardView = () => {
         );
       };
 
-    if (staffLoading || isUserLoading) {
+    if (isUserLoading || isInventoryLoading) {
         return <Loader className="animate-spin" />;
     }
   
