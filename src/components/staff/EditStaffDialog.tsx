@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, KeyboardEvent } from 'react';
@@ -122,6 +123,7 @@ const editStaffSchema = z.object({
   role: z.enum(['admin', 'staff']),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
+  payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
   hourlyRate: z.coerce.number().min(0).optional(),
@@ -147,12 +149,21 @@ const editStaffSchema = z.object({
       documentUrl: z.string().optional(),
   }).optional(),
 }).superRefine((data, ctx) => {
-    if (data.payStructure === 'commission' && (data.commissionRate === undefined || data.commissionRate === null)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Commission rate is required.",
-            path: ["commissionRate"],
-        });
+    if (data.payStructure === 'commission') {
+        if (data.commissionRate === undefined || data.commissionRate === null) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Commission rate is required.",
+                path: ["commissionRate"],
+            });
+        }
+        if (!data.payoutFrequency) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Payout frequency is required for commission.",
+                path: ["payoutFrequency"],
+            });
+        }
     }
     if (data.payStructure === 'hourly' && (data.hourlyRate === undefined || data.hourlyRate === null)) {
         ctx.addIssue({
@@ -351,14 +362,33 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Wallet className="w-5 h-5 text-primary"/>Pay Structure</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <Controller name="payStructure" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="payStructure">Pay Structure</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="payStructure"><SelectValue placeholder="Select a pay structure" /></SelectTrigger><SelectContent><SelectItem value="commission">Commission</SelectItem><SelectItem value="hourly">Hourly</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select>{errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}</div> )}/>
+                             <Controller name="payStructure" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="payStructure-edit">Pay Structure</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="payStructure-edit"><SelectValue placeholder="Select a pay structure" /></SelectTrigger><SelectContent><SelectItem value="commission">Commission</SelectItem><SelectItem value="hourly">Hourly</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select>{errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}</div> )}/>
                             {payStructure === 'commission' && (
                                 <>
-                                <Controller name="commissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="commissionRate">Service Commission Rate (%)</Label><Input id="commissionRate" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
-                                <Controller name="retailCommissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="retailCommissionRate">Retail Commission Rate (%)</Label><Input id="retailCommissionRate" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
+                                <Controller name="commissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="commissionRate-edit">Service Commission Rate (%)</Label><Input id="commissionRate-edit" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
+                                <Controller name="retailCommissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="retailCommissionRate-edit">Retail Commission Rate (%)</Label><Input id="retailCommissionRate-edit" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
+                                 <Controller
+                                    name="payoutFrequency"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="payoutFrequency-edit">Payout Frequency</Label>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <SelectTrigger id="payoutFrequency-edit">
+                                                    <SelectValue placeholder="Select frequency" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="weekly">Weekly</SelectItem>
+                                                    <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {errors.payoutFrequency && <p className="text-sm text-destructive">{errors.payoutFrequency.message}</p>}
+                                        </div>
+                                    )}
+                                />
                                 </>
                             )}
-                            {payStructure === 'hourly' && ( <Controller name="hourlyRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="hourlyRate">Hourly Rate ($)</Label><Input id="hourlyRate" type="number" placeholder="e.g., 25" {...field} value={field.value ?? ''} />{errors.hourlyRate && <p className="text-sm text-destructive">{errors.hourlyRate.message}</p>}</div> )}/> )}
+                            {payStructure === 'hourly' && ( <Controller name="hourlyRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="hourlyRate-edit">Hourly Rate ($)</Label><Input id="hourlyRate-edit" type="number" placeholder="e.g., 25" {...field} value={field.value ?? ''} />{errors.hourlyRate && <p className="text-sm text-destructive">{errors.hourlyRate.message}</p>}</div> )}/> )}
                            </div>
                         </AccordionContent>
                     </AccordionItem>
@@ -366,15 +396,15 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Shield className="w-5 h-5 text-primary"/>Emergency Contact</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <div className="space-y-2"><Label htmlFor="emergencyContact.name">Contact Name</Label><Input id="emergencyContact.name" placeholder="e.g., John Barnes" {...register('emergencyContact.name')} /></div>
+                             <div className="space-y-2"><Label htmlFor="emergencyContact.name-edit">Contact Name</Label><Input id="emergencyContact.name-edit" placeholder="e.g., John Barnes" {...register('emergencyContact.name')} /></div>
                              <Controller
                                 name="emergencyContact.relationship"
                                 control={control}
                                 render={({ field }) => (
                                     <div className="space-y-2">
-                                        <Label htmlFor="emergencyContact.relationship">Relationship</Label>
+                                        <Label htmlFor="emergencyContact.relationship-edit">Relationship</Label>
                                         <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger id="emergencyContact.relationship">
+                                            <SelectTrigger id="emergencyContact.relationship-edit">
                                                 <SelectValue placeholder="Select a relationship" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -401,7 +431,7 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                             <div>
                                 <h4 className="font-semibold text-sm mb-2">Licensing</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                    <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
+                                    <div className="space-y-2"><Label htmlFor="compliance.licenseNumber-edit">License Number</Label><Input id="compliance.licenseNumber-edit" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
                                     <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
                                         <div className="space-y-2">
                                             <Label>License Expiry</Label>
@@ -505,6 +535,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             specialties: specialtiesString,
             avatarUrl: staffMember.avatarUrl || '',
             pricingTierId: staffMember.pricingTierId || '',
+            payoutFrequency: staffMember.payoutFrequency || 'weekly',
             instagramUrl: staffMember.instagramUrl || '',
             facebookUrl: staffMember.facebookUrl || '',
             tiktokUrl: staffMember.tiktokUrl || '',
@@ -649,3 +680,6 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
+
+
+    

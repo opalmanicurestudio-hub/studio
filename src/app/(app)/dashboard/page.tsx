@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -49,7 +50,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes, addWeeks, differenceInDays } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -512,52 +513,64 @@ const StaffDashboardView = () => {
         if (!user || !staff) return null;
         return staff.find(s => s.id === user.uid);
     }, [user, staff]);
+    
+    const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
+        const now = new Date();
+        if (staffMember?.payStructure === 'commission' && staffMember.payoutFrequency === 'bi-weekly') {
+            const epoch = new Date('2024-01-07T00:00:00.000Z'); // A known Sunday
+            const diffDays = differenceInDays(now, epoch);
+            const periodIndex = Math.floor(diffDays / 14);
+            const start = addDays(epoch, periodIndex * 14);
+            return { start: startOfDay(start), end: endOfDay(addDays(start, 13)), periodName: 'This Pay Period' };
+        }
+        // Default to weekly
+        return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfDay(now), periodName: 'This Week' };
+    }, [staffMember]);
 
-    const todayStart = startOfDay(new Date());
-    const todayEnd = endOfDay(new Date());
 
-    const appointmentsToday = useMemo(() => {
+    const appointmentsForPeriod = useMemo(() => {
       if (!appointments || !user) return [];
       return appointments.filter(apt => 
         apt.staffId === user.uid &&
-        new Date(apt.startTime) >= todayStart &&
-        new Date(apt.startTime) <= todayEnd
+        new Date(apt.startTime) >= periodStart &&
+        new Date(apt.startTime) <= periodEnd
       );
-    }, [appointments, user, todayStart, todayEnd]);
+    }, [appointments, user, periodStart, periodEnd]);
 
-    const transactionsToday = useMemo(() => {
+    const transactionsForPeriod = useMemo(() => {
         if (!transactions || !user) return [];
         return transactions.filter(t => {
             const transactionDate = new Date(t.date);
             return t.staffId === user.uid &&
-                   transactionDate >= todayStart &&
-                   transactionDate <= todayEnd;
+                   transactionDate >= periodStart &&
+                   transactionDate <= periodEnd;
         });
-    }, [transactions, user, todayStart, todayEnd]);
+    }, [transactions, user, periodStart, periodEnd]);
 
     const kpis = useMemo(() => {
-        if (!transactionsToday || !appointmentsToday) {
+        if (!transactionsForPeriod || !appointmentsForPeriod) {
             return { revenue: 0, tips: 0, completed: 0 };
         }
-        const revenue = transactionsToday
+        const revenue = transactionsForPeriod
             .filter(t => t.type === 'income' && t.category === 'Service Revenue')
             .reduce((sum, t) => sum + t.amount, 0);
-        const tips = transactionsToday.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
-        const completed = appointmentsToday.filter(a => a.status === 'completed').length;
+        const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
+        const completed = appointmentsForPeriod.filter(a => a.status === 'completed').length;
         return { revenue, tips, completed };
-    }, [transactionsToday, appointmentsToday]);
+    }, [transactionsForPeriod, appointmentsForPeriod]);
 
     const upcomingAppointments = useMemo(() => {
-        if (!appointmentsToday || !clients || !services) return [];
-        return appointmentsToday
-            .filter(a => a.status !== 'completed' && a.status !== 'cancelled')
+        if (!appointments || !user || !clients || !services) return [];
+        const now = new Date();
+        return appointments
+            .filter(a => a.staffId === user.uid && a.status !== 'completed' && a.status !== 'cancelled' && new Date(a.startTime) >= now)
             .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
             .map(apt => ({
                 ...apt,
                 client: clients.find(c => c.id === apt.clientId),
                 service: services.find(s => s.id === apt.serviceId),
             }));
-    }, [appointmentsToday, clients, services]);
+    }, [appointments, user, clients, services]);
 
     const nextAppointment = upcomingAppointments?.[0];
 
@@ -628,9 +641,9 @@ const StaffDashboardView = () => {
         </Card>
   
         <div className="grid gap-4 md:grid-cols-3">
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Today's Revenue</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.revenue.toFixed(2)}</p></CardContent></Card>
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.tips.toFixed(2)}</p></CardContent></Card>
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Revenue</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.revenue.toFixed(2)}</p></CardContent></Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Tips</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.tips.toFixed(2)}</p></CardContent></Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
         </div>
         
         {nextAppointment ? (
@@ -711,3 +724,5 @@ export default function DashboardPage() {
   );
 }
 
+
+    

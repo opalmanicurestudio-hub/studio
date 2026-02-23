@@ -74,6 +74,7 @@ const addStaffSchema = z.object({
   role: z.enum(['admin', 'staff']),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
+  payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
   hourlyRate: z.coerce.number().min(0).optional(),
@@ -100,12 +101,21 @@ const addStaffSchema = z.object({
         });
     }
 }).superRefine((data, ctx) => {
-    if (data.payStructure === 'commission' && (data.commissionRate === undefined || data.commissionRate === null)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Commission rate is required.",
-            path: ["commissionRate"],
-        });
+    if (data.payStructure === 'commission') {
+        if (data.commissionRate === undefined || data.commissionRate === null) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Commission rate is required.",
+                path: ["commissionRate"],
+            });
+        }
+        if (!data.payoutFrequency) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Payout frequency is required for commission.",
+                path: ["payoutFrequency"],
+            });
+        }
     }
     if (data.payStructure === 'hourly' && (data.hourlyRate === undefined || data.hourlyRate === null)) {
         ctx.addIssue({
@@ -261,6 +271,25 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                                     <>
                                         <Controller name="commissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="commissionRate">Service Commission Rate (%)</Label><Input id="commissionRate" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
                                         <Controller name="retailCommissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="retailCommissionRate">Retail Commission Rate (%)</Label><Input id="retailCommissionRate" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
+                                         <Controller
+                                            name="payoutFrequency"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="payoutFrequency">Payout Frequency</Label>
+                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <SelectTrigger id="payoutFrequency">
+                                                            <SelectValue placeholder="Select frequency" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="weekly">Weekly</SelectItem>
+                                                            <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    {errors.payoutFrequency && <p className="text-sm text-destructive">{errors.payoutFrequency.message}</p>}
+                                                </div>
+                                            )}
+                                        />
                                     </>
                                 )}
                                 {payStructure === 'hourly' && ( <Controller name="hourlyRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="hourlyRate">Hourly Rate ($)</Label><Input id="hourlyRate" type="number" placeholder="e.g., 25" {...field} value={field.value ?? ''} />{errors.hourlyRate && <p className="text-sm text-destructive">{errors.hourlyRate.message}</p>}</div> )}/> )}
@@ -386,6 +415,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       role: 'staff',
       pricingTierId: '',
       payStructure: 'commission',
+      payoutFrequency: 'weekly',
       commissionRate: 40,
       retailCommissionRate: 10,
       services: [],
@@ -406,6 +436,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         role: 'staff',
         pricingTierId: pricingTiers && pricingTiers.length > 0 ? pricingTiers[0].id : '',
         payStructure: 'commission',
+        payoutFrequency: 'weekly',
         commissionRate: 40,
         retailCommissionRate: 10,
         services: [],
@@ -442,3 +473,5 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   );
 };
 
+
+    

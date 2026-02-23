@@ -201,6 +201,7 @@
         },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
+        "payoutFrequency": { "type": "string", "enum": ["weekly", "bi-weekly"], "description": "The frequency of payouts for commission-based staff." },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
         "retailCommissionRate": { "type": "number", "description": "Commission rate on retail sales as a percentage." },
         "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
@@ -1221,6 +1222,8 @@
     }
   }
 }
+    
+
     
 
     
