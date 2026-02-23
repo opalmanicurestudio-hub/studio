@@ -160,12 +160,12 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     
     return transactions.filter(t => {
       if(t.staffId !== staffMember.id) return false;
-      const transactionDate = t.date;
+      const transactionDate = new Date(t.date);
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.clientOrVendor.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
-    }).sort((a,b) => b.date.getTime() - a.date.getTime());
+    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
     
   const dateRangeString = dateRange?.from && dateRange.to
@@ -298,6 +298,24 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       <div className="hidden print:block">
         <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={services} appointments={appointments} />
       </div>
+
+       <style jsx global>{`
+        @media print {
+          body > *:not(.print-only) {
+            display: none;
+          }
+          .print-only, .print-only * {
+            display: block !important;
+            visibility: visible !important;
+          }
+          .print-only {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+        }
+      `}</style>
     </>
   );
 };

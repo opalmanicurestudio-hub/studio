@@ -111,7 +111,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                         {transactions.length > 0 ? (
                         transactions.map(t => (
                             <TableRow key={t.id}>
-                            <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                            <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
                             <TableCell>{t.description}</TableCell>
                             <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 text-green-800' : ''}>{t.category}</Badge></TableCell>
                             <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
@@ -123,13 +123,6 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                     </TableBody>
                 </Table>
             </section>
-            <style jsx global>{`
-                @media print {
-                    .break-before-page {
-                        page-break-before: always;
-                    }
-                }
-            `}</style>
         </div>
     );
 });
