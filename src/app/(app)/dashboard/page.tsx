@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { type Appointment, type Transaction, type Service } from '@/lib/data';
+import { type Appointment, type Transaction, type Service, Staff, ActivityLog } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -48,14 +48,15 @@ import {
 import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useCollection, useFirebase, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, where, Timestamp } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek } from 'date-fns';
+import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
+import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const barChartConfig = {
   profit: {
@@ -503,52 +504,131 @@ const OwnerDashboard = () => {
 };
 
 const StaffDashboardView = () => {
-    const { user } = useUser();
-    const staffName = user?.displayName?.split(' ')[0] || 'Staff';
-  
-    // Mock data for demonstration purposes
-    const kpis = { revenue: 245.00, tips: 45.00, completed: 3 };
-    const upcomingAppointments = [
-        { id: 1, time: '10:00 AM', client: 'Alice Johnson', service: 'Signature Haircut', status: 'upcoming' },
-        { id: 2, time: '11:30 AM', client: 'Bob Williams', service: 'Beard Trim', status: 'upcoming' },
-        { id: 3, time: '02:00 PM', client: 'Charlie Brown', service: 'Color & Cut', status: 'upcoming' },
-    ];
-    const nextAppointment = upcomingAppointments[0];
-  
-    const [status, setStatus] = useState<'clocked-out' | 'idle' | 'on-break'>('idle');
-  
-    const renderStatusControls = () => {
-      switch (status) {
-        case 'clocked-out':
-          return <Button size="lg" className="w-full h-12" onClick={() => setStatus('idle')}>Clock In</Button>;
-        case 'idle':
-          return (
-            <div className="grid grid-cols-2 gap-4">
-              <Button size="lg" variant="outline" onClick={() => setStatus('on-break')}>Start Break</Button>
-              <Button size="lg" variant="destructive" onClick={() => setStatus('clocked-out')}>Clock Out</Button>
-            </div>
-          );
-        case 'on-break':
-          return <Button size="lg" className="w-full h-12" onClick={() => setStatus('idle')}>End Break</Button>;
-        default:
-          return null;
-      }
+    const { user, isUserLoading } = useUser();
+    const { selectedTenant, firestore } = useTenant();
+    const tenantId = selectedTenant?.id;
+    const { clients, services } = useInventory();
+
+    const staffDocRef = useMemoFirebase(() => {
+        if (!firestore || !tenantId || !user) return null;
+        return doc(firestore, 'tenants', tenantId, 'staff', user.uid);
+    }, [firestore, tenantId, user]);
+    const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
+    
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(new Date());
+
+    const appointmentsQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId || !user) return null;
+        return query(
+            collection(firestore, `tenants/${tenantId}/appointments`),
+            where('staffId', '==', user.uid),
+            where('startTime', '>=', todayStart),
+            where('startTime', '<=', todayEnd)
+        );
+    }, [firestore, tenantId, user, todayStart, todayEnd]);
+    const { data: appointmentsToday } = useCollection<Appointment>(appointmentsQuery);
+
+    const transactionsQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId || !user) return null;
+        return query(
+            collection(firestore, `tenants/${tenantId}/transactions`),
+            where('staffId', '==', user.uid),
+            where('date', '>=', todayStart.toISOString()),
+            where('date', '<=', todayEnd.toISOString())
+        );
+    }, [firestore, tenantId, user, todayStart, todayEnd]);
+    const { data: transactionsToday } = useCollection<Transaction>(transactionsQuery);
+
+    const kpis = useMemo(() => {
+        if (!transactionsToday || !appointmentsToday) {
+            return { revenue: 0, tips: 0, completed: 0 };
+        }
+        const revenue = transactionsToday
+            .filter(t => t.type === 'income' && t.category === 'Service Revenue')
+            .reduce((sum, t) => sum + t.amount, 0);
+        const tips = transactionsToday.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
+        const completed = appointmentsToday.filter(a => a.status === 'completed').length;
+        return { revenue, tips, completed };
+    }, [transactionsToday, appointmentsToday]);
+
+    const upcomingAppointments = useMemo(() => {
+        if (!appointmentsToday || !clients || !services) return [];
+        return appointmentsToday
+            .filter(a => a.status !== 'completed' && a.status !== 'cancelled')
+            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+            .map(apt => ({
+                ...apt,
+                client: clients.find(c => c.id === apt.clientId),
+                service: services.find(s => s.id === apt.serviceId),
+            }));
+    }, [appointmentsToday, clients, services]);
+
+    const nextAppointment = upcomingAppointments?.[0];
+
+    const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        if (!firestore || !user || !tenantId || !staffMember) return;
+    
+        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', user.uid);
+        const now = new Date().toISOString();
+    
+        let staffUpdate: Partial<Staff> = {};
+        let logEntry: Omit<ActivityLog, 'id'> = { staffId: user.uid, type: action, timestamp: now };
+    
+        switch (action) {
+            case 'clock_in': staffUpdate = { active: true }; break;
+            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+            case 'break_end':
+                if (staffMember.breakStartTime) {
+                    const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
+                    logEntry.durationMinutes = duration;
+                }
+                staffUpdate = { onBreak: false, breakStartTime: undefined };
+                break;
+        }
+    
+        addDocumentNonBlocking(activityLogsRef, logEntry);
+        updateDocumentNonBlocking(staffDocRef, staffUpdate);
     };
+
+    const renderActionButtons = () => {
+        if (!staffMember) return null;
+        if (!staffMember.active) {
+          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChange('clock_in')}>Clock In</Button>;
+        }
+        if (staffMember.onBreak) {
+          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChange('break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>;
+        }
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <Button size="lg" variant="outline" onClick={() => handleStatusChange('break_start')}>Start Break</Button>
+            <Button size="lg" variant="destructive" onClick={() => handleStatusChange('clock_out')}>Clock Out</Button>
+          </div>
+        );
+      };
+
+    if (staffLoading || isUserLoading) {
+        return <Loader className="animate-spin" />;
+    }
   
     return (
       <div className="space-y-6">
         <Card className="text-center">
           <CardHeader>
-            <CardTitle className="text-3xl">Welcome, {staffName}!</CardTitle>
-             <Badge variant={status === 'idle' ? 'default' : 'secondary'} className={cn("capitalize w-fit mx-auto", {
-                'bg-green-100 text-green-800 dark:bg-green-900/50': status === 'idle',
-                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': status === 'on-break',
-             })}>
-                {status.replace('-', ' ')}
-            </Badge>
+            <CardTitle className="text-3xl">Welcome, {user?.displayName?.split(' ')[0] || 'Staff'}!</CardTitle>
+            {staffMember && (
+                 <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto", {
+                    'bg-green-100 text-green-800 dark:bg-green-900/50': staffMember.active && !staffMember.onBreak,
+                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': staffMember.active && staffMember.onBreak,
+                 })}>
+                    {staffMember.active ? (staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
+                </Badge>
+            )}
           </CardHeader>
           <CardContent>
-            {renderStatusControls()}
+            {renderActionButtons()}
           </CardContent>
         </Card>
   
@@ -558,26 +638,30 @@ const StaffDashboardView = () => {
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
         </div>
         
-        {nextAppointment && (
+        {nextAppointment ? (
           <Card className="border-primary ring-2 ring-primary/50">
             <CardHeader><CardTitle>Up Next</CardTitle></CardHeader>
             <CardContent>
                 <div className="flex items-center gap-4">
-                    <Avatar className="h-12 w-12"><AvatarFallback>{nextAppointment.client.charAt(0)}</AvatarFallback></Avatar>
+                    <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl} /><AvatarFallback>{nextAppointment.client?.name.charAt(0)}</AvatarFallback></Avatar>
                     <div>
-                    <p className="font-semibold">{nextAppointment.client}</p>
-                    <p className="text-sm text-muted-foreground">{nextAppointment.service}</p>
+                    <p className="font-semibold">{nextAppointment.client?.name}</p>
+                    <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                     </div>
                     <div className="ml-auto text-right">
-                    <p className="font-bold">{nextAppointment.time}</p>
+                    <p className="font-bold">{formatDate(new Date(nextAppointment.startTime), 'h:mm a')}</p>
                     </div>
                 </div>
             </CardContent>
             <CardFooter>
-                <Button className="w-full">Start Service</Button>
+                <Button asChild className="w-full">
+                   <Link href={`/planner?view=staff&staffId=${user?.uid}`}>
+                     View Details
+                   </Link>
+                </Button>
             </CardFooter>
           </Card>
-        )}
+        ) : <p className="text-center text-muted-foreground pt-4">No upcoming appointments today.</p>}
   
         <Card>
           <CardHeader><CardTitle>Today's Schedule</CardTitle></CardHeader>
@@ -586,12 +670,16 @@ const StaffDashboardView = () => {
               <div className="space-y-4">
                 {upcomingAppointments.map((apt) => (
                   <div key={apt.id} className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/50">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{apt.time}</div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{formatDate(new Date(apt.startTime), 'h:mm a')}</div>
                     <div className="flex-1">
-                      <p className="font-medium">{apt.client}</p>
-                      <p className="text-sm text-muted-foreground">{apt.service}</p>
+                      <p className="font-medium">{apt.client?.name}</p>
+                      <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
                     </div>
-                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" asChild>
+                        <Link href="/planner">
+                           <MoreHorizontal className="h-4 w-4" />
+                        </Link>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -627,4 +715,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
