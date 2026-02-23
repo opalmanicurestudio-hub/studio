@@ -1179,30 +1179,38 @@ function PlannerPageContent() {
                         <div className="flex items-center gap-1">
                             <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
                             <div className="flex items-center gap-0.5">
-                                <Button variant="ghost" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-5 h-5" /></Button>
-                                <Button variant="ghost" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                                    <BellRing className={cn("h-5 w-5", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                                    {dailyBillInstances.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
-                                </Button>
+                                {role === 'owner' && (
+                                    <>
+                                        <Button variant="ghost" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-5 h-5" /></Button>
+                                        <Button variant="ghost" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                                            <BellRing className={cn("h-5 w-5", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                                            {dailyBillInstances.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
+                                        </Button>
+                                    </>
+                                )}
                                 <Button variant="ghost" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-5 h-5" /></Button>
                                 <Button variant="ghost" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-5 h-5" /></Button>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon">
-                                            <Globe className="h-5 w-5" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
-                                        <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                {role === 'owner' && (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" size="icon">
+                                                <Globe className="h-5 w-5" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
+                                            <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
                             </div>
                         </div>
-                         <div className="text-sm font-medium text-muted-foreground flex items-center justify-center gap-1.5 pt-1">
-                            <DollarSign className="w-4 h-4" />
-                            <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
-                        </div>
+                        {role === 'owner' && (
+                            <div className="text-sm font-medium text-muted-foreground flex items-center justify-center gap-1.5 pt-1">
+                                <DollarSign className="w-4 h-4" />
+                                <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
+                            </div>
+                        )}
                     </div>
                 ) : (
                      <div className="flex items-center justify-between gap-4">
@@ -1268,42 +1276,50 @@ function PlannerPageContent() {
                             </RadioGroup>
                         </div>
                          <div className="flex items-center justify-end gap-2">
-                             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-r pr-4 mr-2">
-                                <DollarSign className="w-4 h-4" />
-                                <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
-                            </div>
+                             {role === 'owner' && (
+                                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-r pr-4 mr-2">
+                                    <DollarSign className="w-4 h-4" />
+                                    <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
+                                </div>
+                             )}
                             <TooltipProvider>
-                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
-                                <Tooltip><TooltipTrigger asChild>
-                                    <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                                        <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                                        {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                                        <span className="sr-only">Bills Due Today</span>
-                                    </Button>
-                                </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
+                                {role === 'owner' && (
+                                    <>
+                                        <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                                        <Tooltip><TooltipTrigger asChild>
+                                            <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                                                <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                                                {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                                                <span className="sr-only">Bills Due Today</span>
+                                            </Button>
+                                        </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
+                                    </>
+                                )}
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" size="icon">
-                                                    <Globe className="h-4 w-4" />
-                                                    <span className="sr-only">Public Pages</span>
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem asChild>
-                                                    <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        <p>Public Pages</p>
-                                    </TooltipContent>
-                                </Tooltip>
+                                {role === 'owner' && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="outline" size="icon">
+                                                        <Globe className="h-4 w-4" />
+                                                        <span className="sr-only">Public Pages</span>
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem asChild>
+                                                        <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem asChild><Link href={`/kiosk/${tenantId}`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p>Public Pages</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
                             </TooltipProvider>
                             <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                             <Button size="sm" onClick={() => handleBookNewForClient('')}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
@@ -1350,7 +1366,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1387,7 +1403,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1479,8 +1495,12 @@ function PlannerPageContent() {
             onConfirm={handleUpdateEvent}
         />
        )}
-        <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
-        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={dailyBillInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
+        {role === 'owner' && (
+          <>
+            <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
+            <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={dailyBillInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
+          </>
+        )}
         
         <PickingListDialog
             open={isPickingListOpen}
@@ -1595,3 +1615,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
