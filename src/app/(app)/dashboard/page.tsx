@@ -10,6 +10,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import {
   Users,
@@ -19,7 +20,10 @@ import {
   Sparkles,
   Loader,
   TrendingUp,
-  HeartHandshake
+  HeartHandshake,
+  Clock,
+  MoreHorizontal,
+  Coffee
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -44,12 +48,14 @@ import {
 import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 const barChartConfig = {
   profit: {
@@ -497,20 +503,106 @@ const OwnerDashboard = () => {
 };
 
 const StaffDashboardView = () => {
-    // This is a placeholder for the staff dashboard.
-    // In a real implementation, you would fetch and display staff-specific data.
+    const { user } = useUser();
+    const staffName = user?.displayName?.split(' ')[0] || 'Staff';
+  
+    // Mock data for demonstration purposes
+    const kpis = { revenue: 245.00, tips: 45.00, completed: 3 };
+    const upcomingAppointments = [
+        { id: 1, time: '10:00 AM', client: 'Alice Johnson', service: 'Signature Haircut', status: 'upcoming' },
+        { id: 2, time: '11:30 AM', client: 'Bob Williams', service: 'Beard Trim', status: 'upcoming' },
+        { id: 3, time: '02:00 PM', client: 'Charlie Brown', service: 'Color & Cut', status: 'upcoming' },
+    ];
+    const nextAppointment = upcomingAppointments[0];
+  
+    const [status, setStatus] = useState<'clocked-out' | 'idle' | 'on-break'>('idle');
+  
+    const renderStatusControls = () => {
+      switch (status) {
+        case 'clocked-out':
+          return <Button size="lg" className="w-full h-12" onClick={() => setStatus('idle')}>Clock In</Button>;
+        case 'idle':
+          return (
+            <div className="grid grid-cols-2 gap-4">
+              <Button size="lg" variant="outline" onClick={() => setStatus('on-break')}>Start Break</Button>
+              <Button size="lg" variant="destructive" onClick={() => setStatus('clocked-out')}>Clock Out</Button>
+            </div>
+          );
+        case 'on-break':
+          return <Button size="lg" className="w-full h-12" onClick={() => setStatus('idle')}>End Break</Button>;
+        default:
+          return null;
+      }
+    };
+  
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle>My Dashboard</CardTitle>
-                <CardDescription>Your upcoming appointments and daily stats.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <p>Welcome to your staff dashboard. This area will show your schedule and performance metrics.</p>
-            </CardContent>
+      <div className="space-y-6">
+        <Card className="text-center">
+          <CardHeader>
+            <CardTitle className="text-3xl">Welcome, {staffName}!</CardTitle>
+             <Badge variant={status === 'idle' ? 'default' : 'secondary'} className={cn("capitalize w-fit mx-auto", {
+                'bg-green-100 text-green-800 dark:bg-green-900/50': status === 'idle',
+                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': status === 'on-break',
+             })}>
+                {status.replace('-', ' ')}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            {renderStatusControls()}
+          </CardContent>
         </Card>
+  
+        <div className="grid gap-4 md:grid-cols-3">
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Today's Revenue</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.revenue.toFixed(2)}</p></CardContent></Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.tips.toFixed(2)}</p></CardContent></Card>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
+        </div>
+        
+        {nextAppointment && (
+          <Card className="border-primary ring-2 ring-primary/50">
+            <CardHeader><CardTitle>Up Next</CardTitle></CardHeader>
+            <CardContent>
+                <div className="flex items-center gap-4">
+                    <Avatar className="h-12 w-12"><AvatarFallback>{nextAppointment.client.charAt(0)}</AvatarFallback></Avatar>
+                    <div>
+                    <p className="font-semibold">{nextAppointment.client}</p>
+                    <p className="text-sm text-muted-foreground">{nextAppointment.service}</p>
+                    </div>
+                    <div className="ml-auto text-right">
+                    <p className="font-bold">{nextAppointment.time}</p>
+                    </div>
+                </div>
+            </CardContent>
+            <CardFooter>
+                <Button className="w-full">Start Service</Button>
+            </CardFooter>
+          </Card>
+        )}
+  
+        <Card>
+          <CardHeader><CardTitle>Today's Schedule</CardTitle></CardHeader>
+          <CardContent>
+            {upcomingAppointments.length > 0 ? (
+              <div className="space-y-4">
+                {upcomingAppointments.map((apt) => (
+                  <div key={apt.id} className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{apt.time}</div>
+                    <div className="flex-1">
+                      <p className="font-medium">{apt.client}</p>
+                      <p className="text-sm text-muted-foreground">{apt.service}</p>
+                    </div>
+                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground py-8">No upcoming appointments today.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
-}
+};
 
 export default function DashboardPage() {
   const { role, isLoading } = useTenant();
