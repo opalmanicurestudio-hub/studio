@@ -824,7 +824,7 @@ const StaffDashboardView = () => {
             {renderActionButtons()}
           </CardContent>
           <CardFooter>
-            <Button variant="secondary" className="w-full" onClick={() => setIsDetailsSheetOpen(true)}>View Activity &amp; Print</Button>
+            <Button variant="secondary" className="w-full" onClick={() => setIsDetailsSheetOpen(true)}>View Activity</Button>
           </CardFooter>
         </Card>
   
@@ -927,5 +927,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
