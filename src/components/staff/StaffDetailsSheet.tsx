@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -298,20 +299,26 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
           </SheetFooter>
         </SheetContent>
       </Sheet>
-      <div className="print-only">
+      <div id="staff-report-print-area">
         <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={staffServices} appointments={appointments} />
       </div>
 
        <style jsx global>{`
-        .print-only {
+        #staff-report-print-area {
           display: none;
         }
         @media print {
-          .no-print {
-            display: none !important;
+          body * {
+            visibility: hidden;
           }
-          .print-only {
-            display: block !important;
+          #staff-report-print-area, #staff-report-print-area * {
+            visibility: visible;
+          }
+          #staff-report-print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
           }
         }
       `}</style>
