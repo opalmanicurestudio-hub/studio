@@ -23,7 +23,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm, PricingTier } from '@/lib/data';
-import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
+import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
@@ -35,7 +35,7 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
   AlertDialog,
@@ -53,8 +53,11 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 import { Reorder } from 'framer-motion';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '../ui/label';
+import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { firebaseConfig } from '@/firebase/config';
 
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[] }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
@@ -491,23 +494,80 @@ export default function StaffPage() {
     setIsEditStaffOpen(true);
   };
 
-  const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
-    if (!firestore || !tenantId) return;
+  const handleAddStaff = async (data: AddStaffFormData) => {
+    if (!firestore || !tenantId || !user) return;
 
-    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; tenantId: string; active: boolean; onBreak: boolean; status: 'idle'; } = {
-      ...newStaffData,
-      id: `staff-${nanoid()}`,
-      tenantId: tenantId,
-      avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
-      active: false,
-      onBreak: false,
-      status: 'idle',
-    };
-    
-    const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
+    // Use a unique name for the temporary app
+    const tempAppName = `temp-signup-app-${nanoid()}`;
+    let tempApp: FirebaseApp | undefined;
 
-    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
-    setDocumentNonBlocking(staffDocRef, sanitizedData, {});
+    try {
+      // Initialize a temporary secondary Firebase app
+      tempApp = initializeApp(firebaseConfig, tempAppName);
+      const tempAuth = getAuth(tempApp);
+
+      // Create the user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(tempAuth, data.email, data.password);
+      const newAuthUser = userCredential.user;
+      
+      const staffId = newAuthUser.uid;
+
+      // Prepare the staff data for Firestore, excluding passwords
+      const { password, confirmPassword, ...staffDataForDb } = data;
+
+      const fullStaffObject: Staff = {
+        ...(staffDataForDb as Omit<AddStaffFormData, 'password' | 'confirmPassword'>), // Cast to ensure type safety
+        id: staffId,
+        tenantId: tenantId,
+        avatarUrl: data.avatarUrl || '',
+        active: false,
+        onBreak: false,
+        status: 'idle',
+        specialties: typeof data.specialties === 'string' ? data.specialties.split(',').map(s => s.trim()).filter(Boolean) : [],
+        services: data.services || [],
+        assignedFormIds: data.assignedFormIds || [],
+        payStructure: data.payStructure || 'commission',
+        commissionRate: data.commissionRate || 0,
+        hourlyRate: data.hourlyRate,
+      };
+
+      const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
+
+      // Create documents in a batch
+      const batch = writeBatch(firestore);
+      const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+      const staffDirectoryRef = doc(firestore, 'staffDirectory', staffId);
+
+      batch.set(staffDocRef, sanitizedData);
+      batch.set(staffDirectoryRef, {
+          tenantId: tenantId,
+          role: sanitizedData.role
+      });
+
+      await batch.commit();
+      
+      toast({
+        title: 'Staff Member Added',
+        description: `${data.name} can now log in with their credentials.`,
+      });
+      
+    } catch (error: any) {
+      console.error("Error adding staff:", error);
+      let description = 'An unexpected error occurred.';
+      if (error.code === 'auth/email-already-in-use') {
+        description = 'This email is already in use by another account.';
+      }
+      toast({
+        variant: 'destructive',
+        title: 'Failed to Add Staff',
+        description,
+      });
+    } finally {
+      // Clean up the temporary app instance
+      if (tempApp) {
+        await deleteApp(tempApp);
+      }
+    }
   };
 
   const handleUpdateStaff = (updatedStaffData: Staff) => {

@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -59,6 +58,8 @@ import { doc } from 'firebase/firestore';
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
+  password: z.string().min(6, 'Password must be at least 6 characters.'),
+  confirmPassword: z.string(),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
   bio: z.string().optional(),
@@ -90,6 +91,14 @@ const addStaffSchema = z.object({
       licenseExpiry: z.date().optional(),
       documentUrl: z.string().optional(),
   }).optional(),
+}).superRefine(({ confirmPassword, password }, ctx) => {
+    if (confirmPassword !== password) {
+        ctx.addIssue({
+            code: "custom",
+            message: "The passwords do not match",
+            path: ['confirmPassword'],
+        });
+    }
 }).superRefine((data, ctx) => {
     if (data.payStructure === 'commission' && (data.commissionRate === undefined || data.commissionRate === null)) {
         ctx.addIssue({
@@ -108,12 +117,12 @@ const addStaffSchema = z.object({
 });
 
 
-type AddStaffFormData = z.infer<typeof addStaffSchema>;
+export type AddStaffFormData = z.infer<typeof addStaffSchema>;
 
 interface AddStaffDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (staffData: Omit<Staff, 'id' | 'avatarUrl'>) => void;
+  onSave: (staffData: AddStaffFormData) => void;
   services: Service[];
   consentForms: ConsentForm[];
   pricingTiers: PricingTier[];
@@ -135,6 +144,9 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
         return consentForms.filter(f => assignedFormIds.includes(f.id));
     }, [assignedFormIds, consentForms]);
 
+    const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    
+
     return (
         <>
             <div className="space-y-6">
@@ -142,7 +154,7 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                     <AccordionItem value="item-1" className="border rounded-lg">
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><User className="w-5 h-5 text-primary"/>Basic Information</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
-                            <div className="flex flex-col items-center gap-4 mt-4 mb-6">
+                             <div className="flex flex-col items-center gap-4 mt-4 mb-6">
                                 <Controller
                                     name="avatarUrl"
                                     control={control}
@@ -160,6 +172,12 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                                 <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
+                                <div className="space-y-2"><Label htmlFor="password">Password</Label><Input id="password" type="password" {...register('password')} />{errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}</div>
+                                <div className="space-y-2"><Label htmlFor="confirmPassword">Confirm Password</Label><Input id="confirmPassword" type="password" {...register('confirmPassword')} />{errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>}</div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
                                     <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
@@ -377,15 +395,14 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const { handleSubmit, reset } = methods;
   const isMobile = useIsMobile();
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const tenantId = selectedTenant?.id;
   
   useEffect(() => {
     if (open) {
       reset({
         name: '',
         email: '',
+        password: '',
+        confirmPassword: '',
         role: 'staff',
         pricingTierId: pricingTiers && pricingTiers.length > 0 ? pricingTiers[0].id : '',
         payStructure: 'commission',
@@ -396,53 +413,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       });
     }
   }, [open, reset, pricingTiers]);
-
-  const handleSave = (data: AddStaffFormData) => {
-    if (!firestore || !tenantId) return;
-
-    const formatUrl = (url?: string) => {
-        if (url && !/^(https?:\/\/)/i.test(url)) {
-            return `https://${url}`;
-        }
-        return url;
-    };
-
-    const newStaffData: Omit<Staff, 'id' | 'avatarUrl'> = {
-        ...data,
-        specialties: data.specialties?.split(',').map(s => s.trim()).filter(s => s),
-        commissionRate: data.commissionRate || 0,
-        retailCommissionRate: data.retailCommissionRate || 0,
-        hourlyRate: data.hourlyRate,
-        services: data.services || [],
-        assignedFormIds: data.assignedFormIds || [],
-        pricingTierId: data.pricingTierId,
-        instagramUrl: formatUrl(data.instagramUrl),
-        facebookUrl: formatUrl(data.facebookUrl),
-        tiktokUrl: formatUrl(data.tiktokUrl),
-        twitterUrl: formatUrl(data.twitterUrl),
-        pinterestUrl: formatUrl(data.pinterestUrl),
-        youtubeUrl: formatUrl(data.youtubeUrl),
-        portfolioUrl: formatUrl(data.portfolioUrl),
-        compliance: data.compliance?.licenseExpiry 
-            ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
-            : undefined
-    };
-
-    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; tenantId: string; active: boolean; onBreak: boolean; status: 'idle'; } = {
-      ...newStaffData,
-      id: `staff-${nanoid()}`,
-      tenantId: tenantId,
-      avatarUrl: data.avatarUrl || '',
-      active: false,
-      onBreak: false,
-      status: 'idle',
-    };
-    
-    const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
-
-    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
-    setDocumentNonBlocking(staffDocRef, sanitizedData, {});
-  };
   
   const DialogComponent = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
@@ -451,7 +421,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={isMobile ? "h-[90vh] p-0 flex flex-col" : "sm:max-w-2xl max-h-[90vh] flex flex-col"}>
             <FormProvider {...methods}>
-                <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(handleSave)} className="flex-1 flex flex-col overflow-hidden">
+                <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(onSave)} className="flex-1 flex flex-col overflow-hidden">
                     <DialogHeader className="p-6 pb-0">
                         <DialogTitle>Add New Staff Member</DialogTitle>
                         <DialogDescription>
@@ -471,3 +441,5 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     </DialogComponent>
   );
 };
+
+    
