@@ -116,7 +116,6 @@ export function AppSidebar() {
   const staffNavItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'My Dashboard' },
     { href: '/planner', icon: Calendar, label: 'My Planner' },
-    { href: '/clients', icon: Users, label: 'My Clients' },
     ];
 
 
@@ -250,4 +249,5 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
 

@@ -3,6 +3,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package, Loader } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,7 +67,8 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 export default function ClientsPage() {
   const { firestore, user } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  const router = useRouter();
   const tenantId = selectedTenant?.id;
 
   const { clients, appointments, transactions } = useInventory();
@@ -84,6 +86,12 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
+    useEffect(() => {
+        if (!isTenantLoading && role === 'staff') {
+            router.replace('/dashboard');
+        }
+    }, [role, isTenantLoading, router]);
+
   const handleAddClient = (data: ClientFormData) => {
     if (!firestore || !tenantId) return;
 
@@ -334,6 +342,18 @@ export default function ClientsPage() {
         </Card>
     );
   };
+  
+    if (isTenantLoading || role === 'staff') {
+        return (
+            <div className="flex min-h-screen w-full flex-col">
+                <AppHeader title="Client Log" />
+                <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+                    <Loader className="w-8 h-8 animate-spin" />
+                </main>
+            </div>
+        );
+    }
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -482,4 +502,3 @@ export default function ClientsPage() {
   );
 }
 
-    

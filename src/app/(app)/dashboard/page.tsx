@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -613,7 +614,7 @@ const StaffDashboardView = () => {
       <div className="space-y-6">
         <Card className="text-center">
           <CardHeader>
-            <CardTitle className="text-3xl">Welcome, {user?.displayName?.split(' ')[0] || 'Staff'}!</CardTitle>
+            <CardTitle className="text-3xl">Welcome, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
             {staffMember && (
                  <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto", {
                     'bg-green-100 text-green-800 dark:bg-green-900/50': staffMember.active && !staffMember.onBreak,
@@ -712,4 +713,3 @@ export default function DashboardPage() {
   );
 }
 
-    

@@ -48,7 +48,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
 import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -88,8 +88,9 @@ function PlannerPageContent() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
-  const { firestore, user, isUserLoading } = useFirebase();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { user, isUserLoading } = useUser();
+  const { selectedTenant, isLoading: isTenantLoading, role } = useTenant();
+  const firestore = useFirebase().firestore;
   const tenantId = selectedTenant?.id;
   const router = useRouter();
   
@@ -287,10 +288,12 @@ function PlannerPageContent() {
     }, [appointments, services, clients, toast, notifiedOvertime]);
 
   useEffect(() => {
-    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
+    if (role === 'staff' && user) {
+        setMobileSelectedStaffId(user.uid);
+    } else if (staff && staff.length > 0 && !mobileSelectedStaffId) {
       setMobileSelectedStaffId(staff[0].id);
     }
-  }, [staff, mobileSelectedStaffId]);
+  }, [staff, mobileSelectedStaffId, role, user]);
 
   const weekStart = useMemo(() => {
     return startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -496,13 +499,16 @@ function PlannerPageContent() {
   }, [itemsByColumnRaw, activeView, staff, resources]);
 
   const staffToDisplay = useMemo(() => {
+    if (role === 'staff' && user) {
+        return (staff || []).filter(s => s.id === user.uid);
+    }
     if (isMobile && activeView === 'staff') {
         if (!mobileSelectedStaffId || !staff) return [];
         const selected = (staff || []).find(s => s.id === mobileSelectedStaffId);
         return selected ? [selected] : [];
     }
     return staff || [];
-  }, [isMobile, mobileSelectedStaffId, staff, activeView]);
+  }, [role, user, isMobile, mobileSelectedStaffId, staff, activeView]);
 
   const columnsToDisplay = useMemo(() => {
     if (activeView === 'staff') {
