@@ -50,7 +50,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes, addWeeks, differenceInDays } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -548,16 +548,67 @@ const StaffDashboardView = () => {
     }, [transactions, user, periodStart, periodEnd]);
 
     const kpis = useMemo(() => {
-        if (!transactionsForPeriod || !appointmentsForPeriod) {
-            return { revenue: 0, tips: 0, completed: 0 };
+        if (!transactionsForPeriod || !appointmentsForPeriod || !staffMember || !activityLogs) {
+            return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
         }
-        const revenue = transactionsForPeriod
+        const serviceRevenue = transactionsForPeriod
             .filter(t => t.type === 'income' && t.category === 'Service Revenue')
             .reduce((sum, t) => sum + t.amount, 0);
+
+        const retailSales = transactionsForPeriod
+            .filter(t => t.type === 'income' && t.category === 'Retail')
+            .reduce((sum, t) => sum + t.amount, 0);
+
         const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
         const completed = appointmentsForPeriod.filter(a => a.status === 'completed').length;
-        return { revenue, tips, completed };
-    }, [transactionsForPeriod, appointmentsForPeriod]);
+        
+        let earnings = 0;
+        if (staffMember.payStructure === 'commission') {
+            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+            const staffLogsForPeriod = (activityLogs || []).filter(log => {
+                if (log.staffId !== staffMember.id) return false;
+                const logDate = new Date(log.timestamp);
+                return logDate >= periodStart && logDate <= periodEnd;
+            });
+            
+            const sortedLogs = staffLogsForPeriod.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+            let totalMinutesWorked = 0;
+            let clockInTime: Date | null = null;
+            let totalBreakMinutes = 0;
+            
+            for (const log of sortedLogs) {
+                const logTime = new Date(log.timestamp);
+                if (log.type === 'clock_in') {
+                    if (clockInTime) {
+                        totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
+                    }
+                    clockInTime = logTime;
+                    totalBreakMinutes = 0;
+                } else if (log.type === 'clock_out' && clockInTime) {
+                    let sessionEnd = logTime;
+                    if (sessionEnd > periodEnd) sessionEnd = periodEnd;
+                    totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+                    clockInTime = null;
+                } else if (log.type === 'break_end' && log.durationMinutes) {
+                    totalBreakMinutes += log.durationMinutes;
+                }
+            }
+            if(clockInTime) {
+                const endOfRange = periodEnd < new Date() ? periodEnd : new Date();
+                totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
+            }
+
+            const hoursWorked = totalMinutesWorked / 60;
+            earnings = hoursWorked * staffMember.hourlyRate;
+        }
+        
+        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+        earnings += tips + retailCommission;
+        
+        return { revenue: serviceRevenue, tips, completed, earnings };
+
+    }, [transactionsForPeriod, appointmentsForPeriod, staffMember, activityLogs, periodStart, periodEnd]);
 
     const upcomingAppointments = useMemo(() => {
         if (!appointments || !user || !clients || !services) return [];
@@ -575,7 +626,7 @@ const StaffDashboardView = () => {
     const nextAppointment = upcomingAppointments?.[0];
 
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        if (!staffMember?.id || !selectedTenant?.id) return;
+        if (!staffMember?.id || !selectedTenant?.id || !firestore) return;
     
         const activityLogsRef = collection(firestore, 'tenants', selectedTenant.id, 'activityLogs');
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
@@ -641,13 +692,16 @@ const StaffDashboardView = () => {
         </Card>
   
         <div className="grid gap-4 md:grid-cols-3">
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Revenue</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.revenue.toFixed(2)}</p></CardContent></Card>
+            <Card className="bg-primary/10 border-primary/20">
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Est. Payout This Period</CardTitle></CardHeader>
+                <CardContent><p className="text-2xl font-bold text-primary">${kpis.earnings.toFixed(2)}</p></CardContent>
+            </Card>
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Tips</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.tips.toFixed(2)}</p></CardContent></Card>
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
         </div>
         
         {nextAppointment ? (
-          <Card className="border-primary ring-2 ring-primary/50">
+          <Card>
             <CardHeader><CardTitle>Up Next</CardTitle></CardHeader>
             <CardContent>
                 <div className="flex items-center gap-4">
