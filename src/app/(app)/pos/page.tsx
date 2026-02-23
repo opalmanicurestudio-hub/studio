@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -13,7 +12,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -318,9 +317,9 @@ export default function POSPage() {
     }, [appliedAdjustments, checkoutSummary.adjustments]);
     
     const handleAddToCart = useCallback((item: InventoryItem | Service) => {
-        if ('duration' in item) {
+        if ('duration' in item) { // It's a Service
             setServiceToSelectProvider(item);
-        } else {
+        } else { // It's an InventoryItem (Product)
             setRetailItems(prevCart => {
                 const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
                 if (existingItem) {
@@ -975,14 +974,14 @@ export default function POSPage() {
             const now = new Date();
             const nowISO = now.toISOString();
     
-            for (const data of appointmentsData) {
-                const { appointment: currentAppointment, service: currentService } = data;
+            for (const appointmentData of appointmentsData) {
+                const currentService = appointmentData.service;
     
-                if (!currentAppointment || !currentService) continue;
+                if (!currentService) continue;
+                
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentData.id);
     
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-    
-                const formulaUsed = currentAppointment.checkoutState?.formula || currentService?.products?.map(p => ({
+                const formulaUsed = appointmentData.checkoutState?.formula || currentService?.products?.map(p => ({
                     id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses',
                 })) || [];
     
@@ -996,7 +995,7 @@ export default function POSPage() {
                             date: nowISO,
                             change: -usedProduct.quantity,
                             unit: usedProduct.unit || 'unit',
-                            reason: `Appointment #${currentAppointment.id} by ${data.staff?.name}`,
+                            reason: `Appointment #${appointmentData.id} by ${appointmentData.staff?.name}`,
                         };
                         const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                         batch.set(scRef, stockCorrection);
@@ -1032,13 +1031,13 @@ export default function POSPage() {
                     actualEndTime: nowISO,
                 });
     
-                if (currentAppointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                if (appointmentData.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointmentData.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
     
-                if (currentAppointment.isWalkIn) {
-                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                if (appointmentData.isWalkIn) {
+                    const walkInId = appointmentData.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
@@ -1059,58 +1058,100 @@ export default function POSPage() {
     
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
             batch.update(clientDocRef, {
-                lifetimeValue: increment(subtotalAfterDiscounts + additionalCharge),
+                lifetimeValue: increment(subtotalAfterDiscounts + additionalCharge), // subtotalAfterDiscounts is now correct
                 lastAppointment: nowISO
             });
     
-             const createTransaction = (desc: string, cat: string, amt: number, staff?: string, aptId?: string, tip?: number) => {
-                const newTransaction: Partial<Transaction> = {
-                    description: desc, clientOrVendor: payerClient.name, clientId: payerClient.id,
-                    type: 'income', context: 'Business', category: cat, amount: amt,
-                    paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-                    date: nowISO,
-                };
+            const createTransaction = (transactionData: Partial<Transaction>) => {
+                const { tipAmount, discountAmount, ...rest } = transactionData;
+                const finalTransaction: Partial<Transaction> = { ...rest, date: nowISO };
 
-                if (staff) newTransaction.staffId = staff;
-                if (aptId) newTransaction.appointmentId = aptId;
-                if (appliedDiscountCode) newTransaction.appliedDiscountCode = appliedDiscountCode;
-                
-                if (totalDiscount > 0 && cat === 'Service Revenue') {
-                    newTransaction.discountAmount = totalDiscount / appointmentsData.length;
+                if (tipAmount !== undefined && tipAmount > 0) {
+                    finalTransaction.tipAmount = tipAmount;
+                }
+                if (discountAmount !== undefined && discountAmount > 0) {
+                    finalTransaction.discountAmount = discountAmount;
                 }
                 
-                if (tip !== undefined && tip > 0) {
-                    newTransaction.tipAmount = tip;
-                }
-                
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), newTransaction);
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), finalTransaction);
             };
     
-            appointmentsData.forEach(d => {
-                const {service, addOnServices, staffId, id} = d;
+            appointmentsData.forEach(appointmentData => { // fixed loop
+                const {service, addOnServices, staffId, id} = appointmentData;
                 const serviceRevenue = service?.price || 0;
-                if (serviceRevenue > 0) createTransaction(`Service: ${service?.name}`, 'Service Revenue', serviceRevenue, staffId, id);
+                if (serviceRevenue > 0) createTransaction({
+                    description: `Service: ${service?.name}`, 
+                    category: 'Service Revenue', 
+                    amount: serviceRevenue, 
+                    staffId, 
+                    appointmentId: id,
+                    clientOrVendor: payerClient.name,
+                    clientId: payerClient.id,
+                    type: 'income',
+                    context: 'Business',
+                    paymentMethod: checkoutDetails.paymentMethod,
+                    hasReceipt: true,
+                    appliedDiscountCode: appliedDiscountCode,
+                    discountAmount: totalDiscount > 0 ? totalDiscount / appointmentsData.length : undefined,
+                });
 
                 addOnServices.forEach(addon => {
                     const addonRevenue = addon.price || 0;
-                    if (addonRevenue > 0) createTransaction(`Add-on: ${addon.name}`, 'Service Revenue', addonRevenue, staffId, id);
+                    if (addonRevenue > 0) createTransaction({
+                        description: `Add-on: ${addon.name}`,
+                        category: 'Service Revenue',
+                        amount: addonRevenue, 
+                        staffId, 
+                        appointmentId: id,
+                        clientOrVendor: payerClient.name,
+                        clientId: payerClient.id,
+                        type: 'income',
+                        context: 'Business',
+                        paymentMethod: checkoutDetails.paymentMethod,
+                        hasReceipt: true,
+                    });
                 })
             });
     
             Object.entries(tipAllocations).forEach(([staffId, tip]) => {
                 if (tip > 0) {
-                    createTransaction(`Tip`, 'Tips', tip, staffId, appointmentsData[0].id, tip);
+                    createTransaction({
+                        description: `Tip`, 
+                        category: 'Tips', 
+                        amount: tip, 
+                        staffId, 
+                        appointmentId: appointmentsData?.[0]?.id, 
+                        tipAmount: tip,
+                        clientOrVendor: payerClient.name,
+                        clientId: payerClient.id,
+                        type: 'income',
+                        context: 'Business',
+                        paymentMethod: checkoutDetails.paymentMethod,
+                        hasReceipt: true,
+                    });
                 }
             });
     
             retailItems.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) return;
-                const price = product.msrp || product.costPerUnit || 0;
+                const price = item.price;
                 const retailTotal = item.quantity * price;
     
                 if (retailTotal > 0) {
-                    createTransaction(`Retail: ${item.quantity}x ${item.name}`, 'Retail', retailTotal, appointmentsData[0]?.staffId, appointmentsData[0]?.id);
+                    createTransaction({
+                        description: `Retail: ${item.quantity}x ${item.name}`,
+                        category: 'Retail', 
+                        amount: retailTotal, 
+                        staffId: appointmentsData?.[0]?.staffId,
+                        appointmentId: appointmentsData?.[0]?.id,
+                        clientOrVendor: payerClient.name,
+                        clientId: payerClient.id,
+                        type: 'income',
+                        context: 'Business',
+                        paymentMethod: checkoutDetails.paymentMethod,
+                        hasReceipt: true,
+                    });
                 }
     
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
@@ -1128,9 +1169,9 @@ export default function POSPage() {
             await batch.commit();
     
             const allCartItems = appointmentsData.flatMap(d => {
-                const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const main = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
                 const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-                return [...main, ...addOns];
+                return [...main, ...addons];
             });
 
             const retailCartItems = retailItems.map(item => ({
@@ -1150,7 +1191,7 @@ export default function POSPage() {
                 payment: {
                     method: checkoutDetails.paymentMethod,
                     amountTendered: checkoutDetails.paymentMethod === 'cash' ? (checkoutDetails.amountTendered || total) : total,
-                    changeDue: checkoutDetails.paymentMethod === 'cash' ? ((checkoutDetails.amountTendered || 0) - total) : 0,
+                    changeDue: changeDue > 0 ? changeDue : 0,
                 },
                 adjustments: checkoutSummary.adjustments?.filter(adj => appliedAdjustments.has(adj.id)),
             };
