@@ -1,16 +1,20 @@
 
+
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { collection, query, where, doc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
+
+type UserRole = 'owner' | 'staff' | null;
 
 interface TenantContextType {
   tenants: Tenant[];
   selectedTenant: Tenant | null;
   setSelectedTenant: (tenant: Tenant) => void;
   isLoading: boolean;
+  role: UserRole;
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
@@ -18,55 +22,76 @@ const TenantContext = createContext<TenantContextType | undefined>(undefined);
 export const TenantProvider = ({ children }: { children: ReactNode }) => {
   const { user, isUserLoading } = useFirebase();
   const firestore = useFirebase().firestore;
+  const [role, setRole] = useState<UserRole>(null);
   
-  const tenantQuery = useMemoFirebase(() => {
+  const ownerTenantQuery = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
   }, [user, firestore]);
 
-  const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(tenantQuery);
+  const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(ownerTenantQuery);
+
+  const staffDirectoryEntryRef = useMemoFirebase(() => {
+    if (!user || !firestore || role === 'owner') return null;
+    return doc(firestore, 'staffDirectory', user.uid);
+  }, [user, firestore, role]);
+
+  const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
+
+  const staffTenantId = staffDirectoryEntry?.tenantId;
+  const staffTenantRef = useMemoFirebase(() => {
+    if (!firestore || !staffTenantId) return null;
+    return doc(firestore, 'tenants', staffTenantId);
+  }, [firestore, staffTenantId]);
+  const { data: staffTenant, isLoading: staffTenantLoading } = useDoc<Tenant>(staffTenantRef);
 
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-
+  
   useEffect(() => {
-    if (tenantsLoading) return; // Wait until tenants are loaded
+    if (isUserLoading || tenantsLoading) return;
 
     if (tenants && tenants.length > 0) {
+      setRole('owner');
       const storedTenantId = localStorage.getItem('selectedTenantId');
-      const activeTenant = tenants.find(t => t.id === storedTenantId);
-
-      // If there is a stored tenant and it exists in the current user's list of tenants
-      if (activeTenant) {
-        // And it's not already the selected one, update it.
-        if (selectedTenant?.id !== activeTenant.id) {
+      const activeTenant = tenants.find(t => t.id === storedTenantId) || tenants[0];
+      if (selectedTenant?.id !== activeTenant.id) {
           setSelectedTenant(activeTenant);
-        }
-      } else {
-        // Otherwise, default to the first tenant in the list
-        setSelectedTenant(tenants[0]);
-        localStorage.setItem('selectedTenantId', tenants[0].id);
+          localStorage.setItem('selectedTenantId', activeTenant.id);
       }
     } else {
-      // If the user has no tenants, clear the selection
-      setSelectedTenant(null);
-      localStorage.removeItem('selectedTenantId');
+        // If not an owner, check if they are staff
+        if (!isStaffDirectoryLoading) {
+            if (staffTenant) {
+                setRole('staff');
+                if (selectedTenant?.id !== staffTenant.id) {
+                    setSelectedTenant(staffTenant);
+                    localStorage.setItem('selectedTenantId', staffTenant.id);
+                }
+            } else {
+                setRole(null);
+                setSelectedTenant(null);
+            }
+        }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenants, tenantsLoading]);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, tenants, tenantsLoading, isStaffDirectoryLoading, staffTenant]);
 
   const handleSetSelectedTenant = useCallback((tenant: Tenant) => {
-    setSelectedTenant(tenant);
-    localStorage.setItem('selectedTenantId', tenant.id);
-  }, []);
+    if (role === 'owner') {
+        setSelectedTenant(tenant);
+        localStorage.setItem('selectedTenantId', tenant.id);
+    }
+    // Staff cannot switch tenants.
+  }, [role]);
   
-  const isLoading = isUserLoading || tenantsLoading;
+  const isLoading = isUserLoading || tenantsLoading || (user && !tenants?.length && isStaffDirectoryLoading) || (isStaffDirectoryLoading && staffTenantLoading);
 
   const value = {
     tenants: tenants || [],
     selectedTenant,
     setSelectedTenant: handleSetSelectedTenant,
-    isLoading
+    isLoading,
+    role
   };
 
   return (

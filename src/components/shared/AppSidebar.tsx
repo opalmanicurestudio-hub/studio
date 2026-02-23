@@ -105,13 +105,20 @@ const financialsNavItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { toggleSidebar } = useSidebar();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant, isLoading: isTenantLoading, role } = useTenant();
   const tenantId = selectedTenant?.id;
 
   const isNavItemActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
     return pathname.startsWith(href);
   }
+
+  const staffNavItems = [
+    { href: '/dashboard', icon: LayoutDashboard, label: 'My Dashboard' },
+    { href: '/planner', icon: Calendar, label: 'My Planner' },
+    { href: '/clients', icon: Users, label: 'My Clients' },
+    ];
+
 
   return (
     <Sidebar>
@@ -124,13 +131,15 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <div className="p-2">
-          <ClientOnly>
-            <TenantSwitcher />
-          </ClientOnly>
-        </div>
+        {role === 'owner' && (
+            <div className="p-2">
+            <ClientOnly>
+                <TenantSwitcher />
+            </ClientOnly>
+            </div>
+        )}
         <SidebarMenu>
-        {mainNavItems.map((item) => (
+        {(role === 'owner' ? mainNavItems : staffNavItems).map((item) => (
             <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
                 asChild
@@ -145,76 +154,83 @@ export function AppSidebar() {
             </SidebarMenuItem>
         ))}
         </SidebarMenu>
-        <SidebarSeparator />
-        <SidebarGroup>
-            <SidebarGroupLabel>Manage</SidebarGroupLabel>
-            <SidebarMenu>
-                {manageNavItems.map((item) => (
-                     <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
-                            <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                ))}
-            </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-         <SidebarGroup>
-            <SidebarGroupLabel>Financials</SidebarGroupLabel>
-            <SidebarMenu>
-                {financialsNavItems.map((item) => (
-                     <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
-                            <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                ))}
-            </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
-             <SidebarGroupLabel>Intelligence</SidebarGroupLabel>
-             <SidebarMenu>
-                 <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
-                        <Link href="/ai-cfo"><Sparkles /><span>AI CFO</span></Link>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
-             </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
-            <SidebarGroupLabel>Public Pages</SidebarGroupLabel>
-            <SidebarMenu>
-                <SidebarMenuItem>
-                    <SidebarMenuButton asChild tooltip="Booking Page" disabled={isTenantLoading || !tenantId}>
-                        <Link href={tenantId ? `/book/${tenantId}` : '#'} target="_blank">
-                            <Globe />
-                            <span>Booking Page</span>
-                        </Link>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                    <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId}>
-                        <Link href={tenantId ? `/kiosk/${tenantId}` : '#'} target="_blank">
-                            <Users />
-                            <span>Walk-in Kiosk</span>
-                        </Link>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
-            </SidebarMenu>
-        </SidebarGroup>
+
+        {role === 'owner' && (
+            <>
+                <SidebarSeparator />
+                <SidebarGroup>
+                    <SidebarGroupLabel>Manage</SidebarGroupLabel>
+                    <SidebarMenu>
+                        {manageNavItems.map((item) => (
+                            <SidebarMenuItem key={item.href}>
+                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
+                                    <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        ))}
+                    </SidebarMenu>
+                </SidebarGroup>
+                <SidebarSeparator />
+                <SidebarGroup>
+                    <SidebarGroupLabel>Financials</SidebarGroupLabel>
+                    <SidebarMenu>
+                        {financialsNavItems.map((item) => (
+                            <SidebarMenuItem key={item.href}>
+                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
+                                    <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        ))}
+                    </SidebarMenu>
+                </SidebarGroup>
+                <SidebarSeparator />
+                <SidebarGroup>
+                    <SidebarGroupLabel>Intelligence</SidebarGroupLabel>
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
+                                <Link href="/ai-cfo"><Sparkles /><span>AI CFO</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroup>
+                <SidebarSeparator />
+                <SidebarGroup>
+                    <SidebarGroupLabel>Public Pages</SidebarGroupLabel>
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild tooltip="Booking Page" disabled={isTenantLoading || !tenantId}>
+                                <Link href={tenantId ? `/book/${tenantId}` : '#'} target="_blank">
+                                    <Globe />
+                                    <span>Booking Page</span>
+                                </Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId}>
+                                <Link href={tenantId ? `/kiosk/${tenantId}` : '#'} target="_blank">
+                                    <Users />
+                                    <span>Walk-in Kiosk</span>
+                                </Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroup>
+            </>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-            <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
-                  <Link href="/settings">
-                    <Settings />
-                    <span>Settings</span>
-                  </Link>
-                </SidebarMenuButton>
-            </SidebarMenuItem>
+            {role === 'owner' && (
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
+                    <Link href="/settings">
+                        <Settings />
+                        <span>Settings</span>
+                    </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+            )}
             <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="Help Center">
                   <Link href="#">
@@ -234,3 +250,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+

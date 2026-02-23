@@ -76,7 +76,7 @@ type Activity = {
   service: { name: string; profit: number; } | undefined;
 };
 
-export default function DashboardPage() {
+const OwnerDashboard = () => {
   const [isDebriefDialogOpen, setIsDebriefDialogOpen] = useState(false);
   const [debriefContent, setDebriefContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -279,190 +279,187 @@ export default function DashboardPage() {
   const isLoading = isUserLoading || isTenantLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader />
-      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Today's Revenue
-              </CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {isLoading ? <Skeleton className="h-8 w-32"/> : <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>}
-              {isLoading ? <Skeleton className="h-4 w-24 mt-1"/> : <p className="text-xs text-muted-foreground">
-                {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
-              </p>}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Today's Appointments
-              </CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length || 0}
-              </div>
-               {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">New Clients</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {isLoading ? <Skeleton className="h-8 w-10 inline-block"/> : <div className="text-2xl font-bold">+{newClientsThisWeek}</div>}
-              <p className="text-xs text-muted-foreground">this week</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Client Retention</CardTitle>
-              <HeartHandshake className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className="text-2xl font-bold">{clientRetentionRate.toFixed(0)}%</div>}
-              <p className="text-xs text-muted-foreground">All-time repeat clients</p>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-5">
-          <Card className="md:col-span-3">
-            <CardHeader>
-              <CardTitle>Weekly Profit</CardTitle>
-              <CardDescription>Your profit over the last 7 days.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ClientOnly>
-                <ChartContainer config={barChartConfig} className="h-[300px] w-full">
-                  {isLoading ? <Skeleton className="w-full h-full" /> : (
-                      <BarChart accessibilityLayer data={barChartData}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                          dataKey="day"
-                          tickLine={false}
-                          tickMargin={10}
-                          axisLine={false}
-                      />
-                      <YAxis
-                          tickLine={false}
-                          axisLine={false}
-                          tickMargin={10}
-                          tickFormatter={(value) => `$${"$"}{value}`}
-                      />
-                      <ChartTooltip
-                          cursor={false}
-                          content={<ChartTooltipContent />}
-                      />
-                      <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
-                      </BarChart>
-                  )}
-                </ChartContainer>
-              </ClientOnly>
-            </CardContent>
-          </Card>
-           <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Revenue Breakdown</CardTitle>
-              <CardDescription>All-time revenue from services vs. retail.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 flex justify-center pb-4">
-              <ClientOnly>
-                <ChartContainer
-                  config={pieChartConfig}
-                  className="mx-auto aspect-square h-[250px]"
-                >
-                  <PieChart>
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent hideLabel />}
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Today's Revenue
+            </CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <Skeleton className="h-8 w-32"/> : <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>}
+            {isLoading ? <Skeleton className="h-4 w-24 mt-1"/> : <p className="text-xs text-muted-foreground">
+              {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
+            </p>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Today's Appointments
+            </CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length || 0}
+            </div>
+             {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">New Clients</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <Skeleton className="h-8 w-10 inline-block"/> : <div className="text-2xl font-bold">+{newClientsThisWeek}</div>}
+            <p className="text-xs text-muted-foreground">this week</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Client Retention</CardTitle>
+            <HeartHandshake className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className="text-2xl font-bold">{clientRetentionRate.toFixed(0)}%</div>}
+            <p className="text-xs text-muted-foreground">All-time repeat clients</p>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-5">
+        <Card className="md:col-span-3">
+          <CardHeader>
+            <CardTitle>Weekly Profit</CardTitle>
+            <CardDescription>Your profit over the last 7 days.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ClientOnly>
+              <ChartContainer config={barChartConfig} className="h-[300px] w-full">
+                {isLoading ? <Skeleton className="w-full h-full" /> : (
+                    <BarChart accessibilityLayer data={barChartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                        dataKey="day"
+                        tickLine={false}
+                        tickMargin={10}
+                        axisLine={false}
                     />
-                    <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
-                      {revenueBreakdown.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                     <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-                  </PieChart>
-                </ChartContainer>
-              </ClientOnly>
-            </CardContent>
-          </Card>
-          <Card className="md:col-span-5">
-            <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>
-                Recent appointments and client activity.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6">
-              {isLoading ? (
-                Array.from({ length: 5 }).map((_, index) => (
-                  <div key={index} className="flex items-center gap-4">
-                    <Skeleton className="h-9 w-9 rounded-full" />
-                    <div className="grid gap-1 flex-1">
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="h-4 w-32" />
-                    </div>
-                    <Skeleton className="h-5 w-16" />
-                  </div>
-                ))
-              ) : (
-                recentActivities.map(({ apt, client, service }) => {
-                  if (!client || !service) return null;
-                  return (
-                    <div key={apt.id} className="flex items-center gap-4">
-                      <Avatar className="hidden h-9 w-9 sm:flex">
-                        <AvatarImage src={client.avatarUrl} alt="Avatar" />
-                        <AvatarFallback>
-                          {client.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid gap-1">
-                        <p className="text-sm font-medium leading-none">
-                          {client.name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {service.name}
-                        </p>
-                      </div>
-                      <div className="ml-auto font-medium text-primary">
-                        +${service.profit.toFixed(2)}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </CardContent>
-          </Card>
-        </div>
-         <Card className="bg-primary/5 border-primary/20">
-            <CardHeader className="pb-4">
-              <CardTitle>End-of-Day Debrief</CardTitle>
-              <CardDescription>Get an AI summary of your day's performance and inventory needs.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  setIsDebriefDialogOpen(true);
-                  handleGenerateDebrief();
-                }}
+                    <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={10}
+                        tickFormatter={(value) => `$${"$"}{value}`}
+                    />
+                    <ChartTooltip
+                        cursor={false}
+                        content={<ChartTooltipContent />}
+                    />
+                    <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
+                    </BarChart>
+                )}
+              </ChartContainer>
+            </ClientOnly>
+          </CardContent>
+        </Card>
+         <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Revenue Breakdown</CardTitle>
+            <CardDescription>All-time revenue from services vs. retail.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex-1 flex justify-center pb-4">
+            <ClientOnly>
+              <ChartContainer
+                config={pieChartConfig}
+                className="mx-auto aspect-square h-[250px]"
               >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate Today's Debrief
-              </Button>
-            </CardContent>
-          </Card>
-      </main>
-      <Dialog
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
+                    {revenueBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                   <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                </PieChart>
+              </ChartContainer>
+            </ClientOnly>
+          </CardContent>
+        </Card>
+        <Card className="md:col-span-5">
+          <CardHeader>
+            <CardTitle>Recent Activity</CardTitle>
+            <CardDescription>
+              Recent appointments and client activity.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6">
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="flex items-center gap-4">
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                  <div className="grid gap-1 flex-1">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <Skeleton className="h-5 w-16" />
+                </div>
+              ))
+            ) : (
+              recentActivities.map(({ apt, client, service }) => {
+                if (!client || !service) return null;
+                return (
+                  <div key={apt.id} className="flex items-center gap-4">
+                    <Avatar className="hidden h-9 w-9 sm:flex">
+                      <AvatarImage src={client.avatarUrl} alt="Avatar" />
+                      <AvatarFallback>
+                        {client.name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="grid gap-1">
+                      <p className="text-sm font-medium leading-none">
+                        {client.name}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {service.name}
+                      </p>
+                    </div>
+                    <div className="ml-auto font-medium text-primary">
+                      +${service.profit.toFixed(2)}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+       <Card className="bg-primary/5 border-primary/20">
+          <CardHeader className="pb-4">
+            <CardTitle>End-of-Day Debrief</CardTitle>
+            <CardDescription>Get an AI summary of your day's performance and inventory needs.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setIsDebriefDialogOpen(true);
+                handleGenerateDebrief();
+              }}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate Today's Debrief
+            </Button>
+          </CardContent>
+        </Card>
+        <Dialog
         open={isDebriefDialogOpen}
         onOpenChange={setIsDebriefDialogOpen}
       >
@@ -495,6 +492,47 @@ export default function DashboardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+};
+
+const StaffDashboardView = () => {
+    // This is a placeholder for the staff dashboard.
+    // In a real implementation, you would fetch and display staff-specific data.
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>My Dashboard</CardTitle>
+                <CardDescription>Your upcoming appointments and daily stats.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <p>Welcome to your staff dashboard. This area will show your schedule and performance metrics.</p>
+            </CardContent>
+        </Card>
+    );
+}
+
+export default function DashboardPage() {
+  const { role, isLoading } = useTenant();
+
+  if(isLoading) {
+    return (
+        <div className="flex min-h-screen w-full flex-col">
+            <AppHeader />
+            <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8 justify-center items-center">
+                <Loader className="w-8 h-8 animate-spin" />
+            </main>
+        </div>
+    )
+  }
+
+  return (
+    <div className="flex min-h-screen w-full flex-col">
+      <AppHeader />
+      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView />}
+      </main>
     </div>
   );
 }
+

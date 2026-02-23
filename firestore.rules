@@ -1,26 +1,5 @@
 
 
-/**
- * # Firestore Security Rules
- *
- * ## Core Philosophy
- * This ruleset enforces a strict multi-tenant security model. A `User` can own
- * multiple `Tenant`s (businesses). All data related to a specific business—such
- * as its services, clients, and appointments—is completely isolated within that
- * tenant's data hierarchy.
- *
- * ## The "Key and Drawer" Model
- * - The User's authentication UID is their unique **key**.
- * - Each `/tenants/{tenantId}` document is a locked **drawer**.
- * - The `userId` field on the tenant document is the **lock**, specifying which key can open it.
- * - The `isTenantOwner()` function is the **locksmith**, verifying the key against the lock for every operation.
- *
- * ## Key Security Decisions
- * - **Ownership-Based Access**: The primary method for granting access is checking the `userId` on the root `tenants/{tenantId}` document. This is done via the `isTenantOwner()` function, which is the cornerstone of our multi-tenancy.
- * - **Staff Roles**: Staff members are granted specific, limited permissions within a tenant's data tree via the `isStaff()` and `isTenantAdmin()` functions.
- * - **Publicly Readable Data**: Some data, like services and staff profiles, is publicly readable to support features like public booking pages. However, all write operations are strictly limited to the owning user or authorized staff.
- * - **No User/Tenant Listing**: Listing the top-level `/users` or `/tenants` collections is disallowed to prevent enumeration of all users or businesses on the platform.
- */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
