@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -16,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Service } from '@/lib/data';
-import { Search } from 'lucide-react';
+import { Search, List } from 'lucide-react';
 import Image from 'next/image';
 
 interface SelectServicesDialogProps {
@@ -83,25 +82,27 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
             <ScrollArea className="h-72">
                 <div className="space-y-2 pr-4">
                 {filteredServices.map(service => (
-                    <div
+                    <label
                         key={service.id}
-                        className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted"
+                        htmlFor={`service-select-${service.id}`}
+                        className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted cursor-pointer"
                     >
                          <Checkbox
-                            id={`service-${service.id}`}
+                            id={`service-select-${service.id}`}
                             checked={selectedIds.has(service.id)}
                             onCheckedChange={() => handleToggle(service.id)}
                         />
-                         <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/100/100`} alt={service.name} width={40} height={40} className='rounded-md'/>
+                         <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0 flex items-center justify-center'>
+                             {service.imageUrl ? (
+                                <Image src={service.imageUrl} alt={service.name} width={40} height={40} className='rounded-md'/>
+                             ) : (
+                                <List className="w-5 h-5 text-muted-foreground" />
+                             )}
                         </div>
-                        <label
-                            htmlFor={`service-${service.id}`}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 cursor-pointer"
-                        >
+                        <span className="text-sm font-medium leading-none flex-1">
                             {service.name}
-                        </label>
-                    </div>
+                        </span>
+                    </label>
                 ))}
                 </div>
             </ScrollArea>

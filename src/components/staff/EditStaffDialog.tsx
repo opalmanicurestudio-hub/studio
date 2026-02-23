@@ -1,12 +1,10 @@
-
-
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, KeyboardEvent } from 'react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -44,12 +42,17 @@ import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
+import { useFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { setDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
+import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
+import { useToast } from '@/hooks/use-toast';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -173,7 +176,7 @@ interface EditStaffDialogProps {
   pricingTiers: PricingTier[];
 }
 
-const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[] }) => {
+const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSendPasswordReset }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[], staffMember: Staff, onSendPasswordReset: () => void }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
@@ -243,6 +246,19 @@ const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Ser
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                                 <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
+                            </div>
+                             <div className="mt-4 space-y-2">
+                                <Label>Account Actions</Label>
+                                <div className="p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                    <p className="text-sm text-muted-foreground">
+                                        Send an email to <strong>{staffMember.email}</strong> allowing them to set or reset their password.
+                                    </p>
+                                    <Button type="button" variant="outline" onClick={onSendPasswordReset} className="w-full sm:w-auto flex-shrink-0">
+                                        Send Password Reset
+                                    </Button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
                                     <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
@@ -434,6 +450,15 @@ const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Ser
 
                         </AccordionContent>
                     </AccordionItem>
+                     <AccordionItem value="item-5" className="border rounded-lg">
+                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><BookText className="w-5 h-5 text-primary"/>Notes & Preferences</div></AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
+                             <div className="space-y-2 md:col-span-2"><Label htmlFor="availabilityNotes">Availability Notes</Label><Textarea id="availabilityNotes" placeholder="e.g., Prefers morning shifts, not available on weekends." {...register('availabilityNotes')} /></div>
+                             <div className="space-y-2 md:col-span-2"><Label htmlFor="preferences">Preferences</Label><Textarea id="preferences" placeholder="e.g., Allergic to lavender, prefers working with specific product lines." {...register('preferences')} /></div>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
                 </Accordion>
             </div>
             <SelectServicesDialog
@@ -456,7 +481,6 @@ const EditStaffForm = ({ services, consentForms, pricingTiers }: { services: Ser
     )
 }
 
-
 export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
   open,
   onOpenChange,
@@ -469,7 +493,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
   const methods = useForm<EditStaffFormData>({
     resolver: zodResolver(editStaffSchema),
   });
-
+  const { toast } = useToast();
   const { handleSubmit, reset } = methods;
   const isMobile = useIsMobile();
 
@@ -508,6 +532,34 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
         });
     }
   }, [staffMember, reset]);
+  
+  const handleSendPasswordReset = async () => {
+    if (!staffMember?.email) {
+        toast({
+            variant: "destructive",
+            title: "Missing Email",
+            description: "This staff member does not have an email address on file.",
+        });
+        return;
+    }
+
+    const auth = getAuth();
+    try {
+        await sendPasswordResetEmail(auth, staffMember.email);
+        toast({
+            title: "Password Reset Email Sent",
+            description: `An email has been sent to ${staffMember.email} with instructions.`,
+        });
+    } catch (error: any) {
+        console.error("Error sending password reset email:", error);
+        toast({
+            variant: "destructive",
+            title: "Failed to Send Email",
+            description: error.message || "There was a problem sending the password reset email.",
+        });
+    }
+  };
+
 
   const handleSave = (data: EditStaffFormData) => {
     if (!staffMember) return;
@@ -579,7 +631,13 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <EditStaffForm services={services} consentForms={consentForms} pricingTiers={pricingTiers}/>
+                        <EditStaffForm 
+                            services={services} 
+                            consentForms={consentForms} 
+                            pricingTiers={pricingTiers} 
+                            staffMember={staffMember}
+                            onSendPasswordReset={handleSendPasswordReset}
+                        />
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
