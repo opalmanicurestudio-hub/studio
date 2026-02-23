@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -12,8 +13,8 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -944,6 +945,7 @@ export default function POSPage() {
         setIsSubmitting(true);
         
         const payerClient = clients?.find(c => c.id === selectedClientId);
+
         if (!payerClient) {
             toast({ variant: 'destructive', title: 'Error', description: 'No client or appointment selected for checkout.' });
             setIsSubmitting(false);
@@ -961,10 +963,12 @@ export default function POSPage() {
             const nowISO = now.toISOString();
 
             for (const data of appointmentsData) {
-                const { appointment: currentAppointment, service: currentService } = data;
-                if (!currentAppointment || !currentService) continue;
+                const appointment = data;
+                const service = data.service;
+
+                if (!appointment || !service) continue;
                 
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
 
                 const checkoutState: AppointmentCheckoutState = {
                   actualDuration,
@@ -987,13 +991,13 @@ export default function POSPage() {
                     checkoutState: checkoutState
                 });
                 
-                if (currentAppointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                if (appointment.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
                 
-                if (currentAppointment.isWalkIn) {
-                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                if (appointment.isWalkIn) {
+                    const walkInId = appointment.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
@@ -1271,7 +1275,7 @@ export default function POSPage() {
     
     const checkoutHubProps = {
         cart: retailItems,
-        onCartChange,
+        onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
