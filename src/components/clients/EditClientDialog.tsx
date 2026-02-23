@@ -36,7 +36,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift } from 'lucide-react';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
@@ -44,10 +44,9 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Badge } from '../ui/badge';
-import { clients as allClients } from '@/lib/data';
 import { Checkbox } from '../ui/checkbox';
 import { PhoneInput } from '../ui/phone-input';
-
+import { useInventory } from '@/context/InventoryContext';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -190,6 +189,7 @@ const ClientIntelAccordion = () => (
 
 
 const EditClientForm = ({ client }: { client: Client }) => {
+  const { clients: allClients } = useInventory();
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
