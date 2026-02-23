@@ -976,20 +976,17 @@ export default function POSPage() {
             const nowISO = now.toISOString();
     
             for (const data of appointmentsData) {
-                const { appointment, service } = data;
+                const { appointment: currentAppointment, service: currentService } = data;
     
-                if (!appointment || !service) continue;
+                if (!currentAppointment || !currentService) continue;
     
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
     
-                const formulaUsed = appointment.checkoutState?.formula || service?.products?.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    quantity: p.quantityUsed,
-                    unit: p.unit || 'uses',
+                const formulaUsed = currentAppointment.checkoutState?.formula || currentService?.products?.map(p => ({
+                    id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses',
                 })) || [];
     
-                if (formulaUsed && formulaUsed.length > 0) {
+                if (formulaUsed.length > 0) {
                     for (const usedProduct of formulaUsed) {
                         const product = inventory.find(p => p.id === usedProduct.id);
                         if (!product) continue;
@@ -998,8 +995,8 @@ export default function POSPage() {
                             productId: product.id,
                             date: nowISO,
                             change: -usedProduct.quantity,
-                            unit: usedProduct.unit || 'units',
-                            reason: `Appointment #${appointment.id} by ${data.staff?.name}`,
+                            unit: usedProduct.unit || 'unit',
+                            reason: `Appointment #${currentAppointment.id} by ${data.staff?.name}`,
                         };
                         const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                         batch.set(scRef, stockCorrection);
@@ -1035,21 +1032,25 @@ export default function POSPage() {
                     actualEndTime: nowISO,
                 });
     
-                if (appointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+                if (currentAppointment.checkInToken) {
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
                     batch.update(checkInRef, { status: 'completed' });
                 }
     
-                if (appointment.isWalkIn) {
-                    const walkInId = appointment.id.replace('apt-walkin-', '');
+                if (currentAppointment.isWalkIn) {
+                    const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                     const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                     batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
                 }
             }
     
             const staffInvolved = new Set<string>();
-            Object.values(serviceStaffOverrides).forEach(id => { if (id) staffInvolved.add(id); });
-            appointmentsData.forEach(d => { if (d.staffId) staffInvolved.add(d.staffId); });
+            appointmentsData.forEach(d => {
+                if (d.staffId) staffInvolved.add(d.staffId);
+            });
+            Object.values(serviceStaffOverrides).forEach(id => {
+                if (id) staffInvolved.add(id);
+            });
     
             staffInvolved.forEach(staffId => {
                 const staffRef = doc(firestore, `tenants/${tenantId}/staff`, staffId);
@@ -1063,20 +1064,26 @@ export default function POSPage() {
             });
     
              const createTransaction = (desc: string, cat: string, amt: number, staff?: string, aptId?: string, tip?: number) => {
-                const newTransaction: Omit<Transaction, 'id' | 'date'> & { tipAmount?: number } = {
+                const newTransaction: Partial<Transaction> = {
                     description: desc, clientOrVendor: payerClient.name, clientId: payerClient.id,
                     type: 'income', context: 'Business', category: cat, amount: amt,
                     paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-                    staffId: staff, appointmentId: aptId, 
-                    ...(totalDiscount > 0 && cat === 'Service Revenue' && { discountAmount: totalDiscount / appointmentsData.length }), // crude distribution
-                    appliedDiscountCode: appliedDiscountCode || ''
+                    date: nowISO,
                 };
+
+                if (staff) newTransaction.staffId = staff;
+                if (aptId) newTransaction.appointmentId = aptId;
+                if (appliedDiscountCode) newTransaction.appliedDiscountCode = appliedDiscountCode;
+                
+                if (totalDiscount > 0 && cat === 'Service Revenue') {
+                    newTransaction.discountAmount = totalDiscount / appointmentsData.length;
+                }
                 
                 if (tip !== undefined && tip > 0) {
                     newTransaction.tipAmount = tip;
                 }
                 
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: nowISO });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), newTransaction);
             };
     
             appointmentsData.forEach(d => {
@@ -1413,7 +1420,7 @@ export default function POSPage() {
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         
-                        <Card>
+                         <Card>
                             <CardHeader>
                                 <CardTitle>Currently In Service</CardTitle>
                             </CardHeader>
