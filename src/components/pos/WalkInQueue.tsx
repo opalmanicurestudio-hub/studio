@@ -1,12 +1,10 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
-import { InServiceAppointmentCard } from './InServiceCustomerCard'; // Updated import
 import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
@@ -21,12 +19,10 @@ interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
     staff: Staff[] | null;
     services: Service[] | null;
-    appointments: Appointment[] | null;
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
     onStartService: (appointmentId: string) => void;
-    onSendToCheckout: (appointment: Appointment) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
     assignmentMode: 'fair_play' | 'ordered_list';
@@ -41,12 +37,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     walkIns, 
     staff, 
     services, 
-    appointments, 
     onAssignStaff,
     onAssignNext,
     onCancel,
     onStartService,
-    onSendToCheckout,
     orderedWaitingQueue,
     onReorder,
     assignmentMode,
@@ -59,12 +53,9 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
-    const { notifiedQueue, inServiceQueue, readyForCheckoutQueue } = useMemo(() => {
-        const notified = (walkIns || []).filter(w => w.status === 'notified');
-        const inService = (appointments || []).filter(apt => apt.isWalkIn && apt.status === 'servicing');
-        const ready = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-        return { notifiedQueue: notified, inServiceQueue: inService, readyForCheckoutQueue: ready };
-    }, [walkIns, appointments]);
+    const notifiedQueue = useMemo(() => {
+        return (walkIns || []).filter(w => w.status === 'notified');
+    }, [walkIns]);
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);
@@ -87,19 +78,18 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
 
     return (
         <>
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-3">
+            <div className="flex justify-end items-center gap-4 mb-4">
+                <Button onClick={onAssignNext} className="w-full sm:w-auto">
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Assign Next
+                </Button>
+            </div>
+            <Tabs defaultValue="waiting" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
                     <TabsTrigger value="notified">Notified <Badge className="ml-2">{notifiedQueue.length}</Badge></TabsTrigger>
-                    <TabsTrigger value="servicing">In Service <Badge className="ml-2">{inServiceQueue.length}</Badge></TabsTrigger>
                 </TabsList>
-                <TabsContent value="waiting" className="mt-4 space-y-4">
-                    <div className="flex justify-end items-center gap-4">
-                        <Button onClick={onAssignNext} className="w-full sm:w-auto">
-                            <Sparkles className="mr-2 h-4 w-4" />
-                            Assign Next
-                        </Button>
-                    </div>
+                <TabsContent value="waiting" className="mt-4">
                      {orderedWaitingQueue.length > 0 ? (
                         <ScrollArea>
                             <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={onReorder} className="flex space-x-4 pb-4">
@@ -122,7 +112,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                         </ScrollArea>
                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
                 </TabsContent>
-                <TabsContent value="notified" className="mt-4 space-y-4">
+                <TabsContent value="notified" className="mt-4">
                     {notifiedQueue.length > 0 ? (
                         <ScrollArea>
                             <div className="flex space-x-4 pb-4">
@@ -143,20 +133,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                             <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     ) : <p className="text-center text-muted-foreground p-8">No clients have been notified yet.</p>}
-                </TabsContent>
-                <TabsContent value="servicing" className="mt-4 space-y-4">
-                     {inServiceQueue.length > 0 ? (
-                        <ScrollArea>
-                            <div className="flex space-x-4 pb-4">
-                                {inServiceQueue.map(appointment => (
-                                    <div key={appointment.id} className="w-72 shrink-0">
-                                        <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => onSendToCheckout(appointment)} />
-                                    </div>
-                                ))}
-                            </div>
-                             <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                     ) : <p className="text-center text-muted-foreground p-8">No clients are currently in service.</p>}
                 </TabsContent>
             </Tabs>
             <AssignStaffDialog
