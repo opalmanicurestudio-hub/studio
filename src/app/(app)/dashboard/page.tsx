@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -359,7 +358,7 @@ const OwnerDashboard = () => {
                         tickLine={false}
                         axisLine={false}
                         tickMargin={10}
-                        tickFormatter={(value) => `$${"$"}{value}`}
+                        tickFormatter={(value) => `$${value}`}
                     />
                     <ChartTooltip
                         cursor={false}
@@ -507,7 +506,7 @@ const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant, firestore } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { clients, services, appointments, transactions } = useInventory();
+    const { clients, services, appointments, transactions, activityLogs } = useInventory();
 
     const staffDocRef = useMemoFirebase(() => {
         if (!firestore || !tenantId || !user) return null;
@@ -712,3 +711,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
