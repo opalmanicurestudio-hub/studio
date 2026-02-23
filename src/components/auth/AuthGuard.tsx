@@ -9,7 +9,7 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase/provider';
 
 
-const protectedRoutes = ['/dashboard', '/planner', '/inventory', '/clients', '/services', '/staff', '/financials', '/reports', '/settings', '/ai-cfo', '/bills', '/consents', '/ledger', '/memberships', '/payday', '/quotes', '/retail', '/walk-in-queue', '/transactions', '/staff-dashboard'];
+const protectedRoutes = ['/dashboard', '/planner', '/inventory', '/clients', '/services', '/staff', '/financials', '/reports', '/settings', '/ai-cfo', '/bills', '/consents', '/ledger', '/memberships', '/payday', '/quotes', '/retail', '/walk-in-queue', '/transactions'];
 const publicRoutes = ['/login', '/signup', '/'];
 const subscriptionRoute = '/subscriptions';
 
@@ -58,21 +58,10 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
     // If logged in...
     if (user) {
-        // ...and on a public auth page, redirect based on role
+        // ...and on a public auth page, redirect to the main dashboard
         if (isPublicAuthRoute) {
-            if (isOwner) {
-                 router.replace('/dashboard');
-            } else if (isStaff) {
-                 router.replace('/staff-dashboard');
-            }
-            return;
-        }
-
-        // Redirect owner from staff page and staff from owner page
-        if (isOwner && pathname.startsWith('/staff-dashboard')) {
             router.replace('/dashboard');
-        } else if (isStaff && pathname.startsWith('/dashboard') && pathname !== '/dashboard') {
-            router.replace('/staff-dashboard');
+            return;
         }
 
         // Subscription check (simplified for now, assumes owner has tenant data)
@@ -82,7 +71,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
         }
     }
 
-  }, [user, isUserLoading, isOwner, isStaff, isOwnerTenantLoading, isStaffDirectoryLoading, router, pathname]);
+  }, [user, isUserLoading, isOwner, isStaff, isOwnerTenantLoading, isStaffDirectoryLoading, router, pathname, ownerTenants]);
 
   const isLoading = isUserLoading || isOwnerTenantLoading || (user && !isOwner && isStaffDirectoryLoading);
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
