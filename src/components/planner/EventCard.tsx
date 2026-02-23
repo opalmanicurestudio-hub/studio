@@ -1,10 +1,11 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks, Check, X } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
@@ -24,6 +25,7 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Progress } from '../ui/progress';
+import { useUser } from '@/firebase';
 
 interface EventCardProps {
     event: Event,
@@ -32,6 +34,7 @@ interface EventCardProps {
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
     onAddTransaction: (transaction: any) => void;
+    onDeleteEvent: (eventId: string) => void;
 }
 
 const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEditEvent, onLogExpenseClick }: {
@@ -41,6 +44,8 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
     onEditEvent: (event: Event) => void;
     onLogExpenseClick: () => void;
 }) => {
+    const { user } = useUser();
+    const isOwnerOrAdmin = true; // This should come from a proper auth context
     
     if (event.type === 'blocked') {
         return (
@@ -126,10 +131,13 @@ export function EventCard({
     onUpdateEvent,
     onEditEvent,
     onAddTransaction,
+    onDeleteEvent,
 }: EventCardProps) {
     const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
+    const { user } = useUser();
+    const isOwnerOrAdmin = true; // Replace with actual role check
     
     const duration = differenceInMinutes(event.endTime, event.startTime);
 
@@ -166,7 +174,8 @@ export function EventCard({
             className={cn(
                 "p-3 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
                 typeStyles[event.type],
-                event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,hsl(var(--card)),hsl(var(--card))_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]"
+                event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,hsl(var(--card)),hsl(var(--card))_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]",
+                event.status === 'pending' && 'opacity-60 hover:opacity-100'
             )}
         >
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
@@ -174,6 +183,7 @@ export function EventCard({
                     <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                     <p className="font-semibold text-sm truncate flex-1">{event.title}</p>
                 </div>
+                {event.status === 'pending' && <Badge variant="outline" className="text-xs">Pending</Badge>}
             </div>
             
             <div className='flex-grow mt-2 overflow-y-auto space-y-2'>
@@ -197,6 +207,20 @@ export function EventCard({
                     </div>
                 )}
             </div>
+            {isOwnerOrAdmin && event.status === 'pending' && (
+                <div className="p-1 border-t mt-1 -mx-3 -mb-3 bg-muted/20">
+                    <div className="flex w-full gap-1">
+                         <Button size="xs" variant="ghost" className="w-full text-destructive" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
+                            <X className="w-4 h-4 mr-1" />
+                            Deny
+                        </Button>
+                        <Button size="xs" variant="ghost" className="w-full text-primary" onClick={(e) => { e.stopPropagation(); onUpdateEvent({ ...event, status: 'approved', approvedBy: user?.uid, approvedAt: new Date().toISOString() }); }}>
+                            <Check className="w-4 h-4 mr-1" />
+                            Approve
+                        </Button>
+                    </div>
+                </div>
+            )}
         </div>
     );
     
@@ -207,7 +231,7 @@ export function EventCard({
         <>
             <DialogOrSheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                 <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
-                <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
+                <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
                     <SheetHeader className="p-6 pb-4">
                         <SheetTitle>{event.title}</SheetTitle>
                         <SheetDescription>
@@ -220,7 +244,7 @@ export function EventCard({
                         transactions={transactions} 
                         onChecklistItemToggle={onChecklistItemToggle} 
                         onUpdateEvent={onUpdateEvent} 
-                        onEditEvent={onEditEvent} 
+                        onEditEvent={() => { setIsSheetOpen(false); setTimeout(() => onEditEvent(event), 150); }}
                         onLogExpenseClick={handleLogExpenseClick}
                     />
                 </DialogOrSheetContent>

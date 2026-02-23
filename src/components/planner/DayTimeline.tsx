@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -102,6 +103,7 @@ export const DayTimeline = ({
     onStartService,
     onFinishService,
     onBookNewForClient,
+    onDeleteEvent,
     walkIns,
     clients,
     services,
@@ -135,6 +137,7 @@ export const DayTimeline = ({
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
+    onDeleteEvent: (eventId: string) => void;
     walkIns: WalkIn[] | null;
     clients: Client[] | null;
     services: Service[] | null;
@@ -321,6 +324,7 @@ export const DayTimeline = ({
                     onUpdateEvent={onUpdateEvent}
                     onEditEvent={onEditEvent}
                     onAddTransaction={onAddTransaction}
+                    onDeleteEvent={onDeleteEvent}
                 />
             </div>
         )

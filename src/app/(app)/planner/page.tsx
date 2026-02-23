@@ -793,6 +793,16 @@ function PlannerPageContent() {
         setIsEditEventOpen(false);
     }
     
+    const handleDeleteEvent = (eventId: string) => {
+        if (!firestore || !tenantId) return;
+        const eventRef = doc(firestore, 'tenants', tenantId, 'events', eventId);
+        deleteDocumentNonBlocking(eventRef);
+        toast({
+            title: "Event Denied",
+            description: `The event has been removed from the calendar.`
+        });
+    };
+    
     const addTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
         if (!firestore || !user || !tenantId) {
             toast({
@@ -1366,7 +1376,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1383,6 +1393,7 @@ function PlannerPageContent() {
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
+                onDeleteEvent={handleDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
@@ -1403,7 +1414,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1420,6 +1431,7 @@ function PlannerPageContent() {
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
+                onDeleteEvent={handleDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
