@@ -643,7 +643,7 @@ const StaffDashboardView = () => {
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && new Date(t.date) >= periodStart && new Date(t.date) <= periodEnd);
         
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) + t.amount, 0);
         const totalSales = serviceRevenue + retailSales;
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
         
@@ -716,6 +716,9 @@ const StaffDashboardView = () => {
             netProfit,
             totalHours: totalMinutesWorked / 60,
             costOfGoodsSold,
+            totalSales,
+            earnings,
+            consumptionValue: 0,
         };
 
         return { ...staffMember, stats };
@@ -909,3 +912,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
