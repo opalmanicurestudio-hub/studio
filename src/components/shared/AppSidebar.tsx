@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -48,15 +49,16 @@ import { TenantSwitcher } from './TenantSwitcher';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ClientOnly } from './ClientOnly';
 import { useTenant } from '@/context/TenantContext';
+import { cn } from '@/lib/utils';
 
-export const ClarityFlowLogo = () => (
+export const ClarityFlowLogo = ({ className }: { className?: string }) => (
     <svg
       width="32"
       height="32"
       viewBox="0 0 32 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className="text-primary"
+      className={cn("text-primary", className)}
     >
       <path
         d="M16 3.5C9.09644 3.5 3.5 9.09644 3.5 16C3.5 22.9036 9.09644 28.5 16 28.5C22.9036 28.5 28.5 22.9036 28.5 16C28.5 9.09644 22.9036 3.5 16 3.5Z"

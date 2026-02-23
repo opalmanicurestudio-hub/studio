@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -46,33 +47,11 @@ import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
 
-
-const ClarityFlowLogo = () => (
-    <svg
-      width="32"
-      height="32"
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="text-foreground"
-    >
-      <path
-        d="M16 3.5C9.09644 3.5 3.5 9.09644 3.5 16C3.5 22.9036 9.09644 28.5 16 28.5C22.9036 28.5 28.5 22.9036 28.5 16C28.5 9.09644 22.9036 3.5 16 3.5Z"
-        stroke="currentColor"
-        strokeWidth="3"
-      />
-      <path
-        d="M16.0011 20.9C18.7067 20.9 20.9011 18.7056 20.9011 16C20.9011 13.2944 18.7067 11.1 16.0011 11.1"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div
@@ -85,18 +64,18 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
             <CardTitle className="text-3xl font-bold tracking-tight">Who are we serving today?</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-            <div className="rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => onSelect('individual')}>
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                    <User className="w-12 h-12 mb-4 text-primary" />
-                    <h3 className="text-3xl font-bold tracking-tight">Just Me</h3>
-                    <p className="text-muted-foreground mt-2">I'm checking in for myself.</p>
+            <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
+                <div className="p-16 flex flex-col items-center justify-center text-center">
+                    <User className="w-16 h-16 mb-6 text-primary" />
+                    <h3 className="text-4xl font-bold tracking-tight">Just Me</h3>
+                    <p className="text-slate-400 mt-2">I'm checking in for myself.</p>
                 </div>
             </div>
-             <div className="rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => onSelect('group')}>
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                    <Users className="w-12 h-12 mb-4 text-primary" />
-                    <h3 className="text-3xl font-bold tracking-tight">My Group</h3>
-                    <p className="text-muted-foreground mt-2">I'm checking in for myself and others.</p>
+             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
+                <div className="p-16 flex flex-col items-center justify-center text-center">
+                    <Users className="w-16 h-16 mb-6 text-primary" />
+                    <h3 className="text-4xl font-bold tracking-tight">My Group</h3>
+                    <p className="text-slate-400 mt-2">I'm checking in for myself and others.</p>
                 </div>
             </div>
         </CardContent>
@@ -185,23 +164,23 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
             <Label
                 htmlFor={id}
-                className="block cursor-pointer rounded-xl border bg-card transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+                className="block cursor-pointer rounded-xl border-2 border-slate-700 bg-slate-800/50 transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
                 <CardContent className="p-3">
                     <div className="flex flex-col items-center justify-between gap-3 h-full">
-                        <div className="w-full aspect-[4/3] relative bg-muted rounded-lg overflow-hidden">
+                        <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
                             {service.imageUrl ? (
                                 <Image src={service.imageUrl} alt={service.name} fill className="object-cover" data-ai-hint="service image" />
                             ) : (
-                                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                <div className="w-full h-full flex items-center justify-center text-slate-500">
                                     <Scissors className="w-8 h-8"/>
                                 </div>
                             )}
                         </div>
                         <div className="text-center">
                             <p className="font-semibold text-sm">{service.name}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
-                            {hasTiers && <p className="text-[10px] text-muted-foreground">Price varies by provider</p>}
+                            <p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>
+                            {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
                         </div>
                     </div>
                 </CardContent>
@@ -229,7 +208,7 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
         return (
              <div className="grid grid-cols-1 gap-4">
                 {categories.map(category => (
-                    <button key={category} className="w-full p-6 text-xl font-bold rounded-lg border bg-card hover:bg-accent transition-colors" onClick={() => setSelectedCategory(category)}>{category}</button>
+                    <button key={category} className="w-full p-6 text-xl font-bold rounded-lg border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors" onClick={() => setSelectedCategory(category)}>{category}</button>
                 ))}
             </div>
         )
@@ -292,7 +271,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
             {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-            <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
+            <div className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-800/50 p-3 mt-4">
                 <Label htmlFor={`wait-${member.id}`} className="font-medium">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name || 'Preferred Staff'}?</Label>
                 <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
             </div>
@@ -326,6 +305,25 @@ const MemberSetup = ({
     };
     
     const selectedServices = services.filter((s: Service) => member.serviceIds.includes(s.id));
+    
+    const primaryService = services.find((s: Service) => s.id === member.serviceIds[0]);
+    const hasCompatibleAddons = compatibleAddons && compatibleAddons.length > 0;
+    
+    const subSteps: MemberSubStep[] = ['details', 'services'];
+    if (hasCompatibleAddons) subSteps.push('addons');
+    subSteps.push('staff');
+    
+    const currentSubStepIndex = subSteps.indexOf(memberSubStep);
+    const totalSubSteps = subSteps.length;
+    const progress = useMemo(() => {
+        if (isGroup && partyMembers.length > 1) {
+            const memberProgress = (currentSubStepIndex / totalSubSteps) * (100 / partyMembers.length);
+            const pastMembersProgress = (member.index / partyMembers.length) * 100;
+            return pastMembersProgress + memberProgress;
+        }
+        return ((currentSubStepIndex + 1) / totalSubSteps) * 100;
+    }, [currentSubStepIndex, totalSubSteps, isGroup, member.index, partyMembers.length]);
+
 
     const renderStepContent = () => {
         return (
@@ -346,30 +344,40 @@ const MemberSetup = ({
         )
     }
     
-    const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
-      const steps: MemberSubStep[] = ['details', 'services'];
-      if (hasCompatibleAddons) {
-        steps.push('addons');
-      }
-      steps.push('staff');
-    
-      const currentIndex = steps.indexOf(current);
-      if (currentIndex < steps.length - 1) {
-        return steps[currentIndex + 1];
-      }
-      return null;
-    };
     const hasNextSubStep = getNextSubStep(memberSubStep, compatibleAddons && compatibleAddons.length > 0);
 
+    function getNextSubStep(current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null {
+        const steps: MemberSubStep[] = ['details', 'services'];
+        if (hasCompatibleAddons) {
+            steps.push('addons');
+        }
+        steps.push('staff');
+      
+        const currentIndex = steps.indexOf(current);
+        if (currentIndex < steps.length - 1) {
+            return steps[currentIndex + 1];
+        }
+        return null;
+    }
 
     return (
         <>
             <CardHeader>
                 <CardTitle className="text-3xl font-bold tracking-tight">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
-                <CardDescription className="flex items-center gap-2">
-                    {subStepTitles[memberSubStep].icon}
-                    {subStepTitles[memberSubStep].title}
-                </CardDescription>
+                <div className="flex items-center justify-between gap-4">
+                    <CardDescription className="flex items-center gap-2">
+                        {subStepTitles[memberSubStep].icon}
+                        {subStepTitles[memberSubStep].title}
+                    </CardDescription>
+                     {isGroup && (
+                        <p className="text-xs text-slate-400">
+                            {member.index + 1} of {partyMembers.length}
+                        </p>
+                    )}
+                </div>
+                 <div className="pt-2">
+                    <Progress value={progress} />
+                 </div>
                 {selectedServices.length > 0 && (
                     <div className="pt-2">
                         <div className="flex flex-wrap gap-2">
@@ -439,20 +447,20 @@ const ConfirmationScreen = ({
         >
             <CardContent className="p-8 text-center space-y-4">
                 <CheckCircle className="w-16 h-16 mx-auto text-primary" />
-                <h2 className="text-3xl font-bold tracking-tight">You're on the list!</h2>
-                <p className="text-muted-foreground max-w-md mx-auto">
+                <h2 className="text-5xl font-bold tracking-tight">You're on the list!</h2>
+                <p className="text-slate-400 max-w-md mx-auto">
                     We'll send a text message to the provided phone number when it's your turn. You can also print a ticket for your convenience.
                 </p>
-                <Card className="text-left bg-background">
+                <Card className="text-left bg-slate-800/50 border-slate-700">
                     <CardHeader>
                         <CardTitle>Your Party</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {confirmedParty.map(member => (
-                            <div key={member.id} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                            <div key={member.id} className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
                                 <div>
                                     <p className="font-semibold text-lg">#{member.queuePosition} - {member.name}</p>
-                                    <p className="text-sm text-muted-foreground">{member.services.map(s => s.name).join(', ')}</p>
+                                    <p className="text-sm text-slate-400">{member.services.map(s => s.name).join(', ')}</p>
                                 </div>
                                 <Button size="sm" variant="outline" onClick={() => onPrint(member)}>
                                     <Printer className="mr-2 h-4 w-4" />
@@ -466,7 +474,7 @@ const ConfirmationScreen = ({
             <CardFooter className="flex flex-col gap-4">
                 <Button className="w-full" variant="ghost" onClick={onDone}>Done</Button>
                 <div className="w-full text-center">
-                    <p className="text-xs text-muted-foreground">Resetting for the next guest...</p>
+                    <p className="text-xs text-slate-500">Resetting for the next guest...</p>
                     <Progress value={resetProgress} className="h-1 mt-2" />
                 </div>
             </CardFooter>
@@ -567,30 +575,30 @@ const formatTime = (timeStr: string) => {
 };
 
 const ClosedView = ({ nextOpen, schedule }: { nextOpen?: { day: string; time: string }, schedule?: { week: BusinessHours } }) => (
-    <Card className="w-full max-w-lg text-center">
+    <Card className="w-full max-w-lg text-center bg-slate-900/50 border-slate-700 text-slate-100">
       <CardHeader>
-        <div className="flex justify-center mb-4 text-muted-foreground">
+        <div className="flex justify-center mb-4 text-slate-500">
           <Clock className="w-12 h-12" />
         </div>
         <CardTitle className="text-2xl">We're Currently Closed</CardTitle>
       </CardHeader>
       <CardContent>
         {nextOpen ? (
-          <p className="text-lg text-muted-foreground">
+          <p className="text-lg text-slate-400">
             We will reopen {nextOpen.day} at <strong>{nextOpen.time}</strong>.
           </p>
         ) : (
-          <p className="text-muted-foreground">Please check back later for our hours.</p>
+          <p className="text-slate-400">Please check back later for our hours.</p>
         )}
         {schedule && (
             <div className="mt-6 text-left max-w-sm mx-auto">
                 <h4 className="font-semibold text-center mb-2">Our Hours</h4>
-                <div className="space-y-1 text-sm text-muted-foreground">
+                <div className="space-y-1 text-sm text-slate-400">
                     {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
                         const dayInfo = schedule.week[day as keyof BusinessHours];
                         return (
-                            <div key={day} className="flex justify-between p-2 rounded-md even:bg-muted/50">
-                                <span className="font-medium capitalize">{day}</span>
+                            <div key={day} className="flex justify-between p-2 rounded-md even:bg-slate-800/50">
+                                <span className="font-medium capitalize text-slate-300">{day}</span>
                                 <span>{dayInfo?.enabled ? `${dayInfo.start} - ${dayInfo.end}` : 'Closed'}</span>
                             </div>
                         )
@@ -882,16 +890,16 @@ export default function WalkInPage() {
 
   return (
     <>
-    <div className="min-h-screen w-full bg-gray-50 dark:bg-black flex flex-col items-center justify-center p-4 transition-colors duration-500">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 transition-colors duration-500">
         <header className="mb-8 text-center">
-          <div className="inline-block p-3 bg-card rounded-full shadow-lg mb-4">
-            <ClarityFlowLogo />
+          <div className="inline-block p-3 bg-slate-800/50 rounded-full shadow-lg mb-4">
+            <ClarityFlowLogo className="!text-white" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
-          <p className="text-muted-foreground mt-2">Walk-in Check-in</p>
+          <h1 className="text-5xl font-extrabold tracking-tight text-white">{tenant?.name || 'ClarityFlow Salon'}</h1>
+          <p className="text-slate-400 mt-2">Walk-in Check-in</p>
         </header>
         
-        <Card className="overflow-hidden shadow-2xl w-full max-w-4xl bg-card/80 backdrop-blur-sm">
+        <Card className="overflow-hidden shadow-2xl w-full max-w-4xl bg-slate-900/50 backdrop-blur-sm border-slate-700">
             <AnimatePresence mode="wait">
                 {step === 'partyType' && (
                     <PartyTypeSelection key="partyType" onSelect={handlePartyTypeSelect} />
