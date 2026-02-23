@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -505,6 +504,7 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
+    const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading } = useInventory();
     
@@ -563,7 +563,6 @@ const StaffDashboardView = () => {
 
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         if (!staffMember?.id || !selectedTenant?.id) return;
-        const firestore = useFirebase().firestore;
     
         const activityLogsRef = collection(firestore, 'tenants', selectedTenant.id, 'activityLogs');
         const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
@@ -711,5 +710,4 @@ export default function DashboardPage() {
     </div>
   );
 }
-
 
