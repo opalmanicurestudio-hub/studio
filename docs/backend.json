@@ -899,10 +899,24 @@
         "title": { "type": "string" },
         "startTime": { "type": "string", "format": "date-time" },
         "endTime": { "type": "string", "format": "date-time" },
-        "type": { "type": "string" },
+        "type": { "type": "string", "enum": ["personal", "business", "blocked"] },
         "location": { "type": "string" },
         "notes": { "type": "string" },
-        "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
+        "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." },
+        "status": {
+            "type": "string",
+            "enum": ["pending", "approved"],
+            "description": "The approval status of the event."
+        },
+        "approvedBy": {
+            "type": "string",
+            "description": "The UID of the user who approved the event."
+        },
+        "approvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of when the event was approved."
+        }
       },
       "required": ["id", "title", "startTime", "endTime"]
     },

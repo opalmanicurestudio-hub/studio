@@ -355,6 +355,9 @@ export type Event = {
   lineItems?: any[];
   travelExpenses?: number;
   projectFee?: number;
+  status?: 'pending' | 'approved';
+  approvedBy?: string;
+  approvedAt?: string;
 };
 
 export type Order = {

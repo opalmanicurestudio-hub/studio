@@ -6,6 +6,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
+import type { User } from 'firebase/auth';
 
 type UserRole = 'owner' | 'staff' | null;
 
@@ -15,6 +16,7 @@ interface TenantContextType {
   setSelectedTenant: (tenant: Tenant) => void;
   isLoading: boolean;
   role: UserRole;
+  user: User | null;
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
@@ -91,7 +93,8 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
     selectedTenant,
     setSelectedTenant: handleSetSelectedTenant,
     isLoading,
-    role
+    role,
+    user
   };
 
   return (

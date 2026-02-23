@@ -273,7 +273,16 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/events/{eventId}
      */
     match /tenants/{tenantId}/events/{eventId} {
-      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow read: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || 
+                      (isStaff(tenantId) && request.resource.data.staffId == request.auth.uid);
+      allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) ||
+                      (isStaff(tenantId) && 
+                       request.auth.uid == resource.data.staffId &&
+                       resource.data.status == 'pending' &&
+                       request.resource.data.status == 'pending');
+      allow delete: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) ||
+                      (isStaff(tenantId) && request.auth.uid == resource.data.staffId && resource.data.status == 'pending');
     }
     
     /**
@@ -381,4 +390,3 @@ service cloud.firestore {
     }
   }
 }
-
