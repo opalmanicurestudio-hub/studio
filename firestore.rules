@@ -1,4 +1,5 @@
 
+
 /**
  * # Firestore Security Rules
  *
@@ -59,14 +60,15 @@ service cloud.firestore {
      * the document ID matches the authenticated user's UID.
      */
     function isStaff(tenantId) {
-      return isSignedIn() && exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
+      return isSignedIn() && exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.tenantId == tenantId;
     }
     
     /**
      * Returns true if the user is an admin staff member of the specified tenant.
      */
     function isTenantAdmin(tenantId) {
-        return isStaff(tenantId) && get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role == 'admin';
+        return isStaff(tenantId) && get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin';
     }
 
     /**
@@ -145,6 +147,18 @@ service cloud.firestore {
       allow create: if isOwner(userId) && pathIdMatchesDataIdOnCreate(userId);
       allow update: if isOwner(userId) && resource != null && isIdImmutable();
       allow delete: if isOwner(userId) && resource != null;
+    }
+    
+    /**
+     * @description Top-level directory to map staff auth UIDs to their tenant.
+     * This is the entry point for staff authentication and role lookup.
+     */
+    match /staffDirectory/{staffId} {
+      // A staff member can read their own directory entry to find their tenant.
+      allow get: if isOwner(staffId);
+      // Only the tenant owner can create, update, or delete staff entries.
+      allow write: if isTenantOwner(request.resource.data.tenantId);
+      allow list: if false;
     }
 
     /**
@@ -388,3 +402,4 @@ service cloud.firestore {
     }
   }
 }
+
