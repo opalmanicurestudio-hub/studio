@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -48,6 +47,7 @@ import { Badge } from '@/components/ui/badge';
 import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
+import { Separator } from '@/components/ui/separator';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
@@ -59,26 +59,25 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
         transition={{ duration: 0.5 }}
+        className="w-full"
     >
-        <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold tracking-tight">Who are we serving today?</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+        <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-center">Who are we serving today?</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
-                <div className="p-16 flex flex-col items-center justify-center text-center">
-                    <User className="w-16 h-16 mb-6 text-primary" />
-                    <h3 className="text-4xl font-bold tracking-tight">Just Me</h3>
+                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
+                    <User className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
+                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">Just Me</h3>
                     <p className="text-slate-400 mt-2">I'm checking in for myself.</p>
                 </div>
             </div>
              <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
-                <div className="p-16 flex flex-col items-center justify-center text-center">
-                    <Users className="w-16 h-16 mb-6 text-primary" />
-                    <h3 className="text-4xl font-bold tracking-tight">My Group</h3>
+                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
+                    <Users className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
+                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">My Group</h3>
                     <p className="text-slate-400 mt-2">I'm checking in for myself and others.</p>
                 </div>
             </div>
-        </CardContent>
+        </div>
     </motion.div>
 );
 
@@ -166,24 +165,22 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                 htmlFor={id}
                 className="block cursor-pointer rounded-xl border-2 border-slate-700 bg-slate-800/50 transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
-                <CardContent className="p-3">
-                    <div className="flex flex-col items-center justify-between gap-3 h-full">
-                        <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
-                            {service.imageUrl ? (
-                                <Image src={service.imageUrl} alt={service.name} fill className="object-cover" data-ai-hint="service image" />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-slate-500">
-                                    <Scissors className="w-8 h-8"/>
-                                </div>
-                            )}
-                        </div>
-                        <div className="text-center">
-                            <p className="font-semibold text-sm">{service.name}</p>
-                            <p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>
-                            {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
-                        </div>
+                <div className="p-3 flex flex-col items-center justify-between gap-3 h-full">
+                    <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
+                        {service.imageUrl ? (
+                            <Image src={service.imageUrl} alt={service.name} fill className="object-cover" data-ai-hint="service image" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-500">
+                                <Scissors className="w-8 h-8"/>
+                            </div>
+                        )}
                     </div>
-                </CardContent>
+                    <div className="text-center">
+                        <p className="font-semibold text-sm">{service.name}</p>
+                        <p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>
+                        {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
+                    </div>
+                </div>
             </Label>
         </div>
     );
@@ -361,35 +358,41 @@ const MemberSetup = ({
     }
 
     return (
-        <>
-            <CardHeader>
-                <CardTitle className="text-3xl font-bold tracking-tight">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
-                <div className="flex items-center justify-between gap-4">
-                    <CardDescription className="flex items-center gap-2">
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+        >
+            <div className="p-6 md:p-8">
+                <h2 className="text-3xl font-bold tracking-tight">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</h2>
+                <div className="flex items-center justify-between gap-4 mt-2">
+                    <p className="flex items-center gap-2 text-slate-400">
                         {subStepTitles[memberSubStep].icon}
                         {subStepTitles[memberSubStep].title}
-                    </CardDescription>
-                     {isGroup && (
+                    </p>
+                    {isGroup && (
                         <p className="text-xs text-slate-400">
                             {member.index + 1} of {partyMembers.length}
                         </p>
                     )}
                 </div>
-                 <div className="pt-2">
+                <div className="pt-4">
                     <Progress value={progress} />
-                 </div>
+                </div>
                 {selectedServices.length > 0 && (
-                    <div className="pt-2">
+                    <div className="pt-4">
                         <div className="flex flex-wrap gap-2">
                             {selectedServices.map((s: Service) => <Badge key={s.id}>{s.name}</Badge>)}
                         </div>
                     </div>
                 )}
-            </CardHeader>
-            <CardContent>
-                {renderStepContent()}
-            </CardContent>
-             <CardFooter className="flex flex-col sm:flex-row gap-2">
+            </div>
+
+            <div className="p-6 md:p-8 pt-0">{renderStepContent()}</div>
+
+            <Separator className="bg-slate-700" />
+            <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-2">
                 <Button variant="ghost" onClick={onBack} disabled={isSubmitting} className="w-full sm:w-auto"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
@@ -409,8 +412,8 @@ const MemberSetup = ({
                         </Button>
                     )
                 )}
-            </CardFooter>
-        </>
+            </div>
+        </motion.div>
     );
 };
 
@@ -444,8 +447,9 @@ const ConfirmationScreen = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.5 }}
+            className="p-6 md:p-8"
         >
-            <CardContent className="p-8 text-center space-y-4">
+            <div className="text-center space-y-4">
                 <CheckCircle className="w-16 h-16 mx-auto text-primary" />
                 <h2 className="text-5xl font-bold tracking-tight">You're on the list!</h2>
                 <p className="text-slate-400 max-w-md mx-auto">
@@ -470,14 +474,14 @@ const ConfirmationScreen = ({
                         ))}
                     </CardContent>
                 </Card>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-4">
+            </div>
+            <div className="mt-8 flex flex-col gap-4">
                 <Button className="w-full" variant="ghost" onClick={onDone}>Done</Button>
                 <div className="w-full text-center">
                     <p className="text-xs text-slate-500">Resetting for the next guest...</p>
                     <Progress value={resetProgress} className="h-1 mt-2" />
                 </div>
-            </CardFooter>
+            </div>
         </motion.div>
     )
 };
@@ -899,19 +903,12 @@ export default function WalkInPage() {
           <p className="text-slate-400 mt-2">Walk-in Check-in</p>
         </header>
         
-        <Card className="overflow-hidden shadow-2xl w-full max-w-4xl bg-slate-900/50 backdrop-blur-sm border-slate-700">
+        <div className="w-full max-w-4xl">
             <AnimatePresence mode="wait">
                 {step === 'partyType' && (
                     <PartyTypeSelection key="partyType" onSelect={handlePartyTypeSelect} />
                 )}
                 {step === 'memberSetup' && currentMember && (
-                    <motion.div
-                        key="memberSetup"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.5 }}
-                    >
                     <MemberSetup
                         member={{...currentMember, index: currentMemberIndex}}
                         partyMembers={partyMembers}
@@ -930,7 +927,6 @@ export default function WalkInPage() {
                         onSubmit={handleSubmit}
                         isSubmitting={isSubmitting}
                     />
-                    </motion.div>
                 )}
                 {step === 'confirmation' && (
                     <ConfirmationScreen
@@ -941,7 +937,7 @@ export default function WalkInPage() {
                     />
                 )}
             </AnimatePresence>
-        </Card>
+        </div>
     </div>
     <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
         <DialogContent className="max-w-sm print:hidden">
