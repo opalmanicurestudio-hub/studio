@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -57,6 +56,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 
 const barChartConfig = {
   profit: {
@@ -505,9 +505,10 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
-    const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
-    const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading } = useInventory();
+    const { firestore } = useFirebase();
+    const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading, consentForms, inventory } = useInventory();
+    const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
     const staffMember = useMemo(() => {
         if (!user || !staff) return null;
@@ -546,17 +547,27 @@ const StaffDashboardView = () => {
                    transactionDate <= periodEnd;
         });
     }, [transactions, user, periodStart, periodEnd]);
+    
+    const activityLogsForPeriod = useMemo(() => {
+        if (!activityLogs || !user) return [];
+        return activityLogs.filter(log => {
+            const logDate = new Date(log.timestamp);
+            return log.staffId === user.uid &&
+                   logDate >= periodStart &&
+                   logDate <= periodEnd;
+        });
+    }, [activityLogs, user, periodStart, periodEnd]);
 
     const kpis = useMemo(() => {
         if (!transactionsForPeriod || !appointmentsForPeriod || !staffMember || !activityLogs) {
             return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
         }
         const serviceRevenue = transactionsForPeriod
-            .filter(t => t.type === 'income' && t.category === 'Service Revenue')
+            .filter(t => t.category === 'Service Revenue')
             .reduce((sum, t) => sum + t.amount, 0);
 
         const retailSales = transactionsForPeriod
-            .filter(t => t.type === 'income' && t.category === 'Retail')
+            .filter(t => t.category === 'Retail')
             .reduce((sum, t) => sum + t.amount, 0);
 
         const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
@@ -566,11 +577,7 @@ const StaffDashboardView = () => {
         if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
         } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            const staffLogsForPeriod = (activityLogs || []).filter(log => {
-                if (log.staffId !== staffMember.id) return false;
-                const logDate = new Date(log.timestamp);
-                return logDate >= periodStart && logDate <= periodEnd;
-            });
+            const staffLogsForPeriod = activityLogsForPeriod;
             
             const sortedLogs = staffLogsForPeriod.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
             let totalMinutesWorked = 0;
@@ -608,7 +615,111 @@ const StaffDashboardView = () => {
         
         return { revenue: serviceRevenue, tips, completed, earnings };
 
-    }, [transactionsForPeriod, appointmentsForPeriod, staffMember, activityLogs, periodStart, periodEnd]);
+    }, [transactionsForPeriod, appointmentsForPeriod, staffMember, activityLogsForPeriod, periodEnd]);
+    
+    const staffMemberWithStats = useMemo(() => {
+        if (!staffMember || !transactions || !appointments || !activityLogs || !services || !inventory) return null;
+        
+        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && new Date(apt.startTime) >= periodStart && new Date(apt.startTime) <= periodEnd);
+        const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
+        const completedAppointmentsCount = completedAppointments.length;
+      
+        let totalMinutesVariance = 0;
+        let totalInServiceMinutes = 0;
+        completedAppointments.forEach(apt => {
+            const service = services.find(s => s.id === apt.serviceId);
+            if (apt.actualStartTime && apt.actualEndTime && service) {
+                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                const scheduledDuration = service.duration;
+                totalMinutesVariance += actualDuration - scheduledDuration;
+                totalInServiceMinutes += actualDuration;
+            } else if (service) {
+                totalInServiceMinutes += service.duration;
+            }
+        });
+      
+        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
+        
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && new Date(t.date) >= periodStart && new Date(t.date) <= periodEnd);
+        
+        const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+        const totalSales = serviceRevenue + retailSales;
+        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        
+        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
+        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
+        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+
+        let totalMinutesWorked = 0;
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && new Date(log.timestamp) >= periodStart && new Date(log.timestamp) <= periodEnd);
+        const sortedLogs = staffLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        
+        let clockInTime: Date | null = null;
+        let totalBreakMinutes = 0;
+        for (const log of sortedLogs) {
+            const logTime = new Date(log.timestamp);
+            if (log.type === 'clock_in') {
+                if (clockInTime) {
+                    const sessionEnd = periodEnd && logTime > periodEnd ? periodEnd : logTime;
+                    totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+                }
+                clockInTime = logTime;
+                totalBreakMinutes = 0;
+            } else if (log.type === 'clock_out' && clockInTime) {
+                let sessionEnd = logTime;
+                if (periodEnd && sessionEnd > periodEnd) sessionEnd = periodEnd;
+                totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+                clockInTime = null;
+            } else if (log.type === 'break_end' && log.durationMinutes) {
+                totalBreakMinutes += log.durationMinutes;
+            }
+        }
+        if(clockInTime && (!periodEnd || clockInTime < periodEnd)) {
+            const endOfRange = periodEnd && periodEnd < new Date() ? periodEnd : new Date();
+            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
+        }
+
+        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
+        
+        let wages = 0;
+        if (staffMember.payStructure === 'commission') {
+            wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+            const hoursWorked = totalMinutesWorked / 60;
+            wages = hoursWorked * staffMember.hourlyRate;
+        }
+        
+        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+        const earnings = wages + tips + retailCommission;
+        
+        const costOfGoodsSold = completedAppointments.reduce((acc, apt) => {
+            const service = services.find(s => s.id === apt.serviceId);
+            return acc + (service?.cost || 0);
+        }, 0);
+        const netProfit = totalSales - costOfGoodsSold - (wages + retailCommission);
+        
+        const stats = {
+            totalServices: completedAppointmentsCount,
+            avgActualServiceTime: completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0,
+            avgVariance,
+            totalInServiceHours: totalInServiceMinutes / 60,
+            utilizationRate,
+            avgSalePerAppointment,
+            retailAttachmentRate,
+            serviceRevenue,
+            retailSales,
+            retailCommission,
+            tips,
+            wages,
+            totalPay: earnings,
+            netProfit,
+            totalHours: totalMinutesWorked / 60,
+            costOfGoodsSold,
+        };
+
+        return { ...staffMember, stats };
+    }, [staffMember, transactions, appointments, activityLogs, services, inventory, periodStart, periodEnd]);
 
     const upcomingAppointments = useMemo(() => {
         if (!appointments || !user || !clients || !services) return [];
@@ -677,6 +788,11 @@ const StaffDashboardView = () => {
         <Card className="text-center">
           <CardHeader>
             <CardTitle className="text-3xl">Welcome, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
+             {staffMember && (
+                <CardDescription>
+                    {periodName}: {format(periodStart, 'MMM d, yyyy')} - {format(periodEnd, 'MMM d, yyyy')}
+                </CardDescription>
+            )}
             {staffMember && (
                  <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto", {
                     'bg-green-100 text-green-800 dark:bg-green-900/50': staffMember.active && !staffMember.onBreak,
@@ -689,6 +805,9 @@ const StaffDashboardView = () => {
           <CardContent>
             {renderActionButtons()}
           </CardContent>
+          <CardFooter>
+            <Button variant="secondary" className="w-full" onClick={() => setIsDetailsSheetOpen(true)}>View Activity &amp; Print</Button>
+          </CardFooter>
         </Card>
   
         <div className="grid gap-4 md:grid-cols-3">
@@ -750,6 +869,19 @@ const StaffDashboardView = () => {
             )}
           </CardContent>
         </Card>
+         {staffMemberWithStats && (
+            <StaffDetailsSheet
+                open={isDetailsSheetOpen}
+                onOpenChange={setIsDetailsSheetOpen}
+                staffMember={staffMemberWithStats}
+                dateRange={{ from: periodStart, to: periodEnd }}
+                transactions={transactions || []}
+                services={services || []}
+                appointments={appointments || []}
+                activityLogs={activityLogs || []}
+                consentForms={consentForms || []}
+            />
+        )}
       </div>
     );
 };
@@ -777,6 +909,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-
-    
