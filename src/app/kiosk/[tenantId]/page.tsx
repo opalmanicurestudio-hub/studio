@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -20,7 +19,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -47,32 +45,62 @@ import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/P
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
+import { motion, AnimatePresence } from 'framer-motion';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
 
+
+const ClarityFlowLogo = () => (
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="text-foreground"
+    >
+      <path
+        d="M16 3.5C9.09644 3.5 3.5 9.09644 3.5 16C3.5 22.9036 9.09644 28.5 16 28.5C22.9036 28.5 28.5 22.9036 28.5 16C28.5 9.09644 22.9036 3.5 16 3.5Z"
+        stroke="currentColor"
+        strokeWidth="3"
+      />
+      <path
+        d="M16.0011 20.9C18.7067 20.9 20.9011 18.7056 20.9011 16C20.9011 13.2944 18.7067 11.1 16.0011 11.1"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
-    <>
+    <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ duration: 0.5 }}
+    >
         <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Who are we serving today?</CardTitle>
+            <CardTitle className="text-3xl font-bold tracking-tight">Who are we serving today?</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('individual')}>
-                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
-                    <User className="w-16 h-16 mx-auto mb-4 text-primary" />
-                    <h3 className="text-2xl font-semibold">Just Me</h3>
-                    <p className="text-muted-foreground mt-1">I'm checking in for myself.</p>
-                </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all text-center" onClick={() => onSelect('group')}>
-                <CardContent className="p-8 flex flex-col items-center justify-center h-full">
-                    <Users className="w-16 h-16 mx-auto mb-4 text-primary" />
-                    <h3 className="text-2xl font-semibold">My Group</h3>
-                    <p className="text-muted-foreground mt-1">I'm checking in for myself and others.</p>
-                </CardContent>
-            </Card>
+            <div className="rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => onSelect('individual')}>
+                <div className="p-12 flex flex-col items-center justify-center text-center">
+                    <User className="w-12 h-12 mb-4 text-primary" />
+                    <h3 className="text-3xl font-bold tracking-tight">Just Me</h3>
+                    <p className="text-muted-foreground mt-2">I'm checking in for myself.</p>
+                </div>
+            </div>
+             <div className="rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => onSelect('group')}>
+                <div className="p-12 flex flex-col items-center justify-center text-center">
+                    <Users className="w-12 h-12 mb-4 text-primary" />
+                    <h3 className="text-3xl font-bold tracking-tight">My Group</h3>
+                    <p className="text-muted-foreground mt-2">I'm checking in for myself and others.</p>
+                </div>
+            </div>
         </CardContent>
-    </>
+    </motion.div>
 );
 
 const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; primaryMember?: PartyMember; isGroup: boolean; }) => {
@@ -157,7 +185,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
             <Label
                 htmlFor={id}
-                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
+                className="block cursor-pointer rounded-xl border bg-card transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
             >
                 <CardContent className="p-3">
                     <div className="flex flex-col items-center justify-between gap-3 h-full">
@@ -199,9 +227,9 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
 
     if (!selectedCategory) {
         return (
-             <div className="grid grid-cols-2 gap-4">
+             <div className="grid grid-cols-1 gap-4">
                 {categories.map(category => (
-                    <Button key={category} variant="outline" className="h-20 text-base" onClick={() => setSelectedCategory(category)}>{category}</Button>
+                    <button key={category} className="w-full p-6 text-xl font-bold rounded-lg border bg-card hover:bg-accent transition-colors" onClick={() => setSelectedCategory(category)}>{category}</button>
                 ))}
             </div>
         )
@@ -300,13 +328,22 @@ const MemberSetup = ({
     const selectedServices = services.filter((s: Service) => member.serviceIds.includes(s.id));
 
     const renderStepContent = () => {
-        switch (memberSubStep) {
-            case 'details': return <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} />;
-            case 'services': return <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>;
-            case 'addons': return <StepAddons member={member} onUpdate={onUpdate} compatibleAddons={compatibleAddons} staff={staff} pricingTiers={pricingTiers}/>;
-            case 'staff': return <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />;
-            default: return null;
-        }
+        return (
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={memberSubStep}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                >
+                    {memberSubStep === 'details' && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} />}
+                    {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
+                    {memberSubStep === 'addons' && <StepAddons member={member} onUpdate={onUpdate} compatibleAddons={compatibleAddons} staff={staff} pricingTiers={pricingTiers}/>}
+                    {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
+                </motion.div>
+            </AnimatePresence>
+        )
     }
     
     const getNextSubStep = (current: MemberSubStep, hasCompatibleAddons: boolean): MemberSubStep | null => {
@@ -328,7 +365,7 @@ const MemberSetup = ({
     return (
         <>
             <CardHeader>
-                <CardTitle className="text-2xl">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
+                <CardTitle className="text-3xl font-bold tracking-tight">{isGroup ? `Person ${member.index + 1}` : 'Your Visit'}</CardTitle>
                 <CardDescription className="flex items-center gap-2">
                     {subStepTitles[memberSubStep].icon}
                     {subStepTitles[memberSubStep].title}
@@ -394,23 +431,28 @@ const ConfirmationScreen = ({
     }, [onDone]);
     
     return (
-        <>
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.5 }}
+        >
             <CardContent className="p-8 text-center space-y-4">
-                <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                <h2 className="text-2xl font-bold">You're on the list!</h2>
-                <p className="text-muted-foreground">
-                    We will send a text message to the provided phone number when it's your turn.
+                <CheckCircle className="w-16 h-16 mx-auto text-primary" />
+                <h2 className="text-3xl font-bold tracking-tight">You're on the list!</h2>
+                <p className="text-muted-foreground max-w-md mx-auto">
+                    We'll send a text message to the provided phone number when it's your turn. You can also print a ticket for your convenience.
                 </p>
-                <Card className="text-left">
+                <Card className="text-left bg-background">
                     <CardHeader>
                         <CardTitle>Your Party</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {confirmedParty.map(member => (
-                            <div key={member.id} className="flex justify-between items-center p-3 bg-muted/50 rounded-md">
+                            <div key={member.id} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                                 <div>
-                                    <p className="font-semibold">#{member.queuePosition} - {member.name}</p>
-                                    <p className="text-xs text-muted-foreground">{member.services.map(s => s.name).join(', ')}</p>
+                                    <p className="font-semibold text-lg">#{member.queuePosition} - {member.name}</p>
+                                    <p className="text-sm text-muted-foreground">{member.services.map(s => s.name).join(', ')}</p>
                                 </div>
                                 <Button size="sm" variant="outline" onClick={() => onPrint(member)}>
                                     <Printer className="mr-2 h-4 w-4" />
@@ -428,7 +470,7 @@ const ConfirmationScreen = ({
                     <Progress value={resetProgress} className="h-1 mt-2" />
                 </div>
             </CardFooter>
-        </>
+        </motion.div>
     )
 };
 
@@ -840,46 +882,57 @@ export default function WalkInPage() {
 
   return (
     <>
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="min-h-screen w-full bg-gray-50 dark:bg-black flex flex-col items-center justify-center p-4 transition-colors duration-500">
         <header className="mb-8 text-center">
-          <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
+          <div className="inline-block p-3 bg-card rounded-full shadow-lg mb-4">
             <ClarityFlowLogo />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
+          <h1 className="text-4xl font-extrabold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
           <p className="text-muted-foreground mt-2">Walk-in Check-in</p>
         </header>
         
-        <Card className="overflow-hidden">
-            {step === 'partyType' && (
-                <PartyTypeSelection onSelect={handlePartyTypeSelect} />
-            )}
-            {step === 'memberSetup' && currentMember && (
-                <MemberSetup
-                    member={{...currentMember, index: currentMemberIndex}}
-                    partyMembers={partyMembers}
-                    onUpdate={handleMemberUpdate}
-                    memberSubStep={memberSubStep}
-                    setMemberSubStep={setMemberSubStep}
-                    services={services || []}
-                    staff={staff || []}
-                    pricingTiers={pricingTiers || []}
-                    compatibleAddons={compatibleAddons || []}
-                    onNext={handleNextMember}
-                    onBack={handleBack}
-                    isGroup={isGroup}
-                    isLastMember={currentMemberIndex === partyMembers.length - 1}
-                    onAddAnother={handleAddAnother}
-                    onSubmit={handleSubmit}
-                    isSubmitting={isSubmitting}
-                />
-            )}
-            {step === 'confirmation' && (
-                <ConfirmationScreen
-                    confirmedParty={confirmedParty}
-                    onPrint={handlePrintTicket}
-                    onDone={resetFlow}
-                />
-            )}
+        <Card className="overflow-hidden shadow-2xl w-full max-w-4xl bg-card/80 backdrop-blur-sm">
+            <AnimatePresence mode="wait">
+                {step === 'partyType' && (
+                    <PartyTypeSelection key="partyType" onSelect={handlePartyTypeSelect} />
+                )}
+                {step === 'memberSetup' && currentMember && (
+                    <motion.div
+                        key="memberSetup"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.5 }}
+                    >
+                    <MemberSetup
+                        member={{...currentMember, index: currentMemberIndex}}
+                        partyMembers={partyMembers}
+                        onUpdate={handleMemberUpdate}
+                        memberSubStep={memberSubStep}
+                        setMemberSubStep={setMemberSubStep}
+                        services={services || []}
+                        staff={staff || []}
+                        pricingTiers={pricingTiers || []}
+                        compatibleAddons={compatibleAddons || []}
+                        onNext={handleNextMember}
+                        onBack={handleBack}
+                        isGroup={isGroup}
+                        isLastMember={currentMemberIndex === partyMembers.length - 1}
+                        onAddAnother={handleAddAnother}
+                        onSubmit={handleSubmit}
+                        isSubmitting={isSubmitting}
+                    />
+                    </motion.div>
+                )}
+                {step === 'confirmation' && (
+                    <ConfirmationScreen
+                        key="confirmation"
+                        confirmedParty={confirmedParty}
+                        onPrint={handlePrintTicket}
+                        onDone={resetFlow}
+                    />
+                )}
+            </AnimatePresence>
         </Card>
     </div>
     <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
