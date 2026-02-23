@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -507,7 +508,7 @@ const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant } = useTenant();
     const { firestore } = useFirebase();
-    const { clients, services, appointments, transactions, activityLogs, staff, isLoading: isInventoryLoading, consentForms, inventory } = useInventory();
+    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
     const staffMember = useMemo(() => {
@@ -568,7 +569,7 @@ const StaffDashboardView = () => {
 
         const retailSales = transactionsForPeriod
             .filter(t => t.category === 'Retail')
-            .reduce((sum, t) => sum + t.amount, 0);
+            .reduce((acc, t) => acc + t.amount, 0);
 
         const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
         const completed = appointmentsForPeriod.filter(a => a.status === 'completed').length;
@@ -643,7 +644,7 @@ const StaffDashboardView = () => {
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && new Date(t.date) >= periodStart && new Date(t.date) <= periodEnd);
         
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) + t.amount, 0);
+        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const totalSales = serviceRevenue + retailSales;
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
         
@@ -912,5 +913,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
