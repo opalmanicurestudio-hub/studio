@@ -50,7 +50,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -507,7 +507,7 @@ const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant, firestore } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { clients, services } = useInventory();
+    const { clients, services, appointments, transactions } = useInventory();
 
     const staffDocRef = useMemoFirebase(() => {
         if (!firestore || !tenantId || !user) return null;
@@ -518,27 +518,24 @@ const StaffDashboardView = () => {
     const todayStart = startOfDay(new Date());
     const todayEnd = endOfDay(new Date());
 
-    const appointmentsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !user) return null;
-        return query(
-            collection(firestore, `tenants/${tenantId}/appointments`),
-            where('staffId', '==', user.uid),
-            where('startTime', '>=', todayStart),
-            where('startTime', '<=', todayEnd)
-        );
-    }, [firestore, tenantId, user, todayStart, todayEnd]);
-    const { data: appointmentsToday } = useCollection<Appointment>(appointmentsQuery);
+    const appointmentsToday = useMemo(() => {
+      if (!appointments || !user) return [];
+      return appointments.filter(apt => 
+        apt.staffId === user.uid &&
+        new Date(apt.startTime) >= todayStart &&
+        new Date(apt.startTime) <= todayEnd
+      );
+    }, [appointments, user, todayStart, todayEnd]);
 
-    const transactionsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !user) return null;
-        return query(
-            collection(firestore, `tenants/${tenantId}/transactions`),
-            where('staffId', '==', user.uid),
-            where('date', '>=', todayStart.toISOString()),
-            where('date', '<=', todayEnd.toISOString())
-        );
-    }, [firestore, tenantId, user, todayStart, todayEnd]);
-    const { data: transactionsToday } = useCollection<Transaction>(transactionsQuery);
+    const transactionsToday = useMemo(() => {
+        if (!transactions || !user) return [];
+        return transactions.filter(t => {
+            const transactionDate = new Date(t.date);
+            return t.staffId === user.uid &&
+                   transactionDate >= todayStart &&
+                   transactionDate <= todayEnd;
+        });
+    }, [transactions, user, todayStart, todayEnd]);
 
     const kpis = useMemo(() => {
         if (!transactionsToday || !appointmentsToday) {
