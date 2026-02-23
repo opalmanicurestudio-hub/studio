@@ -155,6 +155,23 @@
         },
         "required": ["enabled"]
     },
+    "StaffDirectoryEntry": {
+        "title": "Staff Directory Entry",
+        "type": "object",
+        "description": "A top-level entry to map a staff member's auth UID to their tenant.",
+        "properties": {
+            "tenantId": {
+                "type": "string",
+                "description": "The ID of the tenant this staff member belongs to."
+            },
+            "role": {
+                "type": "string",
+                "enum": ["admin", "staff"],
+                "description": "The role of the staff member."
+            }
+        },
+        "required": ["tenantId", "role"]
+    },
     "Staff": {
       "title": "Staff",
       "type": "object",
@@ -1052,6 +1069,12 @@
       },
       "description": "Stores user profiles."
     },
+    "/staffDirectory/{staffId}": {
+        "schema": {
+            "$ref": "#/entities/StaffDirectoryEntry"
+        },
+        "description": "Top-level directory to map staff auth UIDs to their tenant."
+    },
     "/tenants/{tenantId}": {
       "schema": {
         "$ref": "#/entities/Tenant"
@@ -1201,4 +1224,5 @@
     
 
     
+
 
