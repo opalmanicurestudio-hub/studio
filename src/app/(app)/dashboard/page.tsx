@@ -49,7 +49,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -165,12 +165,12 @@ const OwnerDashboard = () => {
     const now = new Date();
     for (let i = 0; i < 7; i++) {
         const day = subDays(now, i);
-        const dayKey = formatDate(day, 'yyyy-MM-dd');
+        const dayKey = format(day, 'yyyy-MM-dd');
         dailyData[dayKey] = { revenue: 0, expense: 0 };
     }
 
     weeklyTransactions.forEach(t => {
-        const dayKey = formatDate(new Date(t.date), 'yyyy-MM-dd');
+        const dayKey = format(new Date(t.date), 'yyyy-MM-dd');
         if (dailyData[dayKey]) {
             if (t.type === 'income') dailyData[dayKey].revenue += t.amount;
             if (t.type === 'expense') dailyData[dayKey].expense += t.amount;
@@ -179,7 +179,7 @@ const OwnerDashboard = () => {
 
     return Object.entries(dailyData)
         .map(([date, { revenue, expense }]) => ({
-            day: formatDate(new Date(date), 'EEE'),
+            day: format(new Date(date), 'EEE'),
             profit: revenue - expense,
         }))
         .reverse();
@@ -830,7 +830,7 @@ const StaffDashboardView = () => {
                     <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                     </div>
                     <div className="ml-auto text-right">
-                    <p className="font-bold">{formatDate(new Date(nextAppointment.startTime), 'h:mm a')}</p>
+                    <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
                     </div>
                 </div>
             </CardContent>
@@ -851,7 +851,7 @@ const StaffDashboardView = () => {
               <div className="space-y-4">
                 {upcomingAppointments.map((apt) => (
                   <div key={apt.id} className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/50">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{formatDate(new Date(apt.startTime), 'h:mm a')}</div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{format(new Date(apt.startTime), 'h:mm a')}</div>
                     <div className="flex-1">
                       <p className="font-medium">{apt.client?.name}</p>
                       <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
