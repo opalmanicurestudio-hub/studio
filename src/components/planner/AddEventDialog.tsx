@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -120,7 +121,7 @@ const AddEventForm = ({
     const [staffId, setStaffId] = useState('');
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
-    const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
+    const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id' | 'completed'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -164,7 +165,7 @@ const AddEventForm = ({
 
     const handleAddChecklistItem = () => {
         if (newChecklistItem.trim()) {
-            setChecklist([...checklist, { text: newChecklistItem.trim(), completed: false }]);
+            setChecklist([...checklist, { text: newChecklistItem.trim() }]);
             setNewChecklistItem('');
         }
     };
@@ -195,7 +196,7 @@ const AddEventForm = ({
             allDay,
             notes,
             location,
-            checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`})),
+            checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`, completed: false })),
             staffId: (staffId && staffId !== 'all') ? staffId : undefined,
         };
         onConfirm(newEvent);
@@ -224,22 +225,22 @@ const AddEventForm = ({
                             <Label>Type</Label>
                             <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
                                 <div>
-                                    <RadioGroupItem value="business" id="business-add-event" className="peer sr-only" />
-                                    <Label htmlFor="business-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="business" id="business-add" className="peer sr-only" />
+                                    <Label htmlFor="business-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <Briefcase className="w-5 h-5 mb-2"/>
                                         Business
                                     </Label>
                                 </div>
                                 <div>
-                                    <RadioGroupItem value="personal" id="personal-add-event" className="peer sr-only" />
-                                    <Label htmlFor="personal-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="personal" id="personal-add" className="peer sr-only" />
+                                    <Label htmlFor="personal-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <User className="w-5 h-5 mb-2"/>
                                         Personal
                                     </Label>
                                 </div>
                                 <div>
-                                    <RadioGroupItem value="blocked" id="blocked-add-event" className="peer sr-only" />
-                                    <Label htmlFor="blocked-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="blocked" id="blocked-add" className="peer sr-only" />
+                                    <Label htmlFor="blocked-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <Lock className="w-5 h-5 mb-2"/>
                                         Blocked
                                     </Label>
@@ -253,7 +254,7 @@ const AddEventForm = ({
                                      {selectedStaff ? (
                                         <div className="flex items-center gap-2">
                                             <Avatar className="w-6 h-6">
-                                                <AvatarImage src={selectedStaff.avatarUrl} />
+                                                <AvatarImage src={selectedStaff.avatarUrl || undefined} />
                                                 <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
                                             </Avatar>
                                             <span>{selectedStaff.name}</span>
