@@ -639,6 +639,7 @@ export default function WalkInPage() {
   const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   // UI State
+  const [entered, setEntered] = useState(false);
   const [step, setStep] = useState<Step>('partyType');
   const [isGroup, setIsGroup] = useState(false);
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
@@ -746,6 +747,7 @@ export default function WalkInPage() {
   }
 
   const resetFlow = useCallback(() => {
+    setEntered(false);
     setStep('partyType');
     setIsGroup(false);
     setPartyMembers([]);
@@ -878,7 +880,7 @@ export default function WalkInPage() {
 
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading || clientsLoading;
   if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
-  if (!businessIsOpen) {
+  if (!businessIsOpen && hasMounted) {
       return (
           <div className="w-full max-w-2xl mx-auto flex items-center justify-center h-screen -mt-24">
               <ClosedView nextOpen={nextOpen} schedule={scheduleProfile} />
@@ -894,90 +896,131 @@ export default function WalkInPage() {
 
   return (
     <>
-    <div className="min-h-screen w-full bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 transition-colors duration-500">
-        <header className="mb-8 text-center">
-          <div className="inline-block p-3 bg-slate-800/50 rounded-full shadow-lg mb-4">
-            <ClarityFlowLogo className="!text-white" />
-          </div>
-          <h1 className="text-5xl font-extrabold tracking-tight text-white">{tenant?.name || 'ClarityFlow Salon'}</h1>
-          <p className="text-slate-400 mt-2">Walk-in Check-in</p>
-        </header>
-        
-        <div className="w-full max-w-4xl">
+        <div className="min-h-screen w-full bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 transition-colors duration-500">
             <AnimatePresence mode="wait">
-                {step === 'partyType' && (
-                    <PartyTypeSelection key="partyType" onSelect={handlePartyTypeSelect} />
-                )}
-                {step === 'memberSetup' && currentMember && (
-                    <MemberSetup
-                        member={{...currentMember, index: currentMemberIndex}}
-                        partyMembers={partyMembers}
-                        onUpdate={handleMemberUpdate}
-                        memberSubStep={memberSubStep}
-                        setMemberSubStep={setMemberSubStep}
-                        services={services || []}
-                        staff={staff || []}
-                        pricingTiers={pricingTiers || []}
-                        compatibleAddons={compatibleAddons || []}
-                        onNext={handleNextMember}
-                        onBack={handleBack}
-                        isGroup={isGroup}
-                        isLastMember={currentMemberIndex === partyMembers.length - 1}
-                        onAddAnother={handleAddAnother}
-                        onSubmit={handleSubmit}
-                        isSubmitting={isSubmitting}
-                    />
-                )}
-                {step === 'confirmation' && (
-                    <ConfirmationScreen
-                        key="confirmation"
-                        confirmedParty={confirmedParty}
-                        onPrint={handlePrintTicket}
-                        onDone={resetFlow}
-                    />
+                {!entered ? (
+                     <motion.div
+                        key="welcome"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ duration: 0.5 }}
+                        className="w-full h-full flex flex-col items-center justify-center text-center cursor-pointer"
+                        onClick={() => setEntered(true)}
+                    >
+                        <div className="inline-block p-4 bg-slate-800/50 rounded-full shadow-lg mb-6">
+                            <ClarityFlowLogo className="!text-white w-16 h-16" />
+                        </div>
+                        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-white">
+                            Welcome to {tenant?.name || 'ClarityFlow Salon'}
+                        </h1>
+                        <p className="text-slate-400 mt-4 text-xl md:text-2xl">Walk-in Check-in</p>
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.8, duration: 0.5 }}
+                            className="mt-16"
+                        >
+                            <Button size="lg" variant="outline" className="bg-transparent text-white border-white/50 h-14 text-lg px-8">
+                            Tap to Start
+                            </Button>
+                        </motion.div>
+                    </motion.div>
+                ) : (
+                    <motion.div
+                        key="kiosk-content"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5, delay: 0.2 }}
+                        className="w-full"
+                    >
+                        <header className="mb-8 text-center">
+                            <div className="inline-block p-3 bg-slate-800/50 rounded-full shadow-lg mb-4">
+                                <ClarityFlowLogo className="!text-white" />
+                            </div>
+                            <h1 className="text-5xl font-extrabold tracking-tight text-white">{tenant?.name || 'ClarityFlow Salon'}</h1>
+                            <p className="text-slate-400 mt-2">Walk-in Check-in</p>
+                        </header>
+            
+                        <div className="w-full max-w-4xl mx-auto">
+                            <AnimatePresence mode="wait">
+                                {step === 'partyType' && (
+                                    <PartyTypeSelection key="partyType" onSelect={handlePartyTypeSelect} />
+                                )}
+                                {step === 'memberSetup' && currentMember && (
+                                    <MemberSetup
+                                        key={`member-${currentMember.id}`}
+                                        member={{...currentMember, index: currentMemberIndex}}
+                                        partyMembers={partyMembers}
+                                        onUpdate={handleMemberUpdate}
+                                        memberSubStep={memberSubStep}
+                                        setMemberSubStep={setMemberSubStep}
+                                        services={services || []}
+                                        staff={staff || []}
+                                        pricingTiers={pricingTiers || []}
+                                        compatibleAddons={compatibleAddons || []}
+                                        onNext={handleNextMember}
+                                        onBack={handleBack}
+                                        isGroup={isGroup}
+                                        isLastMember={currentMemberIndex === partyMembers.length - 1}
+                                        onAddAnother={handleAddAnother}
+                                        onSubmit={handleSubmit}
+                                        isSubmitting={isSubmitting}
+                                    />
+                                )}
+                                {step === 'confirmation' && (
+                                    <ConfirmationScreen
+                                        key="confirmation"
+                                        confirmedParty={confirmedParty}
+                                        onPrint={handlePrintTicket}
+                                        onDone={resetFlow}
+                                    />
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    </motion.div>
                 )}
             </AnimatePresence>
         </div>
-    </div>
-    <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-        <DialogContent className="max-w-sm print:hidden">
-            <DialogHeader>
-                <DialogTitle>Walk-in Ticket</DialogTitle>
-            </DialogHeader>
-            <div id="print-ticket-area">
-                {ticketToPrint && <PrintWalkInTicket key={ticketToPrint.id} data={ticketToPrint} />}
+        <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+            <DialogContent className="max-w-sm print:hidden">
+                <DialogHeader>
+                    <DialogTitle>Walk-in Ticket</DialogTitle>
+                </DialogHeader>
+                <div id="print-ticket-area">
+                    {ticketToPrint && <PrintWalkInTicket key={ticketToPrint.id} data={ticketToPrint} />}
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                    <Button onClick={() => window.print()}>
+                        <Printer className="mr-2 h-4 w-4" />
+                        Print
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <div className="hidden print:block print-only">
+            <div id="printable-ticket">
+                {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}
             </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
-                <Button onClick={() => window.print()}>
-                    <Printer className="mr-2 h-4 w-4" />
-                    Print
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-    <div className="hidden print:block print-only">
-        <div id="printable-ticket">
-            {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}
         </div>
-    </div>
 
-    <style jsx global>{`
-        @media print {
-            body > *:not(.print-only) {
-            display: none !important;
+        <style jsx global>{`
+            @media print {
+                body > *:not(.print-only) {
+                display: none !important;
+                }
+                .print-only, .print-only * {
+                display: block !important;
+                visibility: visible !important;
+                }
+                .print-only {
+                position: absolute;
+                left: 0;
+                top: 0;
+                }
             }
-            .print-only, .print-only * {
-            display: block !important;
-            visibility: visible !important;
-            }
-            .print-only {
-            position: absolute;
-            left: 0;
-            top: 0;
-            }
-        }
-    `}</style>
+        `}</style>
     </>
   );
 }
