@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -568,8 +567,7 @@ const StaffDashboardView = () => {
             .reduce((sum, t) => sum + t.amount, 0);
 
         const retailSales = transactionsForPeriod
-            .filter(t => t.category === 'Retail')
-            .reduce((acc, t) => acc + t.amount, 0);
+            .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
 
         const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
         const completed = appointmentsForPeriod.filter(a => a.status === 'completed').length;
@@ -650,6 +648,21 @@ const StaffDashboardView = () => {
         
         const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
+        
+        const clientsServedInPeriod = new Set(completedAppointments.map(apt => apt.clientId));
+        let rebookedClientsCount = 0;
+        if (periodEnd) {
+            clientsServedInPeriod.forEach(clientId => {
+                const hasFutureBooking = (appointments || []).some(apt => 
+                    apt.clientId === clientId &&
+                    new Date(apt.startTime) > periodEnd
+                );
+                if (hasFutureBooking) {
+                    rebookedClientsCount++;
+                }
+            });
+        }
+        const rebookingRate = clientsServedInPeriod.size > 0 ? (rebookedClientsCount / clientsServedInPeriod.size) * 100 : 0;
         const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         let totalMinutesWorked = 0;
@@ -708,6 +721,7 @@ const StaffDashboardView = () => {
             utilizationRate,
             avgSalePerAppointment,
             retailAttachmentRate,
+            rebookingRate,
             serviceRevenue,
             retailSales,
             retailCommission,
@@ -913,3 +927,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
