@@ -34,6 +34,8 @@ import { Calendar } from '../ui/calendar';
 import { PrintableStaffReport } from './PrintableStaffReport';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Alert, AlertDescription } from '../ui/alert';
+import { Sparkles, Loader } from 'lucide-react';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -184,6 +186,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       { label: "Utilization Rate", value: `${staffMember.stats.utilizationRate.toFixed(1)}%` },
       { label: "Avg. Ticket Size", value: `$${staffMember.stats.avgSalePerAppointment.toFixed(2)}` },
       { label: "Retail Attach Rate", value: `${staffMember.stats.retailAttachmentRate.toFixed(1)}%` },
+      { label: "Rebooking Rate", value: `${staffMember.stats.rebookingRate.toFixed(1)}%` },
       { label: "Avg Time Variance", value: `${staffMember.stats.avgVariance > 0 ? '+' : ''}${staffMember.stats.avgVariance.toFixed(1)} min` },
   ];
 
@@ -262,7 +265,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+        <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col no-print", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
           <SheetHeader className="p-4 border-b text-left flex-shrink-0">
             <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
             <SheetDescription>
@@ -295,24 +298,20 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
           </SheetFooter>
         </SheetContent>
       </Sheet>
-      <div className="hidden print:block">
-        <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={services} appointments={appointments} />
+      <div className="print-only">
+        <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={staffServices} appointments={appointments} />
       </div>
 
        <style jsx global>{`
+        .print-only {
+          display: none;
+        }
         @media print {
-          body > *:not(.print-only) {
-            display: none;
-          }
-          .print-only, .print-only * {
-            display: block !important;
-            visibility: visible !important;
+          .no-print {
+            display: none !important;
           }
           .print-only {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            display: block !important;
           }
         }
       `}</style>
