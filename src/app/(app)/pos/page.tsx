@@ -122,6 +122,10 @@ export default function POSPage() {
     const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
     const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
 
+    const handleCartChange = (newCart: EditableFormulaItem[]) => {
+        setCart(newCart);
+    };
+
     const resetCheckoutState = useCallback(() => {
         setCart([]);
         setSelectedAppointmentIds(new Set());
@@ -982,7 +986,7 @@ export default function POSPage() {
                     id: p.id,
                     name: p.name,
                     quantity: p.quantityUsed,
-                    unit: p.unit,
+                    unit: p.unit || 'uses',
                 })) || [];
     
                 if (formulaUsed && formulaUsed.length > 0) {
@@ -1077,7 +1081,7 @@ export default function POSPage() {
     
             Object.entries(tipAllocations).forEach(([staffId, tip]) => {
                 if (tip > 0) {
-                    createTransaction(`Tip`, 'Tips', tip, staffId, appointmentsData[0].id, tip);
+                    createTransaction(`Tip`, 'Tips', tip, staffId, appointmentsData[0].appointment.id, tip);
                 }
             });
     
@@ -1099,7 +1103,7 @@ export default function POSPage() {
                 const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
                 batch.update(discountRef, {
                     usageCount: increment(1),
-                    usedByClientIds: arrayUnion(payerClient.id),
+                    usedByClientIds: arrayUnion(client.id),
                 });
             }
     
@@ -1312,12 +1316,8 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const handleCartChange = (newCart: any[]) => {
-      setCart(newCart);
-    };
-
     const checkoutHubProps = {
-        cart: cart,
+        cart,
         onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
@@ -1434,7 +1434,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
