@@ -59,7 +59,7 @@ const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
                         {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
                         {log.type.replace('_', ' ')}
                     </p>
-                    <p className="text-xs text-muted-foreground">{format(log.timestamp, 'PPP p')}</p>
+                    <p className="text-xs text-muted-foreground">{format(parseISO(log.timestamp), 'PPP p')}</p>
                 </div>
                 {log.durationMinutes && (
                     <div className="text-right flex-shrink-0">
@@ -119,12 +119,12 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services) return [];
-    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    const staffSkillLevel = (staffMember as any).skillLevel || 'senior';
     return services
       .filter(s => staffMember.services?.includes(s.id))
       .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        const tierPrice = service.pricingTiers?.find(t => (t as any).level === staffSkillLevel)?.price;
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => (t as any).level === 'senior')?.price ?? service.price;
         return {
           ...service,
           price: finalPrice,
@@ -144,13 +144,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     return activityLogs
       .filter(log => {
         if (log.staffId !== staffMember.id) return false;
-        const logDate = log.timestamp;
+        const logDate = parseISO(log.timestamp);
         if (fromDate && logDate < fromDate) return false;
         if (toDate && logDate > toDate) return false;
         if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
         return true;
       })
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      .sort((a, b) => parseISO(b.timestamp).getTime() - parseISO(a.timestamp).getTime());
   }, [activityLogs, staffMember, activitySearch, dateRange]);
   
   const filteredTransactions = useMemo(() => {
