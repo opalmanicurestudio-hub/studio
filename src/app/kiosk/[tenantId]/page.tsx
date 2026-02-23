@@ -46,6 +46,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
+import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'staff';
@@ -251,35 +252,6 @@ const StepAddons = ({ member, onUpdate, compatibleAddons, staff, pricingTiers }:
         </div>
     );
 };
-
-const StaffSelectionCard = ({ staff, pricingTiers }: { staff: Staff | { id: string, name: string, avatarUrl: string }, pricingTiers: PricingTier[] }) => {
-    const isAnyStaff = staff.id === 'any';
-    const tier = !isAnyStaff ? pricingTiers.find(t => t.id === (staff as Staff).pricingTierId) : null;
-
-    return (
-        <div>
-            <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="peer sr-only" />
-            <Label
-                htmlFor={`staff-${staff.id}`}
-                className="block cursor-pointer rounded-lg border-2 border-muted bg-popover p-4 transition-all hover:border-primary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full"
-            >
-                <div className="flex flex-col items-center justify-between gap-3 h-full">
-                    <Avatar className="w-16 h-16">
-                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} alt={staff.name}/> : null}
-                        <AvatarFallback className="text-muted-foreground">
-                            {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
-                        </AvatarFallback>
-                    </Avatar>
-                    <div className="text-center">
-                        <p className="font-semibold text-sm">{staff.name}</p>
-                        {tier && <Badge variant="outline" className="capitalize text-xs">{tier.name}</Badge>}
-                    </div>
-                </div>
-            </Label>
-        </div>
-    );
-};
-
 
 const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
     <div className="space-y-4">
@@ -845,6 +817,11 @@ export default function WalkInPage() {
     }
   };
   
+  const handlePrintTicket = (ticket: WalkInTicketData) => {
+    setTicketToPrint(ticket);
+    setIsPrintDialogOpen(true);
+  };
+
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted || pricingTiersLoading || clientsLoading;
   if (isLoading) return <div className="flex min-h-screen w-full items-center justify-center"><Loader className="h-8 w-8 animate-spin" /></div>;
   if (!businessIsOpen) {
@@ -860,11 +837,6 @@ export default function WalkInPage() {
   const compatibleAddons = primaryService?.compatibleAddOnIds
     ? services?.filter(s => primaryService.compatibleAddOnIds!.includes(s.id))
     : [];
-
-  const handlePrintTicket = (ticket: WalkInTicketData) => {
-    setTicketToPrint(ticket);
-    setIsPrintDialogOpen(true);
-  };
 
   return (
     <>

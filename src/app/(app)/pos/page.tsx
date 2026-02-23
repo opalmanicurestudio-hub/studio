@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package, PricingTier } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -13,7 +13,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, deleteField } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -47,6 +47,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
 import { InServiceAppointmentCard } from '@/components/pos/InServiceCustomerCard';
+import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -72,13 +73,12 @@ type EditableFormulaItem = {
     imageUrl?: string;
     stock?: number;
     type: 'product' | 'service';
+    staffId?: string;
 };
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
     const [cart, setCart] = useState<EditableFormulaItem[]>([]);
-    
-    const retailItems = cart.filter(item => item.type === 'product');
     
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -120,6 +120,7 @@ export default function POSPage() {
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
     const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
+    const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
 
     const resetCheckoutState = useCallback(() => {
         setCart([]);
@@ -312,23 +313,49 @@ export default function POSPage() {
             .reduce((sum, adj) => sum + adj.cost, 0);
     }, [appliedAdjustments, checkoutSummary.adjustments]);
     
-    const handleCartChange = useCallback((newCart: any[]) => {
-        setCart(currentCart => {
-            const otherItems = currentCart.filter(item => item.type !== 'product');
-            return [...otherItems, ...newCart];
-        });
+    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
+        if ('duration' in item) {
+            setServiceToSelectProvider(item);
+        } else {
+            setCart(prevCart => {
+                const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+                if (existingItem) {
+                    return prevCart.map(cartItem => 
+                        cartItem.id === item.id 
+                        ? { ...cartItem, quantity: cartItem.quantity + 1 }
+                        : cartItem
+                    );
+                }
+                const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
+                return [...prevCart, { ...item, quantity: 1, price, type: 'product' }];
+            });
+        }
     }, []);
 
-    const allCartItems = useMemo(() => {
-        const servicesInCart = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
-            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-            return [...mainService, ...addOns];
-        });
-        const retail = retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false }));
-        return [...servicesInCart, ...retail];
-    }, [appointmentsData, retailItems, redeemedOffer]);
-
+    const handleAddServiceWithProvider = (service: Service, provider: Staff) => {
+        const staffPricingTierId = provider.pricingTierId;
+        let finalPrice = service.price;
+    
+        if (staffPricingTierId && service.serviceTiers) {
+            const tierInfo = service.serviceTiers.find(t => t.tierId === staffPricingTierId);
+            if (tierInfo) {
+                finalPrice = tierInfo.price;
+            }
+        }
+        
+        const cartItem: EditableFormulaItem = {
+            ...service,
+            id: `${service.id}-${provider.id}-${nanoid()}`,
+            name: `${service.name} (w/ ${provider.name.split(' ')[0]})`,
+            price: finalPrice,
+            type: 'service' as const,
+            staffId: provider.id,
+            quantity: 1,
+        };
+    
+        setCart(prev => [...prev, cartItem]);
+        setServiceToSelectProvider(null);
+    };
 
     const subtotal = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
@@ -338,23 +365,20 @@ export default function POSPage() {
             return total + servicePrice + addOnsPrice;
         }, 0);
 
-        const retailTotal = retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            const price = product?.msrp || 0;
-            return acc + (item.quantity * price);
+        const manualItemsTotal = cart.reduce((acc, item) => {
+            return acc + (item.quantity * item.price);
         }, 0);
         
-        return servicesTotal + retailTotal;
-    }, [appointmentsData, services, retailItems, redeemedOffer, inventory]);
+        return servicesTotal + manualItemsTotal;
+    }, [appointmentsData, cart, redeemedOffer]);
     
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     const retailTotalForDiscount = useMemo(() => {
-        return retailItems.reduce((acc, item) => {
-            const product = inventory.find(p => p.id === item.id);
-            return acc + (item.quantity * (product?.msrp || 0));
+        return cart.filter(i => i.type === 'product').reduce((acc, item) => {
+            return acc + (item.quantity * item.price);
         }, 0);
-    }, [retailItems, inventory]);
+    }, [cart]);
 
     useEffect(() => {
         if (client && client.activeMembershipId) {
@@ -396,21 +420,6 @@ export default function POSPage() {
         }
         setSelectedAppointmentIds(newSet);
     }, [selectedAppointmentIds]);
-    
-    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
-            if (existingItem) {
-                return prevCart.map(cartItem => 
-                    cartItem.id === item.id 
-                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
-                    : cartItem
-                );
-            }
-            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
-            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
-        });
-    }, []);
 
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -941,157 +950,202 @@ export default function POSPage() {
         });
     };
 
-    const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
-        setIsSubmitting(true);
-        
-        const payerClient = clients?.find(c => c.id === selectedClientId);
+  const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
+    setIsSubmitting(true);
 
-        if (!payerClient) {
-            toast({ variant: 'destructive', title: 'Error', description: 'No client or appointment selected for checkout.' });
-            setIsSubmitting(false);
-            return;
-        }
+    const payerClient = clients?.find(c => c.id === selectedClientId);
 
-        if (!firestore || !tenantId || !selectedTenant) {
-            toast({ variant: 'destructive', title: 'Database Error' });
-            setIsSubmitting(false);
-            return;
-        }
-        const batch = writeBatch(firestore);
-        try {
-            const now = new Date();
-            const nowISO = now.toISOString();
+    if (!payerClient) {
+      toast({ variant: 'destructive', title: 'Error', description: 'No client or appointment selected for checkout.' });
+      setIsSubmitting(false);
+      return;
+    }
 
-            for (const data of appointmentsData) {
-                const appointment = data;
-                const service = data.service;
+    if (!firestore || !tenantId || !selectedTenant) {
+      toast({ variant: 'destructive', title: 'Database Error' });
+      setIsSubmitting(false);
+      return;
+    }
+    const batch = writeBatch(firestore);
+    try {
+      const now = new Date();
+      const nowISO = now.toISOString();
 
-                if (!appointment || !service) continue;
-                
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+      for (const data of appointmentsData) {
+        const { appointment, service } = data;
+        const formulaUsed = appointment.checkoutState?.formula;
 
-                const checkoutState: AppointmentCheckoutState = {
-                  actualDuration,
-                  formula: editableFormula,
-                  addOns: selectedAddOns,
-                  serviceStaffOverrides,
-                  tipAmount,
-                  tipAllocations,
-                  absorbedCost,
-                  retailItems,
-                  redeemedOffer,
-                  appliedDiscountId,
-                  discountAmount: totalDiscount
-                };
-                
-                batch.update(appointmentRef, {
-                    status: 'completed',
-                    actualEndTime: nowISO,
-                    inventoryProcessed: true,
-                    checkoutState: checkoutState
-                });
-                
-                if (appointment.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-                    batch.update(checkInRef, { status: 'completed' });
-                }
-                
-                if (appointment.isWalkIn) {
-                    const walkInId = appointment.id.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                    batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
-                }
-            }
+        if (formulaUsed && formulaUsed.length > 0) {
+          for (const usedProduct of formulaUsed) {
+            const product = inventory.find(p => p.id === usedProduct.id);
+            if (!product) continue;
 
-            const staffInvolved = new Set<string>();
-            Object.values(serviceStaffOverrides).forEach(id => {
-                if (id) staffInvolved.add(id);
-            });
-            appointmentsData.forEach(d => {
-                if (d.staffId) staffInvolved.add(d.staffId);
-            });
-    
-            staffInvolved.forEach(staffId => {
-                const staffRef = doc(firestore, `tenants/${tenantId}/staff`, staffId);
-                batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
-            });
-            
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
-            batch.update(clientDocRef, {
-                lifetimeValue: increment(subtotalAfterDiscounts),
-                lastAppointment: nowISO
-            });
-
-            const serviceTxRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(serviceTxRef, {
-                date: nowISO, description: `Service(s) for ${payerClient.name}`, clientOrVendor: payerClient.name,
-                clientId: payerClient.id, type: 'income', context: 'Business', category: 'Service Revenue',
-                amount: subtotalAfterDiscounts, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-                staffId: appointmentsData[0].staffId,
-                appointmentId: appointmentsData[0].id,
-                discountAmount: totalDiscount, appliedDiscountCode: appliedDiscountCode || ''
-            });
-    
-            Object.entries(tipAllocations).forEach(([staffId, tip]) => {
-              if (tip > 0) {
-                const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                    description: `Tip for ${isGroupCheckout ? 'Group ' : ''}Checkout`, clientOrVendor: payerClient.name,
-                    clientId: payerClient.id, type: 'income', context: 'Business', category: 'Tips', amount: tip,
-                    paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, staffId: staffId, tipAmount: tip,
-                    appointmentId: appointmentsData[0].id,
-                };
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: new Date().toISOString() });
-              }
-            });
-
-            retailItems.forEach(item => {
-                const product = inventory.find(p => p.id === item.id);
-                if (!product) return;
-                const price = product.msrp || product.costPerUnit || 0;
-                const retailTotal = item.quantity * price;
-
-                if (retailTotal > 0) {
-                    const newTransaction: Omit<Transaction, 'id'|'date'> = {
-                        description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: payerClient.name,
-                        clientId: payerClient.id, type: 'income', context: 'Business', category: 'Retail',
-                        amount: retailTotal, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-                        staffId: appointmentsData[0].staffId,
-                        appointmentId: appointmentsData[0].id,
-                    };
-                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {...newTransaction, date: new Date().toISOString()});
-                }
-            });
-            
-            if (appliedDiscountCode) {
-                const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-                batch.update(discountRef, {
-                    usageCount: increment(1),
-                    usedByClientIds: arrayUnion(payerClient.id),
-                });
-            }
-    
-            await batch.commit();
-    
-            const receiptData: ReceiptData = {
-                business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
-                clientName: payerClient.name, date: now, items: allCartItems, subtotal: subtotal,
-                discount: totalDiscount, tax: tax, tip: tipAmount, total: total,
-                payment: {
-                    method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.paymentMethod === 'cash' ? (checkoutDetails.amountTendered || total) : total,
-                    changeDue: checkoutDetails.paymentMethod === 'cash' ? ((checkoutDetails.amountTendered || 0) - total) : 0,
-                },
+            const stockCorrection: Omit<StockCorrection, 'id'> = {
+              productId: product.id,
+              date: nowISO,
+              change: -usedProduct.quantity,
+              unit: usedProduct.unit,
+              reason: `Appointment #${appointment.id} by ${data.staff?.name}`,
             };
 
-            setReceiptToPrint(receiptData);
-            setIsReceiptDialogOpen(true);
-            
-        } catch (e) {
-            console.error("Checkout failed:", e);
-            toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.' });
-        } finally {
-            setIsSubmitting(false);
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, stockCorrection);
+
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+            if (product.costingMethod === 'uses') {
+              let currentUses = product.partialContainerUses || 0;
+              let currentStock = product.totalStock;
+              currentUses -= usedProduct.quantity;
+              while (currentUses < 0 && currentStock > 0) {
+                currentStock -= 1;
+                currentUses += product.estimatedUses || 1;
+              }
+              batch.update(productRef, { totalStock: currentStock, partialContainerUses: currentUses });
+            } else if (product.costingMethod === 'size') {
+              let currentSize = product.partialContainerSize || 0;
+              let currentStock = product.totalStock;
+              currentSize -= usedProduct.quantity;
+              while (currentSize < 0 && currentStock > 0) {
+                currentStock -= 1;
+                currentSize += product.size || 1;
+              }
+              batch.update(productRef, { totalStock: currentStock, partialContainerSize: currentSize });
+            } else {
+              batch.update(productRef, { totalStock: increment(-usedProduct.quantity) });
+            }
+          }
         }
-    };
+
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+        batch.update(appointmentRef, {
+          status: 'completed',
+          inventoryProcessed: true
+        });
+
+        if (appointment.checkInToken) {
+          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+          batch.update(checkInRef, { status: 'completed' });
+        }
+        
+        if (appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+          batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
+        }
+      }
+
+      const staffInvolved = new Set<string>();
+      Object.values(serviceStaffOverrides).forEach(id => {
+        if (id) staffInvolved.add(id);
+      });
+      appointmentsData.forEach(d => {
+        if (d.staffId) staffInvolved.add(d.staffId);
+      });
+
+      staffInvolved.forEach(staffId => {
+        const staffRef = doc(firestore, `tenants/${tenantId}/staff`, staffId);
+        batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
+      });
+
+      const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
+      batch.update(clientDocRef, {
+        lifetimeValue: increment(subtotalAfterDiscounts),
+        lastAppointment: nowISO
+      });
+      
+      const serviceTxns = appointmentsData.map(d => ({
+        description: `Service: ${d.service.name}`,
+        amount: d.service.price,
+        staffId: d.staffId,
+        appointmentId: d.id,
+      }));
+
+      serviceTxns.forEach(txn => {
+        const serviceTxRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(serviceTxRef, {
+            date: nowISO, description: txn.description, clientOrVendor: payerClient.name,
+            clientId: payerClient.id, type: 'income', context: 'Business', category: 'Service Revenue',
+            amount: txn.amount, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
+            staffId: txn.staffId,
+            appointmentId: txn.appointmentId,
+            discountAmount: totalDiscount / appointmentsData.length, // Distribute discount
+            appliedDiscountCode: appliedDiscountCode || ''
+        });
+      });
+
+      Object.entries(tipAllocations).forEach(([staffId, tip]) => {
+        if (tip > 0) {
+          const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Tip for ${isGroupCheckout ? 'Group ' : ''}Checkout`, clientOrVendor: payerClient.name,
+            clientId: payerClient.id, type: 'income', context: 'Business', category: 'Tips', amount: tip,
+            paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, staffId: staffId, tipAmount: tip,
+            appointmentId: appointmentsData[0].appointment.id,
+          };
+          batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: new Date().toISOString() });
+        }
+      });
+      
+      const retailItems = cart.filter(item => item.type === 'product');
+      retailItems.forEach(item => {
+        const product = inventory.find(p => p.id === item.id);
+        if (!product) return;
+        const price = product.msrp || product.costPerUnit || 0;
+        const retailTotal = item.quantity * price;
+
+        if (retailTotal > 0) {
+          const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: payerClient.name,
+            clientId: payerClient.id, type: 'income', context: 'Business', category: 'Retail',
+            amount: retailTotal, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
+            staffId: appointmentsData[0]?.appointment.staffId,
+            appointmentId: appointmentsData[0]?.appointment.id,
+          };
+          batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { ...newTransaction, date: new Date().toISOString() });
+        }
+
+        const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+        batch.update(productRef, { totalStock: increment(-item.quantity) });
+      });
+
+      if (appliedDiscountCode) {
+        const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
+        batch.update(discountRef, {
+          usageCount: increment(1),
+          usedByClientIds: arrayUnion(payerClient.id),
+        });
+      }
+
+      await batch.commit();
+      
+      const allCartItems = [
+        ...appointmentsData.flatMap(d => {
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+            return [...mainService, ...addOns];
+        }),
+        ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, isDiscount: false })),
+       ];
+
+      const receiptData: ReceiptData = {
+        business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
+        clientName: payerClient.name, date: now, items: allCartItems, subtotal: subtotal,
+        discount: totalDiscount, tax: tax, tip: tipAmount, total: total,
+        payment: {
+          method: checkoutDetails.paymentMethod, amountTendered: checkoutDetails.paymentMethod === 'cash' ? (checkoutDetails.amountTendered || total) : total,
+          changeDue: checkoutDetails.paymentMethod === 'cash' ? ((checkoutDetails.amountTendered || 0) - total) : 0,
+        },
+      };
+
+      setReceiptToPrint(receiptData);
+      setIsReceiptDialogOpen(true);
+
+    } catch (e) {
+      console.error("Checkout failed:", e);
+      toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
     
     
     const handleStartService = (appointmentId: string) => {
@@ -1274,8 +1328,8 @@ export default function POSPage() {
     }, [appointmentsData, clients]);
     
     const checkoutHubProps = {
-        cart: retailItems,
-        onCartChange: handleCartChange,
+        cart: cart,
+        onCartChange: setCart,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
         clients: clients || [],
@@ -1494,6 +1548,14 @@ export default function POSPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <SelectProviderDialog
+                open={!!serviceToSelectProvider}
+                onOpenChange={() => setServiceToSelectProvider(null)}
+                service={serviceToSelectProvider}
+                staff={staff || []}
+                pricingTiers={pricingTiers || []}
+                onConfirm={handleAddServiceWithProvider}
+            />
             <div className="hidden print:block print-only">
                 <div id="printable-ticket-pos">
                     {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}

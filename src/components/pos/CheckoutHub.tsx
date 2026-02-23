@@ -117,6 +117,22 @@ export const CheckoutHub = ({
         return [...new Set([...appointmentServiceIds, ...cartServices])];
     }, [cart, appointmentsData]);
     
+    const allCartItems = useMemo(() => {
+        const servicesFromAppointments = appointmentsData.flatMap(d => {
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: d.service.price }] : [];
+            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+            return [...mainService, ...addOns];
+        });
+
+        const itemsFromCart = cart.map(item => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price
+        }));
+
+        return [...servicesFromAppointments, ...itemsFromCart];
+    }, [appointmentsData, cart]);
+
     const totalDiscount = discount + membershipDiscount;
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
@@ -224,7 +240,7 @@ export const CheckoutHub = ({
                 {/* SEPARATOR */}
                 {cart.length > 0 && appointmentsData.length > 0 && <Separator className="my-3" />}
 
-                {/* RETAIL ITEMS */}
+                {/* RETAIL & MANUAL SERVICE ITEMS */}
                 {cart.length > 0 && (
                     <div className="space-y-3">
                         {cart.map(item => (
