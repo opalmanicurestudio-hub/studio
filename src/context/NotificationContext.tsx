@@ -5,7 +5,7 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInDays, isPast, parseISO, format } from 'date-fns';
-import { ShieldAlert, PackageX, Calendar, Landmark, XCircle } from 'lucide-react';
+import { ShieldAlert, PackageX, Calendar, Landmark, XCircle, Users } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -111,6 +111,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             }
             if (n.type === 'new_appointment') {
                 icon = <Calendar className="h-4 w-4 text-blue-500" />;
+            }
+            if (n.type === 'new_walk_in') {
+                icon = <Users className="h-4 w-4 text-green-500" />;
             }
             return {
                 id,

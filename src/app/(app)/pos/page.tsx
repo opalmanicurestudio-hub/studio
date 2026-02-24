@@ -823,9 +823,22 @@ export default function POSPage() {
         };
         batch.set(appointmentRef, appointmentData);
 
+        const staffMember = staff.find(s => s.id === staffId);
+        if (staffMember) {
+            const notificationMessage = `You have a new walk-in client: ${walkIn.customerName}.`;
+            const notificationRef = doc(collection(firestore, `tenants/${selectedTenant.id}/notifications`));
+            batch.set(notificationRef, {
+                userId: staffId,
+                type: 'new_walk_in',
+                message: notificationMessage,
+                link: '/pos',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
+
         batch.commit();
         
-        const staffMember = staff.find(s => s.id === staffId);
         toast({
             title: `Assigned!`,
             description: `${walkIn.customerName} has been assigned to ${staffMember?.name}.`,
@@ -1418,7 +1431,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
