@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
@@ -26,6 +25,7 @@ interface NotificationContextType {
     unreadCount: number;
     markAsRead: (id: number | string) => void;
     markAllAsRead: () => void;
+    clearReadNotifications: () => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -39,6 +39,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
 
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+    const [clearedNotificationIds, setClearedNotificationIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         const storedReadIds = localStorage.getItem('read_notification_ids');
@@ -50,6 +51,17 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
                 }
             } catch (e) {
                 console.error("Failed to parse read notifications from localStorage", e);
+            }
+        }
+        const storedClearedIds = localStorage.getItem('cleared_notification_ids');
+         if (storedClearedIds) {
+             try {
+                const parsedIds = JSON.parse(storedClearedIds);
+                if (Array.isArray(parsedIds)) {
+                    setClearedNotificationIds(new Set(parsedIds));
+                }
+            } catch (e) {
+                console.error("Failed to parse cleared notifications from localStorage", e);
             }
         }
     }, []);
@@ -204,11 +216,11 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             ...expiredStockNotifications,
             ...billsDueSoonNotifications,
             ...userSpecificNotifications,
-        ];
+        ].filter(n => !clearedNotificationIds.has(String(n.id)));
         
         setNotifications(allNotifications.sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0)));
         
-    }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications, userSpecificNotifications]);
+    }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications, userSpecificNotifications, clearedNotificationIds]);
 
     const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
 
@@ -230,11 +242,21 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         });
     };
 
+    const clearReadNotifications = () => {
+        const readIds = notifications.filter(n => n.read).map(n => String(n.id));
+        setClearedNotificationIds(prev => {
+            const newSet = new Set([...prev, ...readIds]);
+            localStorage.setItem('cleared_notification_ids', JSON.stringify(Array.from(newSet)));
+            return newSet;
+        });
+    };
+
     const value = {
         notifications,
         unreadCount,
         markAsRead,
         markAllAsRead,
+        clearReadNotifications,
     };
 
     return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

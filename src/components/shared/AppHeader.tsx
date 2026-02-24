@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -11,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, CreditCard, Check } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, CreditCard, Check, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { ClientOnly } from './ClientOnly';
 import { useUser, useAuth } from '@/firebase';
@@ -26,7 +27,9 @@ export function AppHeader({ title }: { title?: string }) {
   const router = useRouter();
   const { role } = useTenant();
   
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearReadNotifications } = useNotifications();
+  const hasReadNotifications = notifications.some(n => n.read);
+  const hasUnread = unreadCount > 0;
 
   const handleLogout = async () => {
     if (auth) {
@@ -60,22 +63,39 @@ export function AppHeader({ title }: { title?: string }) {
               <DropdownMenuContent align="end" className="w-80">
                   <DropdownMenuLabel className="flex justify-between items-center">
                       Notifications
-                      <Button variant="link" size="xs" className="p-0 h-auto" onClick={markAllAsRead}>Mark all as read</Button>
+                      {hasUnread && (
+                        <Button variant="link" size="xs" className="p-0 h-auto" onClick={markAllAsRead}>Mark all as read</Button>
+                      )}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {notifications.length > 0 ? notifications.map(notification => (
-                      <DropdownMenuItem key={notification.id} className={`flex items-start gap-3 p-2 ${notification.read ? '' : 'bg-primary/5'}`}>
-                          <div className="mt-1">{notification.icon}</div>
-                          <Link href={notification.link || '#'} className="flex-1 space-y-1">
-                            <p className="text-xs font-medium leading-none">{notification.message}</p>
-                          </Link>
-                          {!notification.read && (
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
-                                  <Check className="h-4 w-4 text-primary" />
-                              </Button>
-                          )}
-                      </DropdownMenuItem>
-                  )) : (
+                  {notifications.length > 0 ? (
+                    <>
+                        {notifications.map(notification => (
+                            <DropdownMenuItem key={notification.id} className={`flex items-start gap-3 p-2 ${notification.read ? 'opacity-70' : 'bg-primary/5'}`}>
+                                <div className="mt-1">{notification.icon}</div>
+                                <Link href={notification.link || '#'} className="flex-1 space-y-1">
+                                <p className="text-xs font-medium leading-none">{notification.message}</p>
+                                </Link>
+                                {!notification.read && (
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
+                                        <Check className="h-4 w-4 text-primary" />
+                                    </Button>
+                                )}
+                            </DropdownMenuItem>
+                        ))}
+                        {hasReadNotifications && (
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-1">
+                                    <Button variant="secondary" size="sm" className="w-full" onClick={clearReadNotifications}>
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Clear Read Notifications
+                                    </Button>
+                                </DropdownMenuItem>
+                            </>
+                        )}
+                    </>
+                  ) : (
                       <p className="p-4 text-center text-sm text-muted-foreground">No new notifications.</p>
                   )}
               </DropdownMenuContent>
@@ -101,26 +121,40 @@ export function AppHeader({ title }: { title?: string }) {
               {role === 'owner' && (
                 <>
                   <DropdownMenuItem asChild>
-                    <Link href="/settings">
-                      <Settings />
+                    <Link href="/staff" className="flex items-center w-full">
+                      <Users className="w-4 h-4 mr-2" />
+                      <span>Staff</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center w-full">
+                      <Settings className="w-4 h-4 mr-2" />
                       <span>Settings</span>
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href="/subscriptions">
-                      <CreditCard />
+                    <Link href="/subscriptions" className="flex items-center w-full">
+                      <CreditCard className="w-4 h-4 mr-2" />
                       <span>Billing</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <LifeBuoy />
+                   <DropdownMenuItem>
+                    <LifeBuoy className="w-4 h-4 mr-2" />
                     <span>Support</span>
                   </DropdownMenuItem>
                 </>
               )}
+               {role === 'staff' && (
+                <DropdownMenuItem asChild>
+                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full">
+                        <User className="w-4 h-4 mr-2" />
+                        <span>Public Profile</span>
+                    </Link>
+                </DropdownMenuItem>
+               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
-                <LogOut />
+                <LogOut className="w-4 h-4 mr-2" />
                 <span>Logout</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
