@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -77,7 +76,7 @@ type EditableFormulaItem = {
 };
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
+    const { inventory, services, appointments, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
     
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -141,15 +140,6 @@ export default function POSPage() {
         setIsReceiptDialogOpen(false);
         setReceiptToPrint(null);
     }, []);
-
-    const appointments = useMemo(() => {
-        if (!appointmentsFromDB) return [];
-        return appointmentsFromDB.map(apt => ({
-          ...apt,
-          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
-        }));
-    }, [appointmentsFromDB]);
 
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointments || !clients || !services || !staff || !walkIns) return [];
@@ -1431,7 +1421,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={handleToggleWaitForStaff}
+                                    onToggleWaitForStaff={onToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
