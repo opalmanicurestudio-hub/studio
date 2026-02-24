@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -75,7 +76,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
         };
     }, [appointment.status, appointment.actualStartTime, serviceDuration]);
     
-    const endTime = appointment.actualStartTime ? addMinutes(parseISO(appointment.actualStartTime as string), serviceDuration) : null;
+    const endTime = appointment.actualStartTime ? addMinutes(typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime, serviceDuration) : null;
     const isReady = appointment.status === 'ready_for_checkout';
     
     return (
