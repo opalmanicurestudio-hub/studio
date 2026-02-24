@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -34,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Sparkles, Loader } from 'lucide-react';
+import { PrintableStaffReport } from '../reports/PrintableStaffReport';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -258,35 +260,51 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col no-print", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
-        <SheetHeader className="p-4 border-b text-left flex-shrink-0">
-          <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
-          <SheetDescription>
-            Performance breakdown for {dateRangeString}.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button id="date" variant={"outline"} size="sm" className={cn("w-auto justify-start text-left font-normal", !dateRange && "text-muted-foreground")}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateRange?.from ? (dateRange.to ? (<>{format(dateRange.from, "LLL dd, yyyy")} - {format(dateRange.to, "LLL dd, yyyy")}</>) : (format(dateRange.from, "LLL dd, yyyy"))) : (<span>Pick a date range</span>)}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2} />
-            </PopoverContent>
-          </Popover>
-        </div>
-        <ScrollArea className="flex-1 min-h-0">
-            <div className="p-4">
-              {content}
+        <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+            <SheetHeader className="p-4 border-b text-left flex-shrink-0">
+                <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
+                <SheetDescription>
+                    Performance breakdown for {dateRangeString}.
+                </SheetDescription>
+            </SheetHeader>
+             <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button
+                            id="date"
+                            variant={"outline"}
+                            size="sm"
+                            className={cn(
+                            "w-auto justify-start text-left font-normal",
+                            !dateRange && "text-muted-foreground"
+                            )}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {dateRangeString}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                        initialFocus
+                        mode="range"
+                        defaultMonth={dateRange?.from}
+                        selected={dateRange}
+                        onSelect={setDateRange}
+                        numberOfMonths={2}
+                    />
+                    </PopoverContent>
+                </Popover>
+                 <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
             </div>
-        </ScrollArea>
-        <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
-          <Button variant="outline" className="w-full" onClick={() => onOpenChange(false)}>Close</Button>
-        </SheetFooter>
-      </SheetContent>
+            <ScrollArea className="flex-1 min-h-0">
+                <div className="p-4">
+                    {content}
+                </div>
+            </ScrollArea>
+             <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
+                <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+            </SheetFooter>
+        </SheetContent>
     </Sheet>
   );
 };
