@@ -36,7 +36,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment } from '@/lib/data';
+import { Client, Service, Appointment, Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -81,10 +81,12 @@ const RescheduleAppointmentForm = ({
     services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
-    const { scheduleProfiles } = useInventory();
+    const { scheduleProfiles, staff } = useInventory();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
     const [rescheduleDate, setRescheduleDate] = useState(appointment.startTime);
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
+
+    const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -101,21 +103,33 @@ const RescheduleAppointmentForm = ({
     }
 
     const timeSlots = useMemo(() => {
-        if (!service || !rescheduleDate || !appointments || !services || !publicScheduleProfile) return [];
+        if (!service || !rescheduleDate || !appointments || !services || !publicScheduleProfile || !staff) return [];
 
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
-        const dayHours = publicScheduleProfile.week[dayName];
+        
+        const selectedStaffMember = staff.find(s => s.id === appointment.staffId);
+        let workingHours: { enabled: boolean; start: string; end: string; };
 
-        if (!dayHours || !dayHours.enabled) {
+        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
+
+        if (staffDaySchedule && staffDaySchedule.enabled) {
+            workingHours = staffDaySchedule;
+        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
+            workingHours = publicScheduleProfile.week[dayName];
+        } else {
+            return []; // Staff is explicitly not available or no schedule found
+        }
+        
+        if (!workingHours || !workingHours.enabled) {
           return [];
         }
 
-        const openTime = timeStringToDate(dayHours.start, rescheduleDate);
-        const closeTime = timeStringToDate(dayHours.end, rescheduleDate);
+        const openTime = timeStringToDate(workingHours.start, rescheduleDate);
+        const closeTime = timeStringToDate(workingHours.end, rescheduleDate);
         
         const existingAppointmentsOnDate = appointments.filter(
-            apt => apt.id !== appointment.id && isSameDay(apt.startTime, rescheduleDate)
+            apt => apt.id !== appointment.id && isSameDay(apt.startTime, rescheduleDate) && apt.staffId === appointment.staffId
         ).map(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
@@ -160,7 +174,7 @@ const RescheduleAppointmentForm = ({
         }
 
         return options;
-    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, services, publicScheduleProfile]);
+    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, services, publicScheduleProfile, staff, appointment.staffId]);
 
 
     const handleSubmit = () => {
@@ -193,6 +207,15 @@ const RescheduleAppointmentForm = ({
                             <div>
                                 <p className="font-semibold">{client.name}</p>
                                 <p className="text-sm text-muted-foreground">{service.name}</p>
+                                {assignedStaff && (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
+                                        <Avatar className="w-5 h-5">
+                                            <AvatarImage src={assignedStaff.avatarUrl} />
+                                            <AvatarFallback>{assignedStaff.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span>{assignedStaff.name}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </CardContent>
@@ -253,8 +276,8 @@ const RescheduleAppointmentForm = ({
                 </div>
             </div>
         </form>
-    )
-}
+    );
+};
 
 export const RescheduleDialog = ({ 
     open, 
