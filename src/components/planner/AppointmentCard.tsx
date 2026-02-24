@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -91,6 +92,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { useTenant } from '@/context/TenantContext';
 
 interface AppointmentDetailsProps {
     appointment: Appointment;
@@ -120,14 +122,16 @@ const AppointmentDetails = ({
     onFinishService,
     setIsDetailsOpen,
     onEdit,
+    onDelete,
     onReschedule,
     onRebook,
-    onDelete,
     onBookNewForClient,
     onPrintTicket,
     resources,
 }: AppointmentDetailsProps) => {
     const { inventory, services: allServices } = useInventory();
+    const { role } = useTenant();
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
     
     const addOnServices = useMemo(() => {
         return (appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
@@ -268,17 +272,19 @@ const AppointmentDetails = ({
                 <div className="flex justify-between items-start gap-4">
                     <h3 className="font-semibold text-lg">{client.name}</h3>
                 </div>
-                <div className="text-muted-foreground text-sm space-y-1">
-                    <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
-                        <Mail className="w-4 h-4" /> {client.email}
-                    </a>
-                     <div className="flex items-center gap-2">
-                        <Phone className="w-4 h-4" />
-                        <span>{client.phone}</span>
-                        <a href={`tel:${client.phone}`} className="ml-auto p-1.5 rounded-md hover:bg-muted"><Phone className="w-4 h-4 text-primary" /></a>
-                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                {isOwnerOrAdmin && (
+                    <div className="text-muted-foreground text-sm space-y-1">
+                        <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                            <Mail className="w-4 h-4" /> {client.email}
+                        </a>
+                        <div className="flex items-center gap-2">
+                            <Phone className="w-4 h-4" />
+                            <span>{client.phone}</span>
+                            <a href={`tel:${client.phone}`} className="ml-auto p-1.5 rounded-md hover:bg-muted"><Phone className="w-4 h-4 text-primary" /></a>
+                            <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                        </div>
                     </div>
-                </div>
+                )}
                 <div className="text-muted-foreground text-sm pt-4 space-y-2">
                     <div>
                       <p className='font-medium text-foreground'>{service.name}</p>
@@ -363,30 +369,32 @@ const AppointmentDetails = ({
 
             <Separator className="my-6" />
 
-            <div className="space-y-4">
-                <h4 className="font-medium text-sm">Financials</h4>
-                 <div className="grid grid-cols-2 gap-4 w-full text-center">
-                    <div className="rounded-md bg-green-500/10 p-3">
-                        <p className="text-xs text-green-800/80 dark:text-green-400/80">{appointment.status === 'completed' ? 'Actual Revenue' : 'Est. Revenue'}</p>
-                        <p className="font-bold text-xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
+            {isOwnerOrAdmin && (
+                <div className="space-y-4">
+                    <h4 className="font-medium text-sm">Financials</h4>
+                    <div className="grid grid-cols-2 gap-4 w-full text-center">
+                        <div className="rounded-md bg-green-500/10 p-3">
+                            <p className="text-xs text-green-800/80 dark:text-green-400/80">{appointment.status === 'completed' ? 'Actual Revenue' : 'Est. Revenue'}</p>
+                            <p className="font-bold text-xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-md bg-red-500/10 p-3">
+                            <p className="text-xs text-red-800/80 dark:text-red-400/80">Est. Cost</p>
+                            <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-md bg-blue-500/10 p-3 col-span-2">
+                            <p className="text-xs text-blue-800/80 dark:text-blue-400/80">{appointment.status === 'completed' ? 'Actual Net Profit' : 'Est. Net Profit'}</p>
+                            <p className="font-bold text-xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
+                        </div>
                     </div>
-                    <div className="rounded-md bg-red-500/10 p-3">
-                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Est. Cost</p>
-                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
-                    </div>
-                    <div className="rounded-md bg-blue-500/10 p-3 col-span-2">
-                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">{appointment.status === 'completed' ? 'Actual Net Profit' : 'Est. Net Profit'}</p>
-                        <p className="font-bold text-xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
+                    <div className="text-xs space-y-2 text-muted-foreground pt-2">
+                        <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span className='font-mono'>${timeCost.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(2)}</span></div>
                     </div>
                 </div>
-              <div className="text-xs space-y-2 text-muted-foreground pt-2">
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span className='font-mono'>${timeCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(2)}</span></div>
-              </div>
-            </div>
+            )}
 
-            {appointment.status === 'completed' && (
+            {isOwnerOrAdmin && appointment.status === 'completed' && (
                 <div className="space-y-4">
                     <h4 className="font-medium text-sm">Actuals from Checkout</h4>
                     <Card>
@@ -511,9 +519,9 @@ export function AppointmentCard({
         const seconds = diffInSeconds % 60;
 
         if (hours > 0) {
-          setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+          setElapsedTime(`${''String(hours).padStart(2, '0')}:${''String(minutes).padStart(2, '0')}:${''String(seconds).padStart(2, '0')}`);
         } else {
-          setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+          setElapsedTime(`${''String(minutes).padStart(2, '0')}:${''String(seconds).padStart(2, '0')}`);
         }
 
         const elapsedMinutes = Math.floor(diffInSeconds / 60);
@@ -569,7 +577,7 @@ export function AppointmentCard({
         });
         return;
     }
-    const checkInUrl = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+    const checkInUrl = `${''window.location.origin}/check-in/${''appointment.checkInToken}`;
     navigator.clipboard.writeText(checkInUrl);
     toast({
         title: 'Link Copied',
@@ -605,16 +613,16 @@ export function AppointmentCard({
   const hasPadAfter = (service.padAfter || 0) > 0;
   const totalDurationWithPadding = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
 
-  const beforeHeight = hasPadBefore ? `${(service.padBefore! / totalDurationWithPadding) * 100}%` : '0px';
-  const mainHeight = `${(service.duration / totalDurationWithPadding) * 100}%`;
-  const afterHeight = hasPadAfter ? `${(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
+  const beforeHeight = hasPadBefore ? `${''(service.padBefore! / totalDurationWithPadding) * 100}%` : '0px';
+  const mainHeight = `${''(service.duration / totalDurationWithPadding) * 100}%`;
+  const afterHeight = hasPadAfter ? `${''(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
 
   const isCompact = scheduledDuration < 50;
   
   const serviceNameDisplay = isCompact
       ? service.name
       : addOnServices.length > 0
-      ? `${service.name} + ${addOnServices.length} add-on(s)`
+      ? `${''service.name} + ${''addOnServices.length} add-on(s)`
       : service.name;
 
   const handleCardClick = (e: React.MouseEvent) => {
