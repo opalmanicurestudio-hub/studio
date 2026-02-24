@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -23,7 +24,8 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Progress } from '../ui/progress';
-import { useUser, useTenant } from '@/firebase';
+import { useUser } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 
 interface EventCardProps {
     event: Event,
@@ -264,3 +266,5 @@ export function EventCard({
         </>
     )
 }
+
+    
