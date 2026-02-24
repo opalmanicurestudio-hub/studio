@@ -24,8 +24,8 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Progress } from '../ui/progress';
-import { useUser } from '@/firebase';
-import { useTenant } from '@/context/TenantContext';
+import { useUser, useTenant } from '@/context/TenantContext';
+import { Badge } from '@/components/ui/badge';
 
 interface EventCardProps {
     event: Event,
@@ -45,7 +45,8 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
     onLogExpenseClick: () => void;
 }) => {
     const { user } = useUser();
-    const isOwnerOrAdmin = true; // This should come from a proper auth context
+    const { role } = useTenant();
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
     
     if (event.type === 'blocked') {
         return (
@@ -266,5 +267,3 @@ export function EventCard({
         </>
     )
 }
-
-    
