@@ -58,6 +58,14 @@ type ClientPhoto = {
   label: string;
 };
 
+const getInitials = (name: string) => {
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+        return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+};
+
 const ClientIntelBanner = ({ client }: { client: Client }) => {
     const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || (Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show'));
     if (!hasIntel) return null;
@@ -571,7 +579,7 @@ export default function ClientDetailPage() {
                  <CardContent className="p-6 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
                     <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
                         <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                        <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
                     </Avatar>
                     <div className="space-y-2 flex-1">
                         <h1 className="text-2xl font-bold">{client.name}</h1>
@@ -1040,5 +1048,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-
-    

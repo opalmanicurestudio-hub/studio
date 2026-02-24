@@ -20,12 +20,15 @@ import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { useNotifications, type Notification } from '@/context/NotificationContext';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
+import { useMemo } from 'react';
 
 export function AppHeader({ title }: { title?: string }) {
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
   const { role } = useTenant();
+  const { staff } = useInventory();
   
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearReadNotifications } = useNotifications();
   const hasReadNotifications = notifications.some(n => n.read);
@@ -37,6 +40,24 @@ export function AppHeader({ title }: { title?: string }) {
         router.push('/login');
     }
   };
+
+  const staffMember = useMemo(() => {
+    if (role !== 'staff' || !user || !staff) return null;
+    return staff.find(s => s.id === user.uid);
+  }, [user, staff, role]);
+
+  const displayName = role === 'staff' ? staffMember?.name : user?.displayName;
+  const avatarUrl = role === 'staff' ? staffMember?.avatarUrl : user?.photoURL;
+
+  const getInitials = (name?: string | null): string => {
+    if (!name) return 'U';
+    const parts = name.split(' ').filter(Boolean);
+    if (parts.length > 1) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+  const initials = getInitials(displayName);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/20 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
@@ -106,11 +127,11 @@ export function AppHeader({ title }: { title?: string }) {
             <DropdownMenuTrigger asChild>
                 <div className="flex items-center gap-3 cursor-pointer">
                     <Avatar className="h-9 w-9">
-                        <AvatarImage src={user?.photoURL || ''} alt="User" />
-                        <AvatarFallback>{user?.displayName?.charAt(0) || 'U'}</AvatarFallback>
+                        <AvatarImage src={avatarUrl || ''} alt="User" />
+                        <AvatarFallback>{initials}</AvatarFallback>
                     </Avatar>
                     <div className="hidden sm:flex flex-col items-start">
-                        <p className="text-sm font-semibold">{user?.displayName || 'Admin'}</p>
+                        <p className="text-sm font-semibold">{displayName || 'Admin'}</p>
                         <p className="text-xs text-muted-foreground capitalize">{role}</p>
                     </div>
                 </div>
@@ -143,6 +164,14 @@ export function AppHeader({ title }: { title?: string }) {
                     <span>Support</span>
                   </DropdownMenuItem>
                 </>
+              )}
+              {role === 'staff' && (
+                 <DropdownMenuItem asChild>
+                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full">
+                      <User className="w-4 h-4 mr-2" />
+                      <span>Public Profile</span>
+                    </Link>
+                  </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>

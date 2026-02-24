@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -21,6 +20,14 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         if (!client.lastAppointment) return null;
         return new Date(client.lastAppointment);
     }, [client.lastAppointment]);
+    
+    const getInitials = (name: string) => {
+        const parts = name.split(' ');
+        if (parts.length > 1) {
+            return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+    };
 
     return (
         <Card className={cn(
@@ -39,7 +46,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     </div>
                      <Avatar className="w-16 h-16 border">
                         <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" className="object-cover"/>
-                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
                         <Link href={`/clients/${client.id}`} className="group">

@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -50,6 +49,14 @@ import { useInventory } from '@/context/InventoryContext';
 type ClientPhoto = {
   url: string;
   label: string;
+};
+
+const getInitials = (name: string) => {
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+        return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
 };
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
@@ -240,7 +247,7 @@ export default function StaffDetailPage() {
                 <div className="text-center space-y-4">
                     <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
                         <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
-                        <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
+                        <AvatarFallback>{getInitials(staffMember.name)}</AvatarFallback>
                     </Avatar>
                     <div>
                         <h1 className="text-3xl font-bold">{staffMember.name}</h1>

@@ -49,7 +49,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -426,7 +426,7 @@ const OwnerDashboard = () => {
                     <Avatar className="hidden h-9 w-9 sm:flex">
                       <AvatarImage src={client.avatarUrl} alt="Avatar" />
                       <AvatarFallback>
-                        {client.name.charAt(0)}
+                        {client.name.split(' ').map(n => n[0]).join('').substring(0,2)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid gap-1">
@@ -796,6 +796,16 @@ const StaffDashboardView = () => {
           </div>
         );
       };
+      
+    const getInitials = (name?: string | null): string => {
+        if (!name) return '?';
+        const parts = name.split(' ');
+        if (parts.length > 1 && parts[parts.length-1]) {
+            return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+    };
+
 
     if (isUserLoading || isInventoryLoading) {
         return <Loader className="animate-spin" />;
@@ -869,14 +879,20 @@ const StaffDashboardView = () => {
               <div className="space-y-4">
                 {upcomingAppointments.map((apt) => (
                   <div key={apt.id} className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/50">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">{format(new Date(apt.startTime), 'h:mm a')}</div>
+                    <Avatar className="h-10 w-10">
+                        <AvatarImage src={apt.client?.avatarUrl || ''} alt={apt.client?.name || ''} />
+                        <AvatarFallback>{getInitials(apt.client?.name)}</AvatarFallback>
+                    </Avatar>
                     <div className="flex-1">
                       <p className="font-medium">{apt.client?.name}</p>
                       <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
                     </div>
-                    <Button variant="ghost" size="icon" asChild>
+                    <div className="text-right">
+                        <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                    </div>
+                     <Button variant="ghost" size="icon" asChild>
                         <Link href="/planner">
-                           <MoreHorizontal className="h-4 w-4" />
+                            <MoreHorizontal className="h-4 w-4" />
                         </Link>
                     </Button>
                   </div>
