@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -577,7 +576,7 @@ export function AppointmentCard({
         });
         return;
     }
-    const checkInUrl = `${''window.location.origin}/check-in/${''appointment.checkInToken}`;
+    const checkInUrl = `${window.location.origin}/check-in/${appointment.checkInToken}`;
     navigator.clipboard.writeText(checkInUrl);
     toast({
         title: 'Link Copied',
@@ -613,16 +612,16 @@ export function AppointmentCard({
   const hasPadAfter = (service.padAfter || 0) > 0;
   const totalDurationWithPadding = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
 
-  const beforeHeight = hasPadBefore ? `${''((service.padBefore || 0) / totalDurationWithPadding) * 100}%` : '0px';
-  const mainHeight = `${''(service.duration / totalDurationWithPadding) * 100}%`;
-  const afterHeight = hasPadAfter ? `${''((service.padAfter || 0) / totalDurationWithPadding) * 100}%` : '0px';
+  const beforeHeight = hasPadBefore ? `${((service.padBefore || 0) / totalDurationWithPadding) * 100}%` : '0px';
+  const mainHeight = `${(service.duration / totalDurationWithPadding) * 100}%`;
+  const afterHeight = hasPadAfter ? `${((service.padAfter || 0) / totalDurationWithPadding) * 100}%` : '0px';
 
   const isCompact = scheduledDuration < 50;
   
   const serviceNameDisplay = isCompact
       ? service.name
       : addOnServices.length > 0
-      ? `${''service.name} + ${''addOnServices.length} add-on(s)`
+      ? `${service.name} + ${addOnServices.length} add-on(s)`
       : service.name;
 
   const handleCardClick = (e: React.MouseEvent) => {
