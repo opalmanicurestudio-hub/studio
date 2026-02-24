@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -99,10 +98,6 @@ export function AppHeader({ title }: { title?: string }) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User />
-                <span>Profile</span>
-              </DropdownMenuItem>
               {role === 'owner' && (
                 <>
                   <DropdownMenuItem asChild>
