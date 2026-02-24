@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -35,7 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Sparkles, Loader } from 'lucide-react';
-import { PrintableStaffReport } from '../reports/PrintableStaffReport';
+import { PrintableStaffReport } from '../reports/PrintableReport';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -260,14 +261,15 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 flex flex-col", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+        <div className="flex flex-col h-full">
             <SheetHeader className="p-4 border-b text-left flex-shrink-0">
                 <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
                 <SheetDescription>
                     Performance breakdown for {dateRangeString}.
                 </SheetDescription>
             </SheetHeader>
-             <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
                 <Popover>
                     <PopoverTrigger asChild>
                         <Button
@@ -294,17 +296,18 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     />
                     </PopoverContent>
                 </Popover>
-                 <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
+                <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
             </div>
             <ScrollArea className="flex-1 min-h-0">
                 <div className="p-4">
                     {content}
                 </div>
             </ScrollArea>
-             <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
+            <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
                 <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
             </SheetFooter>
-        </SheetContent>
+        </div>
+      </SheetContent>
     </Sheet>
   );
 };
