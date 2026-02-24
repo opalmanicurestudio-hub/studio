@@ -99,7 +99,7 @@ function PlannerPageContent() {
       inventory,
       clients, 
       services, 
-      staff, 
+      staff: allStaff, 
       appointments: appointmentsFromInventory, 
       events: eventsFromInventory, 
       walkIns,
@@ -288,13 +288,18 @@ function PlannerPageContent() {
         return () => clearInterval(timer);
     }, [appointments, services, clients, toast, notifiedOvertime]);
 
+  const staff = useMemo(() => {
+      if (role === 'staff' && user) {
+          return (allStaff || []).filter(s => s.id === user.uid);
+      }
+      return allStaff || [];
+  }, [allStaff, role, user]);
+
   useEffect(() => {
-    if (role === 'staff' && user) {
-        setMobileSelectedStaffId(user.uid);
-    } else if (staff && staff.length > 0 && !mobileSelectedStaffId) {
+    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
       setMobileSelectedStaffId(staff[0].id);
     }
-  }, [staff, mobileSelectedStaffId, role, user]);
+  }, [staff, mobileSelectedStaffId]);
 
   const weekStart = useMemo(() => {
     return startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -501,7 +506,7 @@ function PlannerPageContent() {
 
   const staffToDisplay = useMemo(() => {
     if (role === 'staff' && user) {
-        return (staff || []).filter(s => s.id === user.uid);
+        return (allStaff || []).filter(s => s.id === user.uid);
     }
     if (isMobile && activeView === 'staff') {
         if (!mobileSelectedStaffId || !staff) return [];
@@ -509,7 +514,7 @@ function PlannerPageContent() {
         return selected ? [selected] : [];
     }
     return staff || [];
-  }, [role, user, isMobile, mobileSelectedStaffId, staff, activeView]);
+  }, [role, user, isMobile, mobileSelectedStaffId, staff, allStaff, activeView]);
 
   const columnsToDisplay = useMemo(() => {
     if (activeView === 'staff') {
@@ -721,6 +726,62 @@ function PlannerPageContent() {
     setIsEditAppointmentOpen(false);
     setIsRescheduleOpen(false);
   };
+  
+  const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
+    if (!firestore || !tenantId || !appointments || !clients || !selectedTenant) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    
+    let updateData: Partial<Appointment> = { status };
+    
+    if (status === 'cancelled') {
+        const appointment = appointments.find(apt => apt.id === appointmentId);
+        const client = clients?.find(c => c.id === appointment?.clientId);
+        
+        if (appointment && client && selectedTenant) {
+            const timeDiffHours = differenceInHours(appointment.startTime, new Date());
+            const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
+
+            if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
+                const fee = selectedTenant.cancellationFee || 25; 
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+                
+                const newFee = {
+                    feeId: nanoid(),
+                    appointmentId: appointment.id,
+                    appointmentDate: appointment.startTime.toISOString(),
+                    feeAmount: fee,
+                    reason: 'Late Cancellation'
+                };
+
+                updateDocumentNonBlocking(clientRef, { 
+                    outstandingBalance: increment(fee),
+                    unpaidFees: arrayUnion(newFee)
+                });
+                
+                updateData.cancellationReason = 'client_request';
+                updateData.cancellationFeeApplied = fee;
+
+                toast({
+                    title: "Late Cancellation Fee Applied",
+                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
+                });
+            }
+        }
+    }
+
+    updateDocumentNonBlocking(appointmentRef, updateData);
+
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
+    }
+    
+    toast({
+        title: "Status Updated",
+        description: `Appointment status changed to ${status}.`
+    });
+  };
 
   const handleRebook = (appointment: Appointment, weeksOut?: number) => {
     setSelectedAppointment(null); // Clear appointment from checkout
@@ -766,7 +827,7 @@ function PlannerPageContent() {
     setDocumentNonBlocking(eventRef, dataToSave, {});
     
     if (isStaffRequest) {
-        const staffMember = (staff || []).find(s => s.id === user?.uid);
+        const staffMember = (allStaff || []).find(s => s.id === user?.uid);
         if (staffMember) {
             errorEmitter.emit('event-request', {
                 staffName: staffMember.name,
@@ -775,7 +836,6 @@ function PlannerPageContent() {
             });
         }
     }
-
 
     if (newEventData.cost && newEventData.cost > 0 && newEventData.type !== 'blocked') {
         const newTransaction = {
@@ -914,62 +974,6 @@ function PlannerPageContent() {
     });
   };
 
-  const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId || !appointments || !clients || !selectedTenant) return;
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    
-    let updateData: Partial<Appointment> = { status };
-    
-    if (status === 'cancelled') {
-        const appointment = appointments.find(apt => apt.id === appointmentId);
-        const client = clients?.find(c => c.id === appointment?.clientId);
-        
-        if (appointment && client && selectedTenant) {
-            const timeDiffHours = differenceInHours(appointment.startTime, new Date());
-            const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
-
-            if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
-                const fee = selectedTenant.cancellationFee || 25; 
-                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-                
-                const newFee = {
-                    feeId: nanoid(),
-                    appointmentId: appointment.id,
-                    appointmentDate: appointment.startTime.toISOString(),
-                    feeAmount: fee,
-                    reason: 'Late Cancellation'
-                };
-
-                updateDocumentNonBlocking(clientRef, { 
-                    outstandingBalance: increment(fee),
-                    unpaidFees: arrayUnion(newFee)
-                });
-                
-                updateData.cancellationReason = 'client_request';
-                updateData.cancellationFeeApplied = fee;
-
-                toast({
-                    title: "Late Cancellation Fee Applied",
-                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
-                });
-            }
-        }
-    }
-
-    updateDocumentNonBlocking(appointmentRef, updateData);
-
-    const appointment = appointments.find(apt => apt.id === appointmentId);
-    if (appointment?.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
-    }
-    
-    toast({
-        title: "Status Updated",
-        description: `Appointment status changed to ${status}.`
-    });
-  };
-  
   const handleFinishService = (appointment: Appointment) => {
     setSelectedAppointment(appointment);
     setIsTechnicianReviewOpen(true);
@@ -1027,7 +1031,7 @@ function PlannerPageContent() {
 
   const eventsForDay = (events || [])
       .filter(evt => isSameDay(evt.startTime, currentDate))
-      .sort((a,b) => evt.startTime.getTime() - b.startTime.getTime());
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
@@ -1415,12 +1419,12 @@ function PlannerPageContent() {
                 showColumnHeader={false} // Header logic is now internal
                 isMobile={isMobile || false}
                 activeView={activeView}
-                allStaff={staff || []}
+                allStaff={allStaff || []}
                 mobileSelectedStaffId={mobileSelectedStaffId}
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1453,12 +1457,12 @@ function PlannerPageContent() {
                 showColumnHeader={true}
                 isMobile={isMobile || false}
                 activeView={activeView}
-                allStaff={staff || []}
+                allStaff={allStaff || []}
                 mobileSelectedStaffId={mobileSelectedStaffId}
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
@@ -1499,7 +1503,7 @@ function PlannerPageContent() {
             }}
             appointmentData={appointmentDataForDialog}
             onSendToFrontDesk={handleSendToFrontDesk}
-            staff={staff || []}
+            staff={allStaff || []}
         />
       )}
       <AddAppointmentDialog 
@@ -1694,3 +1698,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
