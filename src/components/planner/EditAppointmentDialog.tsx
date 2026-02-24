@@ -22,6 +22,17 @@ import {
   SheetFooter,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,7 +47,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, Library, QrCode } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, InventoryItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
@@ -133,9 +144,10 @@ type EditableFormulaItem = {
 
 const EditAppointmentForm = ({ 
     appointment,
-    clients, 
-    services,
+    client, 
+    service,
     appointments,
+    services,
     onConfirm
 }: { 
     appointment: Appointment;
@@ -146,7 +158,6 @@ const EditAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { inventory } = useInventory();
-    const client = clients.find(c => c.id === appointment.clientId);
 
     const [selectedClientId, setSelectedClientId] = useState<string>(appointment.clientId);
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
@@ -302,7 +313,7 @@ const EditAppointmentForm = ({
                                         <SelectValue placeholder="Select an existing client" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                        {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                        {[client].map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -353,6 +364,7 @@ const EditAppointmentForm = ({
                                                     setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
                                                 }}
                                                 className="w-16 h-8 text-center"
+                                                step="0.1"
                                             />
                                             <span className="text-xs text-muted-foreground">{item.unit}</span>
                                             <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeProduct(item.id)}>
@@ -430,7 +442,7 @@ const EditAppointmentForm = ({
                 open={isProductBrowserOpen}
                 onOpenChange={setIsProductBrowserOpen}
                 onSelect={handleAddProduct}
-                allProducts={inventory.filter(p => p.type === 'professional')}
+                allProducts={inventory.filter(i => i.type === 'professional')}
                 initialSelected={[]}
             />
             <SelectAddOnsDialog
