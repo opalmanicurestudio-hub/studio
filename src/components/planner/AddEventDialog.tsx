@@ -129,6 +129,8 @@ const AddEventForm = ({
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
+    const staffToDisplay = useMemo(() => (role === 'owner' || role === 'admin' ? staff : staff.filter(s => s.id === user?.uid)), [staff, role, user]);
+
 
     useEffect(() => {
         if (role === 'staff' && user) {
@@ -272,7 +274,7 @@ const AddEventForm = ({
                                 </SelectTrigger>
                                 <SelectContent>
                                     {(role === 'owner' || role === 'admin') && <SelectItem value="all">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>}
-                                    {staff.map(s => (
+                                    {staffToDisplay.map(s => (
                                         <SelectItem key={s.id} value={s.id}>
                                             <div className="flex items-center gap-2">
                                                 <Avatar className="w-6 h-6">

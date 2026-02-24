@@ -98,8 +98,8 @@ const AddAppointmentForm = ({
     client: initialClient,
     appointmentToRebook,
 }: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
-    const { firestore } = useFirebase();
-    const { selectedTenant, user, role } = useTenant();
+    const { firestore, user } = useFirebase();
+    const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
@@ -422,7 +422,7 @@ const AddAppointmentForm = ({
                                             {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {(staff || []).map(s => <SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>)}
+                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => <SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 )}
