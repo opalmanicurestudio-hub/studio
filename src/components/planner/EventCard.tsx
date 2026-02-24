@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -24,7 +23,8 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Progress } from '../ui/progress';
-import { useUser, useTenant } from '@/context/TenantContext';
+import { useTenant } from '@/context/TenantContext';
+import { useUser } from '@/firebase';
 import { Badge } from '@/components/ui/badge';
 
 interface EventCardProps {
@@ -267,3 +267,5 @@ export function EventCard({
         </>
     )
 }
+
+    
