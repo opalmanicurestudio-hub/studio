@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -511,7 +510,7 @@ const StaffDashboardView = () => {
     const { selectedTenant } = useTenant();
     const { firestore } = useFirebase();
     const { toast } = useToast();
-    const { clients, services, staff, appointments: allAppointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
+    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
     const staffMember = useMemo(() => {
@@ -519,11 +518,6 @@ const StaffDashboardView = () => {
         return staff.find(s => s.id === user.uid);
     }, [user, staff]);
     
-    const appointments = useMemo(() => {
-        if (!allAppointments) return [];
-        return allAppointments;
-    }, [allAppointments]);
-
     const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
         const now = new Date();
         if (staffMember?.payStructure === 'commission' && staffMember.payoutFrequency === 'bi-weekly') {
@@ -700,7 +694,7 @@ const StaffDashboardView = () => {
     }, [transactions, appointments, staffMember, todayRange]);
 
     const staffMemberWithStats = useMemo(() => {
-      if (!staffMember || !allAppointments || !services || !transactions || !activityLogs) return null;
+      if (!staffMember || !appointments || !services || !transactions || !activityLogs) return null;
   
       const fromDate = subDays(new Date(), 29);
       const toDate = new Date();
@@ -711,7 +705,7 @@ const StaffDashboardView = () => {
           return true;
       };
   
-      const staffAppointments = allAppointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
       const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
       const completedAppointmentsCount = completedAppointments.length;
     
@@ -794,7 +788,7 @@ const StaffDashboardView = () => {
           }
       };
 
-  }, [staffMember, allAppointments, services, transactions, activityLogs]);
+    }, [staffMember, appointments, services, transactions, activityLogs]);
 
 
     const handleViewActivity = () => {
@@ -911,7 +905,7 @@ const StaffDashboardView = () => {
                 dateRange={todayRange ? { from: todayRange.todayStart, to: todayRange.todayEnd } : undefined}
                 transactions={transactions || []}
                 services={services || []}
-                appointments={allAppointments || []}
+                appointments={appointments || []}
                 activityLogs={activityLogs || []}
                 consentForms={[]}
             />
@@ -943,7 +937,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-
-
-```
