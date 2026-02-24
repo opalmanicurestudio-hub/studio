@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, type ReactNode } from 'react';
@@ -5,6 +6,7 @@ import { FirebaseProvider } from '@/firebase/provider';
 import { initializeFirebase } from '@/firebase';
 import { InventoryProvider } from '@/context/InventoryContext';
 import { TenantProvider } from '@/context/TenantContext';
+import { NotificationProvider } from '@/context/NotificationContext';
 
 interface FirebaseClientProviderProps {
   children: ReactNode;
@@ -24,7 +26,9 @@ export function FirebaseClientProvider({ children }: FirebaseClientProviderProps
     >
       <TenantProvider>
         <InventoryProvider>
-          {children}
+          <NotificationProvider>
+            {children}
+          </NotificationProvider>
         </InventoryProvider>
       </TenantProvider>
     </FirebaseProvider>
