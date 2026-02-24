@@ -48,7 +48,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
 import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -657,7 +657,7 @@ function PlannerPageContent() {
                 currentStartTime = addWeeks(currentStartTime, 3);
                 currentEndTime = addWeeks(currentEndTime, 3);
             } else if (recurrence.frequency === 'every-4-weeks') {
-                currentStartTime = addWeeks(currentStartTime, 4);
+                currentStartTime = addWeeks(currentEndTime, 4);
                 currentEndTime = addWeeks(currentEndTime, 4);
             } else if (recurrence.frequency === 'monthly') {
                 currentStartTime = addMonths(currentStartTime, 1);
@@ -806,7 +806,7 @@ function PlannerPageContent() {
   };
 
 
-  const handleAddEvent = (newEventData: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
+  const handleAddEvent = async (newEventData: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore || !tenantId || !user) return;
     const isStaffRequest = role === 'staff';
 
@@ -826,17 +826,6 @@ function PlannerPageContent() {
     };
     setDocumentNonBlocking(eventRef, dataToSave, {});
     
-    if (isStaffRequest) {
-        const staffMember = (allStaff || []).find(s => s.id === user?.uid);
-        if (staffMember) {
-            errorEmitter.emit('event-request', {
-                staffName: staffMember.name,
-                eventTitle: newEventWithId.title,
-                eventId: newEventWithId.id
-            });
-        }
-    }
-
     if (newEventData.cost && newEventData.cost > 0 && newEventData.type !== 'blocked') {
         const newTransaction = {
             description: `Expense for: ${newEventData.title}`,
@@ -1029,9 +1018,11 @@ function PlannerPageContent() {
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   }, [appointments, currentDate]);
 
-  const eventsForDay = (events || [])
+  const eventsForDay = useMemo(() => {
+    return (events || [])
       .filter(evt => isSameDay(evt.startTime, currentDate))
-      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+  }, [events, currentDate]);
   
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {

@@ -5,7 +5,11 @@ import React, { createContext, useContext, useState, ReactNode, useMemo, useEffe
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInDays, isPast, parseISO, format } from 'date-fns';
 import { ShieldAlert, PackageX, Calendar, Landmark } from 'lucide-react';
-import { errorEmitter } from '@/firebase/error-emitter';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { type Event } from '@/lib/data';
+import { cn } from '@/lib/utils';
 
 export type Notification = {
     id: number | string;
@@ -27,7 +31,51 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const { staff, inventory, billInstances, billDefinitions } = useInventory();
+    const { firestore } = useFirebase();
+    const { selectedTenant, role } = useTenant();
+    const tenantId = selectedTenant?.id;
+
     const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const storedReadIds = localStorage.getItem('read_notification_ids');
+        if (storedReadIds) {
+            try {
+                const parsedIds = JSON.parse(storedReadIds);
+                if (Array.isArray(parsedIds)) {
+                    setReadNotificationIds(new Set(parsedIds));
+                }
+            } catch (e) {
+                console.error("Failed to parse read notifications from localStorage", e);
+            }
+        }
+    }, []);
+
+    const pendingEventsQuery = useMemoFirebase(() => {
+        if (firestore && tenantId && (role === 'owner' || role === 'admin')) {
+            return query(collection(firestore, `tenants/${tenantId}/events`), where("status", "==", "pending"));
+        }
+        return null;
+    }, [firestore, tenantId, role]);
+
+    const { data: pendingEvents } = useCollection<Event>(pendingEventsQuery);
+
+    const eventRequestNotifications = useMemo(() => {
+        if (!pendingEvents || !staff) return [];
+        return pendingEvents.map(event => {
+            const staffMember = staff.find(s => s.id === event.staffId);
+            const id = `event-request-${event.id}`;
+            return {
+                id,
+                type: 'event-request',
+                message: `${staffMember?.name || 'A staff member'} requested time off for "${event.title}".`,
+                link: '/planner',
+                read: readNotificationIds.has(id),
+                icon: <Calendar className="h-4 w-4 text-purple-500" />,
+            };
+        }).filter((n): n is Notification => n !== null);
+    }, [pendingEvents, staff, readNotificationIds]);
 
     const licenseNotifications = useMemo(() => {
         if (!staff) return [];
@@ -37,46 +85,39 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             const licenseExpiry = parseISO(member.compliance.licenseExpiry);
             const daysUntil = differenceInDays(licenseExpiry, new Date());
             const expired = isPast(licenseExpiry);
+            const id = expired ? `license-${member.id}-expired` : `license-${member.id}-expiring-${daysUntil}`;
 
-            if (expired) {
+            if (expired || (daysUntil >= 0 && daysUntil <= 30)) {
                 return {
-                    id: `license-${member.id}-expired`,
+                    id,
                     type: 'license',
-                    message: `${member.name}'s license has expired.`,
+                    message: expired ? `${member.name}'s license has expired.` : `${member.name}'s license is expiring in ${daysUntil} days.`,
                     link: '/staff',
-                    read: false,
-                    icon: <ShieldAlert className="h-4 w-4 text-destructive" />,
-                };
-            }
-            
-            if (daysUntil <= 30) {
-                return {
-                    id: `license-${member.id}-expiring`,
-                    type: 'license',
-                    message: `${member.name}'s license is expiring in ${daysUntil} days.`,
-                    link: '/staff',
-                    read: false,
-                    icon: <ShieldAlert className="h-4 w-4 text-orange-500" />,
+                    read: readNotificationIds.has(id),
+                    icon: <ShieldAlert className={cn("h-4 w-4", expired ? "text-destructive" : "text-orange-500")} />,
                 };
             }
             
             return null;
         }).filter((n): n is Notification => n !== null);
-    }, [staff]);
+    }, [staff, readNotificationIds]);
 
     const lowStockNotifications = useMemo(() => {
         if (!inventory) return [];
         return inventory
             .filter(item => item.reorderPoint && item.totalStock <= item.reorderPoint)
-            .map(item => ({
-                id: `low-stock-${item.id}`,
-                type: 'stock',
-                message: `Low Stock Alert: '${item.name}' is at ${item.totalStock} units.`,
-                link: `/inventory/${item.id}`,
-                read: false,
-                icon: <PackageX className="h-4 w-4 text-destructive" />
-            }));
-    }, [inventory]);
+            .map(item => {
+                const id = `low-stock-${item.id}`;
+                return {
+                    id,
+                    type: 'stock',
+                    message: `Low Stock Alert: '${item.name}' is at ${item.totalStock} units.`,
+                    link: `/inventory/${item.id}`,
+                    read: readNotificationIds.has(id),
+                    icon: <PackageX className="h-4 w-4 text-destructive" />
+                }
+            });
+    }, [inventory, readNotificationIds]);
 
     const expiredStockNotifications = useMemo(() => {
         if (!inventory) return [];
@@ -84,19 +125,20 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         inventory.forEach(item => {
             (item.batches || []).forEach(batch => {
                 if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
+                    const id = `expired-${item.id}-${batch.id}`;
                     expired.push({
-                        id: `expired-${item.id}-${batch.id}`,
+                        id,
                         type: 'stock',
                         message: `Expired Stock: ${batch.stock} units of '${item.name}' expired on ${format(parseISO(batch.expirationDate), 'MMM d')}.`,
                         link: `/inventory/${item.id}`,
-                        read: false,
+                        read: readNotificationIds.has(id),
                         icon: <PackageX className="h-4 w-4 text-destructive" />
                     });
                 }
             });
         });
         return expired;
-    }, [inventory]);
+    }, [inventory, readNotificationIds]);
 
     const billsDueSoonNotifications = useMemo(() => {
         if (!billInstances || !billDefinitions) return [];
@@ -112,92 +154,49 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
                 const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
                 const daysUntilDue = differenceInDays(parseISO(instance.dueDate), today);
                 const dueText = daysUntilDue === 0 ? 'is due today' : `is due in ${daysUntilDue} days`;
+                const id = `bill-due-${instance.id}`;
                 return {
-                    id: `bill-due-${instance.id}`,
+                    id,
                     type: 'bill',
                     message: `Bill Due: '${definition?.name || 'A bill'}' ${dueText}.`,
                     link: '/bills',
-                    read: false,
+                    read: readNotificationIds.has(id),
                     icon: <Landmark className="h-4 w-4 text-orange-500" />
                 };
             });
-    }, [billInstances, billDefinitions]);
-    
-    useEffect(() => {
-        const handleNewIncident = ({ clientName, clientId, incidentType }: { clientName: string, clientId: string, incidentType: string }) => {
-            const newNotification: Notification = {
-                id: `incident-${Date.now()}`,
-                type: 'incident',
-                message: `New incident for ${clientName}: ${incidentType}`,
-                link: `/clients/${clientId}`,
-                read: false,
-                icon: <ShieldAlert className="h-4 w-4 text-orange-500" />,
-            };
-            setNotifications(prev => [newNotification, ...prev]);
-        };
-        
-        const handleNewEventRequest = ({ staffName, eventTitle, eventId }: { staffName: string; eventTitle: string; eventId: string }) => {
-            const newNotification: Notification = {
-                id: `event-request-${eventId}`,
-                type: 'event-request',
-                message: `${staffName} requested time off for "${eventTitle}".`,
-                link: '/planner',
-                read: false,
-                icon: <Calendar className="h-4 w-4 text-purple-500" />,
-            };
-            setNotifications(prev => [newNotification, ...prev.filter(n => n.id !== newNotification.id)]);
-        };
-        
-        errorEmitter.on('incident-reported', handleNewIncident);
-        errorEmitter.on('event-request', handleNewEventRequest);
-        
-        return () => {
-            errorEmitter.off('incident-reported', handleNewIncident);
-            errorEmitter.off('event-request', handleNewEventRequest);
-        }
-    }, []);
+    }, [billInstances, billDefinitions, readNotificationIds]);
 
     useEffect(() => {
-        const backgroundNotifs = [
+        const allNotifications = [
+            ...eventRequestNotifications,
             ...licenseNotifications,
             ...lowStockNotifications,
             ...expiredStockNotifications,
             ...billsDueSoonNotifications,
         ];
-
-        setNotifications(currentNotifs => {
-            const realTimeNotifs = currentNotifs.filter(n => n.type === 'incident' || n.type === 'event-request');
-            const notifMap = new Map<string | number, Notification>();
-            
-            realTimeNotifs.forEach(n => notifMap.set(n.id, n));
-            
-            backgroundNotifs.forEach(n => {
-                const existing = currentNotifs.find(cn => cn.id === n.id);
-                notifMap.set(n.id, { ...n, read: existing?.read || false });
-            });
-
-            const backgroundIds = new Set(backgroundNotifs.map(n => n.id));
-            currentNotifs.forEach(n => {
-                if (n.type !== 'incident' && n.type !== 'event-request' && !backgroundIds.has(n.id)) {
-                    // This logic is flawed, but for now we'll just not delete old ones.
-                    // This can cause stale real-time notifications to persist.
-                    // notifMap.delete(n.id);
-                }
-            });
-                
-            return Array.from(notifMap.values()).sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0));
-        });
         
-    }, [licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
+        setNotifications(allNotifications.sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0)));
+        
+    }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
 
     const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
 
     const markAsRead = (id: number | string) => {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+        setReadNotificationIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(String(id));
+            localStorage.setItem('read_notification_ids', JSON.stringify(Array.from(newSet)));
+            return newSet;
+        });
     };
     
     const markAllAsRead = () => {
-        setNotifications(prev => prev.map(n => ({...n, read: true})));
+        const allIds = notifications.map(n => String(n.id));
+        setReadNotificationIds(prev => {
+            const newSet = new Set([...prev, ...allIds]);
+            localStorage.setItem('read_notification_ids', JSON.stringify(Array.from(newSet)));
+            return newSet;
+        });
     };
 
     const value = {
