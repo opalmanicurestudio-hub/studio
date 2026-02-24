@@ -22,7 +22,8 @@ import {
   HeartHandshake,
   Clock,
   MoreHorizontal,
-  Coffee
+  Coffee,
+  Play,
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -506,7 +507,7 @@ const OwnerDashboard = () => {
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant } = useTenant();
-    const { firestore } = useFirebase();
+    const { firestore, toast } = useFirebase();
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
@@ -528,6 +529,33 @@ const StaffDashboardView = () => {
         return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfDay(now), periodName: 'This Week' };
     }, [staffMember]);
 
+    const [todayRange, setTodayRange] = useState<{todayStart: Date, todayEnd: Date} | null>(null);
+
+    useEffect(() => {
+        const now = new Date();
+        setTodayRange({
+            todayStart: startOfDay(now),
+            todayEnd: endOfDay(now),
+        });
+    }, []);
+
+    const upcomingAppointments = useMemo(() => {
+        if (!appointments || !user || !clients || !services || !todayRange) return [];
+        const { todayStart, todayEnd } = todayRange;
+        
+        return appointments
+            .filter(a => 
+                a.staffId === user.uid && 
+                (a.status === 'confirmed' || a.status === 'servicing') && 
+                a.startTime >= todayStart && a.startTime <= todayEnd
+            )
+            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+            .map(apt => ({
+                ...apt,
+                client: clients.find(c => c.id === apt.clientId),
+                service: services.find(s => s.id === apt.serviceId),
+            }));
+    }, [appointments, user, clients, services, todayRange]);
 
     const appointmentsForPeriod = useMemo(() => {
       if (!appointments || !user) return [];
@@ -739,21 +767,47 @@ const StaffDashboardView = () => {
         return { ...staffMember, stats };
     }, [staffMember, transactions, appointments, activityLogs, services, inventory, periodStart, periodEnd]);
 
-    const upcomingAppointments = useMemo(() => {
-        if (!appointments || !user || !clients || !services) return [];
-        const now = new Date();
-        return appointments
-            .filter(a => a.staffId === user.uid && a.status !== 'completed' && a.status !== 'cancelled' && new Date(a.startTime) >= now)
-            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-            .map(apt => ({
-                ...apt,
-                client: clients.find(c => c.id === apt.clientId),
-                service: services.find(s => s.id === apt.serviceId),
-            }));
-    }, [appointments, user, clients, services]);
-
     const nextAppointment = upcomingAppointments?.[0];
 
+    const handleStartService = (appointmentId: string) => {
+        if (!firestore || !selectedTenant?.id || !appointments) return;
+        const tenantId = selectedTenant.id;
+        const appointment = appointments.find(a => a.id === appointmentId);
+        if (!appointment) return;
+
+        const nowISO = new Date().toISOString();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        updateDocumentNonBlocking(appointmentRef, {
+            status: 'servicing',
+            actualStartTime: nowISO
+        });
+
+        if (appointment.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+            updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+        }
+        
+        if (appointment.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+        
+        if(appointment.isWalkIn) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+            updateDocumentNonBlocking(walkInRef, {
+                status: 'servicing',
+                serviceStartTime: nowISO,
+            });
+        }
+
+        toast({
+            title: "Service Started",
+            description: `Service for ${appointment.clientName} has started.`
+        });
+    };
+    
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         if (!staffMember?.id || !selectedTenant?.id || !firestore) return;
     
@@ -889,12 +943,22 @@ const StaffDashboardView = () => {
                     </div>
                     <div className="text-right">
                         <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                        {apt.isWalkIn && <Badge variant="secondary">Walk-in</Badge>}
                     </div>
-                     <Button variant="ghost" size="icon" asChild>
-                        <Link href="/planner">
-                            <MoreHorizontal className="h-4 w-4" />
-                        </Link>
-                    </Button>
+                    {apt.status === 'confirmed' ? (
+                        <Button size="sm" onClick={() => handleStartService(apt.id)}>
+                            <Play className="w-4 h-4 mr-2" />
+                            Start
+                        </Button>
+                    ) : apt.status === 'servicing' ? (
+                        <Button size="sm" variant="outline" disabled>In Service</Button>
+                    ) : (
+                         <Button variant="ghost" size="icon" asChild>
+                            <Link href="/planner">
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                    )}
                   </div>
                 ))}
               </div>
