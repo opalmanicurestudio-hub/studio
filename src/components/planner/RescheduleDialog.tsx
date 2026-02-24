@@ -23,8 +23,6 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -40,8 +38,6 @@ import { Client, Service, Appointment, Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Switch } from '../ui/switch';
-import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -82,7 +78,8 @@ const RescheduleAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { scheduleProfiles, staff } = useInventory();
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+
     const [rescheduleDate, setRescheduleDate] = useState(appointment.startTime);
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
 
@@ -103,22 +100,20 @@ const RescheduleAppointmentForm = ({
     }
 
     const timeSlots = useMemo(() => {
-        if (!service || !rescheduleDate || !appointments || !services || !publicScheduleProfile || !staff) return [];
+        if (!service || !rescheduleDate || !publicScheduleProfile || !staff || !services) return [];
 
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
         
         const selectedStaffMember = staff.find(s => s.id === appointment.staffId);
-        let workingHours: { enabled: boolean; start: string; end: string; };
+        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
         const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
 
-        if (staffDaySchedule && staffDaySchedule.enabled) {
+        if (staffDaySchedule) {
             workingHours = staffDaySchedule;
-        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
-            workingHours = publicScheduleProfile.week[dayName];
         } else {
-            return []; // Staff is explicitly not available or no schedule found
+            workingHours = publicScheduleProfile?.week?.[dayName];
         }
         
         if (!workingHours || !workingHours.enabled) {
@@ -131,9 +126,9 @@ const RescheduleAppointmentForm = ({
         const existingAppointmentsOnDate = appointments.filter(
             apt => apt.id !== appointment.id && isSameDay(apt.startTime, rescheduleDate) && apt.staffId === appointment.staffId
         ).map(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
+            const serviceForApt = services.find(s => s.id === apt.serviceId);
+            const padBefore = serviceForApt?.padBefore || 0;
+            const padAfter = serviceForApt?.padAfter || 0;
             return {
                 start: addMinutes(apt.startTime, -padBefore),
                 end: addMinutes(apt.endTime, padAfter)
@@ -174,7 +169,7 @@ const RescheduleAppointmentForm = ({
         }
 
         return options;
-    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, services, publicScheduleProfile, staff, appointment.staffId]);
+    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, appointment.staffId, services, publicScheduleProfile, staff]);
 
 
     const handleSubmit = () => {

@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, Resource } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse, addMonths, endOfDay, parseISO } from 'date-fns';
@@ -106,15 +106,8 @@ const AddAppointmentForm = ({
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
     const { data: allStaff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
 
-    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(
-        useMemoFirebase(() => tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId])
-    );
-    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(
-        useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId])
-    );
-    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(
-        useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId])
-    );
+    const { scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
     const staff = useMemo(() => {
         if (role === 'staff' && user) {
@@ -203,8 +196,7 @@ const AddAppointmentForm = ({
     const removeAddOn = (addOnId: string) => {
         setValue('addOnIds', addOnIds.filter(id => id !== addOnId));
     };
-
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
+    
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -215,16 +207,14 @@ const AddAppointmentForm = ({
         const dayName = format(date, 'eeee').toLowerCase();
         
         const selectedStaffMember = staff.find(s => s.id === staffId);
-        let workingHours: { enabled: boolean; start: string; end: string; };
+        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
         const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
 
-        if (staffDaySchedule && staffDaySchedule.enabled) {
+        if (staffDaySchedule) {
             workingHours = staffDaySchedule;
-        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
-            workingHours = publicScheduleProfile.week[dayName];
         } else {
-            return []; // Staff is explicitly not available or no schedule found
+            workingHours = publicScheduleProfile?.week?.[dayName];
         }
         
         if (!workingHours || !workingHours.enabled) {

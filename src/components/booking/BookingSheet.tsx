@@ -169,7 +169,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   
-  const publicScheduleProfile = scheduleProfiles[0];
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const timeSlots = useMemo(() => {
     if (!service || !date || !publicScheduleProfile || !staff || !services) return [];
@@ -178,16 +178,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayName = format(date, 'eeee').toLowerCase();
     
     const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
-    let workingHours: { enabled: boolean; start: string; end: string; };
+    let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
     const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
 
-    if (staffDaySchedule && staffDaySchedule.enabled) {
+    if (staffDaySchedule) {
         workingHours = staffDaySchedule;
-    } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
-        workingHours = publicScheduleProfile.week[dayName];
     } else {
-        return []; // Staff is explicitly not available or no schedule found
+        workingHours = publicScheduleProfile?.week?.[dayName];
     }
     
     if (!workingHours || !workingHours.enabled) {

@@ -5,7 +5,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, query, where } from 'firebase/firestore';
 import {
     type InventoryItem, 
     type StockCorrection,
@@ -55,6 +55,7 @@ interface InventoryContextType {
   discounts: Discount[];
   reviews: Review[];
   pricingTiers: PricingTier[];
+  scheduleProfiles: any[];
   isLoading: boolean;
 }
 
@@ -86,8 +87,9 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'discounts') : null, [firestore, tenantId]));
   const { data: reviews, isLoading: reviewsLoading } = useCollection<Review>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'reviews') : null, [firestore, tenantId]));
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
   
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading;
   
   const value = {
     inventory: inventory || [],
@@ -111,6 +113,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     discounts: discounts || [],
     reviews: reviews || [],
     pricingTiers: pricingTiers || [],
+    scheduleProfiles: scheduleProfiles || [],
     isLoading,
   };
 
@@ -128,5 +131,3 @@ export const useInventory = () => {
   }
   return context;
 };
-
-    
