@@ -88,11 +88,12 @@ const AddEventForm = ({
     onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => void;
     staff: Staff[];
 }) => {
-    const { firestore, user, role, selectedTenant } = useTenant();
+    const { user, role, selectedTenant } = useTenant();
+    const { firestore } = useFirebase();
     const tenantId = selectedTenant?.id;
 
-    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
-    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId]));
+    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
+    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId]));
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -260,7 +261,7 @@ const AddEventForm = ({
                                      {selectedStaff ? (
                                         <div className="flex items-center gap-2">
                                             <Avatar className="w-6 h-6">
-                                                <AvatarImage src={selectedStaff.avatarUrl || undefined} />
+                                                <AvatarImage src={selectedStaff.avatarUrl || ''} />
                                                 <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
                                             </Avatar>
                                             <span>{selectedStaff.name}</span>
