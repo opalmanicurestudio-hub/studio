@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -232,23 +231,25 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
             {role === 'owner' && (
-                <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
-                    <Link href="/settings">
-                        <Settings />
-                        <span>Settings</span>
-                    </Link>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
+                <>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
+                        <Link href="/settings">
+                            <Settings />
+                            <span>Settings</span>
+                        </Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton asChild tooltip="Help Center">
+                        <Link href="#">
+                            <LifeBuoy />
+                            <span>Support</span>
+                        </Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                </>
             )}
-            <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Help Center">
-                  <Link href="#">
-                    <LifeBuoy />
-                    <span>Help Center</span>
-                  </Link>
-                </SidebarMenuButton>
-            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
                 <LogOut />

@@ -19,11 +19,13 @@ import { useUser, useAuth } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { useNotifications, type Notification } from '@/context/NotificationContext';
+import { useTenant } from '@/context/TenantContext';
 
 export function AppHeader({ title }: { title?: string }) {
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
+  const { role } = useTenant();
   
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
@@ -90,7 +92,7 @@ export function AppHeader({ title }: { title?: string }) {
                     </Avatar>
                     <div className="hidden sm:flex flex-col items-start">
                         <p className="text-sm font-semibold">{user?.displayName || 'Admin'}</p>
-                        <p className="text-xs text-muted-foreground">Admin</p>
+                        <p className="text-xs text-muted-foreground capitalize">{role}</p>
                     </div>
                 </div>
             </DropdownMenuTrigger>
@@ -101,22 +103,26 @@ export function AppHeader({ title }: { title?: string }) {
                 <User />
                 <span>Profile</span>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings">
-                  <Settings />
-                  <span>Settings</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/subscriptions">
-                  <CreditCard />
-                  <span>Billing</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <LifeBuoy />
-                <span>Support</span>
-              </DropdownMenuItem>
+              {role === 'owner' && (
+                <>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings">
+                      <Settings />
+                      <span>Settings</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/subscriptions">
+                      <CreditCard />
+                      <span>Billing</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <LifeBuoy />
+                    <span>Support</span>
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut />
