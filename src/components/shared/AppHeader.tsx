@@ -144,14 +144,6 @@ export function AppHeader({ title }: { title?: string }) {
                   </DropdownMenuItem>
                 </>
               )}
-               {role === 'staff' && (
-                <DropdownMenuItem asChild>
-                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full">
-                        <User className="w-4 h-4 mr-2" />
-                        <span>Public Profile</span>
-                    </Link>
-                </DropdownMenuItem>
-               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
