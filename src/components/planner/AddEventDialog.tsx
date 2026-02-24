@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -131,6 +130,13 @@ const AddEventForm = ({
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
     const staffToDisplay = useMemo(() => (role === 'owner' || role === 'admin' ? staff : staff.filter(s => s.id === user?.uid)), [staff, role, user]);
 
+    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+    const handlePreviousWeek = () => setDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setDate(prev => addWeeks(prev, 1));
+    const handleDateSelect = (day: Date) => setDate(day);
+
 
     useEffect(() => {
         if (role === 'staff' && user && staff.length > 0 && staffId !== user.uid) {
@@ -223,6 +229,7 @@ const AddEventForm = ({
     return (
         <>
             <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
+                <ScrollArea className="h-[70vh] pr-6">
                 <div className="space-y-6">
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Event Details</h3>
@@ -291,31 +298,34 @@ const AddEventForm = ({
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Date & Time</h3>
                         <div className="space-y-2">
-                            <Label htmlFor="event-date">Date</Label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                        "w-full justify-start text-left font-normal",
-                                        !date && "text-muted-foreground"
-                                        )}
-                                    >
-                                        <span className="flex items-center">
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {date ? format(date, 'PPP') : "Pick a date"}
-                                        </span>
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={date}
-                                        onSelect={(d) => setDate(d || new Date())}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <Label>Date</Label>
+                            <div className="rounded-lg border p-4 space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                    <span className="font-semibold text-center">{format(date, 'MMMM yyyy')}</span>
+                                    <Button variant="outline" size="icon" onClick={handleNextWeek} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-2">
+                                    {weekDays.map(day => (
+                                        <button
+                                            key={day.toISOString()}
+                                            onClick={() => handleDateSelect(day)}
+                                            type="button"
+                                            className={cn(
+                                                "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+                                                isSameDay(day, date)
+                                                    ? "bg-primary text-primary-foreground border-primary"
+                                                    : "bg-background hover:bg-accent",
+                                                isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed"
+                                            )}
+                                            disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
+                                        >
+                                            <span className="text-xs">{format(day, 'E')}</span>
+                                            <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                          <div className="flex items-center justify-between">
                             <Label htmlFor="all-day-event">All Day Event</Label>
@@ -377,6 +387,7 @@ const AddEventForm = ({
                         </div>
                     </div>
                 </div>
+                </ScrollArea>
             </form>
              <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
