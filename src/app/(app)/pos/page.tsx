@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -484,8 +485,8 @@ export default function POSPage() {
         return orderedStaff.map(member => {
             const staffAppointmentsToday = (appointments || []).filter(apt =>
                 apt.staffId === member.id &&
-                new Date(apt.startTime) >= todayStart &&
-                new Date(apt.startTime) <= todayEnd
+                apt.startTime >= todayStart &&
+                apt.startTime <= todayEnd
             );
             
             const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
@@ -585,12 +586,12 @@ export default function POSPage() {
             const staffAppointmentsToday = (appointments || []).filter(apt =>
                 apt.staffId === staff.id &&
                 apt.status === 'completed' &&
-                new Date(apt.startTime) >= todayStart &&
-                new Date(apt.startTime) <= todayEnd
+                apt.startTime >= todayStart &&
+                apt.startTime <= todayEnd
             );
             return total + staffAppointmentsToday.reduce((acc, apt) => {
                  if (apt.actualStartTime && apt.actualEndTime) {
-                    return acc + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
+                    return acc + differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
                  }
                  const service = services.find(s => s.id === apt.serviceId);
                  return acc + (service?.duration || 0);
@@ -844,10 +845,6 @@ export default function POSPage() {
         if (!firestore || !selectedTenant) return;
         const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
         updateDocumentNonBlocking(walkInRef, { waitForPreferredStaff: wait });
-        toast({
-          title: wait ? "Client will wait" : "Client will not wait",
-          description: `Preference has been updated.`
-        });
     };
 
     const handleCancelWalkIn = (walkInId: string) => {
