@@ -322,6 +322,18 @@ service cloud.firestore {
       allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
     }
 
+    /**
+     * @description User-specific notifications.
+     * @path /tenants/{tenantId}/notifications/{notificationId}
+     */
+    match /tenants/{tenantId}/notifications/{notificationId} {
+      // A user can read notifications intended for them.
+      allow get, list: if isStaff(tenantId) && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
+      // Owner/admin can create notifications for staff.
+      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+      // Allow owner/admin to delete notifications
+      allow update, delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+    }
 
     /**
      * @description Rules for recurring bills. This data is private.

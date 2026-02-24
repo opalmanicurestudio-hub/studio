@@ -48,8 +48,8 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
-import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
+import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch, addDoc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -824,7 +824,7 @@ function PlannerPageContent() {
         startTime: newEventWithId.startTime.toISOString(),
         endTime: newEventWithId.endTime.toISOString(),
     };
-    setDocumentNonBlocking(eventRef, dataToSave, {});
+    await setDocumentNonBlocking(eventRef, dataToSave, {});
     
     if (newEventData.cost && newEventData.cost > 0 && newEventData.type !== 'blocked') {
         const newTransaction = {
@@ -839,6 +839,15 @@ function PlannerPageContent() {
             relatedEventId: newEventWithId.id
         };
         addTransaction(newTransaction)
+    }
+
+    if (isStaffRequest && staff) {
+        const staffMember = staff.find(s => s.id === user?.uid);
+        errorEmitter.emit('event-request', {
+            staffName: staffMember?.name || 'A staff member',
+            eventTitle: newEventData.title,
+            eventId: newEventWithId.id
+        });
     }
 
     toast({
@@ -882,17 +891,43 @@ function PlannerPageContent() {
         }
     };
     
-    const confirmDenyEvent = () => {
+    const confirmDenyEvent = async () => {
         if (!eventToDeny || !firestore || !tenantId) return;
-        
-        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', eventToDeny.id));
-        
-        toast({
-            title: "Event Denied",
-            description: `A notification with your reason has been sent to the staff member.`
-        });
-        setEventToDeny(null);
-        setDenialReason('');
+
+        const staffIdToNotify = eventToDeny.staffId;
+
+        try {
+            if (staffIdToNotify) {
+                const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
+                const newNotification = {
+                    userId: staffIdToNotify,
+                    type: 'event_denied',
+                    message: `Your request for "${eventToDeny.title}" was denied. Reason: ${denialReason || 'No reason provided.'}`,
+                    link: '/planner',
+                    createdAt: new Date().toISOString(),
+                    read: false,
+                };
+                await addDoc(notificationsRef, newNotification);
+            }
+            
+            const eventRef = doc(firestore, 'tenants', tenantId, 'events', eventToDeny.id)
+            await deleteDocumentNonBlocking(eventRef);
+            
+            toast({
+                title: "Event Denied",
+                description: `The event has been removed and the staff member notified.`
+            });
+        } catch (error) {
+            console.error("Error denying event:", error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Could not process the event denial.",
+            });
+        } finally {
+            setEventToDeny(null);
+            setDenialReason('');
+        }
     };
 
     
@@ -1015,7 +1050,7 @@ function PlannerPageContent() {
   const appointmentsForDay = useMemo(() => {
     return (appointments || [])
       .filter(apt => isSameDay(apt.startTime, currentDate))
-      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   }, [appointments, currentDate]);
 
   const eventsForDay = useMemo(() => {

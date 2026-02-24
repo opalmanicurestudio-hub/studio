@@ -1,17 +1,18 @@
 
+
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInDays, isPast, parseISO, format } from 'date-fns';
-import { ShieldAlert, PackageX, Calendar, Landmark } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { ShieldAlert, PackageX, Calendar, Landmark, XCircle } from 'lucide-react';
+import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
-import { type Event } from '@/lib/data';
+import { type Event, type Notification } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
-export type Notification = {
+export type AppNotification = {
     id: number | string;
     type: string;
     message: string;
@@ -21,7 +22,7 @@ export type Notification = {
 };
 
 interface NotificationContextType {
-    notifications: Notification[];
+    notifications: AppNotification[];
     unreadCount: number;
     markAsRead: (id: number | string) => void;
     markAllAsRead: () => void;
@@ -32,10 +33,11 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const { staff, inventory, billInstances, billDefinitions } = useInventory();
     const { firestore } = useFirebase();
+    const { user } = useUser();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
 
-    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
@@ -74,8 +76,36 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
                 read: readNotificationIds.has(id),
                 icon: <Calendar className="h-4 w-4 text-purple-500" />,
             };
-        }).filter((n): n is Notification => n !== null);
+        }).filter((n): n is AppNotification => n !== null);
     }, [pendingEvents, staff, readNotificationIds]);
+
+    const userNotificationsQuery = useMemoFirebase(() => {
+        if (firestore && tenantId && user) {
+            return query(collection(firestore, `tenants/${tenantId}/notifications`), where("userId", "==", user.uid));
+        }
+        return null;
+    }, [firestore, tenantId, user]);
+    
+    const { data: userNotificationsData } = useCollection<Notification>(userNotificationsQuery);
+
+    const userSpecificNotifications = useMemo(() => {
+        if (!userNotificationsData) return [];
+        return userNotificationsData.map(n => {
+            const id = `user-notification-${n.id}`;
+            let icon = <ShieldAlert className="h-4 w-4 text-gray-500" />;
+            if (n.type === 'event_denied') {
+                icon = <XCircle className="h-4 w-4 text-destructive" />;
+            }
+            return {
+                id,
+                type: n.type,
+                message: n.message,
+                link: n.link,
+                read: readNotificationIds.has(id),
+                icon,
+            };
+        }).filter((n): n is AppNotification => n !== null);
+    }, [userNotificationsData, readNotificationIds]);
 
     const licenseNotifications = useMemo(() => {
         if (!staff) return [];
@@ -99,7 +129,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             }
             
             return null;
-        }).filter((n): n is Notification => n !== null);
+        }).filter((n): n is AppNotification => n !== null);
     }, [staff, readNotificationIds]);
 
     const lowStockNotifications = useMemo(() => {
@@ -121,7 +151,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
 
     const expiredStockNotifications = useMemo(() => {
         if (!inventory) return [];
-        const expired: Notification[] = [];
+        const expired: AppNotification[] = [];
         inventory.forEach(item => {
             (item.batches || []).forEach(batch => {
                 if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
@@ -173,11 +203,12 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             ...lowStockNotifications,
             ...expiredStockNotifications,
             ...billsDueSoonNotifications,
+            ...userSpecificNotifications,
         ];
         
         setNotifications(allNotifications.sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0)));
         
-    }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
+    }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications, userSpecificNotifications]);
 
     const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
 

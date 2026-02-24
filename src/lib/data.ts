@@ -613,5 +613,15 @@ export type PartyMember = {
     waitForPreferredStaff?: boolean;
 };
 
+export type Notification = {
+  id: string;
+  userId: string;
+  type: string;
+  message: string;
+  link: string;
+  createdAt: string; // ISO date string
+  read: boolean;
+};
+
 
 export { nanoid };

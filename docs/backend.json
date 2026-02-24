@@ -1070,6 +1070,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
+    },
+    "Notification": {
+        "title": "Notification",
+        "description": "A notification for a specific user.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "userId": { "type": "string", "description": "The UID of the user to notify." },
+            "type": { "type": "string", "description": "The type of notification." },
+            "message": { "type": "string" },
+            "link": { "type": "string", "format": "uri" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "read": { "type": "boolean" }
+        },
+        "required": ["id", "userId", "message", "createdAt"]
     }
   },
   "auth": {
@@ -1233,6 +1248,12 @@
         "$ref": "#/entities/Review"
       },
       "description": "Client reviews for the tenant."
+    },
+    "/tenants/{tenantId}/notifications/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/Notification"
+      },
+      "description": "Stores user-specific notifications."
     }
   }
 }
@@ -1240,4 +1261,3 @@
 
     
 
-    
