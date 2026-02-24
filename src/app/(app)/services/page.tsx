@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from '@/components/ui/label';
-import { type Service, type InventoryItem, type Appointment, type Resource, type Transaction } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment, type Resource, type Transaction, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -43,7 +43,19 @@ import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
 
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, isSelected, onSelectItem }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelectItem: () => void }) => {
+interface ServiceCardProps {
+    service: Service;
+    onEditServiceOpen: (service: Service) => void;
+    tmhr: number;
+    appointments: Appointment[] | null;
+    transactions: Transaction[] | null;
+    onPriceUpdate: (serviceId: string, newPrice: number) => void;
+    isSelected: boolean;
+    onSelectItem: () => void;
+    pricingTiers: PricingTier[];
+}
+
+const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, isSelected, onSelectItem, pricingTiers }) => {
   const { toast } = useToast();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -61,6 +73,30 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
         totalRevenue,
     };
   }, [service.id, appointments, transactions]);
+  
+  const tierAnalysis = useMemo(() => {
+    if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) {
+      return null;
+    }
+
+    return service.serviceTiers.map(tier => {
+      const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
+      if (!tierInfo) return null;
+
+      const profit = tier.price - service.cost;
+      const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
+
+      return {
+        ...tier,
+        name: tierInfo.name,
+        rank: tierInfo.rank,
+        profit,
+        margin,
+      };
+    }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
+
+  }, [service, pricingTiers]);
+
 
   const handleCopyLink = () => {
     const tenantId = 'tenant-abc'; // This should be dynamic in a real multi-tenant app
@@ -72,15 +108,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
     });
   };
   
-  const sortedTiers = useMemo(() => {
-    if (!service.pricingTiers || service.pricingTiers.length === 0) {
-        return null;
-    }
-    const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
-    return [...service.pricingTiers].sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
-  }, [service.pricingTiers]);
-
-
   return (
     <Card className={cn("overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1", isSelected && "border-primary ring-2 ring-primary")}>
       <CardContent className="p-4 space-y-4 flex-1 flex flex-col">
@@ -130,14 +157,39 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
                 <p className="text-xs text-muted-foreground">Revenue</p>
                 <p className="font-bold text-lg">${performance.totalRevenue.toFixed(2)}</p>
             </div>
-             <div className="p-2 rounded-md bg-muted/50">
-                <p className="text-xs text-muted-foreground">Profit</p>
-                <p className={`font-bold text-lg ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
-            </div>
-            <div className="p-2 rounded-md bg-muted/50">
-                <p className="text-xs text-muted-foreground">Margin</p>
-                <p className={`font-bold text-lg ${service.margin >= 0 ? 'text-primary' : 'text-destructive'}`}>{service.margin.toFixed(0)}%</p>
-            </div>
+            {tierAnalysis && tierAnalysis.length > 0 ? (
+                <div className="col-span-2">
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="profitability" className="border-b-0">
+                            <AccordionTrigger className="p-2 bg-muted/50 rounded-md text-xs font-semibold hover:no-underline justify-center">
+                                Tiered Profitability
+                            </AccordionTrigger>
+                            <AccordionContent className="pt-2 space-y-2">
+                                {tierAnalysis.map(tier => (
+                                    <div key={tier.tierId} className="p-2 text-xs border rounded-md bg-background">
+                                        <p className="font-semibold capitalize">{tier.name}</p>
+                                        <div className="flex justify-between">
+                                            <span>Profit: <span className={cn("font-mono", tier.profit >= 0 ? "text-green-500" : "text-destructive")}>${tier.profit.toFixed(2)}</span></span>
+                                            <span>Margin: <span className={cn("font-mono", tier.margin >= 0 ? "text-green-500" : "text-destructive")}>{tier.margin.toFixed(1)}%</span></span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                </div>
+            ) : (
+                <>
+                    <div className="p-2 rounded-md bg-muted/50">
+                        <p className="text-xs text-muted-foreground">Profit</p>
+                        <p className={`font-bold text-lg ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+                    </div>
+                    <div className="p-2 rounded-md bg-muted/50">
+                        <p className="text-xs text-muted-foreground">Margin</p>
+                        <p className={`font-bold text-lg ${service.margin >= 0 ? 'text-primary' : 'text-destructive'}`}>{service.margin.toFixed(0)}%</p>
+                    </div>
+                </>
+            )}
         </div>
 
       </CardContent>
@@ -157,7 +209,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transacti
   );
 };
 
-const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, selectedItems, onSelectItem }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, selectedItems: Set<string>, onSelectItem: (id: string) => void }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, selectedItems, onSelectItem, pricingTiers }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, selectedItems: Set<string>, onSelectItem: (id: string) => void, pricingTiers: PricingTier[] }) => {
     if (services.length === 0) return null;
     return (
         <div>
@@ -174,6 +226,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                         onPriceUpdate={onPriceUpdate}
                         isSelected={selectedItems.has(service.id)}
                         onSelectItem={() => onSelectItem(service.id)}
+                        pricingTiers={pricingTiers}
                     />
                 ))}
             </div>
@@ -217,7 +270,7 @@ export default function ServicesPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const { services, appointments, resources, isLoading, transactions } = useInventory();
+  const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
   
 
   const handleItemSelect = useCallback((itemId: string) => {
@@ -466,6 +519,7 @@ export default function ServicesPage() {
                         onPriceUpdate={handlePriceUpdate}
                         selectedItems={selectedItems}
                         onSelectItem={handleItemSelect}
+                        pricingTiers={pricingTiers || []}
                     />
                 ))
             ) : !isLoading ? (
@@ -490,6 +544,7 @@ export default function ServicesPage() {
                         onPriceUpdate={handlePriceUpdate}
                         selectedItems={selectedItems}
                         onSelectItem={handleItemSelect}
+                        pricingTiers={pricingTiers || []}
                     />
                 ))
              ) : (
@@ -546,4 +601,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
