@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -25,7 +23,7 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
 import { Progress } from '../ui/progress';
-import { useUser } from '@/firebase';
+import { useUser, useTenant } from '@/firebase';
 
 interface EventCardProps {
     event: Event,
@@ -136,8 +134,8 @@ export function EventCard({
     const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
-    const { user } = useUser();
-    const isOwnerOrAdmin = true; // Replace with actual role check
+    const { user, role } = useTenant();
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
     
     const duration = differenceInMinutes(event.endTime, event.startTime);
 
@@ -230,7 +228,11 @@ export function EventCard({
     return (
         <>
             <DialogOrSheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-                <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
+                <SheetTrigger asChild>
+                    <div className="h-full" onClick={() => setIsSheetOpen(true)}>
+                        {TriggerCard}
+                    </div>
+                </SheetTrigger>
                 <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
                     <SheetHeader className="p-6 pb-4">
                         <SheetTitle>{event.title}</SheetTitle>

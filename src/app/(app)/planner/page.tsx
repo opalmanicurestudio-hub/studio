@@ -4,7 +4,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
@@ -433,10 +433,10 @@ function PlannerPageContent() {
                 (staff || []).forEach(s => {
                     map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
                 });
-            } else {
+            } else if (role === 'owner' && !evt.staffId) {
                 // Personal/Business event for the owner (first staff member)
-                const ownerId = (staff || [])[0]?.id;
-                if (ownerId) {
+                const ownerId = user?.uid;
+                if (ownerId && map.has(ownerId)) {
                     map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
                 }
             }
@@ -482,7 +482,7 @@ function PlannerPageContent() {
     });
 
     return map;
-  }, [currentDate, appointments, events, staff, resources, activeView, services, walkIns, tenantId]);
+  }, [currentDate, appointments, events, staff, resources, activeView, services, walkIns, tenantId, role, user]);
   
   const itemsByColumn = useMemo(() => {
     if (!itemsByColumnRaw) return new Map();
@@ -745,9 +745,17 @@ function PlannerPageContent() {
   };
 
 
-  const handleAddEvent = (newEvent: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
+  const handleAddEvent = (newEventData: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore || !tenantId) return;
-    const newEventWithId = { ...newEvent, id: nanoid() };
+
+    const newEventWithId: Omit<Event, 'startTime' | 'endTime'> & {startTime: Date, endTime: Date} = {
+        ...newEventData,
+        id: nanoid(),
+        status: (role === 'owner' || role === 'admin') ? 'approved' : 'pending',
+        approvedBy: (role === 'owner' || role === 'admin') ? user?.uid : undefined,
+        approvedAt: (role === 'owner' || role === 'admin') ? new Date().toISOString() : undefined,
+    };
+    
     const eventRef = doc(firestore, 'tenants', tenantId, 'events', newEventWithId.id);
     const dataToSave = {
         ...newEventWithId,
@@ -756,14 +764,14 @@ function PlannerPageContent() {
     };
     setDocumentNonBlocking(eventRef, dataToSave, {});
 
-    if (newEvent.cost && newEvent.cost > 0 && newEvent.type !== 'blocked') {
+    if (newEventData.cost && newEventData.cost > 0 && newEventData.type !== 'blocked') {
         const newTransaction = {
-            description: `Expense for: ${newEvent.title}`,
+            description: `Expense for: ${newEventData.title}`,
             clientOrVendor: 'N/A',
             type: 'expense' as const,
-            context: newEvent.type === 'business' ? 'Business' : 'Personal',
-            category: newEvent.type === 'business' ? 'Business Travel' : 'Other',
-            amount: newEvent.cost,
+            context: newEventData.type === 'business' ? 'Business' : 'Personal',
+            category: newEventData.type === 'business' ? 'Business Travel' : 'Other',
+            amount: newEventData.cost,
             paymentMethod: 'Unknown',
             hasReceipt: false,
             relatedEventId: newEventWithId.id
@@ -773,7 +781,7 @@ function PlannerPageContent() {
 
     toast({
         title: "Event Added",
-        description: `"${newEvent.title}" has been added to your calendar.`
+        description: `"${newEventData.title}" has been added to your calendar.`,
     });
     setIsAddEventOpen(false);
   };
@@ -799,7 +807,7 @@ function PlannerPageContent() {
 
     const handleDeleteEvent = (eventId: string) => {
         const eventToProcess = (events || []).find(e => e.id === eventId);
-        if (eventToProcess && eventToProcess.status === 'pending') {
+        if (role === 'owner' && eventToProcess && eventToProcess.status === 'pending') {
             setEventToDeny(eventToProcess);
         } else {
             if (!firestore || !tenantId) return;

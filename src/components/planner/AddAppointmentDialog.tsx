@@ -49,7 +49,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, Resource } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday, addDays, addMonths, endOfDay, parseISO } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse, addMonths, endOfDay, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
@@ -99,12 +99,12 @@ const AddAppointmentForm = ({
     appointmentToRebook,
 }: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
     const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
+    const { selectedTenant, user, role } = useTenant();
     const tenantId = selectedTenant?.id;
     
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
-    const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
+    const { data: allStaff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
 
     const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(
         useMemoFirebase(() => tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId])
@@ -115,6 +115,13 @@ const AddAppointmentForm = ({
     const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(
         useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId])
     );
+
+    const staff = useMemo(() => {
+        if (role === 'staff' && user) {
+            return allStaff?.filter(s => s.id === user.uid) || [];
+        }
+        return allStaff || [];
+    }, [allStaff, role, user]);
     
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -152,10 +159,14 @@ const AddAppointmentForm = ({
 
     useEffect(() => {
         if (staff && !staffLoading) {
+            const staffDefault = (role === 'staff' && user)
+                ? user.uid
+                : (appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''));
+
             const defaultValues = {
                 clientId: initialClient?.id || appointmentToRebook?.clientId || '',
                 serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
-                staffId: appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''),
+                staffId: staffDefault,
                 date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
                 startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
                 addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
@@ -167,7 +178,7 @@ const AddAppointmentForm = ({
             };
             reset(defaultValues);
         }
-    }, [staff, staffLoading, appointmentToRebook, initialClient, reset]);
+    }, [staff, staffLoading, appointmentToRebook, initialClient, reset, role, user]);
 
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -406,7 +417,7 @@ const AddAppointmentForm = ({
                                 name="staffId"
                                 control={control}
                                 render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
+                                    <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
                                         <SelectTrigger id="staff">
                                             {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
@@ -585,4 +596,3 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </Dialog>
   );
 };
-

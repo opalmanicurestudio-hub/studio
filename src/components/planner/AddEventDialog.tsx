@@ -82,13 +82,12 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 
 const AddEventForm = ({
     onConfirm,
-    staff
+    staff,
 }: {
     onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => void;
     staff: Staff[];
 }) => {
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
+    const { firestore, user, role } = useTenant();
     const tenantId = selectedTenant?.id;
 
     const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
@@ -128,6 +127,12 @@ const AddEventForm = ({
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
+
+    useEffect(() => {
+        if (role === 'staff' && user) {
+            setStaffId(user.uid);
+        }
+    }, [role, user]);
 
     useEffect(() => {
         if (allDay) {
@@ -249,7 +254,7 @@ const AddEventForm = ({
                         </div>
                          <div className="space-y-2">
                             <Label htmlFor="staff-block">Assign to Staff</Label>
-                            <Select value={staffId} onValueChange={setStaffId}>
+                            <Select value={staffId} onValueChange={setStaffId} disabled={role==='staff'}>
                                 <SelectTrigger id="staff-block">
                                      {selectedStaff ? (
                                         <div className="flex items-center gap-2">
@@ -264,7 +269,7 @@ const AddEventForm = ({
                                     )}
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>
+                                    {(role === 'owner' || role === 'admin') && <SelectItem value="all">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>}
                                     {staff.map(s => (
                                         <SelectItem key={s.id} value={s.id}>
                                             <div className="flex items-center gap-2">
