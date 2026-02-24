@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, CreditCard, Check, Trash2 } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, CreditCard, Check, Trash2, Users } from 'lucide-react';
 import Link from 'next/link';
 import { ClientOnly } from './ClientOnly';
 import { useUser, useAuth } from '@/firebase';
