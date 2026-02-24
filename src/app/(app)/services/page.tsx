@@ -166,8 +166,11 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
                             </AccordionTrigger>
                             <AccordionContent className="pt-2 space-y-2">
                                 {tierAnalysis.map(tier => (
-                                    <div key={tier.tierId} className="p-2 text-xs border rounded-md bg-background">
+                                    <div key={tier.tierId} className="text-xs space-y-2 p-2 bg-background rounded-md border">
                                         <p className="font-semibold capitalize">{tier.name}</p>
+                                        <div className="flex justify-between">
+                                            <span>Price: <span className="font-mono">${tier.price.toFixed(2)}</span></span>
+                                        </div>
                                         <div className="flex justify-between">
                                             <span>Profit: <span className={cn("font-mono", tier.profit >= 0 ? "text-green-500" : "text-destructive")}>${tier.profit.toFixed(2)}</span></span>
                                             <span>Margin: <span className={cn("font-mono", tier.margin >= 0 ? "text-green-500" : "text-destructive")}>{tier.margin.toFixed(1)}%</span></span>
