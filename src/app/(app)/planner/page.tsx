@@ -387,7 +387,7 @@ function PlannerPageContent() {
   }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
    const itemsByColumnRaw = useMemo(() => {
-    const map = new Map<string, (Appointment | Event | (any & {isPlaceholder?: boolean}))[]>();
+    const map = new Map<string, (Appointment | Event)[]>();
     
     const columnsToProcess = activeView === 'staff' ? (staff || []) : (resources || []);
 
@@ -448,46 +448,12 @@ function PlannerPageContent() {
           }
       });
       
-    // Process notified walk-ins as placeholder appointments
-    (walkIns || [])
-      .filter(w => w.status === 'notified' && w.notifiedTimestamp && w.assignedStaffId)
-      .forEach(walkIn => {
-        const staffId = walkIn.assignedStaffId;
-        if (staffId && map.has(staffId)) {
-            const startTime = parseISO(walkIn.notifiedTimestamp!);
-            // Only show if it's for the current day
-            if (isSameDay(startTime, currentDate)) {
-                const endTime = addMinutes(startTime, walkIn.estimatedDuration);
-                
-                // Create a placeholder appointment-like object
-                const placeholderAppointment = {
-                    id: `apt-walkin-${walkIn.id}`,
-                    isPlaceholder: true, // Key to differentiate
-                    isWalkIn: true,
-                    tenantId: tenantId,
-                    clientId: walkIn.clientId || walkIn.id,
-                    clientName: walkIn.customerName,
-                    clientEmail: walkIn.customerEmail,
-                    clientPhone: walkIn.customerPhone,
-                    serviceId: walkIn.serviceIds[0], // Simplified for now
-                    addOnIds: walkIn.serviceIds.slice(1),
-                    staffId: staffId,
-                    startTime: startTime,
-                    endTime: endTime,
-                    status: 'confirmed', // To make it render like a normal upcoming appointment
-                    source: 'walk-in',
-                };
-                map.get(staffId)!.push({ ...placeholderAppointment, itemType: 'appointment' });
-            }
-        }
-      });
-
     map.forEach(items => {
         items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
     });
 
     return map;
-  }, [currentDate, appointments, events, staff, resources, activeView, services, walkIns, tenantId, role, user]);
+  }, [currentDate, appointments, events, staff, resources, activeView, services, tenantId, role, user]);
   
   const itemsByColumn = useMemo(() => {
     if (!itemsByColumnRaw) return new Map();
