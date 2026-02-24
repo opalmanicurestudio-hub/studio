@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm, PricingTier } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -440,21 +440,21 @@ export default function StaffPage() {
             if (match && staffAppointmentIds.has(match[1])) {
                 const product = inventory.find(p => p.id === sc.productId);
                 if (product && product.costPerUnit) {
-                    let costPerBaseUnit = 0;
+                    let costPerUse = 0;
                     if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                        costPerBaseUnit = product.costPerUnit / product.size;
+                        costPerUse = product.costPerUnit / product.size;
                     } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                        costPerBaseUnit = product.costPerUnit / product.estimatedUses;
+                        costPerUse = product.costPerUnit / product.estimatedUses;
                     } else if (!product.costingMethod) {
-                        costPerBaseUnit = product.costPerUnit;
+                        costPerUse = product.costPerUnit;
                     }
-                    consumptionValue += Math.abs(sc.change) * costPerBaseUnit;
+                    consumptionValue += Math.abs(sc.change) * costPerUse;
                 }
             }
         });
 
         return {
-            ...member,
+            ...staffMember,
             stats: {
                 totalSales,
                 tips,
@@ -793,3 +793,4 @@ export default function StaffPage() {
     </div>
   );
 }
+
