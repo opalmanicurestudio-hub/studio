@@ -508,7 +508,7 @@ const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant } = useTenant();
     const { firestore, toast } = useFirebase();
-    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory } = useInventory();
+    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory, walkIns } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
     const staffMember = useMemo(() => {
@@ -538,6 +538,45 @@ const StaffDashboardView = () => {
             todayEnd: endOfDay(now),
         });
     }, []);
+
+    const handleStartService = (appointmentId: string) => {
+        if (!firestore || !selectedTenant?.id || !appointments) return;
+        const tenantId = selectedTenant.id;
+        const appointment = appointments.find(a => a.id === appointmentId);
+        if (!appointment) return;
+
+        const nowISO = new Date().toISOString();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        updateDocumentNonBlocking(appointmentRef, {
+            status: 'servicing',
+            actualStartTime: nowISO
+        });
+
+        if (appointment.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+            updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+        }
+        
+        if (appointment.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+        }
+        
+        if(appointment.isWalkIn) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+            updateDocumentNonBlocking(walkInRef, {
+                status: 'servicing',
+                serviceStartTime: nowISO,
+            });
+        }
+
+        toast({
+            title: "Service Started",
+            description: `Service for ${appointment.clientName} has started.`
+        });
+    };
 
     const upcomingAppointments = useMemo(() => {
         if (!appointments || !user || !clients || !services || !todayRange) return [];
@@ -769,45 +808,6 @@ const StaffDashboardView = () => {
 
     const nextAppointment = upcomingAppointments?.[0];
 
-    const handleStartService = (appointmentId: string) => {
-        if (!firestore || !selectedTenant?.id || !appointments) return;
-        const tenantId = selectedTenant.id;
-        const appointment = appointments.find(a => a.id === appointmentId);
-        if (!appointment) return;
-
-        const nowISO = new Date().toISOString();
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
-        updateDocumentNonBlocking(appointmentRef, {
-            status: 'servicing',
-            actualStartTime: nowISO
-        });
-
-        if (appointment.checkInToken) {
-            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-            updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
-        }
-        
-        if (appointment.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-        }
-        
-        if(appointment.isWalkIn) {
-            const walkInId = appointment.id.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-            updateDocumentNonBlocking(walkInRef, {
-                status: 'servicing',
-                serviceStartTime: nowISO,
-            });
-        }
-
-        toast({
-            title: "Service Started",
-            description: `Service for ${appointment.clientName} has started.`
-        });
-    };
-    
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         if (!staffMember?.id || !selectedTenant?.id || !firestore) return;
     
@@ -1007,3 +1007,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
