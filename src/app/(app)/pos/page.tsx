@@ -1431,7 +1431,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
