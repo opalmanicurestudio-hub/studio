@@ -507,7 +507,8 @@ const OwnerDashboard = () => {
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant } = useTenant();
-    const { firestore, toast } = useFirebase();
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory, walkIns } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
@@ -1007,5 +1008,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
