@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -43,84 +44,31 @@ import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
 
-const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
-    const isMobile = useIsMobile();
-    const [isOpen, setIsOpen] = useState(false);
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
 
-    const handleSelect = (selectedDate: Date | undefined) => {
-        if (selectedDate) {
-            onDateChange(selectedDate);
-            setIsOpen(false);
-        }
-    }
-    
-    const TriggerContent = (
-        <span className="flex items-center">
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {date ? format(date, 'PPP') : "Pick a date"}
-        </span>
-    );
-    
-    const CalendarComponent = (
-        <Calendar
-            mode="single"
-            selected={date}
-            onSelect={handleSelect}
-            initialFocus
-            classNames={{
-                caption_label: "text-base font-medium",
-                day: "h-10 w-10",
-                day_selected: "rounded-md",
-                day_today: "rounded-md",
-            }}
-        />
-    );
-
-    if (isMobile) {
-        return (
-            <>
-                <Button
-                    variant="outline"
-                    className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
-                     onClick={() => setIsOpen(true)}
-                >
-                    {TriggerContent}
-                </Button>
-                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                    <SheetContent side="bottom">
-                         <SheetHeader className="text-left">
-                            <SheetTitle>Select Date</SheetTitle>
-                        </SheetHeader>
-                        <div className="flex justify-center py-4">
-                            {CalendarComponent}
-                        </div>
-                    </SheetContent>
-                </Sheet>
-            </>
-        )
+    if (!timeStr) {
+      return d;
     }
 
-    return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger
-                className={cn(
-                    buttonVariants({ variant: "outline" }),
-                    "w-full justify-start text-left font-normal h-12",
-                    !date && "text-muted-foreground"
-                )}
-            >
-                {TriggerContent}
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-                {CalendarComponent}
-            </PopoverContent>
-        </Popover>
-    );
-};
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
+    d.setHours(hours, minutes);
+    return d;
+}
 
 const RescheduleAppointmentForm = ({ 
     appointment,
-    client,
+    client, 
     service,
     appointments,
     services,
@@ -134,7 +82,7 @@ const RescheduleAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { scheduleProfiles } = useInventory();
-    const publicScheduleProfile = scheduleProfiles[0];
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
     const [rescheduleDate, setRescheduleDate] = useState(appointment.startTime);
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
 
