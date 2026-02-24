@@ -331,7 +331,10 @@ const AppointmentDetails = ({
                     <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onEdit(appointment), 150)}}>
                         <Edit className="mr-2"/>Edit Details
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onReschedule(appointment), 150)}}>
+                    <DropdownMenuItem 
+                        onClick={() => { setIsDetailsOpen(false); setTimeout(() => onReschedule(appointment), 150)}}
+                        disabled={appointment.status === 'completed'}
+                    >
                         <Calendar className="mr-2"/>Reschedule
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
