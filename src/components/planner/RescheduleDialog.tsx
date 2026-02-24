@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -23,14 +22,6 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button, buttonVariants } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,6 +30,9 @@ import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addM
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
+import { Calendar } from '@/components/ui/calendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '../ui/label';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -95,6 +89,13 @@ const RescheduleAppointmentForm = ({
      const isDayClosed = (day: Date) => {
         if (!publicScheduleProfile) return true;
         const dayName = format(day, 'eeee').toLowerCase();
+        const staffDaySchedule = assignedStaff?.availability?.week?.[dayName as keyof typeof assignedStaff.availability.week];
+        if (staffDaySchedule?.enabled) {
+            return false;
+        }
+        if (staffDaySchedule && !staffDaySchedule.enabled) {
+            return true;
+        }
         const dayHours = publicScheduleProfile.week[dayName];
         return !dayHours || !dayHours.enabled;
     }
@@ -105,14 +106,16 @@ const RescheduleAppointmentForm = ({
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
         
-        const selectedStaffMember = staff.find(s => s.id === appointment.staffId);
         let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
-        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
+        const staffDaySchedule = assignedStaff?.availability?.week?.[dayName as keyof typeof assignedStaff.availability.week];
 
-        if (staffDaySchedule) {
+        if (staffDaySchedule?.enabled) {
             workingHours = staffDaySchedule;
-        } else {
+        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
+            return []; // Staff is explicitly not working this day
+        }
+        else {
             workingHours = publicScheduleProfile?.week?.[dayName];
         }
         
@@ -169,7 +172,7 @@ const RescheduleAppointmentForm = ({
         }
 
         return options;
-    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, appointment.staffId, services, publicScheduleProfile, staff]);
+    }, [rescheduleDate, service, appointments, appointment.id, appointment.startTime, appointment.staffId, services, publicScheduleProfile, staff, assignedStaff]);
 
 
     const handleSubmit = () => {
