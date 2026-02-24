@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
@@ -107,6 +108,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             let icon = <ShieldAlert className="h-4 w-4 text-gray-500" />;
             if (n.type === 'event_denied') {
                 icon = <XCircle className="h-4 w-4 text-destructive" />;
+            }
+            if (n.type === 'new_appointment') {
+                icon = <Calendar className="h-4 w-4 text-blue-500" />;
             }
             return {
                 id,

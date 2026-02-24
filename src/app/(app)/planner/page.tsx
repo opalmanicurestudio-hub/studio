@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -665,6 +666,21 @@ function PlannerPageContent() {
                 break;
             }
         }
+        
+        // Add notification for the first appointment
+        if (baseAppointment.staffId && baseAppointment.staffId !== user?.uid) {
+            const notificationMessage = `You have a new recurring appointment with ${finalClientName} starting on ${format(baseAppointment.startTime, 'MMM d')}.`;
+            const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notificationRef, {
+                userId: baseAppointment.staffId,
+                type: 'new_appointment',
+                message: notificationMessage,
+                link: '/planner',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
+        
         await batch.commit();
         toast({
             title: "Recurring Appointments Booked",
@@ -691,6 +707,20 @@ function PlannerPageContent() {
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
         await setDoc(checkInDocRef, appointmentToSave);
+
+        // Add notification for single appointment
+        if (appointmentToSave.staffId && appointmentToSave.staffId !== user?.uid) {
+            const notificationMessage = `You have a new appointment with ${appointmentToSave.clientName} on ${format(baseAppointment.startTime, 'MMM d @ h:mm a')}.`;
+            const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
+            addDocumentNonBlocking(notificationsRef, {
+                userId: appointmentToSave.staffId,
+                type: 'new_appointment',
+                message: notificationMessage,
+                link: '/planner',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
         
         toast({
             title: "Appointment Booked",
