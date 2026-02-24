@@ -521,11 +521,7 @@ const StaffDashboardView = () => {
     
     const appointments = useMemo(() => {
         if (!allAppointments) return [];
-        return allAppointments.map(apt => ({
-          ...apt,
-          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
-        }));
+        return allAppointments;
     }, [allAppointments]);
 
     const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
@@ -626,7 +622,7 @@ const StaffDashboardView = () => {
             case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
             case 'break_end':
                 if (staffMember.breakStartTime) {
-                    const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
+                    const duration = differenceInMinutes(new Date(now), new Date(staffMember.breakStartTime));
                     logEntry.durationMinutes = duration;
                 }
                 staffUpdate = { onBreak: false, breakStartTime: undefined };
@@ -704,101 +700,101 @@ const StaffDashboardView = () => {
     }, [transactions, appointments, staffMember, todayRange]);
 
     const staffMemberWithStats = useMemo(() => {
-        if (!staffMember || !allAppointments || !services || !transactions || !activityLogs) return null;
-
-        const fromDate = subDays(new Date(), 29); // Default to last 30 days for sheet
-        const toDate = new Date();
-
-        const filterByDate = (date: Date) => {
-            if (fromDate && date < fromDate) return false;
-            if (toDate && date > toDate) return false;
-            return true;
-        }
-
-        const staffAppointments = allAppointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
-        const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
-        const completedAppointmentsCount = completedAppointments.length;
+      if (!staffMember || !allAppointments || !services || !transactions || !activityLogs) return null;
+  
+      const fromDate = subDays(new Date(), 29);
+      const toDate = new Date();
+  
+      const filterByDate = (date: Date) => {
+          if (fromDate && date < fromDate) return false;
+          if (toDate && date > toDate) return false;
+          return true;
+      };
+  
+      const staffAppointments = allAppointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+      const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
+      const completedAppointmentsCount = completedAppointments.length;
+    
+      let totalMinutesVariance = 0;
+      let totalInServiceMinutes = 0;
+      completedAppointments.forEach(apt => {
+          const service = services.find(s => s.id === apt.serviceId);
+          if (apt.actualStartTime && apt.actualEndTime && service) {
+              const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+              totalMinutesVariance += actualDuration - service.duration;
+              totalInServiceMinutes += actualDuration;
+          }
+      });
+    
+      const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
+      const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
+    
+      const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(new Date(t.date)));
       
-        let totalMinutesVariance = 0;
-        let totalInServiceMinutes = 0;
-        completedAppointments.forEach(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
-                totalMinutesVariance += actualDuration - service.duration;
-                totalInServiceMinutes += actualDuration;
-            }
-        });
+      const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+      const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+      const totalSales = serviceRevenue + retailSales;
+      const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
       
-        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
-        const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
+      const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
+      const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
+      const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+
+      let totalMinutesWorked = 0;
+      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
+      const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(new Date(t.date)));
-        
-        const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-        const totalSales = serviceRevenue + retailSales;
-        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
-        
-        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
-        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+      let clockInTime: Date | null = null;
+      let totalBreakMinutes = 0;
+      for (const log of sortedLogs) {
+          const logTime = log.timestamp;
+          if (log.type === 'clock_in') {
+              if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
+              clockInTime = logTime;
+              totalBreakMinutes = 0;
+          } else if (log.type === 'clock_out' && clockInTime) {
+              let sessionEnd = logTime;
+              if (toDate && sessionEnd > toDate) sessionEnd = toDate;
+              totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+              clockInTime = null;
+          } else if (log.type === 'break_end' && log.durationMinutes) {
+              totalBreakMinutes += log.durationMinutes;
+          }
+      }
+      if(clockInTime && (!toDate || clockInTime < toDate)) {
+          const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
+          totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
+      }
 
-        let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-        
-        let clockInTime: Date | null = null;
-        let totalBreakMinutes = 0;
-        for (const log of sortedLogs) {
-            const logTime = log.timestamp;
-            if (log.type === 'clock_in') {
-                if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-                clockInTime = logTime;
-                totalBreakMinutes = 0;
-            } else if (log.type === 'clock_out' && clockInTime) {
-                let sessionEnd = logTime;
-                if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-                clockInTime = null;
-            } else if (log.type === 'break_end' && log.durationMinutes) {
-                totalBreakMinutes += log.durationMinutes;
-            }
-        }
-        if(clockInTime && (!toDate || clockInTime < toDate)) {
-            const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
-        }
+      const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
+      
+      let wages = 0;
+      if (staffMember.payStructure === 'commission') {
+          wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+      } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+          const hoursWorked = totalMinutesWorked / 60;
+          wages = hoursWorked * staffMember.hourlyRate;
+      }
 
-        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
-        
-        let wages = 0;
-        if (staffMember.payStructure === 'commission') {
-            wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            const hoursWorked = totalMinutesWorked / 60;
-            wages = hoursWorked * staffMember.hourlyRate;
-        }
+      const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+      const totalPay = wages + tips + retailCommission;
+      
+      return {
+          ...staffMember,
+          stats: {
+              totalSales,
+              tips,
+              earnings: totalPay,
+              consumptionValue: 0,
+              totalHours: totalMinutesWorked / 60,
+              utilizationRate,
+              avgSalePerAppointment,
+              retailAttachmentRate,
+              avgVariance,
+          }
+      };
 
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        const totalPay = wages + tips + retailCommission;
-        
-        return {
-            ...staffMember,
-            stats: {
-                totalSales,
-                tips,
-                earnings: totalPay,
-                consumptionValue: 0,
-                totalHours: totalMinutesWorked / 60,
-                utilizationRate,
-                avgSalePerAppointment,
-                retailAttachmentRate,
-                avgVariance,
-            }
-        };
-
-    }, [staffMember, allAppointments, services, transactions, activityLogs]);
+  }, [staffMember, allAppointments, services, transactions, activityLogs]);
 
 
     const handleViewActivity = () => {
@@ -832,7 +828,7 @@ const StaffDashboardView = () => {
         </Card>
   
         <div className="grid gap-4 md:grid-cols-3">
-            <Card>
+             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Today's Earnings</CardTitle><Wallet className="h-4 w-4 text-muted-foreground"/></CardHeader>
                 <CardContent><p className="text-2xl font-bold">${todayKpis.earnings.toFixed(2)}</p><p className="text-xs text-muted-foreground">Est. based on completed work & tips</p></CardContent>
             </Card>
@@ -949,3 +945,5 @@ export default function DashboardPage() {
 }
 
 
+
+```
