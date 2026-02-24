@@ -56,6 +56,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, query, where } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -87,7 +88,7 @@ const AddEventForm = ({
     onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => void;
     staff: Staff[];
 }) => {
-    const { firestore, user, role } = useTenant();
+    const { firestore, user, role, selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
 
     const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
