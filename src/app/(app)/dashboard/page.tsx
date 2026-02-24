@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -24,6 +25,7 @@ import {
   MoreHorizontal,
   Coffee,
   Play,
+  Wallet,
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -509,7 +511,7 @@ const StaffDashboardView = () => {
     const { selectedTenant } = useTenant();
     const { firestore } = useFirebase();
     const { toast } = useToast();
-    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading, consentForms, inventory, walkIns } = useInventory();
+    const { clients, services, staff, appointments: allAppointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
     const staffMember = useMemo(() => {
@@ -517,6 +519,15 @@ const StaffDashboardView = () => {
         return staff.find(s => s.id === user.uid);
     }, [user, staff]);
     
+    const appointments = useMemo(() => {
+        if (!allAppointments) return [];
+        return allAppointments.map(apt => ({
+          ...apt,
+          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        }));
+    }, [allAppointments]);
+
     const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
         const now = new Date();
         if (staffMember?.payStructure === 'commission' && staffMember.payoutFrequency === 'bi-weekly') {
@@ -524,7 +535,7 @@ const StaffDashboardView = () => {
             const diffDays = differenceInDays(now, epoch);
             const periodIndex = Math.floor(diffDays / 14);
             const start = addDays(epoch, periodIndex * 14);
-            return { start: startOfDay(start), end: endOfDay(addDays(start, 13)), periodName: 'This Pay Period' };
+            return { start: startOfDay(start), end: endOfDay(addDays(start, 13)), periodName: 'Pay Period' };
         }
         // Default to weekly
         return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfDay(now), periodName: 'This Week' };
@@ -541,42 +552,42 @@ const StaffDashboardView = () => {
     }, []);
 
     const handleStartService = (appointmentId: string) => {
-        if (!firestore || !selectedTenant?.id || !appointments) return;
-        const tenantId = selectedTenant.id;
-        const appointment = appointments.find(a => a.id === appointmentId);
-        if (!appointment) return;
+      if (!firestore || !selectedTenant?.id || !appointments) return;
+      const tenantId = selectedTenant.id;
+      const appointment = appointments.find(a => a.id === appointmentId);
+      if (!appointment) return;
 
-        const nowISO = new Date().toISOString();
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
-        updateDocumentNonBlocking(appointmentRef, {
-            status: 'servicing',
-            actualStartTime: nowISO
-        });
+      const nowISO = new Date().toISOString();
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+      
+      updateDocumentNonBlocking(appointmentRef, {
+          status: 'servicing',
+          actualStartTime: nowISO
+      });
 
-        if (appointment.checkInToken) {
-            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-            updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
-        }
-        
-        if (appointment.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-        }
-        
-        if(appointment.isWalkIn) {
-            const walkInId = appointment.id.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-            updateDocumentNonBlocking(walkInRef, {
-                status: 'servicing',
-                serviceStartTime: nowISO,
-            });
-        }
+      if (appointment.checkInToken) {
+          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+          updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+      }
+      
+      if (appointment.staffId) {
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+          updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+      }
+      
+      if(appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+          updateDocumentNonBlocking(walkInRef, {
+              status: 'servicing',
+              serviceStartTime: nowISO,
+          });
+      }
 
-        toast({
-            title: "Service Started",
-            description: `Service for ${appointment.clientName} has started.`
-        });
+      toast({
+          title: "Service Started",
+          description: `Service for ${appointment.clientName} has started.`
+      });
     };
 
     const upcomingAppointments = useMemo(() => {
@@ -597,217 +608,7 @@ const StaffDashboardView = () => {
             }));
     }, [appointments, user, clients, services, todayRange]);
 
-    const appointmentsForPeriod = useMemo(() => {
-      if (!appointments || !user) return [];
-      return appointments.filter(apt => 
-        apt.staffId === user.uid &&
-        new Date(apt.startTime) >= periodStart &&
-        new Date(apt.startTime) <= periodEnd
-      );
-    }, [appointments, user, periodStart, periodEnd]);
-
-    const transactionsForPeriod = useMemo(() => {
-        if (!transactions || !user) return [];
-        return transactions.filter(t => {
-            const transactionDate = new Date(t.date);
-            return t.staffId === user.uid &&
-                   transactionDate >= periodStart &&
-                   transactionDate <= periodEnd;
-        });
-    }, [transactions, user, periodStart, periodEnd]);
-    
-    const activityLogsForPeriod = useMemo(() => {
-        if (!activityLogs || !user) return [];
-        return activityLogs.filter(log => {
-            const logDate = new Date(log.timestamp);
-            return log.staffId === user.uid &&
-                   logDate >= periodStart &&
-                   logDate <= periodEnd;
-        });
-    }, [activityLogs, user, periodStart, periodEnd]);
-
-    const kpis = useMemo(() => {
-        if (!transactionsForPeriod || !appointmentsForPeriod || !staffMember || !activityLogs) {
-            return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
-        }
-        const serviceRevenue = transactionsForPeriod
-            .filter(t => t.category === 'Service Revenue')
-            .reduce((sum, t) => sum + t.amount, 0);
-
-        const retailSales = transactionsForPeriod
-            .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-
-        const tips = transactionsForPeriod.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
-        const completed = appointmentsForPeriod.filter(a => a.status === 'completed').length;
-        
-        let earnings = 0;
-        if (staffMember.payStructure === 'commission') {
-            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            const staffLogsForPeriod = activityLogsForPeriod;
-            
-            const sortedLogs = staffLogsForPeriod.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-            let totalMinutesWorked = 0;
-            let clockInTime: Date | null = null;
-            let totalBreakMinutes = 0;
-            
-            for (const log of sortedLogs) {
-                const logTime = new Date(log.timestamp);
-                if (log.type === 'clock_in') {
-                    if (clockInTime) {
-                        totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-                    }
-                    clockInTime = logTime;
-                    totalBreakMinutes = 0;
-                } else if (log.type === 'clock_out' && clockInTime) {
-                    let sessionEnd = logTime;
-                    if (sessionEnd > periodEnd) sessionEnd = periodEnd;
-                    totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-                    clockInTime = null;
-                } else if (log.type === 'break_end' && log.durationMinutes) {
-                    totalBreakMinutes += log.durationMinutes;
-                }
-            }
-            if(clockInTime) {
-                const endOfRange = periodEnd < new Date() ? periodEnd : new Date();
-                totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
-            }
-
-            const hoursWorked = totalMinutesWorked / 60;
-            earnings = hoursWorked * staffMember.hourlyRate;
-        }
-        
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        earnings += tips + retailCommission;
-        
-        return { revenue: serviceRevenue, tips, completed, earnings };
-
-    }, [transactionsForPeriod, appointmentsForPeriod, staffMember, activityLogsForPeriod, periodEnd]);
-    
-    const staffMemberWithStats = useMemo(() => {
-        if (!staffMember || !transactions || !appointments || !activityLogs || !services || !inventory) return null;
-        
-        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && new Date(apt.startTime) >= periodStart && new Date(apt.startTime) <= periodEnd);
-        const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
-        const completedAppointmentsCount = completedAppointments.length;
-      
-        let totalMinutesVariance = 0;
-        let totalInServiceMinutes = 0;
-        completedAppointments.forEach(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
-                const scheduledDuration = service.duration;
-                totalMinutesVariance += actualDuration - scheduledDuration;
-                totalInServiceMinutes += actualDuration;
-            } else if (service) {
-                totalInServiceMinutes += service.duration;
-            }
-        });
-      
-        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
-        
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && new Date(t.date) >= periodStart && new Date(t.date) <= periodEnd);
-        
-        const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-        const totalSales = serviceRevenue + retailSales;
-        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
-        
-        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
-        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-        
-        const clientsServedInPeriod = new Set(completedAppointments.map(apt => apt.clientId));
-        let rebookedClientsCount = 0;
-        if (periodEnd) {
-            clientsServedInPeriod.forEach(clientId => {
-                const hasFutureBooking = (appointments || []).some(apt => 
-                    apt.clientId === clientId &&
-                    new Date(apt.startTime) > periodEnd
-                );
-                if (hasFutureBooking) {
-                    rebookedClientsCount++;
-                }
-            });
-        }
-        const rebookingRate = clientsServedInPeriod.size > 0 ? (rebookedClientsCount / clientsServedInPeriod.size) * 100 : 0;
-        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
-
-        let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && new Date(log.timestamp) >= periodStart && new Date(log.timestamp) <= periodEnd);
-        const sortedLogs = staffLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-        
-        let clockInTime: Date | null = null;
-        let totalBreakMinutes = 0;
-        for (const log of sortedLogs) {
-            const logTime = new Date(log.timestamp);
-            if (log.type === 'clock_in') {
-                if (clockInTime) {
-                    const sessionEnd = periodEnd && logTime > periodEnd ? periodEnd : logTime;
-                    totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
-                }
-                clockInTime = logTime;
-                totalBreakMinutes = 0;
-            } else if (log.type === 'clock_out' && clockInTime) {
-                let sessionEnd = logTime;
-                if (periodEnd && sessionEnd > periodEnd) sessionEnd = periodEnd;
-                totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
-                clockInTime = null;
-            } else if (log.type === 'break_end' && log.durationMinutes) {
-                totalBreakMinutes += log.durationMinutes;
-            }
-        }
-        if(clockInTime && (!periodEnd || clockInTime < periodEnd)) {
-            const endOfRange = periodEnd && periodEnd < new Date() ? periodEnd : new Date();
-            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
-        }
-
-        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
-        
-        let wages = 0;
-        if (staffMember.payStructure === 'commission') {
-            wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            const hoursWorked = totalMinutesWorked / 60;
-            wages = hoursWorked * staffMember.hourlyRate;
-        }
-        
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        const earnings = wages + tips + retailCommission;
-        
-        const costOfGoodsSold = completedAppointments.reduce((acc, apt) => {
-            const service = services.find(s => s.id === apt.serviceId);
-            return acc + (service?.cost || 0);
-        }, 0);
-        const netProfit = totalSales - costOfGoodsSold - (wages + retailCommission);
-        
-        const stats = {
-            totalServices: completedAppointmentsCount,
-            avgActualServiceTime: completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0,
-            avgVariance,
-            totalInServiceHours: totalInServiceMinutes / 60,
-            utilizationRate,
-            avgSalePerAppointment,
-            retailAttachmentRate,
-            rebookingRate,
-            serviceRevenue,
-            retailSales,
-            retailCommission,
-            tips,
-            wages,
-            totalPay: earnings,
-            netProfit,
-            totalHours: totalMinutesWorked / 60,
-            costOfGoodsSold,
-            totalSales,
-            earnings,
-            consumptionValue: 0,
-        };
-
-        return { ...staffMember, stats };
-    }, [staffMember, transactions, appointments, activityLogs, services, inventory, periodStart, periodEnd]);
-
-    const nextAppointment = upcomingAppointments?.[0];
+    const nextAppointment = upcomingAppointments?.find(apt => apt.status === 'confirmed');
 
     const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         if (!staffMember?.id || !selectedTenant?.id || !firestore) return;
@@ -861,6 +662,46 @@ const StaffDashboardView = () => {
         return name.substring(0, 2).toUpperCase();
     };
 
+    const todayKpis = useMemo(() => {
+        if (!transactions || !appointments || !staffMember || !todayRange) {
+            return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
+        }
+        const { todayStart, todayEnd } = todayRange;
+
+        const appointmentsToday = appointments.filter(apt => 
+            apt.staffId === staffMember.id &&
+            new Date(apt.startTime) >= todayStart &&
+            new Date(apt.startTime) <= todayEnd
+        );
+
+        const transactionsToday = transactions.filter(t => {
+            const transactionDate = new Date(t.date);
+            return t.staffId === staffMember.id &&
+                    transactionDate >= todayStart &&
+                    transactionDate <= todayEnd;
+        });
+        
+        const serviceRevenue = transactionsToday
+            .filter(t => t.category === 'Service Revenue')
+            .reduce((sum, t) => sum + t.amount, 0);
+
+        const tips = transactionsToday.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
+        const completed = appointmentsToday.filter(a => a.status === 'completed').length;
+        
+        let earnings = 0;
+         if (staffMember.payStructure === 'commission') {
+            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        } // Not calculating hourly for today to keep it simpler.
+
+        const retailSales = transactionsToday
+            .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+
+        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+        earnings += tips + retailCommission;
+        
+        return { revenue: serviceRevenue, tips, completed, earnings };
+
+    }, [transactions, appointments, staffMember, todayRange]);
 
     if (isUserLoading || isInventoryLoading) {
         return <Loader className="animate-spin" />;
@@ -871,11 +712,6 @@ const StaffDashboardView = () => {
         <Card className="text-center">
           <CardHeader>
             <CardTitle className="text-3xl">Welcome, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
-             {staffMember && (
-                <CardDescription>
-                    {periodName}: {format(periodStart, 'MMM d, yyyy')} - {format(periodEnd, 'MMM d, yyyy')}
-                </CardDescription>
-            )}
             {staffMember && (
                  <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto", {
                     'bg-green-100 text-green-800 dark:bg-green-900/50': staffMember.active && !staffMember.onBreak,
@@ -889,98 +725,86 @@ const StaffDashboardView = () => {
             {renderActionButtons()}
           </CardContent>
           <CardFooter>
-            <Button variant="secondary" className="w-full" onClick={() => setIsDetailsSheetOpen(true)}>View Activity</Button>
+            <Button variant="secondary" className="w-full" onClick={() => {}}>View My Activity</Button>
           </CardFooter>
         </Card>
   
         <div className="grid gap-4 md:grid-cols-3">
-            <Card className="bg-primary/10 border-primary/20">
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Est. Payout This Period</CardTitle></CardHeader>
-                <CardContent><p className="text-2xl font-bold text-primary">${kpis.earnings.toFixed(2)}</p></CardContent>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Today's Earnings</CardTitle><Wallet className="h-4 w-4 text-muted-foreground"/></CardHeader>
+                <CardContent><p className="text-2xl font-bold">${todayKpis.earnings.toFixed(2)}</p><p className="text-xs text-muted-foreground">Est. based on completed work & tips</p></CardContent>
             </Card>
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Tips</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${kpis.tips.toFixed(2)}</p></CardContent></Card>
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{periodName}'s Appointments</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{kpis.completed}</p></CardContent></Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Today's Tips</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground"/></CardHeader>
+                <CardContent><p className="text-2xl font-bold">${todayKpis.tips.toFixed(2)}</p><p className="text-xs text-muted-foreground">From completed appointments</p></CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Completed Today</CardTitle><Calendar className="h-4 w-4 text-muted-foreground"/></CardHeader>
+                <CardContent><p className="text-2xl font-bold">{todayKpis.completed}</p><p className="text-xs text-muted-foreground">Completed appointments</p></CardContent>
+            </Card>
         </div>
         
-        {nextAppointment ? (
-          <Card>
-            <CardHeader><CardTitle>Up Next</CardTitle></CardHeader>
-            <CardContent>
-                <div className="flex items-center gap-4">
-                    <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl} /><AvatarFallback>{nextAppointment.client?.name.charAt(0)}</AvatarFallback></Avatar>
-                    <div>
-                    <p className="font-semibold">{nextAppointment.client?.name}</p>
-                    <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
-                    </div>
-                    <div className="ml-auto text-right">
-                    <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
-                    </div>
-                </div>
-            </CardContent>
-            <CardFooter>
-                <Button asChild className="w-full">
-                   <Link href={`/planner?view=staff&staffId=${user?.uid}`}>
-                     View Details
-                   </Link>
-                </Button>
-            </CardFooter>
-          </Card>
-        ) : <p className="text-center text-muted-foreground pt-4">No upcoming appointments today.</p>}
-  
         <Card>
-          <CardHeader><CardTitle>Today's Schedule</CardTitle></CardHeader>
-          <CardContent>
-            {upcomingAppointments.length > 0 ? (
-              <div className="space-y-4">
-                {upcomingAppointments.map((apt) => (
-                  <div key={apt.id} className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/50">
-                    <Avatar className="h-10 w-10">
-                        <AvatarImage src={apt.client?.avatarUrl || ''} alt={apt.client?.name || ''} />
-                        <AvatarFallback>{getInitials(apt.client?.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <p className="font-medium">{apt.client?.name}</p>
-                      <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
-                        {apt.isWalkIn && <Badge variant="secondary">Walk-in</Badge>}
-                    </div>
-                    {apt.status === 'confirmed' ? (
-                        <Button size="sm" onClick={() => handleStartService(apt.id)}>
-                            <Play className="w-4 h-4 mr-2" />
-                            Start
-                        </Button>
-                    ) : apt.status === 'servicing' ? (
-                        <Button size="sm" variant="outline" disabled>In Service</Button>
-                    ) : (
-                         <Button variant="ghost" size="icon" asChild>
-                            <Link href="/planner">
-                                <MoreHorizontal className="h-4 w-4" />
+            <CardHeader><CardTitle>Today's Agenda</CardTitle></CardHeader>
+            <CardContent>
+                {nextAppointment && (
+                    <div className="mb-4 p-3 border-2 border-primary bg-primary/5 rounded-lg space-y-3">
+                         <Badge>Up Next</Badge>
+                        <div className="flex items-center gap-4">
+                            <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl} /><AvatarFallback>{getInitials(nextAppointment.client?.name)}</AvatarFallback></Avatar>
+                            <div>
+                                <p className="font-semibold">{nextAppointment.client?.name}</p>
+                                <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
+                            </div>
+                            <div className="ml-auto text-right">
+                                <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
+                            </div>
+                        </div>
+                        <Button asChild className="w-full">
+                            <Link href={`/planner?view=staff&staffId=${user?.uid}`}>
+                                View Details
                             </Link>
                         </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">No upcoming appointments today.</p>
-            )}
-          </CardContent>
+                    </div>
+                )}
+                {upcomingAppointments.length > 0 ? (
+                    <div className="space-y-2">
+                        {upcomingAppointments.map((apt) => (
+                            <div key={apt.id} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50">
+                                <Avatar className="h-10 w-10">
+                                    <AvatarImage src={apt.client?.avatarUrl || ''} alt={apt.client?.name || ''} />
+                                    <AvatarFallback>{getInitials(apt.client?.name)}</AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                <p className="font-medium">{apt.client?.name}</p>
+                                <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                                    {apt.isWalkIn && <Badge variant="secondary">Walk-in</Badge>}
+                                </div>
+                                {apt.status === 'confirmed' ? (
+                                    <Button size="sm" onClick={() => handleStartService(apt.id)}>
+                                        <Play className="w-4 h-4 mr-2" />
+                                        Start
+                                    </Button>
+                                ) : apt.status === 'servicing' ? (
+                                    <Button size="sm" variant="outline" disabled>In Service</Button>
+                                ) : (
+                                    <Button variant="ghost" size="icon" asChild>
+                                        <Link href="/planner">
+                                            <MoreHorizontal className="h-4 w-4" />
+                                        </Link>
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-center text-muted-foreground py-8">No upcoming appointments today.</p>
+                )}
+            </CardContent>
         </Card>
-         {staffMemberWithStats && (
-            <StaffDetailsSheet
-                open={isDetailsSheetOpen}
-                onOpenChange={setIsDetailsSheetOpen}
-                staffMember={staffMemberWithStats}
-                dateRange={{ from: periodStart, to: periodEnd }}
-                transactions={transactions || []}
-                services={services || []}
-                appointments={appointments || []}
-                activityLogs={activityLogs || []}
-                consentForms={consentForms || []}
-            />
-        )}
       </div>
     );
 };
@@ -1008,3 +832,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
