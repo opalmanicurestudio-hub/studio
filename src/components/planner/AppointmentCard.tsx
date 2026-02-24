@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -685,7 +684,7 @@ export function AppointmentCard({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                     <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onReschedule(appointment)}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
                     <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2" /> Delete Appointment</DropdownMenuItem>
@@ -724,7 +723,7 @@ export function AppointmentCard({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                         <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onReschedule(appointment)}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2" /> Delete Appointment</DropdownMenuItem>
