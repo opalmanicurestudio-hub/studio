@@ -142,34 +142,6 @@ export function AppHeader({ title }: { title?: string }) {
   }, [billInstances, billDefinitions]);
   
   useEffect(() => {
-    const backgroundNotifs = [
-        ...licenseNotifications,
-        ...lowStockNotifications,
-        ...expiredStockNotifications,
-        ...billsDueSoonNotifications,
-    ];
-
-    setNotifications(currentNotifs => {
-        const incidentNotifs = currentNotifs.filter(n => n.type === 'incident');
-        const notifMap = new Map<string | number, Notification>();
-        
-        currentNotifs.forEach(n => notifMap.set(n.id, n));
-        backgroundNotifs.forEach(n => notifMap.set(n.id, { ...n, read: notifMap.has(n.id) ? notifMap.get(n.id)!.read : false }));
-        incidentNotifs.forEach(n => notifMap.set(n.id, n));
-        
-        const backgroundIds = new Set(backgroundNotifs.map(n => n.id));
-        currentNotifs.forEach(n => {
-            if (n.type !== 'incident' && !backgroundIds.has(n.id)) {
-                notifMap.delete(n.id);
-            }
-        });
-            
-        return Array.from(notifMap.values()).sort((a,b) => (a.read ? 1 : -1) - (b.read ? 1 : -1));
-    });
-    
-  }, [licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
-  
-  useEffect(() => {
     const handleNewIncident = ({ clientName, clientId, incidentType }: { clientName: string, clientId: string, incidentType: string }) => {
       const newNotification: Notification = {
         id: `incident-${Date.now()}`,
@@ -182,12 +154,58 @@ export function AppHeader({ title }: { title?: string }) {
       setNotifications(prev => [newNotification, ...prev]);
     };
     
+    const handleNewEventRequest = ({ staffName, eventTitle, eventId }: { staffName: string; eventTitle: string; eventId: string }) => {
+      const newNotification: Notification = {
+        id: `event-request-${eventId}`,
+        type: 'event-request',
+        message: `${staffName} requested time off for "${eventTitle}".`,
+        link: '/planner',
+        read: false,
+        icon: <Calendar className="h-4 w-4 text-purple-500" />,
+      };
+      setNotifications(prev => [newNotification, ...prev.filter(n => n.id !== newNotification.id)]);
+    };
+    
     errorEmitter.on('incident-reported', handleNewIncident);
+    errorEmitter.on('event-request', handleNewEventRequest);
     
     return () => {
       errorEmitter.off('incident-reported', handleNewIncident);
+      errorEmitter.off('event-request', handleNewEventRequest);
     }
   }, []);
+
+  useEffect(() => {
+    const backgroundNotifs = [
+        ...licenseNotifications,
+        ...lowStockNotifications,
+        ...expiredStockNotifications,
+        ...billsDueSoonNotifications,
+    ];
+
+    setNotifications(currentNotifs => {
+        const realTimeNotifs = currentNotifs.filter(n => n.type === 'incident' || n.type === 'event-request');
+        const notifMap = new Map<string | number, Notification>();
+        
+        realTimeNotifs.forEach(n => notifMap.set(n.id, n));
+        
+        backgroundNotifs.forEach(n => {
+            if (!notifMap.has(n.id)) {
+                 notifMap.set(n.id, { ...n, read: notifMap.has(n.id) ? notifMap.get(n.id)!.read : false });
+            }
+        });
+
+        const backgroundIds = new Set(backgroundNotifs.map(n => n.id));
+        currentNotifs.forEach(n => {
+            if (n.type !== 'incident' && n.type !== 'event-request' && !backgroundIds.has(n.id)) {
+                notifMap.delete(n.id);
+            }
+        });
+            
+        return Array.from(notifMap.values()).sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0));
+    });
+    
+  }, [licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

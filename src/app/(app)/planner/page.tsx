@@ -746,14 +746,15 @@ function PlannerPageContent() {
 
 
   const handleAddEvent = (newEventData: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || !user) return;
+    const isStaffRequest = role === 'staff';
 
     const newEventWithId: Omit<Event, 'startTime' | 'endTime'> & {startTime: Date, endTime: Date} = {
         ...newEventData,
         id: nanoid(),
-        status: (role === 'owner' || role === 'admin') ? 'approved' : 'pending',
-        approvedBy: (role === 'owner' || role === 'admin') ? user?.uid : undefined,
-        approvedAt: (role === 'owner' || role === 'admin') ? new Date().toISOString() : undefined,
+        status: isStaffRequest ? 'pending' : 'approved',
+        approvedBy: isStaffRequest ? undefined : user.uid,
+        approvedAt: isStaffRequest ? undefined : new Date().toISOString(),
     };
     
     const eventRef = doc(firestore, 'tenants', tenantId, 'events', newEventWithId.id);
@@ -763,6 +764,18 @@ function PlannerPageContent() {
         endTime: newEventWithId.endTime.toISOString(),
     };
     setDocumentNonBlocking(eventRef, dataToSave, {});
+    
+    if (isStaffRequest) {
+        const staffMember = (staff || []).find(s => s.id === user?.uid);
+        if (staffMember) {
+            errorEmitter.emit('event-request', {
+                staffName: staffMember.name,
+                eventTitle: newEventWithId.title,
+                eventId: newEventWithId.id
+            });
+        }
+    }
+
 
     if (newEventData.cost && newEventData.cost > 0 && newEventData.type !== 'blocked') {
         const newTransaction = {
@@ -780,7 +793,7 @@ function PlannerPageContent() {
     }
 
     toast({
-        title: "Event Added",
+        title: isStaffRequest ? "Event Submitted for Approval" : "Event Added",
         description: `"${newEventData.title}" has been added to your calendar.`,
     });
     setIsAddEventOpen(false);
@@ -807,7 +820,7 @@ function PlannerPageContent() {
 
     const handleDeleteEvent = (eventId: string) => {
         const eventToProcess = (events || []).find(e => e.id === eventId);
-        if (role === 'owner' && eventToProcess && eventToProcess.status === 'pending') {
+        if ((role === 'owner' || role === 'admin') && eventToProcess && eventToProcess.status === 'pending') {
             setEventToDeny(eventToProcess);
         } else {
             if (!firestore || !tenantId) return;
@@ -1528,7 +1541,7 @@ function PlannerPageContent() {
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
-        staff={staff || []}
+        staff={allStaff || []}
       />
        {selectedEvent && (
         <EditEventDialog
@@ -1650,10 +1663,7 @@ function PlannerPageContent() {
                 />
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setDenialReason('')}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                        onClick={confirmDenyEvent}
-                        className={buttonVariants({ variant: "destructive" })}
-                    >
+                    <AlertDialogAction onClick={confirmDenyEvent} className={buttonVariants({ variant: "destructive" })}>
                         Confirm Denial
                     </AlertDialogAction>
                 </AlertDialogFooter>
