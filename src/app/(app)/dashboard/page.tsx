@@ -745,13 +745,13 @@ const StaffDashboardView = () => {
         const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(parseISO(log.timestamp)));
-        const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
+        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
         for (const log of sortedLogs) {
-            const logTime = parseISO(log.timestamp);
+            const logTime = log.timestamp;
             if (log.type === 'clock_in') {
                 if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
                 clockInTime = logTime;
@@ -947,4 +947,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
 

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -313,36 +314,26 @@ export default function StaffPage() {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   
-  const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
-  const pricingTiersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]);
-  
-  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
-
   const {
     services,
-    transactions: rawTransactions,
+    transactions,
     appointments,
-    activityLogs: rawActivityLogs,
+    activityLogs,
     stockCorrections,
     consentForms,
     inventory,
     isLoading,
   } = useInventory();
   
+  const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
+  const pricingTiersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]);
+  
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
   useEffect(() => {
     setDateRange({ from: subDays(new Date(), 29), to: new Date() });
   }, []);
-
-  const transactions = useMemo(() => {
-    if (!rawTransactions) return [];
-    return rawTransactions.map(t => ({...t, date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date) }));
-  }, [rawTransactions]);
-
-  const activityLogs = useMemo(() => {
-    if (!rawActivityLogs) return [];
-    return rawActivityLogs.map(log => ({...log, timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp)}));
-  }, [rawActivityLogs]);
 
   const staffWithStats = useMemo(() => {
     if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs || !services || !inventory) return [];
@@ -350,14 +341,15 @@ export default function StaffPage() {
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    return staff.map(member => {
+    return staff.map(staffMember => {
         const filterByDate = (date: Date) => {
-            if (fromDate && date < fromDate) return false;
-            if (toDate && date > toDate) return false;
+            const d = date;
+            if (fromDate && d < fromDate) return false;
+            if (toDate && d > toDate) return false;
             return true;
         };
 
-        const staffAppointments = appointments.filter(apt => apt.staffId === member.id && filterByDate(apt.startTime));
+        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedAppointmentsCount = completedAppointments.length;
       
@@ -376,7 +368,7 @@ export default function StaffPage() {
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
 
 
-        const staffTransactions = transactions.filter(t => t.staffId === member.id && filterByDate(t.date));
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
         
         const serviceRevenue = staffTransactions
             .filter(t => t.category === 'Service Revenue')
@@ -396,7 +388,7 @@ export default function StaffPage() {
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === member.id && filterByDate(log.timestamp));
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
         const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
@@ -427,14 +419,14 @@ export default function StaffPage() {
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
         
         let earnings = 0;
-        if (member.payStructure === 'commission') {
-            earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
-        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+        if (staffMember.payStructure === 'commission') {
+            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
             const hoursWorked = totalMinutesWorked / 60;
-            earnings = hoursWorked * member.hourlyRate;
+            earnings = hoursWorked * staffMember.hourlyRate;
         }
         
-        const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
+        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         earnings += tips + retailCommission; 
         
         let consumptionValue = 0;
@@ -597,7 +589,7 @@ export default function StaffPage() {
               break;
           case 'break_end':
               if(staffMember.breakStartTime) {
-                  const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
+                  const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
                   logEntry.durationMinutes = duration;
               }
               staffUpdate = { onBreak: false, breakStartTime: undefined }; 

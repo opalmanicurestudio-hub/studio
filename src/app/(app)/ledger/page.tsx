@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -74,12 +72,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { PrintableReport } from '@/components/ledger/PrintableReport';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
@@ -340,11 +338,13 @@ const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transact
 };
 
 export default function LedgerPage() {
-  const { firestore, user, isUserLoading } = useFirebase();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { firestore, user } = useFirebase();
+  const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
+
+  const { transactions, isLoading: areTransactionsLoading } = useInventory();
 
   const [date, setDate] = React.useState<DateRange | undefined>({
       from: new Date(new Date().getFullYear(), 0, 1),
@@ -355,18 +355,6 @@ export default function LedgerPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
   const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
-
-  const transactionsQuery = useMemoFirebase(() => {
-    if (!user || !firestore || !tenantId) {
-      return null;
-    }
-    return collection(firestore, 'tenants', tenantId, 'transactions');
-  }, [firestore, user, tenantId]);
-
-  const { data: fetchedTransactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
-
-  const transactions = useMemo(() => fetchedTransactions || [], [fetchedTransactions]);
-
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
@@ -449,7 +437,7 @@ export default function LedgerPage() {
     window.print();
   };
   
-  const isLoading = areTransactionsLoading || isUserLoading || isTenantLoading;
+  const isLoading = areTransactionsLoading;
 
   return (
     <>
@@ -493,7 +481,7 @@ export default function LedgerPage() {
                   <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</TableCell>
+                            <TableCell colSpan={7} className="h-24 text-center">Loading transactions...</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
@@ -509,7 +497,7 @@ export default function LedgerPage() {
               </CardContent>
             </Card>
             <div className="md:hidden space-y-4">
-                 {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
+                 {isLoading && <p className="text-center text-muted-foreground">Loading transactions...</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
                     <TransactionCard key={transaction.id} transaction={transaction} onRevertClick={() => setTransactionToRevert(transaction)} />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}

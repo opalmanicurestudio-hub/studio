@@ -39,41 +39,17 @@ export default function ReportsPage() {
   const {
     inventory,
     stockCorrections,
-    appointments: rawAppointments,
+    appointments,
     services,
     staff,
     walkIns,
-    activityLogs: rawActivityLogs,
-    transactions: rawTransactions,
+    activityLogs,
+    transactions,
     businessProfiles,
     lifestyleProfiles,
     isLoading
   } = useInventory();
 
-
-  const appointments = useMemo(() => {
-    if (!rawAppointments) return [];
-    return rawAppointments.map(apt => ({
-      ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
-      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
-      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
-    }));
-  }, [rawAppointments]);
-
-  const transactions = useMemo(() => {
-    if (!rawTransactions) return [];
-    return rawTransactions.map(t => ({
-      ...t,
-      date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date),
-    }));
-  }, [rawTransactions]);
-
-  const activityLogs = useMemo(() => {
-    if (!rawActivityLogs) return [];
-    return rawActivityLogs.map(log => ({...log, timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp)}));
-  }, [rawActivityLogs]);
 
   const monthlyOverhead = useMemo(() => {
       let totalOverhead = 0;
@@ -461,7 +437,10 @@ export default function ReportsPage() {
             <div className="flex items-center gap-2">
               <Popover>
                   <PopoverTrigger asChild>
-                      <Button id="date" variant={"outline"} className={cn( "w-full sm:w-[300px] justify-start text-left font-normal", !dateRange && "text-muted-foreground" )}>
+                      <Button
+                          id="date"
+                          variant={"outline"}
+                          className={cn( "w-full sm:w-[300px] justify-start text-left font-normal", !dateRange && "text-muted-foreground" )}>
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, yyyy")} -{" "} {format(dateRange.to, "LLL dd, yyyy")} </> ) : ( format(dateRange.from, "LLL dd, yyyy") ) ) : ( <span>Pick a date range</span> )}
                       </Button>
@@ -717,5 +696,3 @@ export default function ReportsPage() {
     </>
   );
 }
-
-    
