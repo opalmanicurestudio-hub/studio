@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +34,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
-import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
@@ -84,6 +84,14 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
         }
     }, [member.compliance?.licenseExpiry]);
     
+    const getInitials = (name: string) => {
+        const parts = name.split(' ');
+        if (parts.length > 1) {
+            return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+    };
+
     const renderActionButtons = () => {
         if (!member.active) {
             return <Button className="w-full" onClick={() => onStatusChange(member.id, 'clock_in')}><Clock className="mr-2 h-4 w-4"/>Clock In</Button>
@@ -114,7 +122,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
                 <Avatar className="w-24 h-24 mx-auto mb-4">
                     <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
-                    <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+                    <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
                 <div className="flex items-center justify-center gap-2">
@@ -314,40 +322,27 @@ export default function StaffPage() {
   const {
     services,
     transactions: rawTransactions,
-    appointments: rawAppointments,
+    appointments,
     activityLogs: rawActivityLogs,
     stockCorrections,
     consentForms,
     inventory,
     isLoading,
   } = useInventory();
+  
+  useEffect(() => {
+    setDateRange({ from: subDays(new Date(), 29), to: new Date() });
+  }, []);
 
-  // Normalize all date-like fields into Date objects
   const transactions = useMemo(() => {
     if (!rawTransactions) return [];
     return rawTransactions.map(t => ({...t, date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date) }));
   }, [rawTransactions]);
 
-  const appointments = useMemo(() => {
-    if (!rawAppointments) return [];
-    return rawAppointments.map(apt => ({
-      ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
-      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime as any)) : undefined,
-      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime as any)) : undefined,
-    }));
-  }, [rawAppointments]);
-
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
     return rawActivityLogs.map(log => ({...log, timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp)}));
   }, [rawActivityLogs]);
-
-
-  useEffect(() => {
-    setDateRange({ from: subDays(new Date(), 29), to: new Date() });
-  }, []);
 
   const staffWithStats = useMemo(() => {
     if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs || !services || !inventory) return [];
@@ -365,7 +360,7 @@ export default function StaffPage() {
         const staffAppointments = appointments.filter(apt => apt.staffId === member.id && filterByDate(apt.startTime));
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedAppointmentsCount = completedAppointments.length;
-        
+      
         let totalMinutesVariance = 0;
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
@@ -806,5 +801,3 @@ export default function StaffPage() {
     </div>
   );
 }
-
-    
