@@ -133,10 +133,10 @@ const AddEventForm = ({
 
 
     useEffect(() => {
-        if (role === 'staff' && user) {
+        if (role === 'staff' && user && staff.length > 0) {
             setStaffId(user.uid);
         }
-    }, [role, user]);
+    }, [role, user, staff]);
 
     useEffect(() => {
         if (allDay) {
