@@ -119,7 +119,7 @@ const AddEventForm = ({
     const [startTime, setStartTime] = useState<string>('');
     const [duration, setDuration] = useState<number>(60);
     const [allDay, setAllDay] = useState(false);
-    const [staffId, setStaffId] = useState('');
+    const [staffId, setStaffId] = useState(() => (role === 'staff' && user ? user.uid : ''));
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id' | 'completed'>[]>([]);
@@ -133,10 +133,10 @@ const AddEventForm = ({
 
 
     useEffect(() => {
-        if (role === 'staff' && user && staff.length > 0) {
+        if (role === 'staff' && user && staff.length > 0 && staffId !== user.uid) {
             setStaffId(user.uid);
         }
-    }, [role, user, staff]);
+    }, [role, user, staff, staffId]);
 
     useEffect(() => {
         if (allDay) {
@@ -257,15 +257,12 @@ const AddEventForm = ({
                             </RadioGroup>
                         </div>
                          <div className="space-y-2">
-                            <Label htmlFor="staff-block">Assign to Staff</Label>
+                            <Label htmlFor="staff-block">Staff Member</Label>
                             <Select value={staffId} onValueChange={setStaffId} disabled={role==='staff'}>
                                 <SelectTrigger id="staff-block">
                                      {selectedStaff ? (
                                         <div className="flex items-center gap-2">
-                                            <Avatar className="w-6 h-6">
-                                                <AvatarImage src={selectedStaff.avatarUrl || ''} />
-                                                <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
-                                            </Avatar>
+                                            <Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl || ''} /><AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback></Avatar>
                                             <span>{selectedStaff.name}</span>
                                         </div>
                                     ) : (
