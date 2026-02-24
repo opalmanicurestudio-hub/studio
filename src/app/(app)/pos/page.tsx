@@ -76,7 +76,7 @@ type EditableFormulaItem = {
 };
 
 export default function POSPage() {
-    const { inventory, services, appointments, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
+    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
     
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();
@@ -124,6 +124,11 @@ export default function POSPage() {
     const handleCartChange = (newCart: EditableFormulaItem[]) => {
         setRetailItems(newCart);
     };
+
+    const appointments = useMemo(() => {
+        if (!appointmentsFromDB) return [];
+        return appointmentsFromDB;
+    }, [appointmentsFromDB]);
 
     const resetCheckoutState = useCallback(() => {
         setRetailItems([]);
@@ -1421,7 +1426,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
