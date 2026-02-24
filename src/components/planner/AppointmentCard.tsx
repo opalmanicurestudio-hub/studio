@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -639,10 +640,7 @@ export function AppointmentCard({
   const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
 
   return (
-    <div
-      style={style}
-      className="absolute w-full flex flex-col"
-    >
+    <div style={style} className="flex flex-col h-full w-full">
       {hasPadBefore && (
         <div style={{ height: beforeHeight }} className="bg-muted/30 rounded-t-lg flex items-center justify-center text-xs text-muted-foreground bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />
       )}
