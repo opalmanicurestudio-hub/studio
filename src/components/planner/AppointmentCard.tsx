@@ -519,9 +519,9 @@ export function AppointmentCard({
         const seconds = diffInSeconds % 60;
 
         if (hours > 0) {
-          setElapsedTime(`${''String(hours).padStart(2, '0')}:${''String(minutes).padStart(2, '0')}:${''String(seconds).padStart(2, '0')}`);
+          setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
         } else {
-          setElapsedTime(`${''String(minutes).padStart(2, '0')}:${''String(seconds).padStart(2, '0')}`);
+          setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
         }
 
         const elapsedMinutes = Math.floor(diffInSeconds / 60);
@@ -613,9 +613,9 @@ export function AppointmentCard({
   const hasPadAfter = (service.padAfter || 0) > 0;
   const totalDurationWithPadding = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
 
-  const beforeHeight = hasPadBefore ? `${''(service.padBefore! / totalDurationWithPadding) * 100}%` : '0px';
+  const beforeHeight = hasPadBefore ? `${''((service.padBefore || 0) / totalDurationWithPadding) * 100}%` : '0px';
   const mainHeight = `${''(service.duration / totalDurationWithPadding) * 100}%`;
-  const afterHeight = hasPadAfter ? `${''(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
+  const afterHeight = hasPadAfter ? `${''((service.padAfter || 0) / totalDurationWithPadding) * 100}%` : '0px';
 
   const isCompact = scheduledDuration < 50;
   
