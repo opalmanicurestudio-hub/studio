@@ -978,10 +978,16 @@ export default function POSPage() {
 
       const hasItems = appointmentsData.length > 0 || retailItems.length > 0 || cart.some(i => i.type === 'membership' || i.type === 'package');
   
-      if (!payerClient || !hasItems) {
+      if (!payerClient && hasItems) {
         toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
         setIsSubmitting(false);
         return;
+      }
+      
+      if (!payerClient) {
+          onOpenChange(false);
+          setIsSubmitting(false);
+          return;
       }
   
       if (!firestore || !tenantId || !selectedTenant) {
@@ -996,7 +1002,7 @@ export default function POSPage() {
 
         const primaryAppointmentData = appointmentsData.length > 0 ? appointmentsData[0] : null;
         const primaryStaffId = primaryAppointmentData?.staffId || staff.find(s => s.role === 'admin')?.id || staff[0]?.id;
-        const primaryAppointmentId = primaryAppointmentData?.appointment.id;
+        const primaryAppointmentId = primaryAppointmentData?.id;
   
         // Process appointments
         for (const appointmentData of appointmentsData) {
@@ -1365,7 +1371,7 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const cart = useMemo(() => [...retailItems, ...memberships.filter(m => retailItems.find(i => i.id === m.id)), ...packages.filter(p => retailItems.find(i => i.id === p.id))], [retailItems, memberships, packages]);
+    const cart = retailItems;
     
     const allCartItems = useMemo(() => {
         const servicesFromAppointments = appointmentsData.flatMap(d => {
