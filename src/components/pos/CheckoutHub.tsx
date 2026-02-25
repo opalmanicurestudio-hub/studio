@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat } from 'lucide-react';
-import { type Appointment, type Service, type Client, type Discount, type Staff } from '@/lib/data';
+import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
+import { useToast } from '@/hooks/use-toast';
 
 
 export const CheckoutHub = ({ 
@@ -56,6 +57,10 @@ export const CheckoutHub = ({
     appliedAdjustments,
     onApplyAdjustmentToggle,
     absorbedCost,
+    redeemedOffer,
+    setRedeemedOffer,
+    memberships,
+    packages,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -89,11 +94,16 @@ export const CheckoutHub = ({
     appliedAdjustments: Set<string>;
     onApplyAdjustmentToggle: (adjustmentId: string, apply: boolean) => void;
     absorbedCost: number;
+    redeemedOffer: { type: 'membership' | 'package'; id: string } | null;
+    setRedeemedOffer: (offer: { type: 'membership' | 'package'; id: string } | null) => void;
+    memberships: Membership[];
+    packages: Package[];
 }) => {
     
     const [promoCode, setPromoCode] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const { inventory } = useInventory();
+    const { toast } = useToast();
 
     useEffect(() => {
         setPromoCode(appliedDiscountCode || '');
@@ -119,8 +129,8 @@ export const CheckoutHub = ({
     
     const allCartItems = useMemo(() => {
         const servicesFromAppointments = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: d.service.price }] : [];
-            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price }));
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
             return [...mainService, ...addOns];
         });
 
@@ -131,7 +141,7 @@ export const CheckoutHub = ({
         }));
 
         return [...servicesFromAppointments, ...itemsFromCart];
-    }, [appointmentsData, cart]);
+    }, [appointmentsData, cart, redeemedOffer]);
 
     const totalDiscount = discount + membershipDiscount;
     
@@ -215,25 +225,58 @@ export const CheckoutHub = ({
                 {/* APPOINTMENT ITEMS */}
                 {appointmentsData.length > 0 && (
                     <div className="space-y-3">
-                        {appointmentsData.map(data => (
-                            <div key={data.id} className="text-sm">
-                                <div className="flex items-center gap-2">
-                                     <p className="flex-1">
-                                        {data.service.name}
-                                        {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({data.client.name})</span>}
-                                    </p>
-                                    <p className="font-semibold">${(data.service.price || 0).toFixed(2)}</p>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                                </div>
-                                {data.addOnServices.map(addon => (
-                                     <div key={addon.id} className="flex items-center gap-2 pl-4">
-                                        <p className="flex-1 text-xs text-muted-foreground">+ {addon.name}</p>
-                                        <p className="font-semibold text-xs text-muted-foreground">${(addon.price || 0).toFixed(2)}</p>
-                                        <div className="w-6" />
+                        {appointmentsData.map(data => {
+                            const { service, client } = data;
+                            if (!service || !client) return null;
+
+                            const isRedeemed = redeemedOffer?.id === service.id;
+
+                            const membershipPerk = client.activeMembershipId && memberships.find(m => m.id === client.activeMembershipId)?.includedServices?.find(s => s.id === service.id);
+                            
+                            const packagePerk = client.activePackages?.find(p => {
+                                const packageDetails = packages.find(pkg => pkg.id === p.packageId);
+                                return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
+                            });
+                             const redeemablePackage = packagePerk ? packages.find(p => p.id === packagePerk.packageId) : null;
+                            
+                            const handleRedeem = () => {
+                                if (isRedeemed) {
+                                    setRedeemedOffer(null);
+                                } else if (redeemedOffer) {
+                                    toast({ variant: 'destructive', title: 'Only one offer can be redeemed per transaction.' });
+                                } else {
+                                    setRedeemedOffer({ type: packagePerk ? 'package' : 'membership', id: service.id });
+                                }
+                            };
+                            
+                            return (
+                                <div key={data.id} className="text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <p className="flex-1">
+                                            {service.name}
+                                            {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({client.name})</span>}
+                                        </p>
+                                        <p className={cn("font-semibold", isRedeemed && "line-through text-muted-foreground")}>
+                                            ${(service.price || 0).toFixed(2)}
+                                        </p>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
                                     </div>
-                                ))}
-                            </div>
-                        ))}
+                                    {isRedeemed && (
+                                        <div className="flex items-center justify-end gap-2 text-primary font-semibold">
+                                            <span>Redeemed</span>
+                                            <span>$0.00</span>
+                                        </div>
+                                    )}
+                                    {(membershipPerk || packagePerk) && (
+                                         <div className="text-right mt-1">
+                                            <Button variant="link" size="xs" onClick={handleRedeem} className="p-0 h-auto">
+                                            {isRedeemed ? 'Undo' : (membershipPerk ? 'Redeem Perk' : `Use 1 Session (of ${packagePerk?.sessionsRemaining})`)}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
 
