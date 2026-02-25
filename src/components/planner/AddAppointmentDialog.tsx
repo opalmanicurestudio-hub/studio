@@ -439,9 +439,14 @@ const AddAppointmentForm = ({
                                                 const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
                                                 return (
                                                     <SelectItem key={s.id} value={s.id}>
-                                                        <div className="flex items-center justify-between w-full">
-                                                            <span>{s.name}</span>
-                                                            {isMembershipPerk && <Badge className="bg-purple-100 text-purple-800"><Award className="mr-1 h-3 w-3" />Membership Perk</Badge>}
+                                                        <div className="flex items-center w-full gap-2">
+                                                          <span className="flex-1">{s.name}</span>
+                                                          {isMembershipPerk && (
+                                                            <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                                                                <Award className="mr-1 h-3 w-3" />
+                                                                Membership Perk
+                                                            </Badge>
+                                                          )}
                                                         </div>
                                                     </SelectItem>
                                                 )
