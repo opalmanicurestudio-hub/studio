@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -623,10 +622,10 @@ function PlannerPageContent() {
             
             if (recurrence.frequency === 'weekly') {
                 currentStartTime = addWeeks(currentStartTime, 1);
-                currentEndTime = addWeeks(currentEndTime, 1);
+                currentEndTime = addWeeks(currentStartTime, 1);
             } else if (recurrence.frequency === 'bi-weekly') {
                 currentStartTime = addWeeks(currentStartTime, 2);
-                currentEndTime = addWeeks(currentEndTime, 2);
+                currentEndTime = addWeeks(currentStartTime, 2);
             } else if (recurrence.frequency === 'every-3-weeks') {
                 currentStartTime = addWeeks(currentStartTime, 3);
                 currentEndTime = addWeeks(currentStartTime, 3);
@@ -1450,7 +1449,7 @@ function PlannerPageContent() {
                 activeView={activeView}
                 allStaff={allStaff || []}
                 mobileSelectedStaffId={mobileSelectedStaffId}
-                onMobileStaffChange={setMobileSelectedStaffId}
+                onMobileStaffChange={onMobileStaffChange}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
@@ -1458,19 +1457,19 @@ function PlannerPageContent() {
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
-                onEditEvent={onEditEvent}
-                onChecklistItemToggle={onChecklistItemToggle}
-                onUpdateEvent={onUpdateEvent}
+                onEditEvent={handleEditEventClick}
+                onChecklistItemToggle={handleChecklistItemToggle}
+                onUpdateEvent={handleUpdateEvent}
                 dailyTransactions={dailyTransactions}
                 allTransactions={transactions || []}
-                onAddTransaction={onAddTransaction}
+                onAddTransaction={addTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
-                onDeleteEvent={onDeleteEvent}
+                onDeleteEvent={handleDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
@@ -1488,7 +1487,7 @@ function PlannerPageContent() {
                 activeView={activeView}
                 allStaff={allStaff || []}
                 mobileSelectedStaffId={mobileSelectedStaffId}
-                onMobileStaffChange={setMobileSelectedStaffId}
+                onMobileStaffChange={onMobileStaffChange}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
@@ -1496,19 +1495,19 @@ function PlannerPageContent() {
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
-                onEditEvent={onEditEvent}
-                onChecklistItemToggle={onChecklistItemToggle}
-                onUpdateEvent={onUpdateEvent}
+                onEditEvent={handleEditEventClick}
+                onChecklistItemToggle={handleChecklistItemToggle}
+                onUpdateEvent={handleUpdateEvent}
                 dailyTransactions={dailyTransactions}
                 allTransactions={transactions || []}
-                onAddTransaction={onAddTransaction}
+                onAddTransaction={addTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
-                onDeleteEvent={onDeleteEvent}
+                onDeleteEvent={handleDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
