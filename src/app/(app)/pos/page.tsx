@@ -974,21 +974,19 @@ export default function POSPage() {
 
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
-
+    
     const payerClient = client;
 
-    if (!payerClient && appointmentsData.length === 0 && retailItems.length === 0) {
-        toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
+    if (!payerClient) {
+        if(appointmentsData.length > 0) {
+            toast({ variant: 'destructive', title: 'Payer Not Selected', description: 'Please select who is paying for this group.' });
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
+        }
         setIsSubmitting(false);
         return;
     }
     
-    if (!payerClient) {
-        onOpenChange(false);
-        setIsSubmitting(false);
-        return;
-    }
-
     if (!firestore || !tenantId || !selectedTenant) {
         toast({ variant: 'destructive', title: 'Database Error' });
         setIsSubmitting(false);
@@ -1001,11 +999,11 @@ export default function POSPage() {
 
         const primaryAppointmentData = appointmentsData.length > 0 ? appointmentsData[0] : null;
         const primaryStaffId = primaryAppointmentData?.staffId || staff.find(s => s.role === 'admin')?.id || staff[0]?.id;
-        const primaryAppointmentId = primaryAppointmentData?.id;
+        const primaryAppointmentId = primaryAppointmentData?.appointment.id;
 
         // Process appointments
-        for (const appointmentData of appointmentsData) {
-            const { appointment: currentAppointment, service: currentService } = appointmentData;
+        for (const data of appointmentsData) {
+            const { appointment: currentAppointment, service: currentService } = data;
             if (!currentAppointment || !currentService) continue;
             
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
@@ -1112,8 +1110,10 @@ export default function POSPage() {
             });
         });
 
-        // Create transactions for cart items (retail, memberships, packages)
+        // Create transactions for cart items (retail, memberships, packages) and update client
         cart.forEach(item => {
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
+
             if (item.type === 'product') {
                 const product = inventory.find(p => p.id === item.id);
                 if (product) {
@@ -1138,12 +1138,12 @@ export default function POSPage() {
                         totalStock: increment(-item.quantity)
                     });
                 }
-            } else if (item.type === 'membership' || item.type === 'package') {
+            } else if (item.type === 'membership') {
                 const price = item.price || 0;
                 if (price > 0) {
                     createTransaction({
                         description: `Purchase: ${item.name}`,
-                        category: item.type === 'membership' ? 'Membership Sales' : 'Package Sales',
+                        category: 'Membership Sales',
                         amount: price,
                         staffId: primaryStaffId,
                         clientOrVendor: payerClient.name,
@@ -1153,6 +1153,32 @@ export default function POSPage() {
                         paymentMethod: checkoutDetails.paymentMethod,
                         hasReceipt: true,
                     });
+                }
+                batch.update(clientDocRef, { activeMembershipId: item.id });
+
+            } else if (item.type === 'package') {
+                const price = item.price || 0;
+                if (price > 0) {
+                    createTransaction({
+                        description: `Purchase: ${item.name}`,
+                        category: 'Package Sales',
+                        amount: price,
+                        staffId: primaryStaffId,
+                        clientOrVendor: payerClient.name,
+                        clientId: payerClient.id,
+                        type: 'income',
+                        context: 'Business',
+                        paymentMethod: checkoutDetails.paymentMethod,
+                        hasReceipt: true,
+                    });
+                }
+                const packageDetails = packages.find(p => p.id === item.id);
+                if (packageDetails) {
+                    const newPackage = {
+                        packageId: item.id,
+                        sessionsRemaining: packageDetails.sessions
+                    };
+                    batch.update(clientDocRef, { activePackages: arrayUnion(newPackage) });
                 }
             } else if (item.type === 'service') {
                  const price = item.price || 0;
@@ -1449,7 +1475,7 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        adjustments: checkoutSummary.adjustments,
+        adjustments,
         appliedAdjustments,
         onApplyAdjustmentToggle: handleAdjustmentToggle,
         absorbedCost,
