@@ -316,7 +316,7 @@ function PlannerPageContent() {
     const dayStart = startOfDay(currentDate);
     const dayEnd = endOfDay(currentDate);
     return transactions.filter(t => {
-      const transactionDate = (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date as any);
+      const transactionDate = t.date;
       return transactionDate >= dayStart && transactionDate <= dayEnd;
     });
   }, [transactions, currentDate]);
