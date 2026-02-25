@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -237,7 +236,8 @@ export const CheckoutHub = ({
                                 const packageDetails = packages.find(pkg => pkg.id === p.packageId);
                                 return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
                             });
-                             const redeemablePackage = packagePerk ? packages.find(p => p.id === packagePerk.packageId) : null;
+
+                            const hasPerk = !!membershipPerk || !!packagePerk;
                             
                             const handleRedeem = () => {
                                 if (isRedeemed) {
@@ -249,32 +249,55 @@ export const CheckoutHub = ({
                                 }
                             };
                             
-                            return (
-                                <div key={data.id} className="text-sm">
-                                    <div className="flex items-center gap-2">
+                            if (!hasPerk) {
+                                return (
+                                    <div key={data.id} className="text-sm flex items-center gap-2">
                                         <p className="flex-1">
                                             {service.name}
                                             {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({client.name})</span>}
                                         </p>
-                                        <p className={cn("font-semibold", isRedeemed && "line-through text-muted-foreground")}>
+                                        <p className="font-semibold">
                                             ${(service.price || 0).toFixed(2)}
                                         </p>
                                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
                                     </div>
-                                    {isRedeemed && (
-                                        <div className="flex items-center justify-end gap-2 text-primary font-semibold">
-                                            <span>Redeemed</span>
-                                            <span>$0.00</span>
+                                )
+                            }
+                        
+                            return (
+                                <Card key={data.id} className={cn("overflow-hidden", isRedeemed ? "bg-primary/5 border-primary/20" : "")}>
+                                    <CardContent className="p-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                                <p className="font-medium">
+                                                    {service.name}
+                                                    {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({client.name})</span>}
+                                                </p>
+                                                <p className={cn("text-sm font-semibold", isRedeemed && "line-through text-muted-foreground")}>
+                                                    ${(service.price || 0).toFixed(2)}
+                                                </p>
+                                            </div>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
                                         </div>
-                                    )}
-                                    {(membershipPerk || packagePerk) && (
-                                         <div className="text-right mt-1">
-                                            <Button variant="link" size="xs" onClick={handleRedeem} className="p-0 h-auto">
-                                            {isRedeemed ? 'Undo' : (membershipPerk ? 'Redeem Perk' : `Use 1 Session (of ${packagePerk?.sessionsRemaining})`)}
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
+
+                                        {isRedeemed ? (
+                                            <div className="mt-2 p-2 rounded-md bg-green-500/10 text-green-700 dark:text-green-300 flex items-center justify-between">
+                                                <div className="flex items-center gap-2 font-semibold">
+                                                    <CheckCircle className="w-4 h-4" />
+                                                    Perk Redeemed
+                                                </div>
+                                                <Button variant="link" size="xs" onClick={handleRedeem} className="p-0 h-auto text-green-700 dark:text-green-300">Undo</Button>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-2">
+                                                <Button variant="outline" size="sm" className="w-full" onClick={handleRedeem}>
+                                                    {membershipPerk && <><Award className="w-4 h-4 mr-2"/>Redeem Membership Perk</>}
+                                                    {packagePerk && <><Repeat className="w-4 h-4 mr-2"/>Use 1 Session (of {packagePerk.sessionsRemaining})</>}
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
                             )
                         })}
                     </div>
