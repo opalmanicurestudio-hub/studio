@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -200,18 +199,17 @@ export default function POSPage() {
     
     useEffect(() => {
         const appointmentId = searchParams.get('checkout_id');
-        if (appointmentId && !selectedAppointmentIds.has(appointmentId)) {
-            const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-            if (appointmentToSelect) {
-                const newIds = new Set(selectedAppointmentIds);
-                newIds.add(appointmentId);
-                setSelectedAppointmentIds(newIds);
-                const newUrl = new URL(window.location.href);
-                newUrl.searchParams.delete('checkout_id');
-                router.replace(newUrl.toString(), { scroll: false });
-            }
+        if (appointmentId && readyForCheckoutAppointments.find(apt => apt.id === appointmentId) && !selectedAppointmentIds.has(appointmentId)) {
+            const newIds = new Set(selectedAppointmentIds);
+            newIds.add(appointmentId);
+            setSelectedAppointmentIds(newIds);
+            // Clean up URL
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.delete('checkout_id');
+            router.replace(newUrl.toString(), { scroll: false });
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
+
 
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
@@ -951,9 +949,10 @@ export default function POSPage() {
             title: `Return ${walkIn.customerName} to Queue?`,
             description: `This will move the client back to the 'Waiting' list and free up the assigned staff member.`,
             onConfirm: async () => {
+                const batch = writeBatch(firestore);
+
                 const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-                
-                await updateDocumentNonBlocking(walkInRef, { 
+                batch.update(walkInRef, { 
                     status: 'waiting',
                     assignedStaffId: deleteField(),
                     notifiedTimestamp: deleteField(),
@@ -962,14 +961,25 @@ export default function POSPage() {
     
                 if (walkIn.assignedStaffId) {
                     const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
-                    await updateDocumentNonBlocking(staffRef, { status: 'idle' });
+                    batch.update(staffRef, { status: 'idle' });
                 }
     
-                toast({
-                    title: "Returned to Queue",
-                    description: `${walkIn.customerName} is now back in the waiting list.`,
-                });
-                setConfirmation(null);
+                try {
+                    await batch.commit();
+                    toast({
+                        title: "Returned to Queue",
+                        description: `${walkIn.customerName} is now back in the waiting list.`,
+                    });
+                } catch (error) {
+                     console.error("Error returning to queue:", error);
+                    toast({
+                        variant: "destructive",
+                        title: "Error",
+                        description: "Could not return client to queue."
+                    });
+                } finally {
+                    setConfirmation(null);
+                }
             }
         });
     };
@@ -1077,7 +1087,7 @@ export default function POSPage() {
         // Create transactions for services
         appointmentsData.forEach(appointmentData => {
             const { service, addOnServices, staffId, id, client: aptClient } = appointmentData;
-            const serviceRevenue = redeemedOffer?.id === service.id ? 0 : service.price || 0;
+            const servicePrice = redeemedOffer?.id === service.id ? 0 : service.price || 0;
             
             const transactionBase = {
                 clientOrVendor: aptClient?.name || 'Walk-in Customer',
@@ -1090,9 +1100,9 @@ export default function POSPage() {
                 discountAmount: totalDiscount > 0 ? totalDiscount / (appointmentsData.length + retailItems.length) : undefined, // crude distribution
             };
 
-            if (serviceRevenue > 0) createTransaction({
+            if (servicePrice > 0) createTransaction({
                 ...transactionBase,
-                description: `Service: ${service?.name}`, category: 'Service Revenue', amount: serviceRevenue, staffId, appointmentId: id,
+                description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId, appointmentId: id,
             });
 
             addOnServices.forEach(addon => {
@@ -1157,7 +1167,14 @@ export default function POSPage() {
                         hasReceipt: true,
                     });
                 }
-                if (clientRef) batch.update(clientRef, { activeMembershipId: item.id });
+                if (clientRef) batch.update(clientRef, { 
+                    activeMembershipId: item.id,
+                    subscription: {
+                        membershipId: item.id,
+                        status: 'active',
+                        nextBillingDate: addMonths(new Date(), 1).toISOString(),
+                    }
+                 });
 
             } else if (item.type === 'package') {
                 const price = item.price || 0;
@@ -1262,8 +1279,8 @@ export default function POSPage() {
                         redeemedOfferData.sessionsRemaining = packageUsed.sessionsRemaining - 1;
                         redeemedOfferData.offeringName = packages.find(p => p.id === packageUsed.packageId)?.name;
                     }
-                } else { // membership
-                    const membershipDetails = memberships.find(m => m.id === client.activeMembershipId);
+                } else if(redeemedOffer.type === 'membership') {
+                    const membershipDetails = memberships.find(m => m.id === client?.activeMembershipId);
                     if(membershipDetails) {
                        redeemedOfferData.offeringName = membershipDetails.name;
                     }
@@ -1282,146 +1299,6 @@ export default function POSPage() {
           setIsSubmitting(false);
       }
     };
-    
-    const handleStartService = (appointmentId: string) => {
-        if (!firestore || !selectedTenant || !walkIns) return;
-
-        let appointmentToStart = appointments?.find(apt => apt.id === appointmentId);
-        
-        if (!appointmentToStart) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkIn = walkIns.find(w => w.id === walkInId);
-
-            if (walkIn) {
-                appointmentToStart = {
-                    id: appointmentId,
-                    clientId: walkIn.clientId || walkIn.id,
-                    clientName: walkIn.customerName,
-                    serviceId: walkIn.serviceIds[0],
-                    staffId: walkIn.assignedStaffId,
-                    isWalkIn: true,
-                    startTime: new Date(), 
-                    endTime: new Date(),
-                    status: 'confirmed',
-                    source: 'walk-in',
-                    tenantId: selectedTenant.id,
-                };
-            }
-        }
-
-        if (!appointmentToStart) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Could not find appointment to start. Please try again in a moment.',
-            });
-            return;
-        }
-
-        const nowISO = new Date().toISOString();
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
-
-        updateDocumentNonBlocking(appointmentRef, {
-            status: 'servicing',
-            actualStartTime: nowISO
-        });
-
-        if (appointmentToStart.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointmentToStart.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-        }
-
-        if (appointmentToStart.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, {
-                status: 'servicing',
-                serviceStartTime: nowISO,
-            });
-        }
-        
-        toast({
-            title: "Service Started!",
-            description: `The service for ${appointmentToStart.clientName} has begun.`
-        });
-    };
-
-    const handleSendToCheckout = (appointment: Appointment) => {
-        if (!firestore || !selectedTenant) return;
-
-        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
-        updateDocumentNonBlocking(appointmentRef, {
-            status: 'ready_for_checkout',
-            actualEndTime: new Date().toISOString()
-        });
-
-        if (appointment.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', appointment.staffId);
-            updateDocumentNonBlocking(staffDocRef, { status: 'idle' });
-        }
-
-        if (appointment.isWalkIn) {
-            const walkInId = appointment.id.replace('apt-walkin-', '');
-            const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-            updateDocumentNonBlocking(walkInRef, { status: 'ready_for_checkout' });
-        }
-
-        toast({
-            title: 'Ready for Checkout',
-            description: `${appointment.clientName} has been sent to the checkout queue.`
-        });
-    };
-    
-    useEffect(() => {
-        if (scannedData) {
-            handleScan(scannedData);
-            setScannedData(null); // Reset after processing
-        }
-    }, [scannedData, handleScan]);
-    
-    useEffect(() => {
-        let html5QrCode: Html5Qrcode | undefined;
-        if (isScannerOpen) {
-          const timer = setTimeout(() => {
-            const element = document.getElementById('qr-reader-pos');
-            if (element) {
-                html5QrCode = new Html5Qrcode('qr-reader-pos');
-                const onScanSuccess = (decodedText: string, decodedResult: any) => {
-                    if (html5QrCode?.isScanning) {
-                        html5QrCode.stop().catch(console.error);
-                    }
-                    setScannedData(decodedText);
-                    setIsScannerOpen(false);
-                };
-
-                const onScanFailure = (error: any) => { /* ignore */ };
-                
-                setTimeout(() => {
-                    html5QrCode?.start(
-                        { facingMode: "environment" },
-                        { fps: 10, qrbox: { width: 250, height: 250 } },
-                        onScanSuccess,
-                        onScanFailure
-                    ).catch(err => {
-                        toast({
-                            variant: 'destructive',
-                            title: 'Camera Error',
-                            description: 'Could not start the camera. Please check permissions and try again.',
-                        });
-                        setIsScannerOpen(false);
-                    });
-                }, 300);
-            }
-          }, 100); 
-
-          return () => {
-              clearTimeout(timer);
-              if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => console.error("Failed to stop QR scanner.", err));
-              }
-          };
-        }
-    }, [isScannerOpen, handleScan, toast]);
     
     const handleAddClient = (data: ClientFormData) => {
         if (!firestore || !selectedTenant) return;
