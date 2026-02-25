@@ -1228,7 +1228,7 @@ export default function POSPage() {
             business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
             clientName: payerClient?.name || 'Walk-in Customer', date: now, 
             items: allCartItems.map(item => ({...item, isDiscount: false})),
-            subtotal, discount: totalDiscount, tax: mockTax, tip: tipAmount, total,
+            subtotal, discount: totalDiscount, tax, tip: tipAmount, total,
             payment: {
                 method: checkoutDetails.paymentMethod,
                 amountTendered: checkoutDetails.paymentMethod === 'cash' ? (checkoutDetails.amountTendered || total) : total,
@@ -1713,3 +1713,4 @@ export default function POSPage() {
         </>
     );
 }
+
