@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState } from 'react';
@@ -9,10 +8,16 @@ import { PlusCircle, Award, Repeat } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MembershipCard } from '@/components/memberships/MembershipCard';
 import { PackageCard } from '@/components/memberships/PackageCard';
-import { memberships, packages, type Membership, type Package } from '@/lib/data';
+import { type Membership, type Package } from '@/lib/data';
 import { AddMembershipDialog } from '@/components/memberships/AddMembershipDialog';
 import { AddPackageDialog } from '@/components/memberships/AddPackageDialog';
 import { ActiveUsersDialog } from '@/components/memberships/ActiveUsersDialog';
+import { useInventory } from '@/context/InventoryContext';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { collection, doc } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
+import { useToast } from '@/hooks/use-toast';
 
 const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: () => void }) => {
   const Icon = type === 'membership' ? Award : Repeat;
@@ -39,8 +44,11 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
 
 const MembershipsPage = () => {
   const [activeTab, setActiveTab] = useState('memberships');
-  const [allMemberships, setAllMemberships] = useState<Membership[]>(memberships);
-  const [allPackages, setAllPackages] = useState<Package[]>(packages);
+  const { memberships: allMemberships, packages: allPackages } = useInventory();
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { toast } = useToast();
+  const tenantId = selectedTenant?.id;
   
   const [isAddMembershipOpen, setIsAddMembershipOpen] = useState(false);
   const [isAddPackageOpen, setIsAddPackageOpen] = useState(false);
@@ -71,26 +79,50 @@ const MembershipsPage = () => {
   };
   
   const handleDeleteMembership = (id: string) => {
-    setAllMemberships(prev => prev.filter(m => m.id !== id));
+    if (!firestore || !tenantId) return;
+    const membershipRef = doc(firestore, 'tenants', tenantId, 'memberships', id);
+    deleteDocumentNonBlocking(membershipRef);
+    toast({
+        variant: "destructive",
+        title: "Membership Deleted",
+    });
   };
   
   const handleDeletePackage = (id: string) => {
-    setAllPackages(prev => prev.filter(p => p.id !== id));
+    if (!firestore || !tenantId) return;
+    const packageRef = doc(firestore, 'tenants', tenantId, 'packages', id);
+    deleteDocumentNonBlocking(packageRef);
+    toast({
+        variant: "destructive",
+        title: "Package Deleted",
+    });
   };
 
   const handleSaveMembership = (membership: Membership) => {
+    if (!firestore || !tenantId) return;
     if (editingMembership) {
-      setAllMemberships(prev => prev.map(m => m.id === membership.id ? membership : m));
+        const membershipRef = doc(firestore, 'tenants', tenantId, 'memberships', membership.id);
+        updateDocumentNonBlocking(membershipRef, membership);
+        toast({ title: 'Membership Updated' });
     } else {
-      setAllMemberships(prev => [...prev, { ...membership, id: `mem-${Date.now()}` }]);
+      const newMembership = { ...membership, id: `mem-${nanoid()}` };
+      const membershipRef = doc(firestore, 'tenants', tenantId, 'memberships', newMembership.id);
+      setDocumentNonBlocking(membershipRef, newMembership, {});
+      toast({ title: 'Membership Created' });
     }
   };
 
   const handleSavePackage = (pack: Package) => {
-     if (editingPackage) {
-      setAllPackages(prev => prev.map(p => p.id === pack.id ? pack : p));
+    if (!firestore || !tenantId) return;
+    if (editingPackage) {
+        const packageRef = doc(firestore, 'tenants', tenantId, 'packages', pack.id);
+        updateDocumentNonBlocking(packageRef, pack);
+        toast({ title: 'Package Updated' });
     } else {
-      setAllPackages(prev => [...prev, { ...pack, id: `pkg-${Date.now()}` }]);
+      const newPackage = { ...pack, id: `pkg-${nanoid()}` };
+      const packageRef = doc(firestore, 'tenants', tenantId, 'packages', newPackage.id);
+      setDocumentNonBlocking(packageRef, newPackage, {});
+      toast({ title: 'Package Created' });
     }
   };
 
@@ -118,7 +150,7 @@ const MembershipsPage = () => {
           </TabsList>
           <TabsContent value="memberships" className="mt-6">
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {allMemberships.length > 0 ? (
+              {allMemberships && allMemberships.length > 0 ? (
                 allMemberships.map(membership => (
                   <MembershipCard 
                     key={membership.id} 
@@ -135,7 +167,7 @@ const MembershipsPage = () => {
           </TabsContent>
           <TabsContent value="packages" className="mt-6">
              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {allPackages.length > 0 ? (
+              {allPackages && allPackages.length > 0 ? (
                 allPackages.map(pack => (
                   <PackageCard 
                     key={pack.id} 
