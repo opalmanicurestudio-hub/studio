@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -33,11 +34,12 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Membership, type Service, type InventoryItem, services, inventory } from '@/lib/data';
+import { type Membership, type Service, type InventoryItem } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { useInventory } from '@/context/InventoryContext';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -92,6 +94,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   membershipToEdit,
 }) => {
   const isMobile = useIsMobile();
+  const { services, inventory } = useInventory();
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -215,7 +218,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                     {includedServices.map(s => (
                         <div key={s.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
                             <span className="text-sm">{s.name}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('service', s.id)}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('service', s.id)}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                     ))}
                     </div>
