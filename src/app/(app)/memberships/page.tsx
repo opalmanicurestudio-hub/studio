@@ -212,3 +212,5 @@ const MembershipsPage = () => {
     </div>
   );
 };
+
+export default MembershipsPage;
