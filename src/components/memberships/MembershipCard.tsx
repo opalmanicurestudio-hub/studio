@@ -6,19 +6,23 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent } from 'lucide-react';
-import { type Membership } from '@/lib/data';
+import { type Membership, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface MembershipCardProps {
   membership: Membership;
+  clients: Client[];
   onEdit: (membership: Membership) => void;
   onViewUsers: (membership: Membership) => void;
   onDelete: (id: string) => void;
 }
 
-export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEdit, onViewUsers, onDelete }) => {
-  const activeMembers = 12; // Mock data
+export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clients, onEdit, onViewUsers, onDelete }) => {
+  const activeMembers = useMemo(() => {
+    return clients.filter(c => c.activeMembershipId === membership.id).length;
+  }, [clients, membership.id]);
+
   const mrr = activeMembers * membership.price;
 
   const { costOfPerks, netProfit, profitMargin } = useMemo(() => {

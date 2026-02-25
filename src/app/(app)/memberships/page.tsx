@@ -9,7 +9,7 @@ import { PlusCircle, Award, Repeat } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MembershipCard } from '@/components/memberships/MembershipCard';
 import { PackageCard } from '@/components/memberships/PackageCard';
-import { type Membership, type Package } from '@/lib/data';
+import { type Membership, type Package, type Client } from '@/lib/data';
 import { AddMembershipDialog } from '@/components/memberships/AddMembershipDialog';
 import { AddPackageDialog } from '@/components/memberships/AddPackageDialog';
 import { ActiveUsersDialog } from '@/components/memberships/ActiveUsersDialog';
@@ -45,7 +45,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
 
 const MembershipsPage = () => {
   const [activeTab, setActiveTab] = useState('memberships');
-  const { services, memberships: allMemberships, packages: allPackages } = useInventory();
+  const { services, memberships: allMemberships, packages: allPackages, clients } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -155,7 +155,8 @@ const MembershipsPage = () => {
                 allMemberships.map(membership => (
                   <MembershipCard 
                     key={membership.id} 
-                    membership={membership} 
+                    membership={membership}
+                    clients={clients || []}
                     onEdit={handleEditMembership}
                     onViewUsers={setViewingUsersFor}
                     onDelete={handleDeleteMembership}
@@ -174,6 +175,7 @@ const MembershipsPage = () => {
                     key={pack.id} 
                     pack={pack} 
                     services={services}
+                    clients={clients || []}
                     onEdit={handleEditPackage}
                     onViewUsers={setViewingUsersFor}
                     onDelete={handleDeletePackage}
@@ -210,5 +212,3 @@ const MembershipsPage = () => {
     </div>
   );
 };
-
-export default MembershipsPage;
