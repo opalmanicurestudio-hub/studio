@@ -10,8 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { format, parseISO } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star } from 'lucide-react';
+import { format, parseISO, subMonths, isAfter } from 'date-fns';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -58,6 +58,14 @@ export default function ClientPortalPage() {
         return memberships.find(m => m.id === client.subscription!.membershipId);
     }, [client, memberships]);
 
+    const isPerkUsedThisCycle = useMemo(() => {
+        if (!client?.subscription?.perkLastUsed || !client?.subscription?.nextBillingDate) return false;
+        const lastUsed = parseISO(client.subscription.perkLastUsed);
+        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const lastBilling = subMonths(nextBilling, 1);
+        return isAfter(lastUsed, lastBilling);
+    }, [client?.subscription]);
+
     if (clientLoading || appointmentsLoading) {
         return (
             <div className="flex h-screen w-full items-center justify-center">
@@ -71,10 +79,17 @@ export default function ClientPortalPage() {
     return (
         <div className="space-y-8 pb-20">
             <header className="flex flex-col md:flex-row items-center gap-6">
-                <Avatar className="w-24 h-24 border-4 border-background shadow-lg">
-                    <AvatarImage src={client.avatarUrl} />
-                    <AvatarFallback>{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <div className="relative">
+                    <Avatar className="w-24 h-24 border-4 border-background shadow-lg">
+                        <AvatarImage src={client.avatarUrl} />
+                        <AvatarFallback>{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    {activeMembership && (
+                        <Badge className="absolute -top-2 -right-2 bg-indigo-600 text-white border-2 border-background shadow-md">
+                            <Award className="w-3 h-3 mr-1" /> Member
+                        </Badge>
+                    )}
+                </div>
                 <div className="text-center md:text-left space-y-1">
                     <h1 className="text-3xl font-bold tracking-tight">Hello, {client.name.split(' ')[0]}!</h1>
                     <p className="text-muted-foreground">Manage your information and view your benefits at {tenant?.name}.</p>
@@ -87,19 +102,35 @@ export default function ClientPortalPage() {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-primary/5 border-primary/20">
+                <Card className="bg-primary/5 border-primary/20 overflow-hidden">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2"><Award className="w-4 h-4 text-primary" /> Active Membership</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2"><Award className="w-4 h-4 text-primary" /> Membership</CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-3">
                         {activeMembership ? (
-                            <div className="space-y-1">
-                                <p className="text-xl font-bold">{activeMembership.name}</p>
-                                <Badge variant={client.subscription?.status === 'active' ? 'default' : 'destructive'} className="capitalize">
-                                    {client.subscription?.status}
-                                </Badge>
-                                <p className="text-xs text-muted-foreground pt-2">Next billing: {client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
-                            </div>
+                            <>
+                                <div className="space-y-1">
+                                    <p className="text-xl font-bold">{activeMembership.name}</p>
+                                    <Badge variant={client.subscription?.status === 'active' ? 'default' : 'destructive'} className="capitalize">
+                                        {client.subscription?.status}
+                                    </Badge>
+                                </div>
+                                <div className="pt-2 border-t space-y-2">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perk</p>
+                                    {isPerkUsedThisCycle ? (
+                                        <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                            <CheckCircle className="w-4 h-4" />
+                                            <span className="text-sm font-medium">Redeemed for this cycle</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                                            <Star className="w-4 h-4 animate-pulse" />
+                                            <span className="text-sm font-bold underline decoration-indigo-500/30">Available to use!</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground pt-1">Next billing: {client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
+                            </>
                         ) : (
                             <p className="text-sm text-muted-foreground">No active membership.</p>
                         )}
@@ -213,25 +244,33 @@ export default function ClientPortalPage() {
                             <h3 className="text-lg font-bold mb-4">Membership Inclusions</h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 {(activeMembership.includedServices || []).map(s => (
-                                    <Card key={s.id} className="bg-indigo-500/5">
+                                    <Card key={s.id} className="bg-indigo-500/5 border-indigo-500/10">
                                         <CardContent className="p-4 flex justify-between items-center">
                                             <div className="flex items-center gap-3">
-                                                <Star className="w-5 h-5 text-indigo-500" />
+                                                <div className={cn("p-2 rounded-full", isPerkUsedThisCycle ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                    {isPerkUsedThisCycle ? <CheckCircle className="w-5 h-5" /> : <Star className="w-5 h-5" />}
+                                                </div>
                                                 <div>
                                                     <p className="font-bold text-sm">1x {s.name}</p>
                                                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month</p>
                                                 </div>
                                             </div>
-                                            {client.subscription?.perkLastUsed && (
-                                                <p className="text-[10px] text-muted-foreground">Last used: {format(parseISO(client.subscription.perkLastUsed), 'MMM d')}</p>
-                                            )}
+                                            <div className="text-right">
+                                                {isPerkUsedThisCycle ? (
+                                                    <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
+                                                ) : (
+                                                    <Badge variant="default" className="text-[10px] bg-indigo-600">Available</Badge>
+                                                )}
+                                            </div>
                                         </CardContent>
                                     </Card>
                                 ))}
                                 {activeMembership.retailDiscount && (
-                                    <Card className="bg-indigo-500/5">
+                                    <Card className="bg-indigo-500/5 border-indigo-500/10">
                                         <CardContent className="p-4 flex items-center gap-3">
-                                            <Percent className="w-5 h-5 text-indigo-500" />
+                                            <div className="p-2 rounded-full bg-indigo-500/10 text-indigo-600">
+                                                <Percent className="w-5 h-5" />
+                                            </div>
                                             <div>
                                                 <p className="font-bold text-sm">{activeMembership.retailDiscount}% Off All Retail</p>
                                                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Always Active</p>

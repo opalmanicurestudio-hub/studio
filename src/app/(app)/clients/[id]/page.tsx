@@ -17,7 +17,7 @@ import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConi
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, addMonths } from 'date-fns';
+import { format, parseISO, addMonths, subMonths, isAfter } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -370,6 +370,19 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
+  const activeMembership = useMemo(() => {
+    if (!client?.subscription || !memberships) return null;
+    return memberships.find(m => m.id === client.subscription!.membershipId);
+  }, [client, memberships]);
+
+  const isPerkUsedThisCycle = useMemo(() => {
+    if (!client?.subscription?.perkLastUsed || !client?.subscription?.nextBillingDate) return false;
+    const lastUsed = parseISO(client.subscription.perkLastUsed);
+    const nextBilling = parseISO(client.subscription.nextBillingDate);
+    const lastBilling = subMonths(nextBilling, 1);
+    return isAfter(lastUsed, lastBilling);
+  }, [client?.subscription]);
+
   const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || discountsLoading;
 
   if (isLoading) {
@@ -589,12 +602,22 @@ export default function ClientDetailPage() {
             
             <Card>
                  <CardContent className="p-6 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
-                    <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
-                    </Avatar>
+                    <div className="relative">
+                        <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
+                            <AvatarImage src={client.avatarUrl} alt={client.name} />
+                            <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
+                        </Avatar>
+                        {activeMembership && (
+                            <Badge className="absolute -top-2 -right-2 bg-indigo-600 text-white border-2 border-background shadow-md">
+                                <Award className="w-3 h-3 mr-1" /> Member
+                            </Badge>
+                        )}
+                    </div>
                     <div className="space-y-2 flex-1">
-                        <h1 className="text-2xl font-bold">{client.name}</h1>
+                        <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-2">
+                            <h1 className="text-2xl font-bold">{client.name}</h1>
+                            {activeMembership && <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">Active Member</Badge>}
+                        </div>
                         <div className="text-muted-foreground space-y-2">
                             <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 break-all hover:text-primary transition-colors">
                                 <Mail className="w-4 h-4 flex-shrink-0" />
@@ -652,69 +675,65 @@ export default function ClientDetailPage() {
                                <Card>
                                   <CardHeader><CardTitle>Active Offers</CardTitle></CardHeader>
                                   <CardContent>
-                                    {(!client.subscription && (!client.activePackages || client.activePackages.length === 0)) ? (
+                                    {(!activeMembership && (!client.activePackages || client.activePackages.length === 0)) ? (
                                         <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
                                     ) : (
                                         <div className="space-y-4">
-                                            {client.subscription && memberships && (() => {
-                                                const membership = memberships.find(m => m.id === client.subscription!.membershipId);
-                                                if (!membership) return null;
-                                                const status = client.subscription!.status;
-                                                return (
-                                                    <div className={cn("p-4 rounded-lg border", {
-                                                        'bg-purple-500/10 border-purple-500/20': status === 'active',
-                                                        'bg-amber-500/10 border-amber-500/20': status === 'past_due',
-                                                        'bg-muted/50': status === 'canceled',
-                                                    })}>
-                                                         <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
-                                                                <p className="font-bold text-lg mt-1">{membership.name}</p>
-                                                            </div>
-                                                            <DropdownMenu>
-                                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
-                                                                <DropdownMenuContent>
-                                                                    {status !== 'past_due' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
-                                                                    {status !== 'canceled' && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
-                                                                    {status !== 'active' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
-                                                                </DropdownMenuContent>
-                                                            </DropdownMenu>
-                                                         </div>
-                                                        <p className="text-xs text-muted-foreground">{membership.description}</p>
-                                                        
-                                                        <div className="mt-4 pt-4 border-t border-purple-500/20 space-y-3">
-                                                            <div className="flex justify-between items-center text-sm">
-                                                                <span className="font-medium">Status</span>
-                                                                <Badge variant={status === 'active' ? 'default' : 'destructive'} className={cn(
-                                                                    {'bg-green-100 text-green-800': status === 'active'},
-                                                                    {'bg-amber-100 text-amber-800': status === 'past_due'},
-                                                                    {'bg-red-100 text-red-800': status === 'canceled'},
-                                                                )}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
-                                                            </div>
-                                                            <div className="flex justify-between items-center text-sm">
-                                                                <span className="font-medium">Next Billing Date</span>
-                                                                <span className="font-semibold">{format(parseISO(client.subscription.nextBillingDate), 'PPP')}</span>
-                                                            </div>
+                                            {activeMembership && client.subscription && (
+                                                <div className={cn("p-4 rounded-lg border", {
+                                                    'bg-indigo-500/10 border-indigo-500/20': client.subscription.status === 'active',
+                                                    'bg-amber-500/10 border-amber-500/20': client.subscription.status === 'past_due',
+                                                    'bg-muted/50': client.subscription.status === 'canceled',
+                                                })}>
+                                                     <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h4 className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
+                                                            <p className="font-bold text-lg mt-1">{activeMembership.name}</p>
+                                                        </div>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
+                                                            <DropdownMenuContent>
+                                                                {client.subscription.status !== 'past_due' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
+                                                                {client.subscription.status !== 'canceled' && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
+                                                                {client.subscription.status !== 'active' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                     </div>
+                                                    
+                                                    <div className="mt-4 grid grid-cols-2 gap-4">
+                                                        <div className="space-y-1">
+                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Perk Status</p>
+                                                            {isPerkUsedThisCycle ? (
+                                                                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                                                                    Redeemed {format(parseISO(client.subscription.perkLastUsed!), 'MMM d')}
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="default" className="bg-indigo-600">Ready to Use</Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="space-y-1 text-right">
+                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Next Bill</p>
+                                                            <p className="text-sm font-semibold">{format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy')}</p>
                                                         </div>
                                                     </div>
-                                                )
-                                            })()}
+                                                </div>
+                                            )}
                                             {(client.activePackages && client.activePackages.length > 0) && (
                                                 <div className="space-y-2">
-                                                    <h4 className="font-semibold">Active Packages</h4>
+                                                    <h4 className="font-semibold text-sm">Active Packages</h4>
                                                     {client.activePackages.map((pack, index) => {
                                                          const packageDetails = packages?.find(pkg => pkg.id === pack.packageId);
                                                          const serviceDetails = services?.find(s => s.id === packageDetails?.serviceId);
                                                          if (!packageDetails || !serviceDetails) return null;
                                                          return (
-                                                            <div key={index} className="p-3 rounded-md bg-muted/50 flex justify-between items-center">
+                                                            <div key={index} className="p-3 rounded-md bg-muted/50 flex justify-between items-center border">
                                                                 <div>
                                                                     <p className="font-medium text-sm flex items-center gap-2"><Repeat className="w-4 h-4 text-teal-500" /> {packageDetails.name}</p>
-                                                                    <p className="text-xs text-muted-foreground pl-6">Includes: {serviceDetails.name}</p>
+                                                                    <p className="text-[10px] text-muted-foreground pl-6">{serviceDetails.name}</p>
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <p className="font-bold text-lg">{pack.sessionsRemaining}<span className="text-sm font-normal text-muted-foreground"> / {packageDetails.sessions}</span></p>
-                                                                    <p className="text-xs text-muted-foreground">left</p>
+                                                                    <p className="text-[10px] text-muted-foreground uppercase">Left</p>
                                                                 </div>
                                                             </div>
                                                          )
@@ -756,7 +775,7 @@ export default function ClientDetailPage() {
                                         </>
                                     )}
                                   <CardFooter>
-                                      <Button disabled={!client.outstandingBalance || client.outstandingBalance === 0}>Settle Balance in POS</Button>
+                                      <Button disabled={!client.outstandingBalance || client.outstandingBalance === 0} className="w-full">Settle Balance in POS</Button>
                                   </CardFooter>
                               </Card>
                                <LoyaltyStatusCard client={client} appointments={pastAppointments} discounts={discounts || []} />
@@ -1061,4 +1080,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-
