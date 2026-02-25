@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -46,7 +45,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
-import { InServiceAppointmentCard } from '@/components/pos/InServiceCustomerCard';
+import { InServiceAppointmentCard } from '@/components/pos/InServiceAppointmentCard';
 import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 
 
@@ -202,17 +201,19 @@ export default function POSPage() {
         const appointmentId = searchParams.get('checkout_id');
         if (appointmentId) {
             const appointmentExists = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-            if (appointmentExists && !selectedAppointmentIds.has(appointmentId)) {
-                const newIds = new Set(selectedAppointmentIds);
-                newIds.add(appointmentId);
-                setSelectedAppointmentIds(newIds);
+            if (appointmentExists) {
+                setSelectedAppointmentIds(prev => {
+                    const newSet = new Set(prev);
+                    newSet.add(appointmentId);
+                    return newSet;
+                });
                 // Clean up URL after processing
                 const newUrl = new URL(window.location.href);
                 newUrl.searchParams.delete('checkout_id');
                 router.replace(newUrl.toString(), { scroll: false });
             }
         }
-    }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
+    }, [searchParams, readyForCheckoutAppointments, router]);
 
 
     const appointmentsData = useMemo(() => {
@@ -283,7 +284,7 @@ export default function POSPage() {
     
         return { adjustments };
     
-      }, [appointmentsData, services, inventory, selectedTenant?.tmhr]);
+      }, [appointmentsData, inventory, selectedTenant?.tmhr]);
 
     
     useEffect(() => {
@@ -345,7 +346,7 @@ export default function POSPage() {
             );
             setRetailItems(newCart);
         } else {
-            setRetailItems([...retailItems, { ...item, quantity: 1, price, type: itemType }]);
+            setRetailItems([...retailItems, { ...item, id: item.id, name: item.name, quantity: 1, price, type: itemType }]);
         }
     }, [retailItems]);
 
@@ -361,7 +362,6 @@ export default function POSPage() {
         }
         
         const cartItem: EditableFormulaItem = {
-            ...service,
             id: `${service.id}-${provider.id}-${nanoid()}`,
             name: `${service.name} (w/ ${provider.name.split(' ')[0]})`,
             price: finalPrice,
@@ -429,14 +429,16 @@ export default function POSPage() {
     }, [appointmentsData]);
     
     const handleSelectAppointment = useCallback((appointmentId: string) => {
-        const newSet = new Set(selectedAppointmentIds);
-        if (newSet.has(appointmentId)) {
-            newSet.delete(appointmentId);
-        } else {
-            newSet.add(appointmentId);
-        }
-        setSelectedAppointmentIds(newSet);
-    }, [selectedAppointmentIds]);
+        setSelectedAppointmentIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(appointmentId)) {
+                newSet.delete(appointmentId);
+            } else {
+                newSet.add(appointmentId);
+            }
+            return newSet;
+        });
+    }, []);
 
     const handleScan = useCallback((data: string) => {
       if (!inventory || !appointments) {
@@ -502,8 +504,8 @@ export default function POSPage() {
         return orderedStaff.map(member => {
             const staffAppointmentsToday = (appointments || []).filter(apt =>
                 apt.staffId === member.id &&
-                apt.startTime >= todayStart &&
-                apt.startTime <= todayEnd
+                new Date(apt.startTime) >= todayStart &&
+                new Date(apt.startTime) <= todayEnd
             );
             
             const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
@@ -603,12 +605,12 @@ export default function POSPage() {
             const staffAppointmentsToday = (appointments || []).filter(apt =>
                 apt.staffId === staff.id &&
                 apt.status === 'completed' &&
-                apt.startTime >= todayStart &&
-                apt.startTime <= todayEnd
+                new Date(apt.startTime) >= todayStart &&
+                new Date(apt.startTime) <= todayEnd
             );
             return total + staffAppointmentsToday.reduce((acc, apt) => {
                  if (apt.actualStartTime && apt.actualEndTime) {
-                    return acc + differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                    return acc + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
                  }
                  const service = services.find(s => s.id === apt.serviceId);
                  return acc + (service?.duration || 0);
@@ -830,7 +832,7 @@ export default function POSPage() {
             status: 'confirmed',
             source: 'walk-in',
             isWalkIn: true,
-            isPlaceholder: true, // This is a key addition
+            isPlaceholder: true,
             startTime: now.toISOString(),
             endTime: addMinutes(now, duration).toISOString(),
         };
@@ -1048,15 +1050,14 @@ export default function POSPage() {
         const nowISO = now.toISOString();
 
         const primaryAppointmentData = appointmentsData[0];
-        const primaryStaffId = primaryAppointmentData?.staffId || staff.find(s => s.role === 'admin')?.id || staff[0]?.id;
-        const primaryAppointmentId = primaryAppointmentData?.appointment.id;
+        const primaryStaffId = primaryAppointmentData?.staffId || (staff && staff.find(s => s.role === 'admin')?.id) || (staff && staff[0]?.id);
+        const primaryAppointmentId = primaryAppointmentData?.id;
         
         const clientDocRef = client ? doc(firestore, `tenants/${tenantId}/clients`, client.id) : null;
         let clientUpdates: Partial<Client> = {};
 
         // Process appointments
-        for (const data of appointmentsData) {
-            const { appointment: currentAppointment } = data;
+        for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
         }
@@ -1138,8 +1139,8 @@ export default function POSPage() {
         if (redeemedOffer && clientDocRef && client) {
             if (redeemedOffer.type === 'package') {
                 const packageUsed = client.activePackages?.find(p => {
-                    const pkgDetails = packages.find(pkg => pkg.id === p.packageId);
-                    return pkgDetails?.serviceId === redeemedOffer.id;
+                    const packageDetails = packages.find(pkg => pkg.id === p.packageId);
+                    return packageDetails?.serviceId === redeemedOffer.id;
                 });
                 
                 if (packageUsed) {
@@ -1350,7 +1351,7 @@ export default function POSPage() {
                                         <div className="flex space-x-4 pb-4">
                                             {inServiceQueue.map(appointment => (
                                                 <div key={appointment.id} className="w-72 shrink-0">
-                                                    <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => handleSendToCheckout(appointment)} />
+                                                    <InServiceAppointmentCard appointment={appointment} services={services} staff={staff} onSendToCheckout={() => {}} />
                                                 </div>
                                             ))}
                                         </div>
@@ -1531,4 +1532,3 @@ export default function POSPage() {
         </>
     );
 }
-
