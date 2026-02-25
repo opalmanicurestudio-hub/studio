@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -44,7 +45,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
 
 const MembershipsPage = () => {
   const [activeTab, setActiveTab] = useState('memberships');
-  const { memberships: allMemberships, packages: allPackages } = useInventory();
+  const { services, memberships: allMemberships, packages: allPackages } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -134,7 +135,7 @@ const MembershipsPage = () => {
           <div>
             <h1 className="text-3xl font-bold">Memberships & Packages</h1>
             <p className="text-muted-foreground mt-1">
-              Create and manage your recurring memberships and prepaid packages.
+              Create and manage your recurring memberships and prepaid service packages.
             </p>
           </div>
           <Button onClick={handleAddNew}>
@@ -172,6 +173,7 @@ const MembershipsPage = () => {
                   <PackageCard 
                     key={pack.id} 
                     pack={pack} 
+                    services={services}
                     onEdit={handleEditPackage}
                     onViewUsers={setViewingUsersFor}
                     onDelete={handleDeletePackage}

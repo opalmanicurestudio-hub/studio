@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -6,21 +5,22 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Repeat, Users, DollarSign, Trash2, Edit, FileCheck2 } from 'lucide-react';
-import { type Package, services } from '@/lib/data';
+import { type Package, type Service } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface PackageCardProps {
   pack: Package;
+  services: Service[];
   onEdit: (pack: Package) => void;
   onViewUsers: (pack: Package) => void;
   onDelete: (id: string) => void;
 }
 
-export const PackageCard: React.FC<PackageCardProps> = ({ pack, onEdit, onViewUsers, onDelete }) => {
+export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, onEdit, onViewUsers, onDelete }) => {
   const activePackages = 8; // Mock data
   const totalRevenue = activePackages * pack.price;
-  const primaryService = useMemo(() => services.find(s => s.id === pack.serviceId), [pack.serviceId]);
+  const primaryService = useMemo(() => services.find(s => s.id === pack.serviceId), [pack.serviceId, services]);
 
   const { netProfit, profitMargin } = useMemo(() => {
     if (!primaryService) return { netProfit: 0, profitMargin: 0 };
