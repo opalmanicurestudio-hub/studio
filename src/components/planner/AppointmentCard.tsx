@@ -662,6 +662,7 @@ export function AppointmentCard({
           >
             <div className="flex-1 min-w-0">
                 <p className="font-semibold text-xs leading-tight truncate">
+                  {client.activeMembershipId && <Award className="inline-block w-3 h-3 mr-1 text-indigo-500" />}
                   <span className="font-bold">{client.name}</span> &middot; <span className="text-muted-foreground">{service.name}</span>
                 </p>
                 {appointment.status === 'servicing' && elapsedTime ? (
@@ -709,6 +710,7 @@ export function AppointmentCard({
                   <div className='flex-1 min-w-0'>
                       <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
                         {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
+                        {client.activeMembershipId && <Award className="w-3 h-3 text-indigo-500" />}
                         {isBirthday && (<TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>)}
                         {appointment.inventoryProcessed === false && (
                           <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted for this appointment.</p></TooltipContent></Tooltip></TooltipProvider>
