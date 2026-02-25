@@ -1052,6 +1052,16 @@ export default function POSPage() {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
                 batch.update(checkInRef, { status: 'completed' });
             }
+            
+            // Fix Walk-in status if it's a walk-in appointment
+            if (currentAppointment.isWalkIn) {
+                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                batch.update(walkInRef, { 
+                    status: 'completed', 
+                    serviceEndTime: nowISO 
+                });
+            }
 
             // Professional Product Deduction from Formula
             if (currentAppointment.checkoutState?.formula) {

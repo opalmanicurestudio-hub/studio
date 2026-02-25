@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -171,44 +170,52 @@ function PlannerPageContent() {
     }));
   }, [eventsFromInventory]);
   
+  // Self-healing effect: Detect and resolve stuck appointments
   useEffect(() => {
-    const fromDate = subDays(new Date(), 7); 
-    const toDate = new Date();
-    
-    const stuckAppointments = (appointments || []).filter(apt => 
-      apt.status === 'ready_for_checkout' && 
-      apt.endTime > fromDate &&
-      apt.endTime < toDate &&
-      (differenceInHours(new Date(), apt.endTime) > 2)
-    );
-      
+    if (isLoading || !appointments || !transactions || !firestore || !tenantId) return;
+
+    // Find appointments that are ready for checkout but already have transactions associated with them
     const appointmentIdsWithTransactions = new Set(
-      (transactions || []).filter(t => t.appointmentId).map(t => t.appointmentId)
+      transactions.filter(t => t.appointmentId).map(t => t.appointmentId)
     );
 
-    const appointmentsToFix = stuckAppointments.filter(apt => appointmentIdsWithTransactions.has(apt.id));
+    const stuckAppointments = appointments.filter(apt => 
+      apt.status === 'ready_for_checkout' && 
+      appointmentIdsWithTransactions.has(apt.id)
+    );
 
-    if (appointmentsToFix.length > 0 && firestore && tenantId) {
+    if (stuckAppointments.length > 0) {
         const batch = writeBatch(firestore);
-        appointmentsToFix.forEach(apt => {
-            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
-            batch.update(appointmentRef, { status: 'completed' });
-                
+        
+        stuckAppointments.forEach(apt => {
+            // Update internal record
+            const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
+            batch.update(aptRef, { status: 'completed' });
+
+            // Update public check-in record
             if (apt.checkInToken) {
-                 const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
-                 batch.update(checkInRef, { status: 'completed' });
+                const ciRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+                batch.update(ciRef, { status: 'completed' });
             }
-            
+
+            // Update walk-in record if applicable
             if (apt.isWalkIn) {
                 const walkInId = apt.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                batch.update(walkInRef, { status: 'completed', serviceEndTime: new Date().toISOString() });
+                batch.update(walkInRef, { 
+                    status: 'completed', 
+                    serviceEndTime: new Date().toISOString() 
+                });
             }
-    
         });
-        batch.commit();
+
+        batch.commit().then(() => {
+            console.log(`Self-healed ${stuckAppointments.length} appointments.`);
+        }).catch(err => {
+            console.error("Self-healing failed:", err);
+        });
     }
-  }, [appointments, transactions, firestore, tenantId]);
+  }, [appointments, transactions, firestore, tenantId, isLoading]);
 
 
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -622,7 +629,7 @@ function PlannerPageContent() {
                 currentEndTime = addWeeks(currentEndTime, 2);
             } else if (recurrence.frequency === 'every-3-weeks') {
                 currentStartTime = addWeeks(currentStartTime, 3);
-                currentEndTime = addWeeks(currentEndTime, 3);
+                currentEndTime = addWeeks(currentStartTime, 3);
             } else if (recurrence.frequency === 'every-4-weeks') {
                 currentStartTime = addWeeks(currentEndTime, 4);
                 currentEndTime = addWeeks(currentEndTime, 4);
@@ -1451,19 +1458,19 @@ function PlannerPageContent() {
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
-                onEditEvent={handleEditEventClick}
-                onChecklistItemToggle={handleChecklistItemToggle}
-                onUpdateEvent={handleUpdateEvent}
+                onEditEvent={onEditEvent}
+                onChecklistItemToggle={onChecklistItemToggle}
+                onUpdateEvent={onUpdateEvent}
                 dailyTransactions={dailyTransactions}
                 allTransactions={transactions || []}
-                onAddTransaction={addTransaction}
+                onAddTransaction={onAddTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
-                onDeleteEvent={handleDeleteEvent}
+                onDeleteEvent={onDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
@@ -1489,19 +1496,19 @@ function PlannerPageContent() {
                 onPrintReceipt={(data) => handlePrintReceipt(data)}
                 onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
-                onEditEvent={handleEditEventClick}
-                onChecklistItemToggle={handleChecklistItemToggle}
-                onUpdateEvent={handleUpdateEvent}
+                onEditEvent={onEditEvent}
+                onChecklistItemToggle={onChecklistItemToggle}
+                onUpdateEvent={onUpdateEvent}
                 dailyTransactions={dailyTransactions}
                 allTransactions={transactions || []}
-                onAddTransaction={addTransaction}
+                onAddTransaction={onAddTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
-                onDeleteEvent={handleDeleteEvent}
+                onDeleteEvent={onDeleteEvent}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
