@@ -133,6 +133,11 @@ export type Client = {
   inspirationPhotoUrl?: string;
   intel?: ClientIntel;
   activeMembershipId?: string;
+  subscription?: {
+    membershipId: string;
+    status: 'active' | 'past_due' | 'canceled';
+    nextBillingDate: string;
+  };
   activePackages?: {
     packageId: string;
     sessionsRemaining: number;

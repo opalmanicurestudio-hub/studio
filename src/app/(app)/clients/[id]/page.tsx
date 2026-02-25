@@ -13,11 +13,11 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader, MoreHorizontal, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, addMonths } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -47,10 +47,11 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
-import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 
 type ClientPhoto = {
@@ -446,6 +447,17 @@ export default function ClientDetailPage() {
     });
     setIsEditClientOpen(false);
   };
+  
+  const handleUpdateSubscriptionStatus = (status: 'active' | 'past_due' | 'canceled') => {
+      const subscriptionUpdate = {
+          'subscription.status': status
+      };
+      updateDocumentNonBlocking(clientDocRefReal, subscriptionUpdate);
+      toast({
+          title: 'Membership Updated',
+          description: `${client.name}'s membership has been marked as ${status}.`
+      });
+  };
 
   const handleNewPhotoUpload = (url: string) => {
       if (url) {
@@ -640,47 +652,49 @@ export default function ClientDetailPage() {
                                <Card>
                                   <CardHeader><CardTitle>Active Offers</CardTitle></CardHeader>
                                   <CardContent>
-                                    {(!client.activeMembershipId && (!client.activePackages || client.activePackages.length === 0)) ? (
+                                    {(!client.subscription && (!client.activePackages || client.activePackages.length === 0)) ? (
                                         <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
                                     ) : (
                                         <div className="space-y-4">
-                                            {client.activeMembershipId && memberships && (() => {
-                                                const membership = memberships.find(m => m.id === client.activeMembershipId);
+                                            {client.subscription && memberships && (() => {
+                                                const membership = memberships.find(m => m.id === client.subscription!.membershipId);
                                                 if (!membership) return null;
+                                                const status = client.subscription!.status;
                                                 return (
-                                                    <div className="p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                                                        <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
-                                                        <p className="font-bold text-lg mt-1">{membership.name}</p>
+                                                    <div className={cn("p-4 rounded-lg border", {
+                                                        'bg-purple-500/10 border-purple-500/20': status === 'active',
+                                                        'bg-amber-500/10 border-amber-500/20': status === 'past_due',
+                                                        'bg-muted/50': status === 'canceled',
+                                                    })}>
+                                                         <div className="flex justify-between items-start">
+                                                            <div>
+                                                                <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
+                                                                <p className="font-bold text-lg mt-1">{membership.name}</p>
+                                                            </div>
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
+                                                                <DropdownMenuContent>
+                                                                    {status !== 'past_due' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
+                                                                    {status !== 'canceled' && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
+                                                                    {status !== 'active' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                         </div>
                                                         <p className="text-xs text-muted-foreground">{membership.description}</p>
                                                         
-                                                        <div className="mt-4 pt-4 border-t border-purple-500/20">
-                                                            <h5 className="text-sm font-semibold mb-2">Monthly Perks:</h5>
-                                                            <ul className="space-y-2 text-xs text-muted-foreground">
-                                                                {(membership.includedServices || []).map(s => (
-                                                                    <li key={s.id} className="flex items-center gap-2">
-                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                                                                        <span>1x {s.name}</span>
-                                                                    </li>
-                                                                ))}
-                                                                {(membership.includedAddOns || []).map(s => (
-                                                                    <li key={s.id} className="flex items-center gap-2">
-                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                                                                        <span>1x {s.name}</span>
-                                                                    </li>
-                                                                ))}
-                                                                {(membership.includedProducts || []).map(p => (
-                                                                    <li key={p.id} className="flex items-center gap-2">
-                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                                                                        <span>1x {p.name}</span>
-                                                                    </li>
-                                                                ))}
-                                                                {membership.retailDiscount && (
-                                                                    <li className="flex items-center gap-2">
-                                                                        <Percent className="w-3.5 h-3.5 text-blue-500" />
-                                                                        <span>{membership.retailDiscount}% off retail products</span>
-                                                                    </li>
-                                                                )}
-                                                            </ul>
+                                                        <div className="mt-4 pt-4 border-t border-purple-500/20 space-y-3">
+                                                            <div className="flex justify-between items-center text-sm">
+                                                                <span className="font-medium">Status</span>
+                                                                <Badge variant={status === 'active' ? 'default' : 'destructive'} className={cn(
+                                                                    {'bg-green-100 text-green-800': status === 'active'},
+                                                                    {'bg-amber-100 text-amber-800': status === 'past_due'},
+                                                                    {'bg-red-100 text-red-800': status === 'canceled'},
+                                                                )}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-sm">
+                                                                <span className="font-medium">Next Billing Date</span>
+                                                                <span className="font-semibold">{format(parseISO(client.subscription.nextBillingDate), 'PPP')}</span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )
@@ -970,6 +984,7 @@ export default function ClientDetailPage() {
             }}
             initialClientId={client.id}
             appointmentToRebook={appointmentToRebook}
+            memberships={memberships || []}
         />
 
         <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
