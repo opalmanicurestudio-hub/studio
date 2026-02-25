@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -126,22 +125,6 @@ export const CheckoutHub = ({
         return [...new Set([...appointmentServiceIds, ...cartServices])];
     }, [cart, appointmentsData]);
     
-    const allCartItems = useMemo(() => {
-        const servicesFromAppointments = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-            return [...mainService, ...addOns];
-        });
-
-        const itemsFromCart = cart.map(item => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price
-        }));
-
-        return [...servicesFromAppointments, ...itemsFromCart];
-    }, [appointmentsData, cart, redeemedOffer]);
-
     const totalDiscount = discount + membershipDiscount;
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
@@ -171,13 +154,13 @@ export const CheckoutHub = ({
     }, [total]);
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full max-h-full">
             {showTitle && (
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-center mb-4 flex-shrink-0">
                     <h2 className="text-xl font-bold">Current Sale</h2>
                 </div>
             )}
-             <div className="mb-4">
+             <div className="mb-4 flex-shrink-0">
                 <Label>{isGroupCheckout ? "Primary Payer" : "Client"}</Label>
                 <div className="flex gap-2 mt-2">
                     <Select
@@ -220,285 +203,238 @@ export const CheckoutHub = ({
 
             <Separator />
 
-            <ScrollArea className="flex-1 my-4 pr-2 -mr-2">
-                {/* APPOINTMENT ITEMS */}
-                {appointmentsData.length > 0 && (
-                    <div className="space-y-3">
-                        {appointmentsData.map(data => {
-                            const { service, client } = data;
-                            if (!service || !client) return null;
+            <ScrollArea className="flex-1 min-h-0 my-4 pr-2 -mr-2">
+                <div className="space-y-6">
+                    {/* APPOINTMENT ITEMS */}
+                    {appointmentsData.length > 0 && (
+                        <div className="space-y-3">
+                            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Services</h3>
+                            {appointmentsData.map(data => {
+                                const { service, client } = data;
+                                if (!service || !client) return null;
 
-                            const isRedeemed = redeemedOffer?.id === service.id;
+                                const isRedeemed = redeemedOffer?.id === service.id;
 
-                            const membershipPerk = client.activeMembershipId && memberships.find(m => m.id === client.activeMembershipId)?.includedServices?.find(s => s.id === service.id);
-                            
-                            const packagePerk = client.activePackages?.find(p => {
-                                const packageDetails = packages.find(pkg => pkg.id === p.packageId);
-                                return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
-                            });
+                                const membershipPerk = client.activeMembershipId && memberships.find(m => m.id === client.activeMembershipId)?.includedServices?.find(s => s.id === service.id);
+                                
+                                const packagePerk = client.activePackages?.find(p => {
+                                    const packageDetails = packages.find(pkg => pkg.id === p.packageId);
+                                    return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
+                                });
 
-                            const hasPerk = !!membershipPerk || !!packagePerk;
-                            
-                            const handleRedeem = () => {
-                                if (isRedeemed) {
-                                    setRedeemedOffer(null);
-                                } else if (redeemedOffer) {
-                                    toast({ variant: 'destructive', title: 'Only one offer can be redeemed per transaction.' });
-                                } else {
-                                    setRedeemedOffer({ type: packagePerk ? 'package' : 'membership', id: service.id });
-                                }
-                            };
-                            
-                            if (!hasPerk) {
-                                return (
-                                    <div key={data.id} className="text-sm flex items-center gap-2">
-                                        <p className="flex-1">
-                                            {service.name}
-                                            {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({client.name})</span>}
-                                        </p>
-                                        <p className="font-semibold">
-                                            ${(service.price || 0).toFixed(2)}
-                                        </p>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                                    </div>
-                                )
-                            }
-                        
-                            return (
-                                <Card key={data.id} className={cn("overflow-hidden", isRedeemed ? "bg-primary/5 border-primary/20" : "")}>
-                                    <CardContent className="p-3">
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                                <p className="font-medium">
+                                const hasPerk = !!membershipPerk || !!packagePerk;
+                                
+                                const handleRedeem = () => {
+                                    if (isRedeemed) {
+                                        setRedeemedOffer(null);
+                                    } else if (redeemedOffer) {
+                                        toast({ variant: 'destructive', title: 'Only one offer can be redeemed per transaction.' });
+                                    } else {
+                                        setRedeemedOffer({ type: packagePerk ? 'package' : 'membership', id: service.id });
+                                    }
+                                };
+                                
+                                if (!hasPerk) {
+                                    return (
+                                        <div key={data.id} className="text-sm flex items-center gap-3 p-2 bg-muted/30 rounded-lg">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium truncate">
                                                     {service.name}
-                                                    {isGroupCheckout && <span className="text-xs text-muted-foreground"> ({client.name})</span>}
                                                 </p>
-                                                <p className={cn("text-sm font-semibold", isRedeemed && "line-through text-muted-foreground")}>
-                                                    ${(service.price || 0).toFixed(2)}
-                                                </p>
+                                                {isGroupCheckout && <p className="text-[10px] text-muted-foreground">for {client.name}</p>}
                                             </div>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                                            <p className="font-semibold">
+                                                ${(service.price || 0).toFixed(2)}
+                                            </p>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4"/></Button>
                                         </div>
-
-                                        {isRedeemed ? (
-                                            <div className="mt-2 p-2 rounded-md bg-green-500/10 text-green-700 dark:text-green-300 flex items-center justify-between">
-                                                <div className="flex items-center gap-2 font-semibold">
-                                                    <CheckCircle className="w-4 h-4" />
-                                                    Perk Redeemed
+                                    )
+                                }
+                            
+                                return (
+                                    <Card key={data.id} className={cn("overflow-hidden", isRedeemed ? "bg-primary/5 border-primary/20 shadow-sm" : "")}>
+                                        <CardContent className="p-3">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-semibold text-sm truncate">
+                                                        {service.name}
+                                                    </p>
+                                                    {isGroupCheckout && <p className="text-[10px] text-muted-foreground">for {client.name}</p>}
+                                                    <p className={cn("text-sm font-bold mt-1", isRedeemed ? "line-through text-muted-foreground" : "text-primary")}>
+                                                        ${(service.price || 0).toFixed(2)}
+                                                    </p>
                                                 </div>
-                                                <Button variant="link" size="xs" onClick={handleRedeem} className="p-0 h-auto text-green-700 dark:text-green-300">Undo</Button>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-4 h-4" /></Button>
                                             </div>
-                                        ) : (
-                                            <div className="mt-2">
-                                                <Button variant="outline" size="sm" className="w-full" onClick={handleRedeem}>
-                                                    {membershipPerk && <><Award className="w-4 h-4 mr-2"/>Redeem Membership Perk</>}
-                                                    {packagePerk && <><Repeat className="w-4 h-4 mr-2"/>Use 1 Session (of {packagePerk.sessionsRemaining})</>}
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            )
-                        })}
-                    </div>
-                )}
 
-                {/* SEPARATOR */}
-                {cart.length > 0 && appointmentsData.length > 0 && <Separator className="my-3" />}
+                                            {isRedeemed ? (
+                                                <div className="mt-2 p-2 rounded-md bg-green-500/10 text-green-700 dark:text-green-300 flex items-center justify-between border border-green-500/20">
+                                                    <div className="flex items-center gap-2 text-xs font-bold">
+                                                        <CheckCircle className="w-3.5 h-3.5" />
+                                                        Perk Applied
+                                                    </div>
+                                                    <Button variant="ghost" size="xs" onClick={handleRedeem} className="h-6 px-2 text-xs hover:bg-green-500/20 text-green-700 dark:text-green-300">Undo</Button>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-2">
+                                                    <Button variant="secondary" size="sm" className="w-full text-xs h-8" onClick={handleRedeem}>
+                                                        {membershipPerk && <><Award className="w-3.5 h-3.5 mr-1.5 text-indigo-500"/>Redeem Monthly Perk</>}
+                                                        {packagePerk && <><Repeat className="w-3.5 h-3.5 mr-1.5 text-teal-500"/>Use 1 Session ({packagePerk.sessionsRemaining} left)</>}
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                )
+                            })}
+                        </div>
+                    )}
 
-                {/* RETAIL & MANUAL SERVICE ITEMS */}
-                {cart.length > 0 && (
-                    <div className="space-y-3">
-                        {cart.map(item => (
-                            <div key={item.id} className="flex items-center gap-2">
-                                {item.type === 'membership' && <Award className="w-4 h-4 text-indigo-500" />}
-                                {item.type === 'package' && <Repeat className="w-4 h-4 text-teal-500" />}
-                                <p className="flex-1 text-sm">{item.quantity > 1 ? `${item.quantity}x` : ''} {item.name}</p>
-                                <p className="font-semibold text-sm">${(item.price * item.quantity).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </ScrollArea>
-            
-            {(adjustments && adjustments.length > 0) && (
-                <div className="my-4 space-y-2">
-                    <Card className="bg-amber-500/10 border-amber-500/20">
-                        <CardHeader className="p-3">
-                            <CardTitle className="text-base flex items-center gap-2">
-                                <AlertTriangle className="h-4 w-4 text-amber-600" />
-                                Service Adjustments
-                            </CardTitle>
-                            <CardDescription className="text-xs">Review and apply additional charges for extra time or products used.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-3 pt-0 space-y-2">
-                            {adjustments.map(adj => (
-                                <div key={adj.id} className="flex items-start gap-3 p-2 rounded-md bg-background/50">
-                                    <Checkbox 
-                                        id={`adj-${adj.id}`}
-                                        checked={appliedAdjustments.has(adj.id)}
-                                        onCheckedChange={(checked) => onApplyAdjustmentToggle(adj.id, !!checked)}
-                                        className="mt-1"
-                                    />
-                                    <div className="flex-1 space-y-0.5">
-                                        <Label htmlFor={`adj-${adj.id}`} className="text-sm font-medium leading-tight">
-                                            {adj.description}
-                                        </Label>
-                                        <p className="text-xs text-muted-foreground">{adj.clientName} &middot; {adj.serviceName}</p>
+                    {/* RETAIL & MANUAL SERVICE ITEMS */}
+                    {cart.length > 0 && (
+                        <div className="space-y-3">
+                            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Retail & Products</h3>
+                            {cart.map(item => (
+                                <div key={item.id} className="text-sm flex items-center gap-3 p-2 bg-muted/30 rounded-lg">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium truncate">{item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}</p>
+                                        <p className="text-[10px] text-muted-foreground capitalize">{item.type}</p>
                                     </div>
-                                    <p className="font-mono text-sm font-semibold">${adj.cost.toFixed(2)}</p>
+                                    <p className="font-semibold">${(item.price * item.quantity).toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
                                 </div>
                             ))}
-                            {absorbedCost > 0 && (
-                                <p className="text-amber-600 dark:text-amber-400 text-center pt-2 text-xs">
-                                    An unselected cost of ${absorbedCost.toFixed(2)} will be absorbed by the business.
-                                </p>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            <Separator />
-            <div className="my-4 space-y-2 text-sm">
-                <h3 className="font-semibold mb-2">Payment Summary</h3>
-                <div className="flex justify-between"><p>Subtotal</p><p>${subtotal.toFixed(2)}</p></div>
-                 {discount > 0 && (
-                <div className="flex justify-between text-sm text-primary font-medium">
-                    <span>Promo Code Discount:</span>
-                    <span>-${discount.toFixed(2)}</span>
-                </div>
-                )}
-                {membershipDiscount > 0 && (
-                <div className="flex justify-between text-sm text-primary font-medium">
-                    <span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span>
-                    <span>-${membershipDiscount.toFixed(2)}</span>
-                </div>
-                )}
-                <div className="flex justify-between"><p>Tax</p><p>${tax.toFixed(2)}</p></div>
-                <div className="flex justify-between text-sm items-center">
-                    <p className="text-muted-foreground">Tip</p>
-                    <div className="relative w-24">
-                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                        type="number"
-                        value={tipAmount || ''}
-                        onChange={(e) =>
-                            setTipAmount(parseFloat(e.target.value) || 0)
-                        }
-                        className="h-8 text-right pr-2 pl-7"
-                        placeholder="0.00"
-                        />
-                    </div>
-                </div>
-                <Separator className="my-2" />
-                <div className="flex justify-between font-bold text-lg"><p>Total Payable</p><p>${total.toFixed(2)}</p></div>
-            </div>
-            
-            <Separator />
-            <div className="mt-4">
-                <h3 className="font-semibold mb-2">Payment Method</h3>
-                <div className="grid grid-cols-3 gap-2">
-                    <Button variant={paymentTab === 'cash' ? 'default' : 'outline'} onClick={() => setPaymentTab('cash')} className="flex-col h-16"><Banknote /><span className="mt-1">Cash</span></Button>
-                    <Button variant={paymentTab === 'card' ? 'default' : 'outline'} onClick={() => setPaymentTab('card')} className="flex-col h-16"><CreditCard /><span className="mt-1">Card</span></Button>
-                    <Button variant={paymentTab === 'scan' ? 'default' : 'outline'} onClick={() => setPaymentTab('scan')} className="flex-col h-16"><Scan /><span className="mt-1">Scan</span></Button>
-                </div>
-                {paymentTab === 'cash' && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 space-y-4">
-                         <div className="grid grid-cols-2 gap-4">
-                            <Card className="text-center">
-                                <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-muted-foreground">Amount Tendered</CardTitle></CardHeader>
-                                <CardContent className="p-2">
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                                        <Input
-                                            id="amount-tendered"
-                                            type="number"
-                                            placeholder="0.00"
-                                            value={amountTendered || ''}
-                                            onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
-                                            className="pl-9 h-12 text-2xl font-bold text-right pr-3"
-                                        />
-                                    </div>
+                    {/* SERVICE ADJUSTMENTS */}
+                    {(adjustments && adjustments.length > 0) && (
+                        <div className="space-y-3">
+                            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Adjustments</h3>
+                            <Card className="bg-amber-500/10 border-amber-500/20 border-2">
+                                <CardHeader className="p-3 pb-2">
+                                    <CardTitle className="text-sm flex items-center gap-2">
+                                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                        Performance Review
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-3 pt-0 space-y-2">
+                                    {adjustments.map(adj => (
+                                        <div key={adj.id} className="flex items-start gap-3 p-2 rounded-md bg-background/50 border border-amber-500/10">
+                                            <Checkbox 
+                                                id={`adj-${adj.id}`}
+                                                checked={appliedAdjustments.has(adj.id)}
+                                                onCheckedChange={(checked) => onApplyAdjustmentToggle(adj.id, !!checked)}
+                                                className="mt-1"
+                                            />
+                                            <div className="flex-1 min-w-0 space-y-0.5">
+                                                <Label htmlFor={`adj-${adj.id}`} className="text-xs font-bold leading-tight block truncate">
+                                                    {adj.description}
+                                                </Label>
+                                                <p className="text-[10px] text-muted-foreground truncate">{adj.clientName} &middot; {adj.serviceName}</p>
+                                            </div>
+                                            <p className="font-mono text-xs font-bold text-amber-700 dark:text-amber-400">+${adj.cost.toFixed(2)}</p>
+                                        </div>
+                                    ))}
                                 </CardContent>
                             </Card>
-                            <AnimatePresence>
-                            {changeDue > 0 && (
-                                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
-                                <Card className="text-center bg-green-500/10 border-green-500/20">
-                                    <CardHeader className="p-2 pb-0"><CardTitle className="text-sm font-medium text-green-600 dark:text-green-300">Change Due</CardTitle></CardHeader>
-                                    <CardContent className="p-2">
-                                        <p className="text-3xl font-bold text-green-600 dark:text-green-300">${changeDue.toFixed(2)}</p>
-                                    </CardContent>
-                                </Card>
-                                </motion.div>
-                            )}
-                            </AnimatePresence>
                         </div>
-                        
-                        {changeDue > 0 && (
-                            <Button
-                                variant="secondary"
-                                className="w-full"
-                                onClick={() => {
-                                    setTipAmount(tipAmount + changeDue);
-                                    setAmountTendered(amountTendered - changeDue);
-                                }}
-                            >
-                                <Gift className="mr-2 h-4 w-4" /> Keep the Change as Tip
-                            </Button>
-                        )}
-                        
-                        <div className="relative pt-2">
-                            <Progress value={(amountTendered / total) * 100} className={cn("h-3", amountTendered >= total && "[&>div]:bg-green-500")} />
-                            <p className="text-xs text-muted-foreground mt-1 text-center">Remaining: ${(Math.max(0, total - amountTendered)).toFixed(2)}</p>
+                    )}
+                </div>
+            </ScrollArea>
+            
+            <div className="flex-shrink-0 pt-4 border-t bg-card">
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-muted-foreground"><p>Subtotal</p><p>${subtotal.toFixed(2)}</p></div>
+                    {totalDiscount > 0 && (
+                        <div className="flex justify-between text-sm text-primary font-bold">
+                            <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5" /> Discounts Applied</span>
+                            <span>-${totalDiscount.toFixed(2)}</span>
                         </div>
+                    )}
+                    <div className="flex justify-between text-muted-foreground"><p>Tax</p><p>${tax.toFixed(2)}</p></div>
+                    <div className="flex justify-between text-sm items-center py-1">
+                        <p className="font-medium">Gratuity</p>
+                        <div className="relative w-28">
+                            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                type="number"
+                                value={tipAmount || ''}
+                                onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)}
+                                className="h-9 text-right pr-3 pl-7 font-bold"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+                    <Separator className="my-2" />
+                    <div className="flex justify-between font-extrabold text-2xl text-primary"><p>Total</p><p>${total.toFixed(2)}</p></div>
+                </div>
+                
+                <div className="mt-6 space-y-4">
+                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2">
+                        <div>
+                            <RadioGroupItem value="cash" id="pay-cash" className="peer sr-only" />
+                            <Label htmlFor="pay-cash" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all">
+                                <Banknote className="mb-1 h-5 w-5" />Cash
+                            </Label>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="card" id="pay-card" className="peer sr-only" />
+                            <Label htmlFor="pay-card" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all">
+                                <CreditCard className="mb-1 h-5 w-5" />Card
+                            </Label>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="scan" id="pay-scan" className="peer sr-only" />
+                            <Label htmlFor="pay-scan" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all">
+                                <Scan className="mb-1 h-5 w-5" />Scan
+                            </Label>
+                        </div>
+                    </RadioGroup>
 
-                        <div className="space-y-2">
-                            <Label className="text-xs text-muted-foreground">Quick Tender</Label>
-                            <div className="grid grid-cols-4 gap-2">
-                                <Button variant="outline" size="sm" onClick={() => setAmountTendered(total)}>Exact</Button>
-                                {quickTenderOptions.map(amount => (
-                                    <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>
-                                        ${amount}
-                                    </Button>
+                    {paymentTab === 'cash' && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 overflow-hidden">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] uppercase font-bold text-muted-foreground">Tendered</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="number"
+                                            value={amountTendered || ''}
+                                            onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)}
+                                            className="pl-8 h-10 font-bold text-lg"
+                                        />
+                                    </div>
+                                </div>
+                                {changeDue > 0 && (
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] uppercase font-bold text-green-600">Change Due</Label>
+                                        <div className="h-10 flex items-center justify-center bg-green-500/10 border border-green-500/20 rounded-md">
+                                            <p className="font-bold text-lg text-green-600">${changeDue.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                {quickTenderOptions.map(val => (
+                                    <Button key={val} variant="outline" size="sm" className="flex-1" onClick={() => setAmountTendered(val)}>${val}</Button>
                                 ))}
+                                <Button variant="outline" size="sm" className="flex-1 font-bold" onClick={() => setAmountTendered(total)}>Exact</Button>
                             </div>
-                        </div>
+                        </motion.div>
+                    )}
 
-                        <div className="space-y-3 pt-2">
-                             <div>
-                                <Label className="text-xs text-muted-foreground">Bills</Label>
-                                <div className="grid grid-cols-5 gap-2 mt-1">
-                                    {[100, 50, 20, 10, 5].map(amount => (
-                                        <Button key={amount} variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + amount)}>
-                                            ${amount}
-                                        </Button>
-                                    ))}
-                                </div>
-                            </div>
-                             <div>
-                                <Label className="text-xs text-muted-foreground">Coins & Small Bills</Label>
-                                <div className="grid grid-cols-5 gap-2 mt-1">
-                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 1)}>$1</Button>
-                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.25)}>25¢</Button>
-                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.10)}>10¢</Button>
-                                    <Button variant="outline" className="h-10" onClick={() => setAmountTendered(prev => prev + 0.05)}>5¢</Button>
-                                    <Button variant="ghost" className="h-10 text-muted-foreground" onClick={() => setAmountTendered(0)}>Clear</Button>
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
+                    <Button 
+                        className="w-full h-14 text-xl font-bold rounded-2xl shadow-xl shadow-primary/20" 
+                        onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
+                        disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}
+                    >
+                        {isSubmitting ? <Loader className="animate-spin" /> : `Collect $${total.toFixed(2)}`}
+                    </Button>
+                </div>
             </div>
-
-            <div className="mt-auto pt-4 flex gap-2">
-                 <Button className="flex-1 h-14 text-lg" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
-                    {isSubmitting ? <Loader className="animate-spin" /> : `Charge $${total.toFixed(2)}`}
-                </Button>
-            </div>
-            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={(code) => { setPromoCode(code); /* handleApplyPromo(code); */ }} cartServiceIds={cartServiceIds} />
+            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={(code) => { setPromoCode(code); }} cartServiceIds={cartServiceIds} />
         </div>
     );
 };

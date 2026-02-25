@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -87,7 +86,7 @@ export default function POSPage() {
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
     // State for group checkouts
-    const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
+    const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
 
@@ -205,9 +204,12 @@ export default function POSPage() {
                     newSet.add(appointmentId);
                     return newSet;
                 });
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('checkout_id');
+                router.replace(newUrl.toString(), { scroll: false });
             }
         }
-    }, [searchParams, readyForCheckoutAppointments]);
+    }, [searchParams, readyForCheckoutAppointments, router]);
 
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
@@ -503,8 +505,6 @@ export default function POSPage() {
                 apt.startTime <= todayEnd
             );
             
-            const completedAppointmentsCount = staffAppointmentsToday.length;
-            
             const staffTransactionsToday = (transactions || []).filter(t => {
                 if (t.staffId !== member.id) return false;
                 const transactionDate = new Date(t.date);
@@ -581,7 +581,7 @@ export default function POSPage() {
                     totalSales,
                     tips,
                     consumptionValue,
-                    completedServices: completedAppointmentsCount,
+                    completedServices: staffAppointmentsToday.length,
                     earnings,
                     totalInServiceMinutes
                 }
@@ -671,7 +671,6 @@ export default function POSPage() {
         });
         batch.commit().catch(err => {
             console.error("Failed to save staff order:", err);
-            // Revert on failure
             const sorted = [...(staff || [])].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
             setOrderedStaff(sorted);
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
@@ -701,13 +700,9 @@ export default function POSPage() {
         const assignedStaffIds = new Set<string>();
         const assignedClientIds = new Set<string>();
 
-        // --- First Pass: Assign clients with an available preferred staff member ---
         for (const client of waitingClients) {
             if (client.preferredStaffId) {
-                // Check if the preferred staff member is in the list of currently available staff
                 const preferredStaff = availableStaff.find(s => s.id === client.preferredStaffId);
-                
-                // If preferred staff is available, assign immediately regardless of waitForPreferredStaff
                 if (preferredStaff) {
                     handleAssignStaff(client, preferredStaff.id);
                     assignedStaffIds.add(preferredStaff.id);
@@ -717,31 +712,23 @@ export default function POSPage() {
             }
         }
         
-        // --- Second Pass: Assign remaining clients based on assignment mode ---
-        
-        // Filter out clients who are waiting for a preferred but currently unavailable staff member.
         let remainingClients = waitingClients
-            .filter(c => !assignedClientIds.has(c.id)) // Get unassigned clients
+            .filter(c => !assignedClientIds.has(c.id))
             .filter(client => {
-                // If the client has a preferred staff AND is waiting for them...
                 if (client.preferredStaffId && client.waitForPreferredStaff) {
-                    // ...and that staff was not assigned in the first pass (meaning they polar available)...
                     const preferredStaffIsAvailable = availableStaff.some(s => s.id === client.preferredStaffId);
                     if (!preferredStaffIsAvailable) {
-                        // ...then this client should NOT be assigned to anyone else. Filter them out.
                         return false;
                     }
                 }
-                // Otherwise, the client is eligible for the general assignment pool.
                 return true;
             });
             
         let remainingStaff = availableStaff.filter(s => !assignedStaffIds.has(s.id));
 
-        // Sort remaining available staff based on the selected mode
         if (assignmentMode === 'fair_play') {
             remainingStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        } else { // 'ordered_list'
+        } else {
             const orderedMap = new Map(orderedStaff.map(s => [s.id, s]));
             remainingStaff = remainingStaff
                 .filter(s => orderedMap.has(s.id))
@@ -749,7 +736,6 @@ export default function POSPage() {
         }
         
         for (const client of remainingClients) {
-            // Find a staff member who is qualified and hasn't been assigned in this run
             const staffMember = remainingStaff.find(s => {
                 const clientServices = client.serviceIds.map(id => services.find(svc => svc.id === id)).filter((s): s is Service => !!s);
                 return clientServices.every(service => {
@@ -762,7 +748,6 @@ export default function POSPage() {
 
             if (staffMember) {
                 handleAssignStaff(client, staffMember.id);
-                // Remove the assigned staff from the pool for this run
                 remainingStaff = remainingStaff.filter(s => s.id !== staffMember.id);
                 assignmentsMade++;
             }
@@ -1062,7 +1047,6 @@ export default function POSPage() {
                     const product = inventory.find(p => p.id === item.id);
                     if (!product) continue;
 
-                    // Initialize running level if not already tracking
                     if (!updatedProductLevels.has(product.id)) {
                         updatedProductLevels.set(product.id, {
                             totalStock: product.totalStock,
@@ -1093,7 +1077,6 @@ export default function POSPage() {
                         levels.totalStock -= quantityToDeduct;
                     }
 
-                    // Create stock correction for this specific usage
                     const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                     batch.set(scRef, {
                         productId: product.id,
@@ -1146,7 +1129,6 @@ export default function POSPage() {
             });
         });
 
-        // Create transaction for tips
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
             if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
@@ -1155,7 +1137,6 @@ export default function POSPage() {
             });
         });
 
-        // Create transactions for cart items and update inventory
         retailItems.forEach(item => {
             if (item.type === 'product') {
                 const retailTotal = item.quantity * item.price;
@@ -1186,7 +1167,6 @@ export default function POSPage() {
             }
         });
 
-        // Apply all consolidated inventory updates
         updatedProductLevels.forEach((levels, productId) => {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
             batch.update(productRef, {
@@ -1232,6 +1212,15 @@ export default function POSPage() {
 
         await batch.commit();
   
+        const allCartItems = [
+            ...appointmentsData.flatMap(d => {
+                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
+                return [...mainService, ...addOns];
+            }),
+            ...retailItems.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
+        ];
+
         const receiptData: ReceiptData = {
             business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
             clientName: client?.name || 'Walk-in Customer', date: now, 
@@ -1313,23 +1302,6 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const allCartItems = useMemo(() => {
-        const servicesFromAppointments = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
-            const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
-            return [...mainService, ...addOns];
-        });
-
-        const itemsFromCart = retailItems.map(item => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price
-        }));
-
-        return [...servicesFromAppointments, ...itemsFromCart];
-    }, [appointmentsData, retailItems, redeemedOffer]);
-
-
     const checkoutHubProps = {
         cart: retailItems,
         onCartChange: handleCartChange,
@@ -1497,11 +1469,11 @@ export default function POSPage() {
                                 </div>
                             </Button>
                         </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                        <SheetContent side="bottom" className="h-[95vh] p-0 flex flex-col">
                            <SheetHeader className="p-4 border-b">
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
-                            <div className="p-4 flex-1 overflow-y-auto">
+                            <div className="flex-1 overflow-hidden">
                                 <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
