@@ -1164,6 +1164,8 @@ export default function POSPage() {
             });
         });
 
+        const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
+
         retailItems.forEach(item => {
             if (item.type === 'product') {
                 const retailTotal = item.quantity * item.price;
@@ -1191,8 +1193,28 @@ export default function POSPage() {
                 if (levels) {
                     levels.totalStock -= item.quantity;
                 }
+            } else if (item.type === 'membership' && clientDocRef) {
+                clientUpdates.activeMembershipId = item.id;
+                clientUpdates.subscription = {
+                    membershipId: item.id,
+                    status: 'active',
+                    nextBillingDate: addMonths(now, 1).toISOString(),
+                    perkLastUsed: undefined,
+                };
+            } else if (item.type === 'package' && clientDocRef) {
+                const packageDetails = packages.find(p => p.id === item.id);
+                if (packageDetails) {
+                    packagesToAdd.push({
+                        packageId: item.id,
+                        sessionsRemaining: packageDetails.sessions
+                    });
+                }
             }
         });
+
+        if (packagesToAdd.length > 0 && clientDocRef) {
+            clientUpdates.activePackages = arrayUnion(...packagesToAdd);
+        }
 
         updatedProductLevels.forEach((levels, productId) => {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
