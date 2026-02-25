@@ -8,9 +8,9 @@ import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Label } from '../ui/label';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
@@ -20,6 +20,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 
 export const CheckoutHub = ({ 
