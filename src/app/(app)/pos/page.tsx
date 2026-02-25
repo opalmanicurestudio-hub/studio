@@ -125,26 +125,24 @@ export default function POSPage() {
         setRetailItems(newCart);
     };
 
+    const toSafeDate = (val: any): Date | undefined => {
+        if (!val) return undefined;
+        if (val instanceof Date) return val;
+        if (typeof val.toDate === 'function') return val.toDate();
+        if (typeof val === 'string') return parseISO(val);
+        return new Date(val);
+    };
+
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
-        return appointmentsFromDB;
+        return appointmentsFromDB.map(apt => ({
+          ...apt,
+          startTime: toSafeDate(apt.startTime),
+          endTime: toSafeDate(apt.endTime),
+          actualStartTime: toSafeDate(apt.actualStartTime),
+          actualEndTime: toSafeDate(apt.actualEndTime),
+        }));
     }, [appointmentsFromDB]);
-
-    const resetCheckoutState = useCallback(() => {
-        setRetailItems([]);
-        setSelectedAppointmentIds(new Set());
-        setSelectedClientId(null);
-        setTipAmount(0);
-        setAmountTendered(0);
-        setPromoCode('');
-        setDiscount(0);
-        setMembershipDiscount(0);
-        setAppliedDiscountCode(undefined);
-        setRedeemedOffer(null);
-        setAppliedAdjustments(new Set());
-        setIsReceiptDialogOpen(false);
-        setReceiptToPrint(null);
-    }, []);
 
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointments || !clients || !services || !staff || !walkIns) return [];
@@ -496,7 +494,7 @@ export default function POSPage() {
     }, [staff]);
 
      const enrichedOrderedStaff = useMemo(() => {
-        if (!orderedStaff || !appointments || !transactions || !activityLogs) return orderedStaff;
+        if (!orderedStaff || !appointments || !transactions || !activityLogs || !services) return orderedStaff;
         
         const todayStart = startOfDay(new Date());
         const todayEnd = endOfDay(new Date());
@@ -504,11 +502,13 @@ export default function POSPage() {
         return orderedStaff.map(member => {
             const staffAppointmentsToday = (appointments || []).filter(apt =>
                 apt.staffId === member.id &&
-                new Date(apt.startTime) >= todayStart &&
-                new Date(apt.startTime) <= todayEnd
+                apt.status === 'completed' &&
+                apt.startTime &&
+                apt.startTime >= todayStart &&
+                apt.startTime <= todayEnd
             );
             
-            const completedAppointmentsCount = staffAppointmentsToday.filter(apt => apt.status === 'completed').length;
+            const completedAppointmentsCount = staffAppointmentsToday.length;
             
             const staffTransactionsToday = (transactions || []).filter(t => {
                 if (t.staffId !== member.id) return false;
@@ -572,6 +572,14 @@ export default function POSPage() {
             const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
             earnings += tips + retailCommission;
 
+            const totalInServiceMinutes = staffAppointmentsToday.reduce((acc, apt) => {
+                 if (apt.actualStartTime && apt.actualEndTime) {
+                    return acc + differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                 }
+                 const service = services.find(s => s.id === apt.serviceId);
+                 return acc + (service?.duration || 0);
+            }, 0);
+
             return {
                 ...member,
                 stats: {
@@ -580,10 +588,11 @@ export default function POSPage() {
                     consumptionValue,
                     completedServices: completedAppointmentsCount,
                     earnings,
+                    totalInServiceMinutes
                 }
             };
         });
-    }, [orderedStaff, appointments, transactions, activityLogs]);
+    }, [orderedStaff, appointments, transactions, activityLogs, services]);
 
     const kpiData = useMemo(() => {
         const todayStart = startOfDay(new Date());
@@ -601,20 +610,8 @@ export default function POSPage() {
         const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
         const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
 
-        const totalInServiceMinutes = enrichedOrderedStaff.reduce((total, staff) => {
-            const staffAppointmentsToday = (appointments || []).filter(apt =>
-                apt.staffId === staff.id &&
-                apt.status === 'completed' &&
-                new Date(apt.startTime) >= todayStart &&
-                new Date(apt.startTime) <= todayEnd
-            );
-            return total + staffAppointmentsToday.reduce((acc, apt) => {
-                 if (apt.actualStartTime && apt.actualEndTime) {
-                    return acc + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
-                 }
-                 const service = services.find(s => s.id === apt.serviceId);
-                 return acc + (service?.duration || 0);
-            }, 0);
+        const totalInServiceMinutes = enrichedOrderedStaff.reduce((total, staffMember) => {
+            return total + (staffMember.stats?.totalInServiceMinutes || 0);
         }, 0);
 
         const totalServiceRevenue = (transactions || []).filter(t => {
@@ -630,7 +627,7 @@ export default function POSPage() {
             totalWalkIns: walkInsToday.length,
             revenuePerServiceHour,
         };
-    }, [walkIns, enrichedOrderedStaff, appointments, transactions, services]);
+    }, [walkIns, enrichedOrderedStaff, transactions]);
     
     const { waitingQueue, notifiedQueue } = useMemo(() => {
         const waiting = (walkIns || []).filter(w => w.status === 'waiting');
@@ -733,7 +730,7 @@ export default function POSPage() {
             .filter(client => {
                 // If the client has a preferred staff AND is waiting for them...
                 if (client.preferredStaffId && client.waitForPreferredStaff) {
-                    // ...and that staff was not assigned in the first pass (meaning they are not available)...
+                    // ...and that staff was not assigned in the first pass (meaning they polar available)...
                     const preferredStaffIsAvailable = availableStaff.some(s => s.id === client.preferredStaffId);
                     if (!preferredStaffIsAvailable) {
                         // ...then this client should NOT be assigned to anyone else. Filter them out.
