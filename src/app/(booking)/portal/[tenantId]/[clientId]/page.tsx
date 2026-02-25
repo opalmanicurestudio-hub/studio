@@ -16,6 +16,7 @@ import { type Client, type Appointment, type Service, type Membership, type Pack
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 export default function ClientPortalPage() {
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
