@@ -169,11 +169,10 @@ function PlannerPageContent() {
     }));
   }, [eventsFromInventory]);
   
-  // Self-healing effect: Detect and resolve stuck appointments
+  // Self-healing mechanism: Detect and resolve stuck appointments
   useEffect(() => {
     if (isLoading || !appointments || !transactions || !firestore || !tenantId) return;
 
-    // Find appointments that are ready for checkout but already have transactions associated with them
     const appointmentIdsWithTransactions = new Set(
       transactions.filter(t => t.appointmentId).map(t => t.appointmentId)
     );
@@ -187,17 +186,14 @@ function PlannerPageContent() {
         const batch = writeBatch(firestore);
         
         stuckAppointments.forEach(apt => {
-            // Update internal record
             const aptRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
             batch.update(aptRef, { status: 'completed' });
 
-            // Update public check-in record
             if (apt.checkInToken) {
                 const ciRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
                 batch.update(ciRef, { status: 'completed' });
             }
 
-            // Update walk-in record if applicable
             if (apt.isWalkIn) {
                 const walkInId = apt.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
@@ -229,6 +225,8 @@ function PlannerPageContent() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
+  const [eventToDeny, setEventToDeny] = useState<Event | null>(null);
+  const [denialReason, setDenialReason] = useState('');
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
@@ -290,7 +288,7 @@ function PlannerPageContent() {
                     });
                 }
             });
-        }, 30000); // Check every 30 seconds
+        }, 30000);
 
         return () => clearInterval(timer);
     }, [appointments, services, clients, toast, notifiedOvertime]);
@@ -413,7 +411,7 @@ function PlannerPageContent() {
             if (staffId && map.has(staffId)) {
                 map.get(staffId)!.push({ ...apt, itemType: 'appointment' });
             }
-        } else { // resource view
+        } else {
             const resourceIds = apt.requiredResourceIds && apt.requiredResourceIds.length > 0
               ? apt.requiredResourceIds
               : [...new Set([
@@ -442,15 +440,12 @@ function PlannerPageContent() {
           };
           if (activeView === 'staff') {
             if (evt.staffId && map.has(evt.staffId)) {
-                // Event with specific staff
                 map.get(evt.staffId)!.push({ ...eventWithDateObjects, itemType: 'event' });
             } else if (evt.type === 'blocked' && !evt.staffId) {
-                // Block all staff
                 (staff || []).forEach(s => {
                     map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
                 });
             } else if (role === 'owner' && !evt.staffId) {
-                // Personal/Business event for the owner (first staff member)
                 const ownerId = user?.uid;
                 if (ownerId && map.has(ownerId)) {
                     map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
@@ -644,7 +639,6 @@ function PlannerPageContent() {
             }
         }
         
-        // Add notification for the first appointment
         if (baseAppointment.staffId && baseAppointment.staffId !== user?.uid) {
             const notificationMessage = `You have a new recurring appointment with ${finalClientName} starting on ${format(baseAppointment.startTime, 'MMM d')}.`;
             const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
@@ -685,7 +679,6 @@ function PlannerPageContent() {
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
         await setDoc(checkInDocRef, appointmentToSave);
 
-        // Add notification for single appointment
         if (appointmentToSave.staffId && appointmentToSave.staffId !== user?.uid) {
             const notificationMessage = `You have a new appointment with ${appointmentToSave.clientName} on ${format(baseAppointment.startTime, 'MMM d @ h:mm a')}.`;
             const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
@@ -790,7 +783,7 @@ function PlannerPageContent() {
   };
 
   const handleRebook = (appointment: Appointment, weeksOut?: number) => {
-    setSelectedAppointment(null); // Clear appointment from checkout
+    setSelectedAppointment(null);
     
     let rebookAppointmentData: Appointment = { ...appointment };
 
@@ -879,9 +872,6 @@ function PlannerPageContent() {
         setIsEditEventOpen(false);
     }
     
-    const [eventToDeny, setEventToDeny] = setEventToDenyState(null);
-    const [denialReason, setDenialReason] = useState('');
-
     const handleDeleteEvent = (eventId: string) => {
         const eventToProcess = (events || []).find(e => e.id === eventId);
         if ((role === 'owner' || role === 'admin') && eventToProcess && eventToProcess.status === 'pending') {
@@ -1097,14 +1087,13 @@ function PlannerPageContent() {
   useEffect(() => {
     if (scannedData) {
         handleScan(scannedData);
-        setScannedData(null); // Reset after processing
+        setScannedData(null);
     }
   }, [scannedData, handleScan]);
 
   useEffect(() => {
     let html5QrCode: Html5Qrcode | undefined;
     if (isScannerOpen) {
-      // Use a timeout to ensure the element is in the DOM and visible
       const timer = setTimeout(() => {
         const element = document.getElementById('qr-reader-planner');
         if (element) {
@@ -1154,7 +1143,7 @@ function PlannerPageContent() {
     let itemToStart: Appointment | undefined;
     for (const items of itemsByColumn.values()) {
         const found = items.find(item => item.id === appointmentId);
-        if (found && 'status' in found) { // It's an Appointment-like object
+        if (found && 'status' in found) {
             itemToStart = found as Appointment;
             break;
         }
@@ -1257,8 +1246,6 @@ function PlannerPageContent() {
             service: serviceForDialog,
         };
     }, [selectedAppointment, clients, services]);
-
-  const [eventToDeny, setEventToDenyState] = useState<Event | null>(null);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -1450,7 +1437,7 @@ function PlannerPageContent() {
             <DayTimeline 
                 date={currentDate} 
                 columns={staffToDisplay}
-                showColumnHeader={false} // Header logic is now internal
+                showColumnHeader={false} 
                 isMobile={isMobile || false}
                 activeView={activeView}
                 allStaff={allStaff || []}
@@ -1687,7 +1674,7 @@ function PlannerPageContent() {
             </AlertDialogContent>
         </AlertDialog>
         
-        <AlertDialog open={!!eventToDeny} onOpenChange={() => setEventToDenyState(null)}>
+        <AlertDialog open={!!eventToDeny} onOpenChange={() => setEventToDeny(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Deny "{eventToDeny?.title}"?</AlertDialogTitle>
