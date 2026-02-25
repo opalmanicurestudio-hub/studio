@@ -31,7 +31,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle, Repeat, Award } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -66,13 +66,13 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 type EditableFormulaItem = {
-    id: string; // productId
+    id: string;
     name: string;
     price: number;
     quantity: number;
     imageUrl?: string;
     stock?: number;
-    type: 'product' | 'service';
+    type: 'product' | 'service' | 'membership' | 'package';
     staffId?: string;
 };
 
@@ -313,23 +313,36 @@ export default function POSPage() {
             .reduce((sum, adj) => sum + adj.cost, 0);
     }, [appliedAdjustments, checkoutSummary.adjustments]);
     
-    const handleAddToCart = useCallback((item: InventoryItem | Service) => {
-        if ('duration' in item) { // It's a Service
-            setServiceToSelectProvider(item);
-        } else { // It's an InventoryItem (Product)
-            setRetailItems(prevCart => {
-                const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
-                if (existingItem) {
-                    return prevCart.map(cartItem => 
-                        cartItem.id === item.id 
+    const handleAddToCart = useCallback((item: InventoryItem | Service | Membership | Package) => {
+        let itemType: 'product' | 'service' | 'membership' | 'package';
+        let price = 0;
+        
+        if ('interval' in item) {
+            itemType = 'membership';
+            price = item.price;
+        } else if ('sessions' in item) {
+            itemType = 'package';
+            price = item.price;
+        } else if ('duration' in item) {
+            itemType = 'service';
+            price = item.price;
+        } else {
+            itemType = 'product';
+            price = item.msrp || 0;
+        }
+
+        setRetailItems(prevCart => {
+            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+            if (existingItem) {
+                return prevCart.map(cartItem =>
+                    cartItem.id === item.id
                         ? { ...cartItem, quantity: cartItem.quantity + 1 }
                         : cartItem
-                    );
-                }
-                const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
-                return [...prevCart, { ...item, quantity: 1, price, type: 'product' }];
-            });
-        }
+                );
+            }
+            return [...prevCart, { ...item, quantity: 1, price, type: itemType }];
+        });
+
     }, []);
 
     const handleAddServiceWithProvider = (service: Service, provider: Staff) => {
@@ -1076,9 +1089,8 @@ export default function POSPage() {
         });
   
         retailItems.forEach(item => {
-            const product = inventory.find(p => p.id === item.id);
-            if (!product) return;
-            const retailTotal = item.quantity * item.price;
+            const price = 'msrp' in item ? item.msrp || 0 : item.price || 0;
+            const retailTotal = item.quantity * price;
             if (retailTotal > 0) createTransaction({
                 description: `Retail: ${item.quantity}x ${item.name}`, category: 'Retail', amount: retailTotal,
                 staffId: appointmentsData[0].staffId, appointmentId: appointmentsData[0].id,
@@ -1093,7 +1105,20 @@ export default function POSPage() {
                 usageCount: increment(1), usedByClientIds: arrayUnion(client.id),
             });
         }
-  
+        
+        if(redeemedOffer) {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+            if (redeemedOffer.type === 'package') {
+                const updatedPackages = (client.activePackages || []).map(p => {
+                    if (p.packageId === redeemedOffer.id) {
+                        return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                    }
+                    return p;
+                }).filter(p => p.sessionsRemaining > 0);
+                batch.update(clientRef, { activePackages: updatedPackages });
+            }
+        }
+
         await batch.commit();
   
         const receiptData: ReceiptData = {
@@ -1405,7 +1430,15 @@ export default function POSPage() {
                                 <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
                                 <TabsTrigger value="queue">Walk-in Queue<Badge className="ml-2">{orderedWaitingQueue.length + notifiedQueue.length}</Badge></TabsTrigger>
                             </TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} onAddToCart={handleAddToCart} /></TabsContent>
+                            <TabsContent value="catalog" className="flex-1 mt-6">
+                                <RetailCatalog 
+                                    services={services || []} 
+                                    inventory={inventory || []} 
+                                    memberships={memberships || []}
+                                    packages={packages || []}
+                                    onAddToCart={handleAddToCart} 
+                                />
+                            </TabsContent>
                             <TabsContent value="queue" className="flex-1 mt-6">
                                 <WalkInQueue 
                                     walkIns={walkIns} 

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -245,7 +245,9 @@ export const CheckoutHub = ({
                     <div className="space-y-3">
                         {cart.map(item => (
                             <div key={item.id} className="flex items-center gap-2">
-                                <p className="flex-1 text-sm">{item.quantity}x {item.name}</p>
+                                {item.type === 'membership' && <Award className="w-4 h-4 text-indigo-500" />}
+                                {item.type === 'package' && <Repeat className="w-4 h-4 text-teal-500" />}
+                                <p className="flex-1 text-sm">{item.quantity > 1 ? `${item.quantity}x` : ''} {item.name}</p>
                                 <p className="font-semibold text-sm">${(item.price * item.quantity).toFixed(2)}</p>
                                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4 text-destructive"/></Button>
                             </div>

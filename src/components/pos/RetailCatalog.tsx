@@ -1,10 +1,11 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { type InventoryItem, type Service } from '@/lib/data';
+import { type InventoryItem, type Service, type Membership, type Package } from '@/lib/data';
 import { MenuItemCard } from './MenuItemCard';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -16,40 +17,49 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
+import { MembershipPOSCard } from './MembershipPOSCard';
+import { PackagePOSCard } from './PackagePOSCard';
 
 interface RetailCatalogProps {
   inventory: InventoryItem[];
   services: Service[];
-  onAddToCart: (item: InventoryItem | Service) => void;
+  memberships: Membership[];
+  packages: Package[];
+  onAddToCart: (item: InventoryItem | Service | Membership | Package) => void;
 }
 
-export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, services, onAddToCart }) => {
+export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, services, memberships, packages, onAddToCart }) => {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
   const categories = useMemo(() => {
     const invCategories = inventory.filter(i => i.type === 'retail').map(i => i.category);
     const serviceCategories = services.map(s => s.category);
-    return ['All', ...Array.from(new Set([...invCategories, ...serviceCategories]))];
-  }, [inventory, services]);
+    const specialCategories = [];
+    if (memberships.length > 0) specialCategories.push('Memberships');
+    if (packages.length > 0) specialCategories.push('Packages');
+    return ['All', ...specialCategories, ...Array.from(new Set([...invCategories, ...serviceCategories]))];
+  }, [inventory, services, memberships, packages]);
 
   const filteredItems = useMemo(() => {
     const allItems = [...inventory.filter(i => i.type === 'retail'), ...services.filter(s => !s.isPrivate)];
     
-    let items = allItems;
+    let items: (InventoryItem | Service | Membership | Package)[] = allItems;
     
-    // Filter by category
-    if (activeCategory !== 'All') {
-      items = items.filter(item => item.category === activeCategory);
+    if (activeCategory === 'Memberships') {
+        items = memberships;
+    } else if (activeCategory === 'Packages') {
+        items = packages;
+    } else if (activeCategory !== 'All') {
+      items = items.filter(item => 'category' in item && item.category === activeCategory);
     }
     
-    // Filter by search term
     if (searchTerm) {
         items = items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }
 
     return items;
-  }, [inventory, services, activeCategory, searchTerm]);
+  }, [inventory, services, memberships, packages, activeCategory, searchTerm]);
 
   return (
     <div className="space-y-4">
@@ -88,9 +98,17 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
         </Carousel>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredItems.map(item => (
-          <MenuItemCard key={item.id} item={item} onAddToCart={onAddToCart} />
-        ))}
+        {filteredItems.map(item => {
+          if ('interval' in item) { // Membership
+            return <MembershipPOSCard key={item.id} membership={item} onAddToCart={onAddToCart} />
+          }
+          if ('sessions' in item) { // Package
+            const service = services.find(s => s.id === item.serviceId);
+            return <PackagePOSCard key={item.id} pack={item} service={service} onAddToCart={onAddToCart} />
+          }
+          // Product or Service
+          return <MenuItemCard key={item.id} item={item} onAddToCart={onAddToCart} />
+        })}
       </div>
     </div>
   );

@@ -1,10 +1,11 @@
 
+
 'use client';
 
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Scissors, Package } from 'lucide-react';
 import Image from 'next/image';
 import { type InventoryItem, type Service } from '@/lib/data';
 
@@ -16,17 +17,17 @@ interface MenuItemCardProps {
 export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart }) => {
   const imageUrl = 'imageUrl' in item ? item.imageUrl : undefined;
   const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
+  const isService = 'duration' in item;
 
   return (
-    <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer" onClick={() => onAddToCart(item)}>
-      <CardContent className="p-0">
-        <div className="relative aspect-square bg-muted">
+    <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer h-full flex flex-col" onClick={() => onAddToCart(item)}>
+      <CardContent className="p-0 flex-1 flex flex-col">
+        <div className="relative aspect-[4/3] bg-muted">
           {imageUrl ? (
             <Image src={imageUrl} alt={item.name} fill className="object-cover" />
           ) : (
              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                {/* Placeholder based on type */}
-                {'price' in item ? 'Service' : 'Product'}
+                {isService ? <Scissors className="w-8 h-8" /> : <Package className="w-8 h-8" />}
             </div>
           )}
            <Button size="icon" className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 backdrop-blur-sm text-white rounded-full">
