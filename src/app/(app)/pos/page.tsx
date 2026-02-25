@@ -977,12 +977,8 @@ export default function POSPage() {
     
     const payerClient = client;
 
-    if (!payerClient) {
-        if(appointmentsData.length > 0) {
-            toast({ variant: 'destructive', title: 'Payer Not Selected', description: 'Please select who is paying for this group.' });
-        } else {
-            toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
-        }
+    if (!payerClient && appointmentsData.length === 0 && retailItems.length === 0) {
+        toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
         setIsSubmitting(false);
         return;
     }
@@ -1059,10 +1055,12 @@ export default function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), { status: 'idle', lastServedTimestamp: nowISO });
         });
   
-        batch.update(doc(firestore, `tenants/${tenantId}/clients`, payerClient.id), {
-            lifetimeValue: increment(subtotalAfterDiscounts), // `additionalCharge` is part of subtotal
-            lastAppointment: nowISO
-        });
+        if (payerClient) {
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, payerClient.id), {
+                lifetimeValue: increment(subtotalAfterDiscounts), // `additionalCharge` is part of subtotal
+                lastAppointment: nowISO
+            });
+        }
   
         const createTransaction = (data: Partial<Omit<Transaction, 'id' | 'date'>>) => {
             const finalData = { ...data, date: nowISO };
@@ -1074,12 +1072,12 @@ export default function POSPage() {
   
         // Create transactions for services
         appointmentsData.forEach(appointmentData => {
-            const { service, addOnServices, staffId, id } = appointmentData;
+            const { service, addOnServices, staffId, id, client: aptClient } = appointmentData;
             const serviceRevenue = redeemedOffer?.id === service.id ? 0 : service.price || 0;
             
             const transactionBase = {
-                clientOrVendor: payerClient.name,
-                clientId: payerClient.id,
+                clientOrVendor: aptClient?.name || 'Walk-in Customer',
+                clientId: aptClient?.id,
                 type: 'income' as const,
                 context: 'Business' as const,
                 paymentMethod: checkoutDetails.paymentMethod,
@@ -1105,14 +1103,14 @@ export default function POSPage() {
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
             if (tip > 0) createTransaction({
                 description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
-                tipAmount: tip, clientOrVendor: payerClient.name, clientId: payerClient.id, type: 'income',
+                tipAmount: tip, clientOrVendor: payerClient?.name || 'Walk-in Customer', clientId: payerClient?.id, type: 'income',
                 context: 'Business', paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
             });
         });
 
         // Create transactions for cart items (retail, memberships, packages) and update client
         cart.forEach(item => {
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, payerClient.id);
+            const clientDocRef = payerClient ? doc(firestore, `tenants/${tenantId}/clients`, payerClient.id) : null;
 
             if (item.type === 'product') {
                 const product = inventory.find(p => p.id === item.id);
@@ -1126,17 +1124,20 @@ export default function POSPage() {
                             amount: retailTotal,
                             staffId: primaryStaffId,
                             appointmentId: primaryAppointmentId,
-                            clientOrVendor: payerClient.name,
-                            clientId: payerClient.id,
+                            clientOrVendor: payerClient?.name || 'Walk-in Customer',
+                            clientId: payerClient?.id,
                             type: 'income',
                             context: 'Business',
                             paymentMethod: checkoutDetails.paymentMethod,
                             hasReceipt: true,
                         });
                     }
-                    batch.update(doc(firestore, `tenants/${tenantId}/inventory`, item.id), {
-                        totalStock: increment(-item.quantity)
-                    });
+                    const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                    if (productDocRef) {
+                        batch.update(productDocRef, {
+                            totalStock: increment(-item.quantity)
+                        });
+                    }
                 }
             } else if (item.type === 'membership') {
                 const price = item.price || 0;
@@ -1146,15 +1147,15 @@ export default function POSPage() {
                         category: 'Membership Sales',
                         amount: price,
                         staffId: primaryStaffId,
-                        clientOrVendor: payerClient.name,
-                        clientId: payerClient.id,
+                        clientOrVendor: payerClient?.name || 'Walk-in Customer',
+                        clientId: payerClient?.id,
                         type: 'income',
                         context: 'Business',
                         paymentMethod: checkoutDetails.paymentMethod,
                         hasReceipt: true,
                     });
                 }
-                batch.update(clientDocRef, { activeMembershipId: item.id });
+                if (clientDocRef) batch.update(clientDocRef, { activeMembershipId: item.id });
 
             } else if (item.type === 'package') {
                 const price = item.price || 0;
@@ -1164,8 +1165,8 @@ export default function POSPage() {
                         category: 'Package Sales',
                         amount: price,
                         staffId: primaryStaffId,
-                        clientOrVendor: payerClient.name,
-                        clientId: payerClient.id,
+                        clientOrVendor: payerClient?.name || 'Walk-in Customer',
+                        clientId: payerClient?.id,
                         type: 'income',
                         context: 'Business',
                         paymentMethod: checkoutDetails.paymentMethod,
@@ -1173,7 +1174,7 @@ export default function POSPage() {
                     });
                 }
                 const packageDetails = packages.find(p => p.id === item.id);
-                if (packageDetails) {
+                if (packageDetails && clientDocRef) {
                     const newPackage = {
                         packageId: item.id,
                         sessionsRemaining: packageDetails.sessions
@@ -1189,8 +1190,8 @@ export default function POSPage() {
                          amount: price,
                          staffId: item.staffId || primaryStaffId,
                          appointmentId: primaryAppointmentId,
-                         clientOrVendor: payerClient.name,
-                         clientId: payerClient.id,
+                         clientOrVendor: payerClient?.name || 'Walk-in Customer',
+                         clientId: payerClient?.id,
                          type: 'income',
                          context: 'Business',
                          paymentMethod: checkoutDetails.paymentMethod,
@@ -1200,7 +1201,7 @@ export default function POSPage() {
             }
         });
   
-        if (appliedDiscountCode) {
+        if (appliedDiscountCode && client) {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
                 usageCount: increment(1),
@@ -1208,7 +1209,7 @@ export default function POSPage() {
             });
         }
         
-        if(redeemedOffer) {
+        if(redeemedOffer && client) {
             const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
             if (redeemedOffer.type === 'package') {
                 const updatedPackages = (client.activePackages || []).map(p => {
@@ -1225,9 +1226,9 @@ export default function POSPage() {
   
         const receiptData: ReceiptData = {
             business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
-            clientName: payerClient.name, date: now, 
+            clientName: payerClient?.name || 'Walk-in Customer', date: now, 
             items: allCartItems.map(item => ({...item, isDiscount: false})),
-            subtotal, discount: totalDiscount, tax, tip: tipAmount, total,
+            subtotal, discount: totalDiscount, tax: mockTax, tip: tipAmount, total,
             payment: {
                 method: checkoutDetails.paymentMethod,
                 amountTendered: checkoutDetails.paymentMethod === 'cash' ? (checkoutDetails.amountTendered || total) : total,
@@ -1475,7 +1476,7 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        adjustments,
+        adjustments: checkoutSummary.adjustments,
         appliedAdjustments,
         onApplyAdjustmentToggle: handleAdjustmentToggle,
         absorbedCost,
@@ -1712,4 +1713,3 @@ export default function POSPage() {
         </>
     );
 }
-
