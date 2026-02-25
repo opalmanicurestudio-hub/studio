@@ -199,22 +199,23 @@ export default function POSPage() {
     }, [appointments, clients, services, staff, walkIns]);
     
     const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    useEffect(() => {
         const appointmentId = searchParams.get('checkout_id');
-        const selectedIds = new Set(selectedAppointmentIds);
-        if (appointmentId && !selectedIds.has(appointmentId)) {
+        if (appointmentId && !selectedAppointmentIds.has(appointmentId)) {
             const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-            if(appointmentToSelect?.checkoutState){
-                selectedIds.add(appointmentId);
-                setSelectedAppointmentIds(new Set(selectedIds));
+            if (appointmentToSelect?.checkoutState) {
+                setSelectedAppointmentIds(prevIds => new Set(prevIds).add(appointmentId));
                 const newUrl = new URL(window.location.href);
                 newUrl.searchParams.delete('checkout_id');
                 router.replace(newUrl.toString(), { scroll: false });
             }
         }
-        return Array.from(selectedIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, searchParams, router]);
+    }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -1480,7 +1481,7 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        adjustments: checkoutSummary.adjustments,
+        checkoutSummary,
         appliedAdjustments,
         onApplyAdjustmentToggle: handleAdjustmentToggle,
         absorbedCost,
