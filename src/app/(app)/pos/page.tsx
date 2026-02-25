@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -981,6 +982,45 @@ export default function POSPage() {
                     setConfirmation(null);
                 }
             }
+        });
+    };
+
+    const handleStartService = (appointmentId: string) => {
+        if (!firestore || !tenantId || !appointments) return;
+        
+        const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+        if (!appointmentToStart) return;
+
+        const batch = writeBatch(firestore);
+        const nowISO = new Date().toISOString();
+
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        batch.update(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+
+        if (appointmentToStart.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointmentToStart.checkInToken);
+            batch.update(checkInRef, { status: 'servicing' });
+        }
+        
+        if (appointmentToStart.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+            batch.update(walkInRef, { status: 'servicing', serviceStartTime: nowISO });
+        }
+
+        if (appointmentToStart.staffId) {
+            const staffRef = doc(firestore, 'tenants', tenantId, 'staff', appointmentToStart.staffId);
+            batch.update(staffRef, { status: 'busy' });
+        }
+
+        batch.commit().then(() => {
+            toast({
+                title: "Service Started!",
+                description: `The service for ${appointmentToStart.clientName} has begun.`
+            });
+        }).catch(error => {
+            console.error("Error starting service from POS:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not start service.' });
         });
     };
 
