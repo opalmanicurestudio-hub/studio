@@ -57,10 +57,6 @@
             "enum": ["none", "pro"],
             "description": "The subscription tier of the tenant."
         },
-        "tmhr": {
-            "type": "number",
-            "description": "The user's calculated True Minimum Hourly Rate."
-        },
         "queueSkipTimeMinutes": {
             "type": "number",
             "description": "Number of minutes a client has to claim their spot before being skipped."
@@ -380,21 +376,30 @@
       "type": "object",
       "description": "Represents a client of a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "activeMembershipId": { "type": "string" },
+        "subscription": {
+          "type": "object",
+          "properties": {
+            "membershipId": { "type": "string" },
+            "status": { "type": "string", "enum": ["active", "past_due", "canceled"] },
+            "nextBillingDate": { "type": "string", "format": "date-time" },
+            "perkLastUsed": { "type": "string", "format": "date-time" }
+          }
         },
-        "firstName": {
-          "type": "string"
-        },
-        "lastName": {
-          "type": "string"
-        },
-        "email": {
-          "type": "string",
-          "format": "email"
-        },
-        "phone": {
-          "type": "string"
+        "activePackages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "packageId": { "type": "string" },
+              "sessionsRemaining": { "type": "number" }
+            },
+            "required": ["packageId", "sessionsRemaining"]
+          }
         },
         "address": {
             "type": "object",
@@ -475,8 +480,7 @@
       },
       "required": [
         "id",
-        "firstName",
-        "lastName"
+        "name"
       ]
     },
     "Appointment": {

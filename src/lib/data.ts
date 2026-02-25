@@ -137,6 +137,7 @@ export type Client = {
     membershipId: string;
     status: 'active' | 'past_due' | 'canceled';
     nextBillingDate: string;
+    perkLastUsed?: string;
   };
   activePackages?: {
     packageId: string;

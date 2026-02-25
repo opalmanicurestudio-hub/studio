@@ -4,12 +4,12 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
-import { doc, collection, query, where, getDocs } from 'firebase/firestore';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { doc, collection, query, where, getDocs, updateDoc, arrayUnion } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package } from '@/lib/data';
 import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
-import { isSameDay, parseISO } from 'date-fns';
+import { isSameDay, parseISO, addMonths } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -201,14 +201,22 @@ export default function BookingPage() {
       const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
 
       if (type === 'membership') {
-          await updateDocumentNonBlocking(clientDocRef, { activeMembershipId: item.id });
+          const subscriptionData = {
+              membershipId: item.id,
+              status: 'active' as const,
+              nextBillingDate: addMonths(new Date(), 1).toISOString(),
+              perkLastUsed: null,
+          };
+          await updateDocumentNonBlocking(clientDocRef, { 
+              activeMembershipId: item.id,
+              subscription: subscriptionData,
+          });
       } else { // package
-          const existingPackages = client.activePackages || [];
           const newPackage = {
               packageId: item.id,
               sessionsRemaining: (item as Package).sessions
           };
-          await updateDocumentNonBlocking(clientDocRef, { activePackages: [...existingPackages, newPackage] });
+          await updateDocumentNonBlocking(clientDocRef, { activePackages: arrayUnion(newPackage) });
       }
 
       const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');

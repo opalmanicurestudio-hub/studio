@@ -743,7 +743,7 @@ export default function ClientDetailPage() {
                                                         <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                                             <div>
                                                                 <p className="text-sm font-medium">{fee.reason}</p>
-                                                                <p className="text-xs text-muted-foreground">From apt on {format(parseISO(fee.appointmentDate), 'MMM d, yyyy')}</p>
+                                                                <p className="text-xs text-muted-foreground">From apt on {format(parseISO(fee.appointmentDate), 'PPP')}</p>
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <span className="font-semibold text-destructive">${fee.feeAmount.toFixed(2)}</span>
@@ -1061,3 +1061,4 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
