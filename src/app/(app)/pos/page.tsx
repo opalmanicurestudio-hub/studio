@@ -994,7 +994,9 @@ export default function POSPage() {
 
         const primaryAppointmentData = appointmentsData[0];
         const primaryStaffId = primaryAppointmentData?.staffId || staff.find(s => s.role === 'admin')?.id || staff[0]?.id;
-        const primaryAppointmentId = primaryAppointmentData?.appointment.id;
+        const primaryAppointmentId = primaryAppointmentData?.id;
+        
+        const clientRef = client ? doc(firestore, `tenants/${tenantId}/clients`, client.id) : null;
 
         // Process appointments
         for (const data of appointmentsData) {
@@ -1054,8 +1056,8 @@ export default function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), { status: 'idle', lastServedTimestamp: nowISO });
         });
   
-        if (client) {
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
+        if (clientRef) {
+            batch.update(clientRef, {
                 lifetimeValue: increment(subtotalAfterDiscounts), // `additionalCharge` is part of subtotal
                 lastAppointment: nowISO
             });
@@ -1109,8 +1111,6 @@ export default function POSPage() {
 
         // Create transactions for cart items (retail, memberships, packages) and update client
         cart.forEach(item => {
-            const clientDocRef = client ? doc(firestore, `tenants/${tenantId}/clients`, client.id) : null;
-
             if (item.type === 'product') {
                 const product = inventory.find(p => p.id === item.id);
                 if (product) {
@@ -1154,7 +1154,7 @@ export default function POSPage() {
                         hasReceipt: true,
                     });
                 }
-                if (clientDocRef) batch.update(clientDocRef, { activeMembershipId: item.id });
+                if (clientRef) batch.update(clientRef, { activeMembershipId: item.id });
 
             } else if (item.type === 'package') {
                 const price = item.price || 0;
@@ -1173,12 +1173,12 @@ export default function POSPage() {
                     });
                 }
                 const packageDetails = packages.find(p => p.id === item.id);
-                if (packageDetails && clientDocRef && client) {
+                if (packageDetails && clientRef && client) {
                     const newPackage = {
                         packageId: item.id,
                         sessionsRemaining: packageDetails.sessions
                     };
-                    batch.update(clientDocRef, { activePackages: arrayUnion(newPackage) });
+                    batch.update(clientRef, { activePackages: arrayUnion(newPackage) });
                 }
             } else if (item.type === 'service') {
                  const price = item.price || 0;
@@ -1208,10 +1208,9 @@ export default function POSPage() {
             });
         }
         
-        if(redeemedOffer && client) {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+        if(redeemedOffer && clientRef) {
             if (redeemedOffer.type === 'package') {
-                const packageToUpdate = client.activePackages?.find(p => {
+                const packageToUpdate = client?.activePackages?.find(p => {
                     const pkgDetails = packages.find(pkg => pkg.id === p.packageId);
                     return pkgDetails?.serviceId === redeemedOffer.id;
                 });
@@ -1445,8 +1444,7 @@ export default function POSPage() {
         const itemsFromCart = cart.map(item => ({
             name: item.name,
             quantity: item.quantity,
-            price: item.price,
-            isDiscount: false,
+            price: item.price
         }));
 
         return [...servicesFromAppointments, ...itemsFromCart];
@@ -1583,7 +1581,7 @@ export default function POSPage() {
                                     onSkip={handleSkipWalkIn}
                                     onReturnToQueue={handleReturnToQueue}
                                     groupSizes={new Map()}
-                                    onToggleWaitForStaff={onToggleWaitForStaff}
+                                    onToggleWaitForStaff={handleToggleWaitForStaff}
                                 />
                             </TabsContent>
                         </Tabs>
