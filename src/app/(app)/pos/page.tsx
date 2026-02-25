@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -971,39 +972,37 @@ export default function POSPage() {
         });
     };
 
-    const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
-      setIsSubmitting(true);
-  
-      const payerClient = client;
+  const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
+    setIsSubmitting(true);
 
-      const hasItems = appointmentsData.length > 0 || retailItems.length > 0 || cart.some(i => i.type === 'membership' || i.type === 'package');
-  
-      if (!payerClient && hasItems) {
+    const payerClient = client;
+
+    if (!payerClient && appointmentsData.length === 0 && retailItems.length === 0) {
         toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
         setIsSubmitting(false);
         return;
-      }
-      
-      if (!payerClient) {
-          onOpenChange(false);
-          setIsSubmitting(false);
-          return;
-      }
-  
-      if (!firestore || !tenantId || !selectedTenant) {
+    }
+    
+    if (!payerClient) {
+        onOpenChange(false);
+        setIsSubmitting(false);
+        return;
+    }
+
+    if (!firestore || !tenantId || !selectedTenant) {
         toast({ variant: 'destructive', title: 'Database Error' });
         setIsSubmitting(false);
         return;
-      }
-      const batch = writeBatch(firestore);
-      try {
+    }
+    const batch = writeBatch(firestore);
+    try {
         const now = new Date();
         const nowISO = now.toISOString();
 
         const primaryAppointmentData = appointmentsData.length > 0 ? appointmentsData[0] : null;
         const primaryStaffId = primaryAppointmentData?.staffId || staff.find(s => s.role === 'admin')?.id || staff[0]?.id;
         const primaryAppointmentId = primaryAppointmentData?.id;
-  
+
         // Process appointments
         for (const appointmentData of appointmentsData) {
             const { appointment: currentAppointment, service: currentService } = appointmentData;
@@ -1113,38 +1112,68 @@ export default function POSPage() {
             });
         });
 
-        // Create transactions for retail items
-        retailItems.forEach(item => {
-            const price = 'msrp' in item ? item.msrp || 0 : item.price || 0;
-            const retailTotal = item.quantity * price;
-            if (retailTotal > 0) createTransaction({
-                description: `Retail: ${item.quantity}x ${item.name}`, category: 'Retail', amount: retailTotal,
-                staffId: primaryStaffId, appointmentId: primaryAppointmentId,
-                clientOrVendor: payerClient.name, clientId: payerClient.id, type: 'income', context: 'Business',
-                paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true,
-            });
-            batch.update(doc(firestore, `tenants/${tenantId}/inventory`, item.id), { totalStock: increment(-item.quantity) });
-        });
-  
-        // Create transactions for memberships/packages
+        // Create transactions for cart items (retail, memberships, packages)
         cart.forEach(item => {
-            if(item.type === 'membership' || item.type === 'package') {
+            if (item.type === 'product') {
+                const product = inventory.find(p => p.id === item.id);
+                if (product) {
+                    const price = item.price || 0;
+                    const retailTotal = item.quantity * price;
+                    if (retailTotal > 0) {
+                        createTransaction({
+                            description: `Retail: ${item.quantity}x ${item.name}`,
+                            category: 'Retail',
+                            amount: retailTotal,
+                            staffId: primaryStaffId,
+                            appointmentId: primaryAppointmentId,
+                            clientOrVendor: payerClient.name,
+                            clientId: payerClient.id,
+                            type: 'income',
+                            context: 'Business',
+                            paymentMethod: checkoutDetails.paymentMethod,
+                            hasReceipt: true,
+                        });
+                    }
+                    batch.update(doc(firestore, `tenants/${tenantId}/inventory`, item.id), {
+                        totalStock: increment(-item.quantity)
+                    });
+                }
+            } else if (item.type === 'membership' || item.type === 'package') {
                 const price = item.price || 0;
-                if (price > 0) createTransaction({
-                    description: `Purchase: ${item.name}`,
-                    category: item.type === 'membership' ? 'Membership Sales' : 'Package Sales',
-                    amount: price,
-                    staffId: primaryStaffId,
-                    clientOrVendor: payerClient.name,
-                    clientId: payerClient.id,
-                    type: 'income',
-                    context: 'Business',
-                    paymentMethod: checkoutDetails.paymentMethod,
-                    hasReceipt: true,
-                });
+                if (price > 0) {
+                    createTransaction({
+                        description: `Purchase: ${item.name}`,
+                        category: item.type === 'membership' ? 'Membership Sales' : 'Package Sales',
+                        amount: price,
+                        staffId: primaryStaffId,
+                        clientOrVendor: payerClient.name,
+                        clientId: payerClient.id,
+                        type: 'income',
+                        context: 'Business',
+                        paymentMethod: checkoutDetails.paymentMethod,
+                        hasReceipt: true,
+                    });
+                }
+            } else if (item.type === 'service') {
+                 const price = item.price || 0;
+                 if (price > 0) {
+                      createTransaction({
+                         description: `Service: ${item.name}`,
+                         category: 'Service Revenue',
+                         amount: price,
+                         staffId: item.staffId || primaryStaffId,
+                         appointmentId: primaryAppointmentId,
+                         clientOrVendor: payerClient.name,
+                         clientId: payerClient.id,
+                         type: 'income',
+                         context: 'Business',
+                         paymentMethod: checkoutDetails.paymentMethod,
+                         hasReceipt: true,
+                     });
+                 }
             }
         });
-
+  
         if (appliedDiscountCode) {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
@@ -1375,7 +1404,7 @@ export default function POSPage() {
     
     const allCartItems = useMemo(() => {
         const servicesFromAppointments = appointmentsData.flatMap(d => {
-            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price, isDiscount: false }] : [];
+            const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
             const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
             return [...mainService, ...addOns];
         });
@@ -1657,3 +1686,4 @@ export default function POSPage() {
         </>
     );
 }
+
