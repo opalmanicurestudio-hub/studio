@@ -371,8 +371,9 @@ export default function ClientDetailPage() {
   }, [client?.referralCode]);
 
   const activeMembership = useMemo(() => {
-    if (!client?.subscription || !memberships) return null;
-    return memberships.find(m => m.id === client.subscription!.membershipId);
+    const mId = client?.subscription?.membershipId || client?.activeMembershipId;
+    if (!mId || !memberships) return null;
+    return memberships.find(m => m.id === mId);
   }, [client, memberships]);
 
   const isPerkUsedThisCycle = useMemo(() => {
@@ -679,12 +680,12 @@ export default function ClientDetailPage() {
                                         <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
                                     ) : (
                                         <div className="space-y-4">
-                                            {activeMembership && client.subscription && (
-                                                <div className={cn("p-4 rounded-lg border", {
+                                            {activeMembership && (
+                                                <div className={cn("p-4 rounded-lg border", client.subscription ? {
                                                     'bg-indigo-500/10 border-indigo-500/20': client.subscription.status === 'active',
                                                     'bg-amber-500/10 border-amber-500/20': client.subscription.status === 'past_due',
                                                     'bg-muted/50': client.subscription.status === 'canceled',
-                                                })}>
+                                                } : 'bg-indigo-500/10 border-indigo-500/20')}>
                                                      <div className="flex justify-between items-start">
                                                         <div>
                                                             <h4 className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
@@ -693,9 +694,9 @@ export default function ClientDetailPage() {
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
                                                             <DropdownMenuContent>
-                                                                {client.subscription.status !== 'past_due' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
-                                                                {client.subscription.status !== 'canceled' && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
-                                                                {client.subscription.status !== 'active' && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
+                                                                {(!client.subscription || client.subscription.status !== 'past_due') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
+                                                                {(!client.subscription || client.subscription.status !== 'canceled') && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
+                                                                {(client.subscription && client.subscription.status !== 'active') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                      </div>
@@ -705,7 +706,7 @@ export default function ClientDetailPage() {
                                                             <p className="text-[10px] uppercase font-bold text-muted-foreground">Perk Status</p>
                                                             {isPerkUsedThisCycle ? (
                                                                 <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
-                                                                    Redeemed {format(parseISO(client.subscription.perkLastUsed!), 'MMM d')}
+                                                                    Redeemed {client.subscription?.perkLastUsed ? format(parseISO(client.subscription.perkLastUsed), 'MMM d') : ''}
                                                                 </Badge>
                                                             ) : (
                                                                 <Badge variant="default" className="bg-indigo-600">Ready to Use</Badge>
@@ -713,7 +714,7 @@ export default function ClientDetailPage() {
                                                         </div>
                                                         <div className="space-y-1 text-right">
                                                             <p className="text-[10px] uppercase font-bold text-muted-foreground">Next Bill</p>
-                                                            <p className="text-sm font-semibold">{format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy')}</p>
+                                                            <p className="text-sm font-semibold">{client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
                                                         </div>
                                                     </div>
                                                 </div>

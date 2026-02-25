@@ -55,8 +55,9 @@ export default function ClientPortalPage() {
     }, [appointments]);
 
     const activeMembership = useMemo(() => {
-        if (!client?.subscription || !memberships) return null;
-        return memberships.find(m => m.id === client.subscription!.membershipId);
+        const mId = client?.subscription?.membershipId || client?.activeMembershipId;
+        if (!mId || !memberships) return null;
+        return memberships.find(m => m.id === mId);
     }, [client, memberships]);
 
     const isPerkUsedThisCycle = useMemo(() => {
@@ -112,9 +113,11 @@ export default function ClientPortalPage() {
                             <>
                                 <div className="space-y-1">
                                     <p className="text-xl font-bold">{activeMembership.name}</p>
-                                    <Badge variant={client.subscription?.status === 'active' ? 'default' : 'destructive'} className="capitalize">
-                                        {client.subscription?.status}
-                                    </Badge>
+                                    {client.subscription && (
+                                        <Badge variant={client.subscription.status === 'active' ? 'default' : 'destructive'} className="capitalize">
+                                            {client.subscription.status}
+                                        </Badge>
+                                    )}
                                 </div>
                                 <div className="pt-2 border-t space-y-2">
                                     <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perk</p>
