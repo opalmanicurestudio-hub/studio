@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -1009,7 +1010,13 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
-    if (!client || (appointmentsData.length === 0 && retailItems.length === 0)) {
+    // Fallback: If no client is selected but we have appointments, use the first appointment's client
+    let finalClient = client;
+    if (!finalClient && appointmentsData.length > 0) {
+        finalClient = appointmentsData[0].client;
+    }
+
+    if (!finalClient || (appointmentsData.length === 0 && retailItems.length === 0)) {
         toast({ variant: 'destructive', title: 'Error', description: 'No client or items selected for checkout.' });
         setIsSubmitting(false);
         return;
@@ -1030,7 +1037,7 @@ export default function POSPage() {
         const primaryStaffId = primaryAppointmentData?.staffId || (staff && staff.find(s => s.role === 'admin')?.id) || (staff && staff[0]?.id);
         const primaryAppointmentId = primaryAppointmentData?.id;
         
-        const clientDocRef = client ? doc(firestore, `tenants/${tenantId}/clients`, client.id) : null;
+        const clientDocRef = finalClient ? doc(firestore, `tenants/${tenantId}/clients`, finalClient.id) : null;
         let clientUpdates: Partial<Client> = {};
 
         // Track running inventory levels for atomic calculation within this checkout
@@ -1040,6 +1047,11 @@ export default function POSPage() {
         for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
+
+            if (currentAppointment.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+                batch.update(checkInRef, { status: 'completed' });
+            }
 
             // Professional Product Deduction from Formula
             if (currentAppointment.checkoutState?.formula) {
@@ -1105,9 +1117,14 @@ export default function POSPage() {
             const { service, addOnServices, staffId, id, client: aptClient } = data;
             const servicePrice = redeemedOffer?.id === service.id ? 0 : service.price || 0;
             
+            // Robust identification for the ledger
+            const finalClientName = aptClient?.name || data.clientName || finalClient?.name || 'Walk-in Customer';
+            const finalClientId = aptClient?.id || data.clientId || finalClient?.id;
+            const finalStaffId = staffId || data.staffId || primaryStaffId;
+
             const transactionBase = {
-                clientOrVendor: aptClient?.name || 'Walk-in Customer',
-                clientId: aptClient?.id,
+                clientOrVendor: finalClientName,
+                clientId: finalClientId,
                 type: 'income' as const,
                 context: 'Business' as const,
                 paymentMethod: checkoutDetails.paymentMethod,
@@ -1118,13 +1135,13 @@ export default function POSPage() {
 
             if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 ...transactionBase, date: nowISO,
-                description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId, appointmentId: id,
+                description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId: finalStaffId, appointmentId: id,
             });
 
             addOnServices.forEach(addon => {
                 if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                     ...transactionBase, date: nowISO,
-                    description: `Add-on: ${addon.name}`, category: 'Service Revenue', amount: addon.price, staffId, appointmentId: id,
+                    description: `Add-on: ${addon.name}`, category: 'Service Revenue', amount: addon.price, staffId: finalStaffId, appointmentId: id,
                 });
             });
         });
@@ -1132,8 +1149,8 @@ export default function POSPage() {
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
             if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
-                tipAmount: tip, clientOrVendor: client?.name || 'Walk-in Customer', clientId: client?.id, type: 'income',
-                context: 'Business', paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
+                tipAmount: tip, clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income',
+                context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
             });
         });
 
@@ -1144,8 +1161,8 @@ export default function POSPage() {
                      batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                         description: `Retail: ${item.quantity}x ${item.name}`, category: 'Retail', amount: retailTotal,
                         staffId: primaryStaffId, appointmentId: primaryAppointmentId,
-                        clientOrVendor: client?.name || 'Walk-in Customer', clientId: client?.id, type: 'income',
-                        context: 'Business', paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
+                        clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income' as const,
+                        context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
                     });
                 }
                 
@@ -1176,30 +1193,30 @@ export default function POSPage() {
             });
         });
   
-        if (appliedDiscountCode && client) {
+        if (appliedDiscountCode && finalClient) {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
             batch.update(discountRef, {
                 usageCount: increment(1),
-                usedByClientIds: arrayUnion(client.id),
+                usedByClientIds: arrayUnion(finalClient.id),
             });
         }
         
-        if (redeemedOffer && clientDocRef && client) {
+        if (redeemedOffer && clientDocRef && finalClient) {
             if (redeemedOffer.type === 'package') {
-                const packageUsed = client.activePackages?.find(p => {
+                const packageUsed = finalClient.activePackages?.find(p => {
                     const packageDetails = packages.find(pkg => pkg.id === p.packageId);
                     return packageDetails?.serviceId === redeemedOffer.id;
                 });
                 
                 if (packageUsed) {
-                    clientUpdates.activePackages = (client.activePackages || [])
+                    clientUpdates.activePackages = (finalClient.activePackages || [])
                         .map(p => (p.packageId === packageUsed.packageId) ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p)
                         .filter(p => p.sessionsRemaining > 0);
                 }
             } else if (redeemedOffer.type === 'membership') {
-                if (client.subscription) {
+                if (finalClient.subscription) {
                     clientUpdates.subscription = {
-                        ...client.subscription,
+                        ...finalClient.subscription,
                         perkLastUsed: nowISO,
                     };
                 }
@@ -1223,7 +1240,7 @@ export default function POSPage() {
 
         const receiptData: ReceiptData = {
             business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
-            clientName: client?.name || 'Walk-in Customer', date: now, 
+            clientName: finalClient?.name || 'Walk-in Customer', date: now, 
             items: allCartItems.map(item => ({...item, isDiscount: false})),
             subtotal, discount: totalDiscount, tax, tip: tipAmount, total,
             payment: {
@@ -1239,14 +1256,14 @@ export default function POSPage() {
             const redeemedService = services.find(s => s.id === redeemedOffer.id);
             if (redeemedService) {
                 const redeemedOfferData: ReceiptData['redeemedOffer'] = { itemName: redeemedService.name };
-                if (redeemedOffer.type === 'package' && client) {
-                    const packageUsed = client.activePackages?.find(p => packages.find(pkg => pkg.id === p.packageId)?.serviceId === redeemedOffer.id);
+                if (redeemedOffer.type === 'package' && finalClient) {
+                    const packageUsed = finalClient.activePackages?.find(p => packages.find(pkg => pkg.id === p.packageId)?.serviceId === redeemedOffer.id);
                     if (packageUsed) {
                         redeemedOfferData.sessionsRemaining = packageUsed.sessionsRemaining - 1;
                         redeemedOfferData.offeringName = packages.find(p => p.id === packageUsed.packageId)?.name;
                     }
-                } else if (redeemedOffer.type === 'membership' && client?.subscription) {
-                    redeemedOfferData.offeringName = memberships.find(m => m.id === client.subscription!.membershipId)?.name;
+                } else if (redeemedOffer.type === 'membership' && finalClient?.subscription) {
+                    redeemedOfferData.offeringName = memberships.find(m => m.id === finalClient.subscription!.membershipId)?.name;
                 }
                 receiptData.redeemedOffer = redeemedOfferData;
             }
@@ -1254,6 +1271,7 @@ export default function POSPage() {
   
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
+        resetCheckoutState();
   
       } catch (e) {
           console.error("Checkout failed:", e);
