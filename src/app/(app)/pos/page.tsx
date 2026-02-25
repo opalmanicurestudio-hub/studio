@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package, PricingTier } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package, PricingTier, InventoryItem } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -205,14 +205,9 @@ export default function POSPage() {
                     newSet.add(appointmentId);
                     return newSet;
                 });
-                // Clean up URL after processing
-                const newUrl = new URL(window.location.href);
-                newUrl.searchParams.delete('checkout_id');
-                router.replace(newUrl.toString(), { scroll: false });
             }
         }
-    }, [searchParams, readyForCheckoutAppointments, router]);
-
+    }, [searchParams, readyForCheckoutAppointments]);
 
     const appointmentsData = useMemo(() => {
         return Array.from(selectedAppointmentIds)
@@ -1053,10 +1048,62 @@ export default function POSPage() {
         const clientDocRef = client ? doc(firestore, `tenants/${tenantId}/clients`, client.id) : null;
         let clientUpdates: Partial<Client> = {};
 
+        // Track running inventory levels for atomic calculation within this checkout
+        const updatedProductLevels = new Map<string, { totalStock: number, partialUses: number, partialSize: number }>();
+
         // Process appointments
         for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
             batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
+
+            // Professional Product Deduction from Formula
+            if (currentAppointment.checkoutState?.formula) {
+                for (const item of currentAppointment.checkoutState.formula) {
+                    const product = inventory.find(p => p.id === item.id);
+                    if (!product) continue;
+
+                    // Initialize running level if not already tracking
+                    if (!updatedProductLevels.has(product.id)) {
+                        updatedProductLevels.set(product.id, {
+                            totalStock: product.totalStock,
+                            partialUses: product.partialContainerUses || 0,
+                            partialSize: product.partialContainerSize || 0
+                        });
+                    }
+
+                    const levels = updatedProductLevels.get(product.id)!;
+                    let quantityToDeduct = item.quantity;
+                    let unit = 'units';
+
+                    if (product.costingMethod === 'uses') {
+                        unit = product.useUnit || 'uses';
+                        levels.partialUses -= quantityToDeduct;
+                        while (levels.partialUses < 0 && levels.totalStock > 0) {
+                            levels.totalStock -= 1;
+                            levels.partialUses += (product.estimatedUses || 1);
+                        }
+                    } else if (product.costingMethod === 'size') {
+                        unit = product.unit || 'ml';
+                        levels.partialSize -= quantityToDeduct;
+                        while (levels.partialSize < 0 && levels.totalStock > 0) {
+                            levels.totalStock -= 1;
+                            levels.partialSize += (product.size || 1);
+                        }
+                    } else {
+                        levels.totalStock -= quantityToDeduct;
+                    }
+
+                    // Create stock correction for this specific usage
+                    const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                    batch.set(scRef, {
+                        productId: product.id,
+                        date: nowISO,
+                        change: -quantityToDeduct,
+                        unit: unit,
+                        reason: `Appointment #${currentAppointment.id.slice(-6)}: ${currentAppointment.clientName}`,
+                    });
+                }
+            }
         }
   
         const staffInvolved = new Set<string>(Object.values(serviceStaffOverrides).filter(Boolean));
@@ -1120,9 +1167,33 @@ export default function POSPage() {
                         context: 'Business', paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
                     });
                 }
-                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                batch.update(productDocRef, { totalStock: increment(-item.quantity) });
+                
+                if (!updatedProductLevels.has(item.id)) {
+                    const product = inventory.find(p => p.id === item.id);
+                    if (product) {
+                        updatedProductLevels.set(product.id, {
+                            totalStock: product.totalStock,
+                            partialUses: product.partialContainerUses || 0,
+                            partialSize: product.partialContainerSize || 0
+                        });
+                    }
+                }
+                
+                const levels = updatedProductLevels.get(item.id);
+                if (levels) {
+                    levels.totalStock -= item.quantity;
+                }
             }
+        });
+
+        // Apply all consolidated inventory updates
+        updatedProductLevels.forEach((levels, productId) => {
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+            batch.update(productRef, {
+                totalStock: levels.totalStock,
+                partialContainerUses: levels.partialUses,
+                partialContainerSize: levels.partialSize
+            });
         });
   
         if (appliedDiscountCode && client) {
@@ -1299,6 +1370,19 @@ export default function POSPage() {
     };
     
     const handleStatusChangeWithConfirmation = () => {};
+
+    const resetCheckoutState = () => {
+        setSelectedAppointmentIds(new Set());
+        setRetailItems([]);
+        setTipAmount(0);
+        setAmountTendered(0);
+        setDiscount(0);
+        setMembershipDiscount(0);
+        setAppliedDiscountCode(undefined);
+        setRedeemedOffer(null);
+        setServiceStaffOverrides({});
+        setTipAllocations({});
+    };
 
     return (
         <>
