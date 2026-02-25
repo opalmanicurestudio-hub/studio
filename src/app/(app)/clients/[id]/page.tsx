@@ -647,7 +647,6 @@ export default function ClientDetailPage() {
                                             {client.activeMembershipId && memberships && (() => {
                                                 const membership = memberships.find(m => m.id === client.activeMembershipId);
                                                 if (!membership) return null;
-                                                const hasRedeemedThisMonth = true; // Mock data
                                                 return (
                                                     <div className="p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
                                                         <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
@@ -661,7 +660,6 @@ export default function ClientDetailPage() {
                                                                     <li key={s.id} className="flex items-center gap-2">
                                                                         <CheckCircle className="w-3.5 h-3.5 text-green-500" />
                                                                         <span>1x {s.name}</span>
-                                                                        {hasRedeemedThisMonth && <Badge variant="secondary" className="text-[10px] ml-auto">Redeemed</Badge>}
                                                                     </li>
                                                                 ))}
                                                                 {(membership.includedAddOns || []).map(s => (

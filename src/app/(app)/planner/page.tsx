@@ -5,7 +5,7 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X } from 'lucide-react';
-import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
+import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource, type Membership } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
@@ -106,6 +106,7 @@ function PlannerPageContent() {
       billDefinitions,
       billInstances,
       transactions,
+      memberships,
       isLoading
   } = useInventory();
 
@@ -1539,6 +1540,7 @@ function PlannerPageContent() {
         onConfirm={handleAddAppointment}
         client={clientForNewApt}
         appointmentToRebook={appointmentToRebook}
+        memberships={memberships || []}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 

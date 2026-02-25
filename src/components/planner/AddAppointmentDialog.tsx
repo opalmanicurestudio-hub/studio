@@ -46,9 +46,9 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Award } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff, Event, Resource } from '@/lib/data';
+import { Client, Service, Appointment, Staff, Event, Resource, Membership } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse, addMonths, endOfDay, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
@@ -61,6 +61,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, query, where } from 'firebase/firestore';
+import { Badge } from '../ui/badge';
 
 
 interface AddAppointmentDialogProps {
@@ -69,6 +70,7 @@ interface AddAppointmentDialogProps {
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   client?: Client | null;
   appointmentToRebook?: Appointment | null;
+  memberships: Membership[];
 }
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -97,6 +99,7 @@ const AddAppointmentForm = ({
     onConfirm,
     client: initialClient,
     appointmentToRebook,
+    memberships,
 }: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
     const { firestore, user } = useFirebase();
     const { selectedTenant, role } = useTenant();
@@ -189,6 +192,11 @@ const AddAppointmentForm = ({
     const selectedStaff = useMemo(() => staff?.find(s => s.id === staffId), [staff, staffId]);
     const selectedAddOns = useMemo(() => (services || []).filter(s => (addOnIds || []).includes(s.id)), [services, addOnIds]);
     
+    const activeMembership = useMemo(() => {
+        if (!selectedClient || !selectedClient.activeMembershipId || !memberships) return null;
+        return memberships.find(m => m.id === selectedClient.activeMembershipId);
+    }, [selectedClient, memberships]);
+
     const handleAddOnsChange = (newAddOns: Service[]) => {
         setValue('addOnIds', newAddOns.map(s => s.id));
     };
@@ -426,7 +434,19 @@ const AddAppointmentForm = ({
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <SelectTrigger id="service"><SelectValue placeholder="Select a service" /></SelectTrigger>
-                                        <SelectContent>{(services || []).filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                        <SelectContent>
+                                            {(services || []).filter(s => s.type === 'service').map(s => {
+                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
+                                                return (
+                                                    <SelectItem key={s.id} value={s.id}>
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span>{s.name}</span>
+                                                            {isMembershipPerk && <Badge className="bg-purple-100 text-purple-800"><Award className="mr-1 h-3 w-3" />Membership Perk</Badge>}
+                                                        </div>
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
                                     </Select>
                                 )}
                             />
@@ -446,7 +466,7 @@ const AddAppointmentForm = ({
                         <div className="rounded-lg border space-y-4 p-4">
                             <div className="flex items-center justify-between">
                                 <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
-                                <span className="font-semibold text-center">{format(weekStart, 'MMMM yyyy')}</span>
+                                <span className="font-semibold text-center">{format(date, 'MMMM yyyy')}</span>
                                 <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
                             </div>
                             <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
@@ -533,7 +553,7 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client, appointmentToRebook }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
@@ -548,6 +568,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     onConfirm={onConfirm} 
     client={client} 
     appointmentToRebook={appointmentToRebook}
+    memberships={memberships}
     />;
 
   if (isMobile) {
