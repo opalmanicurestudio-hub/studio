@@ -32,7 +32,9 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Package, type Service, services } from '@/lib/data';
+import { type Package, type Service } from '@/lib/data';
+import { Repeat } from 'lucide-react';
+import { useInventory } from '@/context/InventoryContext';
 
 interface AddPackageDialogProps {
   open: boolean;
@@ -85,6 +87,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   packageToEdit,
 }) => {
   const isMobile = useIsMobile();
+  const { services } = useInventory();
   
   const [name, setName] = useState('');
   const [primaryServiceId, setPrimaryServiceId] = useState<string>('');
@@ -93,7 +96,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   const [expiresIn, setExpiresIn] = useState<number>(6); // Default 6 months
   const [isPrivate, setIsPrivate] = useState(false);
   
-  const primaryService = useMemo(() => services.find(s => s.id === primaryServiceId), [primaryServiceId]);
+  const primaryService = useMemo(() => services.find(s => s.id === primaryServiceId), [primaryServiceId, services]);
 
   useEffect(() => {
     if (packageToEdit) {
@@ -178,7 +181,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
           <SheetHeader className="text-left">
             <SheetTitle>{dialogTitle}</SheetTitle>
             <SheetDescription>Define the details for this prepaid service package.</SheetDescription>
