@@ -45,7 +45,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
-import { InServiceAppointmentCard } from '@/components/pos/InServiceAppointmentCard';
+import { InServiceAppointmentCard } from '@/components/pos/InServiceCustomerCard';
 import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 
 
@@ -963,7 +963,7 @@ export default function POSPage() {
                     assignedStaffId: deleteField(),
                     notifiedTimestamp: deleteField(),
                     queueOrder: Date.now(),
-                });
+                }); 
     
                 if (walkIn.assignedStaffId) {
                     const staffRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', walkIn.assignedStaffId);
