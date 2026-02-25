@@ -308,6 +308,10 @@ function PlannerPageContent() {
     }
   }, [staff, mobileSelectedStaffId]);
 
+  const onMobileStaffChange = useCallback((id: string) => {
+    setMobileSelectedStaffId(id);
+  }, []);
+
   const weekStart = useMemo(() => {
     return startOfWeek(currentDate, { weekStartsOn: 0 });
   }, [currentDate]);
@@ -875,7 +879,7 @@ function PlannerPageContent() {
         setIsEditEventOpen(false);
     }
     
-    const [eventToDeny, setEventToDeny] = useState<Event | null>(null);
+    const [eventToDeny, setEventToDeny] = setEventToDenyState(null);
     const [denialReason, setDenialReason] = useState('');
 
     const handleDeleteEvent = (eventId: string) => {
@@ -1253,6 +1257,8 @@ function PlannerPageContent() {
             service: serviceForDialog,
         };
     }, [selectedAppointment, clients, services]);
+
+  const [eventToDeny, setEventToDenyState] = useState<Event | null>(null);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -1681,7 +1687,7 @@ function PlannerPageContent() {
             </AlertDialogContent>
         </AlertDialog>
         
-        <AlertDialog open={!!eventToDeny} onOpenChange={() => setEventToDeny(null)}>
+        <AlertDialog open={!!eventToDeny} onOpenChange={() => setEventToDenyState(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Deny "{eventToDeny?.title}"?</AlertDialogTitle>
