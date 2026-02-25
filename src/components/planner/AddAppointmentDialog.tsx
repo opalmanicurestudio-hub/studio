@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -58,8 +57,9 @@ import { Calendar } from '../ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 import { collection, query, where } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 
@@ -323,8 +323,8 @@ const AddAppointmentForm = ({
             const padBefore = service?.padBefore || 0;
             const padAfter = service?.padAfter || 0;
             return areIntervalsOverlapping(newInterval, { 
-                start: addMinutes(apt.startTime, -padBefore), 
-                end: addMinutes(apt.endTime, padAfter) 
+                start: apt.startTime, 
+                end: apt.endTime 
             }, { inclusive: false });
         });
 
