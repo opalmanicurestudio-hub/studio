@@ -16,6 +16,7 @@ export interface ReceiptData {
     name: string;
     quantity: number;
     price: number;
+    isDiscount?: boolean;
   }[];
   adjustments?: {
     description: string;
@@ -30,6 +31,11 @@ export interface ReceiptData {
     method: string;
     amountTendered: number;
     changeDue: number;
+  };
+  redeemedOffer?: {
+    itemName: string;
+    sessionsRemaining?: number;
+    offeringName?: string;
   };
 }
 
@@ -107,6 +113,18 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
       )}
 
       <Separator className="my-2 border-dashed border-black" />
+
+      {data.redeemedOffer && (
+        <div className="my-4 text-xs space-y-1 p-2 bg-gray-100 rounded-md">
+            <p className="font-semibold">{data.redeemedOffer.itemName} (Redeemed)</p>
+            {data.redeemedOffer.offeringName && (
+                <p className="text-gray-600">From: {data.redeemedOffer.offeringName}</p>
+            )}
+            {typeof data.redeemedOffer.sessionsRemaining === 'number' && (
+                 <p className="text-gray-600 font-bold">{data.redeemedOffer.sessionsRemaining} sessions remaining</p>
+            )}
+        </div>
+      )}
 
       <div className="space-y-1">
         <div className="flex justify-between">

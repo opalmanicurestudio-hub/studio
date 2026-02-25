@@ -198,24 +198,26 @@ export default function POSPage() {
             .filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff, groupInfo: {name: string; id: string;} | null } => !!(a.client && a.service));
     }, [appointments, clients, services, staff, walkIns]);
     
-    const appointmentsData = useMemo(() => {
-        return Array.from(selectedAppointmentIds)
-            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
-            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
-    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
-
     useEffect(() => {
         const appointmentId = searchParams.get('checkout_id');
         if (appointmentId && !selectedAppointmentIds.has(appointmentId)) {
             const appointmentToSelect = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-            if (appointmentToSelect?.checkoutState) {
-                setSelectedAppointmentIds(prevIds => new Set(prevIds).add(appointmentId));
+            if (appointmentToSelect) {
+                const newIds = new Set(selectedAppointmentIds);
+                newIds.add(appointmentId);
+                setSelectedAppointmentIds(newIds);
                 const newUrl = new URL(window.location.href);
                 newUrl.searchParams.delete('checkout_id');
                 router.replace(newUrl.toString(), { scroll: false });
             }
         }
     }, [searchParams, readyForCheckoutAppointments, router, selectedAppointmentIds]);
+
+    const appointmentsData = useMemo(() => {
+        return Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -1035,7 +1037,7 @@ export default function POSPage() {
                     while (currentSize < 0 && currentStock > 0) { currentStock -= 1; currentSize += product.size || 1; }
                     batch.update(productRef, { totalStock: currentStock, partialContainerSize: currentSize });
                 } else {
-                    batch.update(productRef, { totalStock: increment(-usedProduct.quantity) });
+                    batch.update(productRef, { totalStock: increment(-item.quantity) });
                 }
             }
     
@@ -1111,7 +1113,7 @@ export default function POSPage() {
         });
 
         // Create transactions for cart items (retail, memberships, packages) and update client
-        cart.forEach(item => {
+        retailItems.forEach(item => {
             if (item.type === 'product') {
                 const product = inventory.find(p => p.id === item.id);
                 if (product) {
@@ -1211,14 +1213,14 @@ export default function POSPage() {
         
         if(redeemedOffer && clientRef) {
             if (redeemedOffer.type === 'package') {
-                const packageToUpdate = client?.activePackages?.find(p => {
+                const packageUsed = client?.activePackages?.find(p => {
                     const pkgDetails = packages.find(pkg => pkg.id === p.packageId);
                     return pkgDetails?.serviceId === redeemedOffer.id;
                 });
                 
-                if (packageToUpdate) {
+                if (packageUsed) {
                     const updatedPackages = (client.activePackages || []).map(p => {
-                        if (p.packageId === packageToUpdate.packageId) {
+                        if (p.packageId === packageUsed.packageId) {
                             return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                         }
                         return p;
@@ -1241,7 +1243,34 @@ export default function POSPage() {
                 changeDue: changeDue > 0 ? changeDue : 0,
             },
             adjustments: checkoutSummary.adjustments?.filter(adj => appliedAdjustments.has(adj.id)),
+            redeemedOffer: undefined
         };
+
+        if (redeemedOffer) {
+            const redeemedService = services.find(s => s.id === redeemedOffer.id);
+            if (redeemedService) {
+                const redeemedOfferData: ReceiptData['redeemedOffer'] = {
+                    itemName: redeemedService.name,
+                };
+
+                if (redeemedOffer.type === 'package' && client) {
+                    const packageUsed = client.activePackages?.find(p => {
+                        const pkgDetails = packages.find(pkg => pkg.id === p.packageId);
+                        return pkgDetails?.serviceId === redeemedOffer.id;
+                    });
+                    if (packageUsed) {
+                        redeemedOfferData.sessionsRemaining = packageUsed.sessionsRemaining - 1;
+                        redeemedOfferData.offeringName = packages.find(p => p.id === packageUsed.packageId)?.name;
+                    }
+                } else { // membership
+                    const membershipDetails = memberships.find(m => m.id === client.activeMembershipId);
+                    if(membershipDetails) {
+                       redeemedOfferData.offeringName = membershipDetails.name;
+                    }
+                }
+                receiptData.redeemedOffer = redeemedOfferData;
+            }
+        }
   
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
@@ -1433,8 +1462,6 @@ export default function POSPage() {
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [appointmentsData, clients]);
     
-    const cart = retailItems;
-    
     const allCartItems = useMemo(() => {
         const servicesFromAppointments = appointmentsData.flatMap(d => {
             const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
@@ -1442,18 +1469,18 @@ export default function POSPage() {
             return [...mainService, ...addOns];
         });
 
-        const itemsFromCart = cart.map(item => ({
+        const itemsFromCart = retailItems.map(item => ({
             name: item.name,
             quantity: item.quantity,
             price: item.price
         }));
 
         return [...servicesFromAppointments, ...itemsFromCart];
-    }, [appointmentsData, cart, redeemedOffer]);
+    }, [appointmentsData, retailItems, redeemedOffer]);
 
 
     const checkoutHubProps = {
-        cart,
+        cart: retailItems,
         onCartChange: handleCartChange,
         appointmentsData,
         onSelectAppointment: handleSelectAppointment,
@@ -1481,7 +1508,7 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        checkoutSummary,
+        adjustments: checkoutSummary.adjustments,
         appliedAdjustments,
         onApplyAdjustmentToggle: handleAdjustmentToggle,
         absorbedCost,
