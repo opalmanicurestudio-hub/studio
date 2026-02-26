@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -5,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -193,8 +194,20 @@ export const CheckoutHub = ({
                         )}
                         </SelectContent>
                     </Select>
-                    <Button variant="outline" size="icon" className="h-10 w-10 md:h-11 md:w-11" onClick={onAddClientClick}><UserPlus className="w-4 h-4" /></Button>
-                    <Button variant="outline" size="icon" className="h-10 w-10 md:h-11 md:w-11" onClick={onScanClick}><Scan className="w-4 h-4" /></Button>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-10 w-10 md:h-11 md:w-11" onClick={onAddClientClick}><UserPlus className="w-4 h-4" /></Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Register New Client</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-10 w-10 md:h-11 md:w-11" onClick={onScanClick}><QrCode className="w-4 h-4" /></Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Scan Ticket or SKU</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
                 {selectedClient && (
                     <div className="mt-1 text-[10px] text-muted-foreground uppercase font-bold tracking-wider">

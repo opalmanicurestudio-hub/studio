@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -29,7 +30,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle, Repeat, Award } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle, Repeat, Award, QrCode } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -474,42 +475,55 @@ export default function POSPage() {
         });
         return;
       }
-      let appointmentId: string | undefined;
+      
+      console.log("Scanned POS Data:", data);
 
       if (data.startsWith('clarityflow://checkout/')) {
-        appointmentId = data.split('/').pop();
+        const appointmentId = data.split('/').pop();
+        if (!appointmentId) return;
+
+        const appointment = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+        if (appointment) {
+            handleSelectAppointment(appointmentId);
+            toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
+        } else {
+            // Check if it exists but is not ready
+            const rawApt = appointments.find(a => a.id === appointmentId);
+            if (rawApt) {
+                toast({ variant: 'destructive', title: 'Not Ready', description: "This appointment hasn't been marked as 'Ready for Checkout' by the technician yet." });
+            } else {
+                toast({ variant: 'destructive', title: 'Ticket Not Found', description: "Could not find a matching appointment for this ticket." });
+            }
+        }
       } else if (data.startsWith('clarityflow://walk-in/')) {
         const walkInId = data.split('/').pop();
-        if (walkInId) {
-          appointmentId = `apt-walkin-${walkInId}`;
+        if (!walkInId) return;
+        
+        const appointmentId = `apt-walkin-${walkInId}`;
+        const appointment = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+        
+        if (appointment) {
+            handleSelectAppointment(appointmentId);
+            toast({ title: "Walk-in Added", description: `${appointment.clientName} added to sale.` });
+        } else {
+            const walkIn = walkIns?.find(w => w.id === walkInId);
+            if (walkIn) {
+                toast({ title: "Walk-in Status", description: `${walkIn.customerName} is currently ${walkIn.status.replace('_', ' ')}.` });
+            } else {
+                toast({ variant: 'destructive', title: 'Ticket Not Found', description: "Could not find an active walk-in for this ticket." });
+            }
         }
       } else {
+        // Try SKU scan for product
         const product = inventory.find(p => p.sku === data || p.id === data);
         if (product) {
             handleAddToCart(product);
-            toast({
-                title: "Product Added",
-                description: `${product.name} has been added to the sale.`
-            });
+            toast({ title: "Product Added", description: `${product.name} added to cart.` });
         } else {
-            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Scanned code is not a valid checkout ticket or product.' });
+            toast({ variant: 'destructive', title: 'Unknown Code', description: "This code doesn't match a checkout ticket or product SKU." });
         }
-        return;
       }
-      
-      if (!appointmentId) {
-        toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not read ID from QR code.' });
-        return;
-      }
-
-      const appointmentToCheckout = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
-      if (appointmentToCheckout) {
-        handleSelectAppointment(appointmentId);
-        toast({ title: "Appointment Added", description: "The client's services have been added to the sale." });
-      } else {
-        toast({ variant: 'destructive', title: 'Appointment Not Found', description: "This appointment is not ready for checkout." });
-      }
-    }, [inventory, appointments, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
+    }, [inventory, appointments, walkIns, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
@@ -1426,6 +1440,38 @@ export default function POSPage() {
         setTipAllocations({});
     };
 
+    useEffect(() => {
+        let html5QrCode: Html5Qrcode | undefined;
+        if (isScannerOpen) {
+          const timer = setTimeout(() => {
+            const element = document.getElementById('qr-reader-pos');
+            if (element) {
+                html5QrCode = new Html5Qrcode('qr-reader-pos');
+                const onScanSuccess = (decodedText: string) => {
+                    if (html5QrCode?.isScanning) {
+                        html5QrCode.stop().catch(console.error);
+                    }
+                    handleScan(decodedText);
+                    setIsScannerOpen(false);
+                };
+                const onScanFailure = () => { /* ignore */ };
+                
+                html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
+                  .catch(err => {
+                    toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please check permissions.' });
+                    setIsScannerOpen(false);
+                  });
+            }
+          }, 300);
+          return () => {
+              clearTimeout(timer);
+              if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => console.error("Failed to stop QR scanner.", err));
+              }
+          };
+        }
+    }, [isScannerOpen, toast, handleScan]);
+
     return (
         <>
             <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -1462,7 +1508,7 @@ export default function POSPage() {
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
                         />
-                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
+                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} onScanClick={() => setIsScannerOpen(true)} />
                         
                          <Card>
                             <CardHeader>
@@ -1562,7 +1608,7 @@ export default function POSPage() {
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0">
                 <DialogHeader className="p-4 pb-0">
-                  <DialogTitle>Scan QR Code</DialogTitle>
+                  <DialogTitle>Scan Ticket or SKU</DialogTitle>
                   <DialogDescription>
                     Position the code inside the frame to add to sale or checkout.
                   </DialogDescription>

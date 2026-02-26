@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -8,15 +7,17 @@ import { type Appointment, type Service, type Client, type Staff } from '@/lib/d
 import { CheckoutQueueCard } from './CheckoutQueueCard';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Input } from '../ui/input';
-import { Search } from 'lucide-react';
+import { Search, QrCode } from 'lucide-react';
+import { Button } from '../ui/button';
 
 interface CheckoutQueueProps {
   appointments: (Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff })[];
   onSelectAppointment: (appointmentId: string) => void;
   selectedAppointmentIds: Set<string>;
+  onScanClick: () => void;
 }
 
-export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSelectAppointment, selectedAppointmentIds }) => {
+export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSelectAppointment, selectedAppointmentIds, onScanClick }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredAppointments = useMemo(() => {
@@ -31,8 +32,16 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Checkout Queue</CardTitle>
-        <CardDescription>Clients who are ready to pay. You can select multiple for a group checkout.</CardDescription>
+        <div className="flex items-center justify-between">
+            <div>
+                <CardTitle>Checkout Queue</CardTitle>
+                <CardDescription>Clients who are ready to pay. Select multiple for a group checkout.</CardDescription>
+            </div>
+            <Button variant="outline" onClick={onScanClick} className="gap-2">
+                <QrCode className="h-4 w-4" />
+                Scan Ticket
+            </Button>
+        </div>
         <div className="relative pt-2">
             <Search className="absolute left-3 top-1/2 -translate-y-[-4px] h-4 w-4 text-muted-foreground" />
             <Input
