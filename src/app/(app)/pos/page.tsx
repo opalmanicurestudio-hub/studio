@@ -1550,7 +1550,7 @@ export default function POSPage() {
              {confirmation && (
                 <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
                     <AlertDialogContent>
-                        <AlertDialogHeader><Target title={confirmation.title}/><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
+                        <AlertDialogHeader><DialogTitle>{confirmation.title}</DialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
                         <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
