@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader, MoreHorizontal, XCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -337,9 +337,12 @@ export default function ClientDetailPage() {
     const isCurrentCycle = isAfter(lastUsed, cycleStart);
     if (!isCurrentCycle) return false;
 
+    // If we just want to know if ANY perk was used this cycle
+    if (perkId === 'any') return true;
+
     // Now check the quantity for this specific perk
     const usageCount = client.subscription.perkUsage?.[perkId] || 0;
-    const membership = memberships.find(m => m.id === client.subscription!.membershipId);
+    const membership = memberships?.find(m => m.id === client.subscription!.membershipId);
     const perkDef = membership?.includedServices?.find(s => s.id === perkId) || membership?.includedAddOns?.find(a => a.id === perkId);
     
     return usageCount >= (perkDef?.quantity || 1);
