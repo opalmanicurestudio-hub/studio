@@ -280,6 +280,7 @@ export default function EquipmentDetailPage() {
                 <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
                     <Badge variant="outline">{equipment.category}</Badge>
                     <Badge variant="secondary">{equipment.totalStock > 0 ? "Active" : "Retired"}</Badge>
+                    <Badge variant="secondary" className="font-mono">ID: {equipment.id.slice(-6).toUpperCase()}</Badge>
                     {equipment.isExperimentActive && (
                         <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
                             <FlaskConical className="h-3 w-3" /> Lifespan Test Active
@@ -292,7 +293,7 @@ export default function EquipmentDetailPage() {
         <Card>
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
-                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU / Short ID</div>
                     <div className='font-mono text-sm'>{equipment.sku || equipment.id.slice(-6).toUpperCase()}</div>
                 </div>
                 <div className='space-y-1'>

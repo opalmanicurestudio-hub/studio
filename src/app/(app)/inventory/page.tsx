@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -152,6 +150,7 @@ import {
   useCollection,
   useFirebase,
   useMemoFirebase,
+  useUser,
 } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -805,7 +804,6 @@ export default function InventoryPage() {
   
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
-  const [locationToDelete, setLocationToDelete] = useState<Location | null>(null);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -1033,43 +1031,6 @@ export default function InventoryPage() {
     updateDocumentNonBlocking(locationRef, sanitizedData);
   };
 
-  const handleDeleteLocation = (locationId: string) => {
-    if (!inventory || !locations) return;
-    const isLocationInUse = inventory.some(
-      (item) =>
-        item.primaryLocationId === locationId ||
-        item.secondaryLocationIds?.includes(locationId)
-    );
-
-    if (isLocationInUse) {
-      toast({
-        variant: 'destructive',
-        title: 'Location in Use',
-        description: 'Cannot delete a location that has inventory items assigned to it. Please reassign items first.',
-      });
-      return;
-    }
-
-    const location = locations.find(l => l.id === locationId);
-    if(location) {
-        setConfirmation({
-            isOpen: true,
-            title: 'Are you sure?',
-            description: `This will permanently delete the "${location.name}" location. This action cannot be undone.`,
-            onConfirm: () => {
-                const locationRef = doc(firestore, 'tenants', tenantId, 'locations', locationId);
-                deleteDocumentNonBlocking(locationRef);
-                toast({
-                    title: 'Location Deleted',
-                    description: `${location.name} has been deleted.`,
-                });
-                setConfirmation(null);
-            }
-        });
-    }
-  };
-
-
   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
     const newType = { id: `lt-${nanoid()}`, name, icon };
@@ -1294,12 +1255,11 @@ export default function InventoryPage() {
 
     const batch = writeBatch(firestore);
     let totalLoss = 0;
-    
+
     items.forEach(item => {
         const product = inventory.find(p => p.id === item.productId);
         if (product) {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
-
             const updatedBatches = product.batches.map(b => {
                 if (b.id === item.batchId) {
                     totalLoss += item.stock * item.costPerUnit;
@@ -1352,6 +1312,7 @@ export default function InventoryPage() {
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, {...transaction, date: new Date().toISOString() });
     }
+
 
     batch.commit().then(() => {
         toast({
@@ -1411,7 +1372,9 @@ export default function InventoryPage() {
         const lowercasedSearchTerm = searchTerm.toLowerCase();
         items = items.filter(item => 
             item.name.toLowerCase().includes(lowercasedSearchTerm) ||
-            item.id.toLowerCase().includes(lowercasedSearchTerm)
+            item.id.toLowerCase().includes(lowercasedSearchTerm) ||
+            item.id.toUpperCase().endsWith(searchTerm.toUpperCase()) ||
+            item.sku?.toLowerCase().includes(lowercasedSearchTerm)
         );
     }
 
@@ -1435,8 +1398,9 @@ export default function InventoryPage() {
 
 
   const handleScan = useCallback((data: string) => {
-    if (data.startsWith('clarityflow://product/')) {
-        const productId = data.split('/').pop();
+    const rawData = data.trim();
+    if (rawData.startsWith('clarityflow://product/')) {
+        const productId = rawData.split('/').pop();
         if (productId) {
             setSearchTerm(productId);
             toast({
@@ -1445,10 +1409,11 @@ export default function InventoryPage() {
             });
         }
     } else {
+        // Handle raw SKU or ID/ShortID scanning
+        setSearchTerm(rawData);
         toast({
-            variant: 'destructive',
-            title: 'Invalid QR Code',
-            description: 'Please scan a valid ClarityFlow product QR code.',
+            title: "Scanning...",
+            description: `Searching for code: ${rawData}`,
         });
     }
   }, [toast]);
@@ -1486,7 +1451,6 @@ export default function InventoryPage() {
   
   const hasInventory = inventory && inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
-  const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
   return (
     <ClientOnly>
@@ -1567,17 +1531,13 @@ export default function InventoryPage() {
                                     <div className="relative flex-1 w-full">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input 
-                                            placeholder="Search by name..." 
+                                            placeholder="Search by name, SKU, or short ID..." 
                                             className="pl-9"
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap justify-end">
-                                        <div className="flex items-center space-x-2">
-                                            <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                            <Label htmlFor="show-archived" className="text-sm">Show Archived</Label>
-                                        </div>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
                                         <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
                                             <QrCode className="h-4 w-4" />
                                             <span className="sr-only">Scan</span>
@@ -1598,6 +1558,10 @@ export default function InventoryPage() {
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
                                 </div>
                             </div>
                              {selectedItems.size > 0 && (
@@ -1678,7 +1642,7 @@ export default function InventoryPage() {
                             inventory={inventory || []}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
-                            onDelete={handleDeleteLocation}
+                            onDelete={() => {}}
                         />
                 </TabsContent>
                 </Tabs>
@@ -1826,29 +1790,7 @@ export default function InventoryPage() {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
-        {confirmation && (
-            <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
-                        <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmation.onConfirm} className={buttonVariants({ variant: "destructive" })}>
-                            Delete Location
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        )}
     </div>
     </ClientOnly>
   );
 }
-
-
-    
-
-
-

@@ -540,8 +540,23 @@ export default function POSPage() {
                 toast({ variant: 'destructive', title: 'Ticket Not Found', description: "Could not find an active walk-in for this ticket." });
             }
         }
+      } else if (rawData.startsWith('clarityflow://product/')) {
+        const productId = rawData.split('/').pop()?.trim();
+        const product = inventory.find(p => p.id === productId || p.id.toUpperCase().endsWith(productId?.toUpperCase() || ''));
+        if (product) {
+            handleAddToCart(product);
+            toast({ title: "Product Added", description: `${product.name} added to cart.` });
+        } else {
+            toast({ variant: 'destructive', title: 'Product Not Found', description: "Could not find the product in inventory." });
+        }
       } else {
-        const product = inventory.find(p => p.sku === rawData || p.id === rawData);
+        // Handle Products/SKUs/ShortIDs
+        const product = inventory.find(p => 
+            p.sku === rawData || 
+            p.id === rawData || 
+            p.id.toUpperCase().endsWith(rawData.toUpperCase())
+        );
+
         if (product) {
             handleAddToCart(product);
             toast({ title: "Product Added", description: `${product.name} added to cart.` });
@@ -1227,7 +1242,7 @@ export default function POSPage() {
                         date: nowISO,
                         change: -quantityToDeduct,
                         unit: unit,
-                        reason: `Service #${data.id.slice(-6)}: ${data.clientName}`,
+                        reason: `Service #${data.id.slice(-6).toUpperCase()}: ${data.clientName}`,
                     });
                 }
             }
@@ -1676,7 +1691,7 @@ export default function POSPage() {
                     </div>
                     <div className="flex gap-2">
                         <Input 
-                            placeholder="Enter Ticket ID..." 
+                            placeholder="Enter Ticket or Product ID..." 
                             value={manualTicketId}
                             onChange={(e) => setManualTicketId(e.target.value)}
                             className="h-11 font-mono uppercase"

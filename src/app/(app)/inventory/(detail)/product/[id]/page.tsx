@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -302,6 +301,7 @@ export default function ProductDetailPage() {
                 <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
                     <Badge variant="outline">{product.category}</Badge>
                     <Badge variant="secondary">{product.type}</Badge>
+                    <Badge variant="secondary" className="font-mono">ID: {product.id.slice(-6).toUpperCase()}</Badge>
                 </div>
             </div>
         </div>
@@ -309,8 +309,8 @@ export default function ProductDetailPage() {
         <Card>
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
-                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
-                    <div className='font-mono text-sm'>{product.sku || 'N/A'}</div>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU / Short ID</div>
+                    <div className='font-mono text-sm'>{product.sku || product.id.slice(-6).toUpperCase()}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
@@ -649,5 +649,3 @@ export default function ProductDetailPage() {
     </div>
   );
 }
-
-    

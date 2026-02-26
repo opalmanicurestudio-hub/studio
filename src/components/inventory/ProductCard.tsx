@@ -1,17 +1,15 @@
-
-
 'use client';
 
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign, Edit, Rocket, CheckCircle, Printer } from 'lucide-react';
+import { ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign, Edit, Rocket, CheckCircle, Printer, Tag } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { isPast, parseISO } from 'date-fns';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -86,7 +84,10 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                         <Link href={detailHref} className="group">
                             <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
                         </Link>
-                        <p className="text-sm text-muted-foreground">{item.category}</p>
+                        <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                            <Tag className="w-3 h-3" />
+                            {item.sku || item.id.slice(-6).toUpperCase()}
+                        </p>
                         <div className="flex items-center gap-2 mt-2">
                              <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                             {isOrdered && (
