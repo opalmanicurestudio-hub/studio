@@ -29,7 +29,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle, Repeat, Award, QrCode } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles, Printer, Loader, Gift, AlertTriangle, Repeat, Award, QrCode, Keyboard } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -97,6 +97,7 @@ export default function POSPage() {
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannedData, setScannedData] = useState<string | null>(null);
+    const [manualTicketId, setManualTicketId] = useState('');
     
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
@@ -491,10 +492,11 @@ export default function POSPage() {
         return;
       }
       
-      console.log("Scanned POS Data:", data);
+      const rawData = data.trim();
+      console.log("Scanned POS Data:", rawData);
 
-      if (data.startsWith('clarityflow://checkout/')) {
-        const appointmentId = data.split('/').pop();
+      if (rawData.startsWith('clarityflow://checkout/')) {
+        const appointmentId = rawData.split('/').pop()?.trim();
         if (!appointmentId) return;
 
         const appointment = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
@@ -502,16 +504,19 @@ export default function POSPage() {
             handleSelectAppointment(appointmentId);
             toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
         } else {
-            // Check if it exists but is not ready
             const rawApt = appointments.find(a => a.id === appointmentId);
             if (rawApt) {
-                toast({ variant: 'destructive', title: 'Not Ready', description: "This appointment hasn't been marked as 'Ready for Checkout' by the technician yet." });
+                toast({ 
+                    variant: 'destructive', 
+                    title: 'Waiting for Technician', 
+                    description: "This appointment is found but hasn't been sent to checkout yet. Please ask the technician to 'Finish Service'." 
+                });
             } else {
                 toast({ variant: 'destructive', title: 'Ticket Not Found', description: "Could not find a matching appointment for this ticket." });
             }
         }
-      } else if (data.startsWith('clarityflow://walk-in/')) {
-        const walkInId = data.split('/').pop();
+      } else if (rawData.startsWith('clarityflow://walk-in/')) {
+        const walkInId = rawData.split('/').pop()?.trim();
         if (!walkInId) return;
         
         const appointmentId = `apt-walkin-${walkInId}`;
@@ -529,8 +534,7 @@ export default function POSPage() {
             }
         }
       } else {
-        // Try SKU scan for product
-        const product = inventory.find(p => p.sku === data || p.id === data);
+        const product = inventory.find(p => p.sku === rawData || p.id === rawData);
         if (product) {
             handleAddToCart(product);
             toast({ title: "Product Added", description: `${product.name} added to cart.` });
@@ -539,6 +543,15 @@ export default function POSPage() {
         }
       }
     }, [inventory, appointments, walkIns, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
+
+    const handleManualTicketSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (manualTicketId.trim()) {
+            const id = manualTicketId.includes('/') ? manualTicketId.split('/').pop() : manualTicketId;
+            handleScan(`clarityflow://checkout/${id?.trim()}`);
+            setManualTicketId('');
+        }
+    };
 
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
@@ -1496,18 +1509,18 @@ export default function POSPage() {
                         {/* KPI Cards */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
-                           <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
-                           <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." />
-                           <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
+                           <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-blue-900/50" description="Walk-ins that resulted in a service." />
+                           <KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-blue-900/50" description="Total number of walk-in parties." />
+                           <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-blue-900/50" description="Revenue per hour of active service." />
                         </div>
 
                         <div className="md:hidden">
                             <ScrollArea>
                                 <div className="flex space-x-4 pb-4">
                                     <div className="w-60 shrink-0"><KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total number of walk-in parties." /></div>
-                                    <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-blue-900/50" description="Walk-ins that resulted in a service." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Today's Walk-ins" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-blue-900/50" description="Total number of walk-in parties." /></div>
+                                    <div className="w-60 shrink-0"><KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-blue-900/50" description="Revenue per hour of active service." /></div>
                                 </div>
                                 <ScrollBar orientation="horizontal" />
                             </ScrollArea>
@@ -1620,21 +1633,43 @@ export default function POSPage() {
                 </AlertDialog>
             )}
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-              <DialogContent className="sm:max-w-md p-0">
+              <DialogContent className="sm:max-w-md p-0 overflow-hidden">
                 <DialogHeader className="p-4 pb-0">
                   <DialogTitle>Scan Ticket or SKU</DialogTitle>
                   <DialogDescription>
-                    Scanning is automatic. Position the code inside the frame to add to sale.
+                    Scanning is automatic. Position the code inside the frame.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="p-4 relative">
-                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
-                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                      <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                
+                <div className="p-4 space-y-4">
+                  <div className="relative overflow-hidden rounded-xl border-2 border-muted bg-muted/50 aspect-square">
+                    <div id="qr-reader-pos" className="w-full h-full" />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                    </div>
                   </div>
+
+                  <Separator />
+
+                  <form onSubmit={handleManualTicketSubmit} className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-widest">
+                        <Keyboard className="w-4 h-4" />
+                        <span>Manual Entry</span>
+                    </div>
+                    <div className="flex gap-2">
+                        <Input 
+                            placeholder="Enter Ticket ID..." 
+                            value={manualTicketId}
+                            onChange={(e) => setManualTicketId(e.target.value)}
+                            className="h-11 font-mono uppercase"
+                        />
+                        <Button type="submit" disabled={!manualTicketId.trim()}>Pull Up</Button>
+                    </div>
+                  </form>
                 </div>
+
                 <DialogFooter className="p-4 pt-0">
-                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+                  <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full">Close Scanner</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
