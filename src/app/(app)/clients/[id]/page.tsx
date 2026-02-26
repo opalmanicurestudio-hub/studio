@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -282,19 +283,11 @@ export default function ClientDetailPage() {
   const [isCodeDirty, setIsCodeDirty] = useState(false);
   const [viewingConsent, setViewingConsent] = useState<any | null>(null);
 
-  const formTemplateFor viewing = useMemo(() => {
+  const formTemplateForViewing = useMemo(() => {
     if (!viewingConsent || !consentForms) return null;
     return consentForms.find(f => f.id === viewingConsent.formId);
   }, [viewingConsent, consentForms]);
 
-
-  const clientAppointments = useMemo(() => {
-    if (!allClients || !services || !clientId) return [];
-    // Here we should fetch from inventory context instead of recalculating
-    return []; // Logic moved to inventory context usage
-  }, [allClients, services, clientId]);
-
-  // Use inventory context directly
   const appointmentsForThisClient = useMemo(() => {
       const inventoryAppointments = (useInventory().appointments || [])
         .filter(apt => apt.clientId === clientId)
@@ -363,6 +356,19 @@ export default function ClientDetailPage() {
         title: "LTV Reconciled",
         description: `${client.name}'s lifetime value has been recalculated based on their transaction history: $${totalSpent.toFixed(2)}`
     });
+  };
+
+  const handleSaveFormula = (formula: CustomFormula) => {
+    if (!client || !firestore || !tenantId) return;
+    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+    updateDocumentNonBlocking(clientRef, {
+        customFormulas: arrayUnion(formula)
+    });
+    toast({
+        title: "Formula Saved",
+        description: `"${formula.name}" has been added to ${client.name}'s profile.`
+    });
+    setIsAddFormulaOpen(false);
   };
 
   const isLoadingStatus = isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading;

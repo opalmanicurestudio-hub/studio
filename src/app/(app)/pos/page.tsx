@@ -86,7 +86,6 @@ export default function POSPage() {
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    // State for group checkouts
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
@@ -450,8 +449,6 @@ export default function POSPage() {
     const isGroupCheckout = appointmentsData.length > 1;
 
     useEffect(() => {
-        // Automatically set the payer if there's only one client in the selection
-        // BUT don't wipe it if it was manually selected for a retail-only sale
         if (appointmentsData.length === 1 && !selectedClientId) {
             setSelectedClientId(appointmentsData[0].clientId);
         }
@@ -1115,7 +1112,7 @@ export default function POSPage() {
             
             if (data.isWalkIn) {
                 const walkInId = data.id.replace('apt-walkin-', '');
-                const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
 

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -28,7 +29,6 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return name.substring(0, 2).toUpperCase();
     };
 
-    // Ensure we handle Firestore FieldValues and potential corrupted data safely
     const safeLTV = useMemo(() => {
         const rawLtv = client.lifetimeValue;
         if (typeof rawLtv === 'object' || rawLtv === null || rawLtv === undefined) {
