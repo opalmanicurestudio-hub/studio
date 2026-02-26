@@ -52,7 +52,7 @@ const CheckoutView = ({ qrCodeUrl, ticketId }: { qrCodeUrl: string, ticketId: st
             <div className="bg-muted p-3 rounded-lg w-full flex flex-col items-center gap-1">
                 <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
                     <TicketIcon className="w-3 h-3" />
-                    Ticket Short-Code
+                    Ticket ID
                 </p>
                 <p className="text-2xl font-mono font-bold tracking-tighter">{ticketId}</p>
                 <p className="text-[10px] text-muted-foreground">Show this code if the scanner has trouble.</p>
@@ -106,27 +106,27 @@ export default function CheckInPage() {
         if (!firestore || !token) return null;
         return doc(firestore, 'appointmentCheckIns', token);
     }, [firestore, token]);
-    const { data: appointmentFromCheckIn, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
+    const { data: appointmentData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
 
-    const tenantId = useMemo(() => appointmentFromCheckIn?.tenantId, [appointmentFromCheckIn]);
+    const tenantId = useMemo(() => appointmentData?.tenantId, [appointmentData]);
 
     // Fetch tenant using the dynamic tenantId
     const tenantDocRef = useMemoFirebase(() => {
         if (!firestore || !tenantId) return null;
-        return doc(firestore, 'tenants', tenantId);
+        return doc(firestore, `tenants/${tenantId}`);
     }, [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
     
     const clientDocRef = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !appointmentFromCheckIn?.clientId) return null;
-        return doc(firestore, 'tenants', tenantId, 'clients', appointmentFromCheckIn.clientId);
-    }, [firestore, tenantId, appointmentFromCheckIn?.clientId]);
+        if (!firestore || !tenantId || !appointmentData?.clientId) return null;
+        return doc(firestore, `tenants/${tenantId}/clients`, appointmentData.clientId);
+    }, [firestore, tenantId, appointmentData?.clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
 
     const serviceDocRef = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !appointmentFromCheckIn?.serviceId) return null;
-        return doc(firestore, 'tenants', tenantId, 'services', appointmentFromCheckIn.serviceId);
-    }, [firestore, tenantId, appointmentFromCheckIn?.serviceId]);
+        if (!firestore || !tenantId || !appointmentData?.serviceId) return null;
+        return doc(firestore, `tenants/${tenantId}/services`, appointmentData.serviceId);
+    }, [firestore, tenantId, appointmentData?.serviceId]);
     const { data: service, isLoading: serviceLoading } = useDoc<Service>(serviceDocRef);
 
     const allAppointmentsQuery = useMemoFirebase(() => {
@@ -153,13 +153,13 @@ export default function CheckInPage() {
     }, [allAppointmentsFromDB]);
     
     const appointment = useMemo(() => {
-        if (!appointmentFromCheckIn) return null;
+        if (!appointmentData) return null;
         return {
-            ...appointmentFromCheckIn,
-            startTime: (appointmentFromCheckIn.startTime as any)?.toDate ? (appointmentFromCheckIn.startTime as any).toDate() : parseISO(appointmentFromCheckIn.startTime as any),
-            endTime: (appointmentFromCheckIn.endTime as any)?.toDate ? (appointmentFromCheckIn.endTime as any).toDate() : parseISO(appointmentFromCheckIn.endTime as any),
+            ...appointmentData,
+            startTime: (appointmentData.startTime as any)?.toDate ? (appointmentData.startTime as any).toDate() : parseISO(appointmentData.startTime as any),
+            endTime: (appointmentData.endTime as any)?.toDate ? (appointmentData.endTime as any).toDate() : parseISO(appointmentData.endTime as any),
         };
-    }, [appointmentFromCheckIn]);
+    }, [appointmentData]);
 
     // UI State
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
@@ -327,6 +327,7 @@ export default function CheckInPage() {
     if (appointment.status === 'servicing') return <ServicingView serviceName={service.name} />;
     if (appointment.status === 'ready_for_checkout') {
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`;
+        // Use the real appointment ID for the short-code
         const ticketId = appointment.id.slice(-6).toUpperCase();
         return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={ticketId} />;
     }

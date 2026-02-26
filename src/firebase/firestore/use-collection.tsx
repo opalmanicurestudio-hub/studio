@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Query,
   onSnapshot,
   DocumentData,
   FirestoreError,
   QuerySnapshot,
   CollectionReference,
+  Query,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -38,12 +38,12 @@ export interface InternalQuery extends Query<DocumentData> {
 }
 
 /**
- * React hook to subscribe to a Firestore collection or query in real-time.
+ * React hook to subscribe to a Firestore collection or query in real-motion.
  * Handles nullable references/queries.
  * 
  *
  * IMPORTANT! YOU MUST MEMOIZE the inputted memoizedTargetRefOrQuery or BAD THINGS WILL HAPPEN
- * use useMemo to memoize it per React guidence.  Also make sure that it's dependencies are stable
+ * use useMemo to memoize it per React guidance.  Also make sure that it's dependencies are stable
  * references
  *  
  * @template T Optional type for document data. Defaults to any.
@@ -78,7 +78,8 @@ export function useCollection<T = any>(
       (snapshot: QuerySnapshot<DocumentData>) => {
         const results: ResultItemType[] = [];
         for (const doc of snapshot.docs) {
-          results.push({ ...(doc.data() as T), id: doc.id });
+          // IMPORTANT: We set id: doc.id FIRST so that if the data contains an 'id' field, it overwrites it.
+          results.push({ id: doc.id, ...(doc.data() as T) });
         }
         setData(results);
         setError(null);
@@ -107,6 +108,7 @@ export function useCollection<T = any>(
 
     return () => unsubscribe();
   }, [memoizedTargetRefOrQuery]); // Re-run if the target query/reference changes.
+  
   if(memoizedTargetRefOrQuery && !memoizedTargetRefOrQuery.__memo) {
     throw new Error(memoizedTargetRefOrQuery + ' was not properly memoized using useMemoFirebase');
   }

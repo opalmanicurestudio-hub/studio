@@ -497,24 +497,26 @@ export default function POSPage() {
       console.log("Scanned POS Data:", rawData);
 
       if (rawData.startsWith('clarityflow://checkout/')) {
-        const appointmentId = rawData.split('/').pop()?.trim();
-        if (!appointmentId) return;
+        const appointmentIdFromData = rawData.split('/').pop()?.trim();
+        if (!appointmentIdFromData) return;
 
-        // Support full ID or short ID (last 6 chars)
+        // Standardize: The scanner gets the ID part. 
+        // We look for an exact ID match or a matching short-code (last 6).
         const appointment = readyForCheckoutAppointments.find(apt => 
-            apt.id === appointmentId || apt.id.toLowerCase().endsWith(appointmentId.toLowerCase())
+            apt.id === appointmentIdFromData || apt.id.toUpperCase().endsWith(appointmentIdFromData.toUpperCase())
         );
 
         if (appointment) {
             handleSelectAppointment(appointment.id);
             toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
         } else {
-            const rawApt = appointments.find(a => a.id === appointmentId || a.id.toLowerCase().endsWith(appointmentId.toLowerCase()));
+            // Check if it exists at all but just isn't ready
+            const rawApt = appointments.find(a => a.id === appointmentIdFromData || a.id.toUpperCase().endsWith(appointmentIdFromData.toUpperCase()));
             if (rawApt) {
                 toast({ 
                     variant: 'destructive', 
                     title: 'Waiting for Technician', 
-                    description: "This appointment is found but hasn't been sent to checkout yet. Please ask the technician to 'Finish Service'." 
+                    description: "This appointment is found but hasn't been sent to checkout yet." 
                 });
             } else {
                 toast({ variant: 'destructive', title: 'Ticket Not Found', description: "Could not find a matching appointment for this ticket." });
@@ -544,6 +546,17 @@ export default function POSPage() {
             handleAddToCart(product);
             toast({ title: "Product Added", description: `${product.name} added to cart.` });
         } else {
+            // Last chance: Treat raw data as a potential short-code if it's alphanumeric and ~6 chars
+            if (rawData.length >= 5 && rawData.length <= 8) {
+                const appointment = readyForCheckoutAppointments.find(apt => 
+                    apt.id.toUpperCase().endsWith(rawData.toUpperCase())
+                );
+                if (appointment) {
+                    handleSelectAppointment(appointment.id);
+                    toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
+                    return;
+                }
+            }
             toast({ variant: 'destructive', title: 'Unknown Code', description: "This code doesn't match a checkout ticket or product SKU." });
         }
       }
@@ -552,8 +565,8 @@ export default function POSPage() {
     const handleManualTicketSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (manualTicketId.trim()) {
-            const id = manualTicketId.includes('/') ? manualTicketId.split('/').pop() : manualTicketId;
-            handleScan(`clarityflow://checkout/${id?.trim()}`);
+            // Standardize entry: Try to match exactly or as shortcode
+            handleScan(`clarityflow://checkout/${manualTicketId.trim()}`);
             setManualTicketId('');
         }
     };

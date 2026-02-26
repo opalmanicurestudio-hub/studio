@@ -64,7 +64,9 @@ export function useDoc<T = any>(
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
           // Document exists, update data and stop loading.
-          setData({ ...(snapshot.data() as T), id: snapshot.id });
+          // IMPORTANT: We set id: snapshot.id FIRST so that if the data contains an 'id' field, it overwrites it.
+          // This is critical for collections like appointmentCheckIns where doc.id is a token but data.id is the actual entity ID.
+          setData({ id: snapshot.id, ...(snapshot.data() as T) });
           setIsLoading(false);
           setError(null);
         } else {
