@@ -253,7 +253,7 @@ export default function ClientDetailPage() {
 
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
-  const { transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
+  const { appointments, transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
   const tenantId = selectedTenant?.id;
   
   const clientDocRef = useMemoFirebase(() => {
@@ -289,14 +289,14 @@ export default function ClientDetailPage() {
   }, [viewingConsent, consentForms]);
 
   const appointmentsForThisClient = useMemo(() => {
-      const inventoryAppointments = (useInventory().appointments || [])
+      const inventoryAppointments = (appointments || [])
         .filter(apt => apt.clientId === clientId)
         .map(apt => ({
             ...apt,
             service: services.find(s => s.id === apt.serviceId)
         }));
       return inventoryAppointments;
-  }, [clientId, useInventory().appointments, services]);
+  }, [clientId, appointments, services]);
 
   useEffect(() => {
     if (client) {
@@ -597,9 +597,7 @@ export default function ClientDetailPage() {
                                     <a href={`tel:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
                                         <Phone className="w-4 h-4 text-primary" />
                                     </a>
-                                    <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
-                                        <MessageSquare className="w-4 h-4 text-primary" />
-                                    </a>
+                                    <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
                                 </div>
                             </div>
                         </div>
