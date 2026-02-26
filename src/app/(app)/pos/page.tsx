@@ -46,6 +46,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
 import { InServiceAppointmentCard } from '@/components/pos/InServiceCustomerCard';
 import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
+import { Separator } from '@/components/ui/separator';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
