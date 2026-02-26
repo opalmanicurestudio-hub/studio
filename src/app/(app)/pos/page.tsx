@@ -416,12 +416,12 @@ export default function POSPage() {
     const isGroupCheckout = appointmentsData.length > 1;
 
     useEffect(() => {
-        if (appointmentsData.length === 1) {
+        // Automatically set the payer if there's only one client in the selection
+        // BUT don't wipe it if it was manually selected for a retail-only sale
+        if (appointmentsData.length === 1 && !selectedClientId) {
             setSelectedClientId(appointmentsData[0].clientId);
-        } else if (appointmentsData.length === 0) {
-            setSelectedClientId(null);
         }
-    }, [appointmentsData]);
+    }, [appointmentsData, selectedClientId]);
     
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         setSelectedAppointmentIds(prev => {
@@ -1008,21 +1008,6 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
-    const sanitize = (data: any): any => {
-        if (data === undefined) return null;
-        if (data === null || typeof data !== 'object') return data;
-        if (data instanceof Date) return data;
-        if (data.constructor && (data.constructor.name === 'FieldValue' || data.constructor.name === 'FieldValueImpl')) return data;
-        if (Array.isArray(data)) return data.map(sanitize);
-        const result: any = {};
-        for (const key in data) {
-            if (Object.prototype.hasOwnProperty.call(data, key)) {
-                if (data[key] !== undefined) result[key] = sanitize(data[key]);
-            }
-        }
-        return result;
-    };
-
     let finalClient = client;
     if (!finalClient && appointmentsData.length > 0) {
         finalClient = appointmentsData[0].client;
@@ -1054,23 +1039,31 @@ export default function POSPage() {
 
         const updatedProductLevels = new Map<string, { totalStock: number, partialUses: number, partialSize: number }>();
 
+        // Re-calculate the final subtotal to ensure LTV is accurate
+        let calculatedFinalSubtotal = 0;
+
         // Process appointments
         for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-            batch.update(appointmentRef, sanitize({ status: 'completed', inventoryProcessed: true, actualEndTime: nowISO }));
+            
+            const servicePrice = redeemedOffer?.id === currentAppointment.service?.id ? 0 : currentAppointment.service?.price || 0;
+            const addOnsPrice = (currentAppointment.addOnServices || []).reduce((a, b) => a + (b.price || 0), 0);
+            calculatedFinalSubtotal += servicePrice + addOnsPrice;
+
+            batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
 
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
-                batch.update(checkInRef, sanitize({ status: 'completed', tenantId: tenantId }));
+                batch.update(checkInRef, { status: 'completed', tenantId: tenantId });
             }
             
             if (currentAppointment.isWalkIn) {
                 const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                batch.update(walkInRef, sanitize({ 
+                batch.update(walkInRef, { 
                     status: 'completed', 
                     serviceEndTime: nowISO 
-                }));
+                });
             }
 
             if (currentAppointment.checkoutState?.formula) {
@@ -1109,13 +1102,13 @@ export default function POSPage() {
                     }
 
                     const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                    batch.set(scRef, sanitize({
+                    batch.set(scRef, {
                         productId: product.id,
                         date: nowISO,
                         change: -quantityToDeduct,
                         unit: unit,
                         reason: `Appointment #${currentAppointment.id.slice(-6)}: ${currentAppointment.clientName}`,
-                    }));
+                    });
                 }
             }
         }
@@ -1123,14 +1116,8 @@ export default function POSPage() {
         const staffInvolved = new Set<string>(Object.values(serviceStaffOverrides).filter(Boolean));
         appointmentsData.forEach(d => { if (d.staffId) staffInvolved.add(d.staffId); });
         staffInvolved.forEach(staffId => {
-            batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), sanitize({ status: 'idle', lastServedTimestamp: nowISO }));
+            batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), { status: 'idle', lastServedTimestamp: nowISO });
         });
-  
-        if (clientDocRef) {
-            const ltvIncrement = isNaN(subtotalAfterDiscounts) ? 0 : subtotalAfterDiscounts;
-            clientUpdates.lifetimeValue = increment(ltvIncrement);
-            clientUpdates.lastAppointment = nowISO;
-        }
   
         // Create transactions for services
         appointmentsData.forEach(data => {
@@ -1151,30 +1138,29 @@ export default function POSPage() {
                 appliedDiscountCode: appliedDiscountCode || null,
             };
 
-            if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+            if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 ...transactionBase, date: nowISO,
                 description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId: finalStaffId, appointmentId: id,
-            }));
+            });
 
             addOnServices.forEach(addon => {
-                if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+                if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                     ...transactionBase, date: nowISO,
                     description: `Add-on: ${addon.name}`, category: 'Service Revenue', amount: addon.price, staffId: finalStaffId, appointmentId: id,
-                }));
+                });
             });
         });
 
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
-            if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+            if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
                 tipAmount: tip, clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income',
                 context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
-            }));
+            });
         });
 
-        // Add Discount Reconcilation Transaction
         if (totalDiscount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 description: `Discount Applied: ${appliedDiscountCode || 'Manual'}`,
                 category: 'Discounts',
                 amount: totalDiscount,
@@ -1186,15 +1172,17 @@ export default function POSPage() {
                 date: nowISO,
                 hasReceipt: false,
                 appointmentId: primaryAppointmentId,
-            }));
+            });
         }
 
         const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
 
         retailItems.forEach(item => {
             const itemRevenue = item.quantity * item.price;
+            calculatedFinalSubtotal += itemRevenue;
+
             if (itemRevenue > 0) {
-                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                     description: `${item.type === 'product' ? 'Retail' : item.type === 'membership' ? 'Membership' : 'Package'}: ${item.quantity}x ${item.name}`, 
                     category: item.type === 'product' ? 'Retail' : 'Membership/Package Sales', 
                     amount: itemRevenue,
@@ -1207,7 +1195,7 @@ export default function POSPage() {
                     paymentMethod: checkoutDetails.paymentMethod, 
                     hasReceipt: true, 
                     date: nowISO,
-                }));
+                });
             }
 
             if (item.type === 'product') {
@@ -1251,19 +1239,19 @@ export default function POSPage() {
 
         updatedProductLevels.forEach((levels, productId) => {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
-            batch.update(productRef, sanitize({
+            batch.update(productRef, {
                 totalStock: levels.totalStock,
                 partialContainerUses: levels.partialUses,
                 partialContainerSize: levels.partialSize
-            }));
+            });
         });
   
         if (appliedDiscountCode && finalClient) {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-            batch.update(discountRef, sanitize({
+            batch.update(discountRef, {
                 usageCount: increment(1),
                 usedByClientIds: arrayUnion(finalClient.id),
-            }));
+            });
         }
         
         if (redeemedOffer && clientDocRef && finalClient) {
@@ -1288,8 +1276,11 @@ export default function POSPage() {
             }
         }
         
-        if (clientDocRef && Object.keys(clientUpdates).length > 0) {
-            batch.update(clientDocRef, sanitize(clientUpdates));
+        if (clientDocRef) {
+            const finalLtvIncrement = Math.max(0, (calculatedFinalSubtotal + additionalCharge) - totalDiscount);
+            clientUpdates.lifetimeValue = increment(isNaN(finalLtvIncrement) ? 0 : finalLtvIncrement);
+            clientUpdates.lastAppointment = nowISO;
+            batch.update(clientDocRef, clientUpdates);
         }
 
         await batch.commit();

@@ -37,7 +37,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         <Card className={cn(
             "transition-all duration-200 hover:shadow-lg hover:-translate-y-1 flex flex-col",
             isSelected && "border-primary ring-2 ring-primary",
-            client.activeMembershipId && "border-indigo-500/30 bg-indigo-500/[0.02]"
+            (client.activeMembershipId || client.subscription) && "border-indigo-500/30 bg-indigo-500/[0.02]"
         )}>
             <CardContent className="p-4 space-y-4 flex-1">
                 <div className="flex items-start gap-4">
@@ -120,7 +120,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     </TooltipProvider>
 
                     <div className="flex-1 flex flex-wrap gap-1 justify-end">
-                        {!!client.activeMembershipId && (
+                        {(client.activeMembershipId || client.subscription) && (
                             <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300">
                                 <Award className="w-3 h-3 mr-1" />
                                 Member
