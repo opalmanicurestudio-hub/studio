@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -383,6 +382,11 @@ export default function ClientDetailPage() {
     const lastBilling = subMonths(nextBilling, 1);
     return isAfter(lastUsed, lastBilling);
   }, [client?.subscription]);
+
+  const safeLTV = useMemo(() => {
+    const val = Number(client?.lifetimeValue);
+    return isNaN(val) ? 0 : val;
+  }, [client?.lifetimeValue]);
 
   const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || discountsLoading;
 

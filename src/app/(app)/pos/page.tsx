@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -408,7 +407,7 @@ export default function POSPage() {
     }, [client, retailTotalForDiscount, memberships]);
 
     const totalDiscount = discount + membershipDiscount;
-    const subtotalAfterDiscounts = (subtotal + additionalCharge) > totalDiscount ? (subtotal + additionalCharge) - totalDiscount : 0;
+    const subtotalAfterDiscounts = Math.max(0, (subtotal + additionalCharge) - totalDiscount);
     const tax = subtotalAfterDiscounts * 0.07;
     const total = subtotalAfterDiscounts + tax + tipAmount;
     
@@ -1134,7 +1133,8 @@ export default function POSPage() {
         });
   
         if (clientDocRef) {
-            clientUpdates.lifetimeValue = increment(subtotalAfterDiscounts);
+            const ltvIncrement = isNaN(subtotalAfterDiscounts) ? 0 : subtotalAfterDiscounts;
+            clientUpdates.lifetimeValue = increment(ltvIncrement);
             clientUpdates.lastAppointment = nowISO;
         }
   

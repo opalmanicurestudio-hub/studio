@@ -63,6 +63,11 @@ const ClientReportPage = () => {
         }
     }, [client]);
 
+    const safeLTV = useMemo(() => {
+        const val = Number(client?.lifetimeValue);
+        return isNaN(val) ? 0 : val;
+    }, [client?.lifetimeValue]);
+
     const handleGenerateReport = async () => {
         if (!client) return;
 
@@ -76,7 +81,7 @@ const ClientReportPage = () => {
             const report = await generateClientReport({
                 clientName: client.name,
                 totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
-                lifetimeValue: Number(client.lifetimeValue || 0),
+                lifetimeValue: safeLTV,
                 lastSeen: client.lastAppointment ? formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }) : 'N/A',
                 memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
                 hasIncidents: !!client.intel?.hasIncidents,
@@ -213,8 +218,8 @@ const ClientReportPage = () => {
                         <Card>
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
-                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${Number(client.lifetimeValue || 0).toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(clientAppointments.length > 0 ? Number(client.lifetimeValue || 0) / clientAppointments.length : 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${safeLTV.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(clientAppointments.length > 0 ? safeLTV / clientAppointments.length : 0).toFixed(2)}</span></div>
                             </CardContent>
                         </Card>
                          <Card>

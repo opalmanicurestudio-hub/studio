@@ -9,7 +9,7 @@ import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -27,6 +27,11 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         }
         return name.substring(0, 2).toUpperCase();
     };
+
+    const safeLTV = useMemo(() => {
+        const val = Number(client.lifetimeValue);
+        return isNaN(val) ? 0 : val;
+    }, [client.lifetimeValue]);
 
     return (
         <Card className={cn(
@@ -71,7 +76,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                  <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                         <span className='text-muted-foreground'>Lifetime Value</span>
-                        <Badge variant="outline" className="font-mono text-base">${Number(client.lifetimeValue || 0).toFixed(2)}</Badge>
+                        <Badge variant="outline" className="font-mono text-base">${safeLTV.toFixed(2)}</Badge>
                     </div>
                     {lastAppointment && (
                         <div className="flex items-center justify-between">
