@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader, MoreHorizontal, XCircle } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader, MoreHorizontal, XCircle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -51,6 +51,7 @@ import type { Client, Appointment, Service, CustomFormula, Incident, Membership,
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useInventory } from '@/context/InventoryContext';
 
 
 type ClientPhoto = {
@@ -251,6 +252,7 @@ export default function ClientDetailPage() {
 
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
   const tenantId = selectedTenant?.id;
   
   const clientDocRef = useMemoFirebase(() => {
@@ -260,60 +262,12 @@ export default function ClientDetailPage() {
 
   const { data: client, isLoading: clientLoading, error: clientError } = useDoc<Client>(clientDocRef);
   
-  const allClientsQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId) return null;
-      return collection(firestore, `tenants/${tenantId}/clients`);
-  }, [firestore, tenantId]);
-  const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
-  
-  const allAppointmentsQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId) return null;
-      return collection(firestore, `tenants/${tenantId}/appointments`);
-  }, [firestore, tenantId]);
-  const { data: allAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
-  
-  const servicesQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId) return null;
-      return collection(firestore, `tenants/${tenantId}/services`);
-  }, [firestore, tenantId]);
-  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
-  
-  const staffQuery = useMemoFirebase(() => {
-      if (!firestore || !tenantId) return null;
-      return collection(firestore, `tenants/${tenantId}/staff`);
-  }, [firestore, tenantId]);
-  const { data: staff, isLoading: staffLoading } = useCollection<any>(staffQuery);
-
-  const membershipsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/memberships`);
-  }, [firestore, tenantId]);
-  const { data: memberships } = useCollection<Membership>(membershipsQuery);
-
-  const packagesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/packages`);
-  }, [firestore, tenantId]);
-  const { data: packages } = useCollection<Package>(packagesQuery);
-  
-  const consentFormsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/consentForms`);
-  }, [firestore, tenantId]);
-  const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
-
   const signedConsentsQuery = useMemoFirebase(() => {
     if (!firestore || !clientId || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
   
-  const discountsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/discounts`);
-  }, [firestore, tenantId]);
-  const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(discountsQuery);
-
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
@@ -328,25 +282,28 @@ export default function ClientDetailPage() {
   const [isCodeDirty, setIsCodeDirty] = useState(false);
   const [viewingConsent, setViewingConsent] = useState<any | null>(null);
 
-  const formTemplateForViewing = useMemo(() => {
+  const formTemplateFor viewing = useMemo(() => {
     if (!viewingConsent || !consentForms) return null;
     return consentForms.find(f => f.id === viewingConsent.formId);
   }, [viewingConsent, consentForms]);
 
 
   const clientAppointments = useMemo(() => {
-    if (!allAppointments || !services || !clientId) return [];
-    return allAppointments
-      .filter(apt => apt.clientId === clientId)
-      .map(apt => ({
-        ...apt,
-        startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-        endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
-        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : new Date(apt.actualStartTime)) : undefined,
-        actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : new Date(apt.actualEndTime)) : undefined,
-        service: services.find(s => s.id === apt.serviceId)
-      }));
-  }, [allAppointments, services, clientId]);
+    if (!allClients || !services || !clientId) return [];
+    // Here we should fetch from inventory context instead of recalculating
+    return []; // Logic moved to inventory context usage
+  }, [allClients, services, clientId]);
+
+  // Use inventory context directly
+  const appointmentsForThisClient = useMemo(() => {
+      const inventoryAppointments = (useInventory().appointments || [])
+        .filter(apt => apt.clientId === clientId)
+        .map(apt => ({
+            ...apt,
+            service: services.find(s => s.id === apt.serviceId)
+        }));
+      return inventoryAppointments;
+  }, [clientId, useInventory().appointments, services]);
 
   useEffect(() => {
     if (client) {
@@ -355,14 +312,14 @@ export default function ClientDetailPage() {
             collectedPhotos.push({ url: client.inspirationPhotoUrl, label: 'Client Inspiration' });
         }
         
-        clientAppointments.forEach(apt => {
+        appointmentsForThisClient.forEach(apt => {
             if (apt.clientId === client.id && (apt as any).inspirationPhotoUrl) {
                 collectedPhotos.push({ url: (apt as any).inspirationPhotoUrl, label: `Inspo for ${format(new Date(apt.startTime), 'MMM d, yyyy')}`});
             }
         });
         setPhotos(collectedPhotos);
     }
-  }, [client, clientAppointments]);
+  }, [client, appointmentsForThisClient]);
 
   useEffect(() => {
       setEditableReferralCode(client?.referralCode || '');
@@ -388,9 +345,29 @@ export default function ClientDetailPage() {
     return isNaN(val) ? 0 : val;
   }, [client?.lifetimeValue]);
 
-  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || discountsLoading;
+  const handleReconcileLTV = () => {
+    if (!transactions || !client || !firestore || !tenantId) return;
 
-  if (isLoading) {
+    const clientTransactions = transactions.filter(t => 
+        t.clientId === client.id && 
+        t.type === 'income' &&
+        (t.category === 'Service Revenue' || t.category === 'Retail' || t.category === 'Membership Sales' || t.category === 'Package Sales' || t.category === 'Membership/Package Sales')
+    );
+
+    const totalSpent = clientTransactions.reduce((sum, t) => sum + t.amount, 0);
+
+    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+    updateDocumentNonBlocking(clientRef, { lifetimeValue: totalSpent });
+
+    toast({
+        title: "LTV Reconciled",
+        description: `${client.name}'s lifetime value has been recalculated based on their transaction history: $${totalSpent.toFixed(2)}`
+    });
+  };
+
+  const isLoadingStatus = isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading;
+
+  if (isLoadingStatus) {
       return (
           <div className="flex min-h-screen w-full flex-col bg-muted/40">
             <AppHeader title="Client Profile" />
@@ -424,39 +401,18 @@ export default function ClientDetailPage() {
     notFound();
   }
 
-  if (!tenantId) return null; // Should be covered by loading state
+  if (!tenantId) return null;
 
   const clientDocRefReal = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
-  const upcomingAppointments = clientAppointments.filter(apt => new Date(apt.startTime) > new Date() && apt.status !== 'cancelled');
-  const pastAppointments = clientAppointments.filter(apt => new Date(apt.startTime) <= new Date()).sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  const upcomingAppointments = appointmentsForThisClient.filter(apt => new Date(apt.startTime) > new Date() && apt.status !== 'cancelled');
+  const pastAppointments = appointmentsForThisClient.filter(apt => new Date(apt.startTime) <= new Date()).sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 
   const handleRebook = (appointment: Appointment) => {
     setAppointmentToRebook(appointment);
     setIsAddAppointmentOpen(true);
   };
 
-  const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId: Appointment = { ...newAppointment, id: `apt-${nanoid()}`, absorbedCost: 0, status: 'confirmed' } as Appointment;
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/appointments`), newAptWithId);
-    
-    toast({
-        title: "Appointment Booked",
-        description: `Appointment for ${allClients?.find(c => c.id === newAppointment.clientId)?.name} has been added.`
-    })
-    setIsAddAppointmentOpen(false);
-  };
-
-  const handleSaveFormula = (newFormula: CustomFormula) => {
-    updateDocumentNonBlocking(clientDocRefReal, {
-        customFormulas: arrayUnion(newFormula)
-    });
-    toast({
-      title: 'Formula Saved!',
-      description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
-    });
-  };
-  
   const handleUpdateClient = (updatedClientData: Partial<Client>) => {
     updateDocumentNonBlocking(clientDocRefReal, updatedClientData);
     toast({
@@ -612,7 +568,7 @@ export default function ClientDetailPage() {
                             <AvatarImage src={client.avatarUrl} alt={client.name} />
                             <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
                         </Avatar>
-                        {activeMembership && (
+                        {(client.activeMembershipId || client.subscription) && (
                             <Badge className="absolute -top-2 -right-2 bg-indigo-600 text-white border-2 border-background shadow-md">
                                 <Award className="w-3 h-3 mr-1" /> Member
                             </Badge>
@@ -752,10 +708,21 @@ export default function ClientDetailPage() {
                           </div>
                            <div className="lg:col-span-1 space-y-6">
                                <Card>
-                                   <CardHeader><CardTitle>Client Accounts</CardTitle></CardHeader>
-                                   <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Store Credit</div><div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div></div>
-                                      <div className="p-4 rounded-lg bg-destructive/10"><div className="text-sm font-medium text-destructive">Outstanding Balance</div><div className="text-2xl font-bold text-destructive">${(client.outstandingBalance || 0).toFixed(2)}</div></div>
+                                   <CardHeader className="flex flex-row items-center justify-between">
+                                       <CardTitle>Client Accounts</CardTitle>
+                                       <Button variant="ghost" size="icon" onClick={handleReconcileLTV} title="Reconcile LTV">
+                                           <RefreshCw className="h-4 w-4" />
+                                       </Button>
+                                   </CardHeader>
+                                   <CardContent className="space-y-4">
+                                      <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
+                                          <div className="text-sm text-muted-foreground">Lifetime Value</div>
+                                          <div className="text-3xl font-bold text-primary">${safeLTV.toFixed(2)}</div>
+                                      </div>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Store Credit</div><div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div></div>
+                                        <div className="p-4 rounded-lg bg-destructive/10"><div className="text-sm font-medium text-destructive">Outstanding Balance</div><div className="text-2xl font-bold text-destructive">${(client.outstandingBalance || 0).toFixed(2)}</div></div>
+                                      </div>
                                    </CardContent>
                                     {(client.unpaidFees && client.unpaidFees.length > 0) && (
                                         <>
@@ -1006,7 +973,7 @@ export default function ClientDetailPage() {
                 }
                 setIsAddAppointmentOpen(isOpen);
             }}
-            initialClientId={client.id}
+            client={client}
             appointmentToRebook={appointmentToRebook}
             memberships={memberships || []}
         />

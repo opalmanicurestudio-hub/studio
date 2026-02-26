@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -29,9 +28,9 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return name.substring(0, 2).toUpperCase();
     };
 
+    // Ensure we handle Firestore FieldValues and potential corrupted data safely
     const safeLTV = useMemo(() => {
         const rawLtv = client.lifetimeValue;
-        // Handle cases where Firestore increment() hasn't resolved yet or field is missing
         if (typeof rawLtv === 'object' || rawLtv === null || rawLtv === undefined) {
             return 0;
         }
@@ -125,7 +124,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                          )}
                     </TooltipProvider>
 
-                    <div className="flex-1 flex flex-wrap gap-1 justify-end">
+                    <div className="flex-1 flex wrap gap-1 justify-end">
                         {(client.activeMembershipId || client.subscription) && (
                             <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300">
                                 <Award className="w-3 h-3 mr-1" />

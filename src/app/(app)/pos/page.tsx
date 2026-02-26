@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -1051,12 +1050,13 @@ export default function POSPage() {
         finalPreTaxRevenue += additionalCharge;
 
         // Apply final discount
-        const finalRevenueIncrement = Math.max(0, finalPreTaxRevenue - totalDiscount);
+        const rawRevenueIncrement = finalPreTaxRevenue - totalDiscount;
+        const finalRevenueIncrement = Math.max(0, isNaN(rawRevenueIncrement) ? 0 : rawRevenueIncrement);
 
         // 2. Prepare Client Profile Updates
         const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, finalClient.id);
         let clientUpdates: Partial<Client> = {
-            lifetimeValue: increment(isNaN(finalRevenueIncrement) ? 0 : finalRevenueIncrement),
+            lifetimeValue: increment(finalRevenueIncrement),
             lastAppointment: nowISO
         };
 
@@ -1328,35 +1328,6 @@ export default function POSPage() {
       }
     };
     
-    const handleAddClient = (data: ClientFormData) => {
-        if (!firestore || !selectedTenant) return;
-    
-        const newClient: Omit<Client, 'id'> = {
-          name: data.name,
-          email: data.email || '',
-          phone: data.phone || '',
-          avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
-          lifetimeValue: 0,
-          lastAppointment: new Date().toISOString(),
-          status: 'active',
-          notes: data.notes,
-          referralCode: '',
-          birthday: data.birthday ? data.birthday.toISOString() : undefined,
-          address: data.address,
-          emergencyContact: data.emergencyContact,
-          intel: {
-            referralSource: data.intel?.referralSource
-          }
-        };
-        
-        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
-    
-        toast({
-          title: "Client Added",
-          description: `${data.name} has been added to your client list.`,
-        });
-      }
-
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         appointmentsData.forEach(apt => {
@@ -1623,7 +1594,7 @@ export default function POSPage() {
             />
             <div className="hidden print:block print-only">
                 <div id="printable-ticket-pos">
-                    {ticketToPrint && <PrintWalkInTicket key={`print-${ticketToPrint.id}`} data={ticketToPrint} />}
+                    {ticketToPrint && <PrintWalkInTicket key={ticketToPrint.id} data={ticketToPrint} />}
                 </div>
                 {receiptToPrint && (
                     <div id="printable-receipt-pos">
