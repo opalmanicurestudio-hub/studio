@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -23,6 +22,7 @@ import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { subMonths, parseISO, isAfter } from 'date-fns';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
 export const CheckoutHub = ({ 
@@ -134,7 +134,7 @@ export const CheckoutHub = ({
     
      const quickTenderOptions = useMemo(() => {
         const options = new Set<number>();
-        if (total === 0) return [];
+        if (total <= 0) return [];
     
         const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
 
@@ -394,7 +394,7 @@ export const CheckoutHub = ({
                     <div className="flex justify-between items-baseline font-black text-2xl md:text-3xl text-primary tracking-tighter"><p className="text-[10px] md:text-sm uppercase tracking-widest text-muted-foreground">Total</p><p className="font-mono">${total.toFixed(2)}</p></div>
                 </div>
                 
-                <div className="mt-3 md:mt-6 space-y-3 md:space-y-4 pb-8 md:pb-6">
+                <div className="mt-3 md:mt-6 space-y-3 md:space-y-4 pb-8 md:pb-10">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2">
                         <div>
                             <RadioGroupItem value="cash" id="pay-cash" className="peer sr-only" />
