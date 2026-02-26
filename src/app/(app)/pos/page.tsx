@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -446,14 +445,30 @@ export default function POSPage() {
     
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
-    const isGroupCheckout = appointmentsData.length > 1;
-
-    useEffect(() => {
-        if (appointmentsData.length === 1 && !selectedClientId) {
-            setSelectedClientId(appointmentsData[0].clientId);
-        }
-    }, [appointmentsData, selectedClientId]);
+     const quickTenderOptions = useMemo(() => {
+        const options = new Set<number>();
+        if (total <= 0) return [];
     
+        const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
+
+        const next5 = roundUp(total, 5);
+        if (next5 > total) options.add(next5);
+
+        const next10 = roundUp(total, 10);
+        if (next10 > total) options.add(next10);
+
+        const next20 = roundUp(total, 20);
+        if (next20 > total) options.add(next20);
+        
+        const next50 = roundUp(total, 50);
+        if (next50 > total) options.add(next50);
+        
+        const next100 = roundUp(total, 100);
+        if (next100 > total) options.add(next100);
+
+        return Array.from(options).sort((a,b) => a - b).slice(0, 3);
+    }, [total]);
+
     const handleSelectAppointment = useCallback((appointmentId: string) => {
         setSelectedAppointmentIds(prev => {
             const newSet = new Set(prev);
@@ -1366,7 +1381,7 @@ export default function POSPage() {
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
         resetCheckoutState();
-        setIsCartSheetOpen(false); // Close the mobile checkout sheet on success
+        setIsCartSheetOpen(false); 
   
       } catch (e) {
           console.error("Checkout failed:", e);
@@ -1478,7 +1493,7 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
-                        {/* KPI Cards for Desktop */}
+                        {/* KPI Cards */}
                         <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                            <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Today's average wait for walk-ins." />
                            <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-ins that resulted in a service." />
@@ -1486,7 +1501,6 @@ export default function POSPage() {
                            <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Revenue per hour of active service." />
                         </div>
 
-                        {/* KPI Cards for Mobile */}
                         <div className="md:hidden">
                             <ScrollArea>
                                 <div className="flex space-x-4 pb-4">
@@ -1610,7 +1624,7 @@ export default function POSPage() {
                 <DialogHeader className="p-4 pb-0">
                   <DialogTitle>Scan Ticket or SKU</DialogTitle>
                   <DialogDescription>
-                    Position the code inside the frame to add to sale or checkout.
+                    Scanning is automatic. Position the code inside the frame to add to sale.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="p-4 relative">
