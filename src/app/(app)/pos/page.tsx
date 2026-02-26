@@ -16,7 +16,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteFiel
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
@@ -1093,6 +1093,8 @@ export default function POSPage() {
                 if (redeemedOffer.type === 'membership') {
                     // Update perk usage on client profile
                     clientUpdates['subscription.perkLastUsed'] = nowISO;
+                    const perkKey = `subscription.perkUsage.${data.service.id}`;
+                    clientUpdates[perkKey] = increment(1);
                 } else if (redeemedOffer.type === 'package') {
                     // Decrement sessions on specific package
                     const currentPackages = finalClient.activePackages || [];
@@ -1244,6 +1246,7 @@ export default function POSPage() {
                     status: 'active',
                     nextBillingDate: addMonths(now, 1).toISOString(),
                     perkLastUsed: null,
+                    perkUsage: {},
                 };
             } else if (item.type === 'package') {
                 const pkg = packages.find(p => p.id === item.id);

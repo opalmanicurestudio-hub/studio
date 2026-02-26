@@ -1,5 +1,3 @@
-
-
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -138,6 +136,7 @@ export type Client = {
     status: 'active' | 'past_due' | 'canceled';
     nextBillingDate: string;
     perkLastUsed?: string;
+    perkUsage?: { [itemId: string]: number };
   };
   activePackages?: {
     packageId: string;
@@ -441,6 +440,12 @@ export type StockCorrection = {
   reason: string; // e.g., 'Appointment #123', 'Manual Count', 'Spoilage'
 };
 
+export type MembershipPerk = {
+    id: string;
+    name: string;
+    quantity: number;
+}
+
 export type Membership = {
   id: string;
   name: string;
@@ -448,9 +453,9 @@ export type Membership = {
   price: number;
   interval: 'monthly' | 'yearly';
   isPrivate: boolean;
-  includedServices?: Service[];
-  includedAddOns?: Service[];
-  includedProducts?: InventoryItem[];
+  includedServices?: MembershipPerk[];
+  includedAddOns?: MembershipPerk[];
+  includedProducts?: MembershipPerk[];
   retailDiscount?: number;
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;

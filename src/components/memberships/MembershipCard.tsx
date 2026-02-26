@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -8,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent } from 'lucide-react';
 import { type Membership, type Client } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { useInventory } from '@/context/InventoryContext';
 
 interface MembershipCardProps {
   membership: Membership;
@@ -19,6 +19,8 @@ interface MembershipCardProps {
 }
 
 export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clients, onEdit, onViewUsers, onDelete }) => {
+  const { services, inventory } = useInventory();
+  
   const activeMembers = useMemo(() => {
     return clients.filter(c => c.activeMembershipId === membership.id).length;
   }, [clients, membership.id]);
@@ -26,16 +28,25 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
   const mrr = activeMembers * membership.price;
 
   const { costOfPerks, netProfit, profitMargin } = useMemo(() => {
-    const servicesCost = (membership.includedServices || []).reduce((acc, s) => acc + s.cost, 0);
-    const addOnsCost = (membership.includedAddOns || []).reduce((acc, s) => acc + s.cost, 0);
-    const productsCost = (membership.includedProducts || []).reduce((acc, p) => acc + (p.costPerUnit || 0), 0);
+    const servicesCost = (membership.includedServices || []).reduce((acc, perk) => {
+        const s = services.find(svc => svc.id === perk.id);
+        return acc + (s?.cost || 0) * perk.quantity;
+    }, 0);
+    const addOnsCost = (membership.includedAddOns || []).reduce((acc, perk) => {
+        const s = services.find(svc => svc.id === perk.id);
+        return acc + (s?.cost || 0) * perk.quantity;
+    }, 0);
+    const productsCost = (membership.includedProducts || []).reduce((acc, perk) => {
+        const p = inventory.find(inv => inv.id === perk.id);
+        return acc + (p?.costPerUnit || 0) * perk.quantity;
+    }, 0);
     const totalCost = servicesCost + addOnsCost + productsCost;
 
     const profit = membership.price - totalCost;
     const margin = membership.price > 0 ? (profit / membership.price) * 100 : 0;
     
     return { costOfPerks: totalCost, netProfit: profit, profitMargin: margin };
-  }, [membership]);
+  }, [membership, services, inventory]);
 
   return (
     <Card className="border-indigo-500/20 hover:shadow-indigo-500/10 flex flex-col">
@@ -68,9 +79,9 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
                 <AccordionTrigger className="p-3 font-medium text-sm hover:no-underline">View Perks</AccordionTrigger>
                 <AccordionContent className="p-3 pt-0 text-xs">
                     <div className="space-y-2">
-                        {(membership.includedServices || []).map(s => <div key={s.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>1x {s.name}</div>)}
-                        {(membership.includedAddOns || []).map(s => <div key={s.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>1x {s.name}</div>)}
-                        {(membership.includedProducts || []).map(p => <div key={p.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>1x {p.name}</div>)}
+                        {(membership.includedServices || []).map(p => <div key={p.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>{p.quantity}x {p.name}</div>)}
+                        {(membership.includedAddOns || []).map(p => <div key={p.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>{p.quantity}x {p.name}</div>)}
+                        {(membership.includedProducts || []).map(p => <div key={p.id} className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500"/>{p.quantity}x {p.name}</div>)}
                         {membership.retailDiscount && <div className="flex items-center gap-2"><Percent className="w-3.5 h-3.5 text-green-500"/>{membership.retailDiscount}% off retail</div>}
                     </div>
                 </AccordionContent>

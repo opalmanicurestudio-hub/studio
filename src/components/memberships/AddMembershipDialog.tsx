@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -36,7 +34,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlusCircle, Trash2, DollarSign, Percent, Award } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Membership, type Service, type InventoryItem } from '@/lib/data';
+import { type Membership, type Service, type InventoryItem, type MembershipPerk } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -48,13 +46,24 @@ interface AddMembershipDialogProps {
   membershipToEdit: Membership | null;
 }
 
-const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Service[], addOns: Service[], products: InventoryItem[] }, price: number }) => {
+const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: MembershipPerk[], addOns: MembershipPerk[], products: MembershipPerk[] }, price: number }) => {
+    const { services, inventory } = useInventory();
+    
     const totalCostOfPerks = useMemo(() => {
-        const servicesCost = perks.services.reduce((acc, s) => acc + s.cost, 0);
-        const addOnsCost = perks.addOns.reduce((acc, s) => acc + s.cost, 0);
-        const productsCost = perks.products.reduce((acc, p) => acc + (p.costPerUnit || 0), 0);
+        const servicesCost = perks.services.reduce((acc, perk) => {
+            const s = services.find(svc => svc.id === perk.id);
+            return acc + (s?.cost || 0) * perk.quantity;
+        }, 0);
+        const addOnsCost = perks.addOns.reduce((acc, perk) => {
+            const s = services.find(svc => svc.id === perk.id);
+            return acc + (s?.cost || 0) * perk.quantity;
+        }, 0);
+        const productsCost = perks.products.reduce((acc, perk) => {
+            const p = inventory.find(inv => inv.id === perk.id);
+            return acc + (p?.costPerUnit || 0) * perk.quantity;
+        }, 0);
         return servicesCost + addOnsCost + productsCost;
-    }, [perks]);
+    }, [perks, services, inventory]);
 
     const netProfit = price - totalCostOfPerks;
     const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
@@ -102,9 +111,9 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [isPrivate, setIsPrivate] = useState(false);
   
-  const [includedServices, setIncludedServices] = useState<Service[]>([]);
-  const [includedAddOns, setIncludedAddOns] = useState<Service[]>([]);
-  const [includedProducts, setIncludedProducts] = useState<InventoryItem[]>([]);
+  const [includedServices, setIncludedServices] = useState<MembershipPerk[]>([]);
+  const [includedAddOns, setIncludedAddOns] = useState<MembershipPerk[]>([]);
+  const [includedProducts, setIncludedProducts] = useState<MembershipPerk[]>([]);
   const [retailDiscount, setRetailDiscount] = useState<number>(0);
 
   const [forfeitOnLateCancel, setForfeitOnLateCancel] = useState(true);
@@ -130,7 +139,6 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setForfeitOnNoShow(membershipToEdit.forfeitOnNoShow);
       setAllowRollover(membershipToEdit.allowRollover);
     } else {
-      // Reset form for new membership
       setName('');
       setDescription('');
       setPrice(0);
@@ -164,6 +172,13 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
     };
     onSave(membershipData);
     onOpenChange(false);
+  };
+
+  const updatePerkQuantity = (type: 'service' | 'addon' | 'product', id: string, quantity: number) => {
+      const updater = (prev: MembershipPerk[]) => prev.map(p => p.id === id ? { ...p, quantity } : p);
+      if (type === 'service') setIncludedServices(updater);
+      if (type === 'addon') setIncludedAddOns(updater);
+      if (type === 'product') setIncludedProducts(updater);
   };
 
   const removeItem = (type: 'service' | 'addon' | 'product', id: string) => {
@@ -215,10 +230,19 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 <Label>Included Services</Label>
                 {includedServices.length > 0 && (
                     <div className="space-y-2">
-                    {includedServices.map(s => (
-                        <div key={s.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                            <span className="text-sm">{s.name}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('service', s.id)}><Trash2 className="w-4 h-4" /></Button>
+                    {includedServices.map(perk => (
+                        <div key={perk.id} className="flex gap-2 items-center bg-muted/50 p-2 rounded-md">
+                            <span className="text-sm flex-1 truncate">{perk.name}</span>
+                            <div className="flex items-center gap-2">
+                                <Label className="text-[10px]">Qty</Label>
+                                <Input 
+                                    type="number" 
+                                    value={perk.quantity} 
+                                    onChange={e => updatePerkQuantity('service', perk.id, parseInt(e.target.value) || 1)} 
+                                    className="w-14 h-8 text-center"
+                                />
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('service', perk.id)}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                     ))}
                     </div>
@@ -229,10 +253,19 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 <Label>Included Add-ons</Label>
                  {includedAddOns.length > 0 && (
                     <div className="space-y-2">
-                    {includedAddOns.map(s => (
-                        <div key={s.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                            <span className="text-sm">{s.name}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('addon', s.id)}><Trash2 className="h-4 w-4" /></Button>
+                    {includedAddOns.map(perk => (
+                        <div key={perk.id} className="flex gap-2 items-center bg-muted/50 p-2 rounded-md">
+                            <span className="text-sm flex-1 truncate">{perk.name}</span>
+                            <div className="flex items-center gap-2">
+                                <Label className="text-[10px]">Qty</Label>
+                                <Input 
+                                    type="number" 
+                                    value={perk.quantity} 
+                                    onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 1)} 
+                                    className="w-14 h-8 text-center"
+                                />
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('addon', perk.id)}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                     ))}
                     </div>
@@ -243,10 +276,19 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 <Label>Included Products</Label>
                  {includedProducts.length > 0 && (
                     <div className="space-y-2">
-                    {includedProducts.map(p => (
-                        <div key={p.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                            <span className="text-sm">{p.name}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('product', p.id)}><Trash2 className="h-4 w-4" /></Button>
+                    {includedProducts.map(perk => (
+                        <div key={perk.id} className="flex gap-2 items-center bg-muted/50 p-2 rounded-md">
+                            <span className="text-sm flex-1 truncate">{perk.name}</span>
+                            <div className="flex items-center gap-2">
+                                <Label className="text-[10px]">Qty</Label>
+                                <Input 
+                                    type="number" 
+                                    value={perk.quantity} 
+                                    onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 1)} 
+                                    className="w-14 h-8 text-center"
+                                />
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('product', perk.id)}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                     ))}
                     </div>
@@ -310,23 +352,23 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
          <BrowseProductsDialog
             open={isServiceSelectorOpen}
             onOpenChange={setIsServiceSelectorOpen}
-            onSelect={(selected) => setIncludedServices(selected as Service[])}
+            onSelect={(selected) => setIncludedServices(selected.map(s => ({ id: s.id, name: s.name, quantity: 1 })))}
             allProducts={services.filter(s => s.type === 'service')}
-            initialSelected={includedServices}
+            initialSelected={services.filter(s => includedServices.some(p => p.id === s.id))}
         />
         <SelectAddOnsDialog
             open={isAddOnSelectorOpen}
             onOpenChange={setIsAddOnSelectorOpen}
-            onSelect={setIncludedAddOns}
+            onSelect={(selected) => setIncludedAddOns(selected.map(s => ({ id: s.id, name: s.name, quantity: 1 })))}
             allAddOns={services.filter(s => s.type === 'addon')}
-            initialSelected={includedAddOns}
+            initialSelected={services.filter(s => includedAddOns.some(p => p.id === s.id))}
         />
         <BrowseProductsDialog
             open={isProductSelectorOpen}
             onOpenChange={setIsProductSelectorOpen}
-            onSelect={setIncludedProducts}
+            onSelect={(selected) => setIncludedProducts(selected.map(p => ({ id: p.id, name: p.name, quantity: 1 })))}
             allProducts={inventory.filter(p => p.type === 'retail')}
-            initialSelected={includedProducts}
+            initialSelected={inventory.filter(p => includedProducts.some(pk => pk.id === p.id))}
         />
     </>
   );

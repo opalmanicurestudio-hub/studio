@@ -21,6 +21,7 @@ import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { subMonths, parseISO, isAfter } from 'date-fns';
 
 
 export const CheckoutHub = ({ 
@@ -216,14 +217,25 @@ export const CheckoutHub = ({
 
                                 const isRedeemed = redeemedOffer?.id === service.id;
 
-                                const membershipPerk = client.activeMembershipId && memberships.find(m => m.id === client.activeMembershipId)?.includedServices?.find(s => s.id === service.id);
+                                const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
+                                const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
+                                
+                                // Reset perk usage if we've passed the billing date
+                                const currentPerkUsage = client.subscription?.perkUsage?.[service.id] || 0;
+                                const isUsedInThisCycle = client.subscription?.nextBillingDate ? (
+                                    isAfter(parseISO(client.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(client.subscription.nextBillingDate), 1))
+                                ) : false;
+
+                                const effectiveUsageCount = isUsedInThisCycle ? currentPerkUsage : 0;
+                                
+                                const hasMembershipPerk = !!membershipPerk && effectiveUsageCount < membershipPerk.quantity;
                                 
                                 const packagePerk = client.activePackages?.find(p => {
                                     const packageDetails = packages.find(pkg => pkg.id === p.packageId);
                                     return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
                                 });
 
-                                const hasPerk = !!membershipPerk || !!packagePerk;
+                                const hasPerk = hasMembershipPerk || !!packagePerk;
                                 
                                 const handleRedeem = () => {
                                     if (isRedeemed) {
@@ -235,7 +247,7 @@ export const CheckoutHub = ({
                                     }
                                 };
                                 
-                                if (!hasPerk) {
+                                if (!hasPerk && !isRedeemed) {
                                     return (
                                         <div key={data.id} className="text-sm flex items-center gap-3 p-2 bg-muted/30 rounded-lg">
                                             <div className="flex-1 min-w-0">
@@ -279,7 +291,7 @@ export const CheckoutHub = ({
                                             ) : (
                                                 <div className="mt-2">
                                                     <Button variant="secondary" size="sm" className="w-full text-xs h-8" onClick={handleRedeem}>
-                                                        {membershipPerk && <><Award className="w-3.5 h-3.5 mr-1.5 text-indigo-500"/>Redeem Monthly Perk</>}
+                                                        {hasMembershipPerk && <><Award className="w-3.5 h-3.5 mr-1.5 text-indigo-500"/>Redeem Perk ({effectiveUsageCount}/{membershipPerk.quantity})</>}
                                                         {packagePerk && <><Repeat className="w-3.5 h-3.5 mr-1.5 text-teal-500"/>Use 1 Session ({packagePerk.sessionsRemaining} left)</>}
                                                     </Button>
                                                 </div>
