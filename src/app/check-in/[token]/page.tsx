@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -6,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon } from 'lucide-react';
 import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays, getDay, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Event, type Tenant } from '@/lib/data';
@@ -38,7 +37,7 @@ const ServicingView = ({ serviceName }: { serviceName: string }) => (
     </Card>
 );
 
-const CheckoutView = ({ qrCodeUrl }: { qrCodeUrl: string }) => (
+const CheckoutView = ({ qrCodeUrl, ticketId }: { qrCodeUrl: string, ticketId: string }) => (
     <Card className="w-full max-w-md">
         <CardHeader className="text-center">
              <div className="flex justify-center mb-4"><ClarityFlowLogo /></div>
@@ -47,8 +46,16 @@ const CheckoutView = ({ qrCodeUrl }: { qrCodeUrl: string }) => (
         </CardHeader>
         <CardContent className="text-center flex flex-col items-center gap-4">
             <p>Scan this QR code at the register to quickly pull up your ticket and complete payment.</p>
-            <div className="p-4 bg-white rounded-lg">
+            <div className="p-4 bg-white rounded-xl shadow-inner border">
                 <Image src={qrCodeUrl} alt="Checkout QR Code" width={200} height={200} />
+            </div>
+            <div className="bg-muted p-3 rounded-lg w-full flex flex-col items-center gap-1">
+                <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
+                    <TicketIcon className="w-3 h-3" />
+                    Ticket Short-Code
+                </p>
+                <p className="text-2xl font-mono font-bold tracking-tighter">{ticketId}</p>
+                <p className="text-[10px] text-muted-foreground">Show this code if the scanner has trouble.</p>
             </div>
         </CardContent>
     </Card>
@@ -194,7 +201,10 @@ export default function CheckInPage() {
         const options: string[] = [];
         let currentTime = dayStartWithBusinessHours;
         while (currentTime < dayEndWithBusinessHours) {
-            const potentialEndTime = addMinutes(currentTime, service.duration);
+            const potentialStartTime = currentTime;
+            const totalDuration = service.duration;
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+            
             if (potentialEndTime <= dayEndWithBusinessHours && !busyIntervals.some(interval => areIntervalsOverlapping({ start: currentTime, end: potentialEndTime }, interval, { inclusive: false }))) {
                 options.push(format(currentTime, 'HH:mm'));
             }
@@ -250,7 +260,7 @@ export default function CheckInPage() {
         
         const newTransaction: Omit<Transaction, 'id'> = {
             date: new Date().toISOString(),
-            description: `Late cancellation fee for appointment #${appointment.id.slice(-6)}`,
+            description: `Late cancellation fee for appointment #${appointment.id.slice(-6).toUpperCase()}`,
             clientOrVendor: client.name,
             type: 'income',
             context: 'Business',
@@ -317,7 +327,8 @@ export default function CheckInPage() {
     if (appointment.status === 'servicing') return <ServicingView serviceName={service.name} />;
     if (appointment.status === 'ready_for_checkout') {
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`;
-        return <CheckoutView qrCodeUrl={qrCodeUrl} />;
+        const ticketId = appointment.id.slice(-6).toUpperCase();
+        return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={ticketId} />;
     }
     if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} />;
     if (appointment.status === 'cancelled') return <CancelledView />;

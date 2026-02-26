@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -131,6 +130,7 @@ const AppointmentDetails = ({
     const { inventory, services: allServices } = useInventory();
     const { role } = useTenant();
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const ticketId = appointment.id.slice(-6).toUpperCase();
     
     const addOnServices = useMemo(() => {
         return (appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
@@ -269,7 +269,13 @@ const AppointmentDetails = ({
 
              <div className="space-y-2">
                 <div className="flex justify-between items-start gap-4">
-                    <h3 className="font-semibold text-lg">{client.name}</h3>
+                    <div className="space-y-1">
+                        <h3 className="font-semibold text-lg">{client.name}</h3>
+                        <p className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded-md w-fit flex items-center gap-1">
+                            <TicketIcon className="w-2.5 h-2.5" />
+                            Ticket ID: {ticketId}
+                        </p>
+                    </div>
                 </div>
                 {isOwnerOrAdmin && (
                     <div className="text-muted-foreground text-sm space-y-1">

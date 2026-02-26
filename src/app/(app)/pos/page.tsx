@@ -500,12 +500,16 @@ export default function POSPage() {
         const appointmentId = rawData.split('/').pop()?.trim();
         if (!appointmentId) return;
 
-        const appointment = readyForCheckoutAppointments.find(apt => apt.id === appointmentId);
+        // Support full ID or short ID (last 6 chars)
+        const appointment = readyForCheckoutAppointments.find(apt => 
+            apt.id === appointmentId || apt.id.toLowerCase().endsWith(appointmentId.toLowerCase())
+        );
+
         if (appointment) {
-            handleSelectAppointment(appointmentId);
+            handleSelectAppointment(appointment.id);
             toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
         } else {
-            const rawApt = appointments.find(a => a.id === appointmentId);
+            const rawApt = appointments.find(a => a.id === appointmentId || a.id.toLowerCase().endsWith(appointmentId.toLowerCase()));
             if (rawApt) {
                 toast({ 
                     variant: 'destructive', 

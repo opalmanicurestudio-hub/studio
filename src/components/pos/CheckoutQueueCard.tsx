@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -9,8 +8,8 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { AlertTriangle, FlaskConical } from 'lucide-react';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { AlertTriangle, FlaskConical, TicketIcon } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
 
 interface CheckoutQueueCardProps {
@@ -53,6 +52,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
   }, [service, checkoutState]);
 
   const totalPrice = (service.price || 0) + addOnServices.reduce((acc, s) => acc + s.price, 0);
+  const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
     <div className="w-72 shrink-0">
@@ -95,6 +95,10 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                             </TooltipProvider>
                         </div>
                         <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'h:mm a')}</p>
+                        <p className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded-md w-fit flex items-center gap-1 mt-1">
+                            <TicketIcon className="w-2.5 h-2.5" />
+                            {ticketId}
+                        </p>
                     </div>
                     <div className="text-right">
                          <Avatar className="w-8 h-8">
