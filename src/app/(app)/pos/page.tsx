@@ -1352,6 +1352,7 @@ export default function POSPage() {
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
         resetCheckoutState();
+        setIsCartSheetOpen(false); // Close the mobile checkout sheet on success
   
       } catch (e) {
           console.error("Checkout failed:", e);
@@ -1538,7 +1539,7 @@ export default function POSPage() {
                                 </div>
                             </Button>
                         </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[95vh] p-0 flex flex-col">
+                        <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col">
                            <SheetHeader className="p-4 border-b">
                                <SheetTitle>Current Sale</SheetTitle>
                            </SheetHeader>
