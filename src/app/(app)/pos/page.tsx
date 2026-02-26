@@ -481,7 +481,6 @@ export default function POSPage() {
       }
     }, [inventory, appointments, readyForCheckoutAppointments, handleAddToCart, toast, handleSelectAppointment]);
 
-    // Initialize and sort staff based on turnOrder
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     useEffect(() => {
         if (staff) {
@@ -1009,7 +1008,6 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
-    // Helper to deeply remove undefined values for Firebase compatibility
     const sanitize = (data: any): any => {
         if (data === undefined) return null;
         if (data === null || typeof data !== 'object') return data;
@@ -1025,7 +1023,6 @@ export default function POSPage() {
         return result;
     };
 
-    // Fallback: If no client is selected but we have appointments, use the first appointment's client
     let finalClient = client;
     if (!finalClient && appointmentsData.length > 0) {
         finalClient = appointmentsData[0].client;
@@ -1055,7 +1052,6 @@ export default function POSPage() {
         const clientDocRef = finalClient ? doc(firestore, `tenants/${tenantId}/clients`, finalClient.id) : null;
         let clientUpdates: Partial<Client> = {};
 
-        // Track running inventory levels for atomic calculation within this checkout
         const updatedProductLevels = new Map<string, { totalStock: number, partialUses: number, partialSize: number }>();
 
         // Process appointments
@@ -1065,10 +1061,9 @@ export default function POSPage() {
 
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
-                batch.update(checkInRef, sanitize({ status: 'completed' }));
+                batch.update(checkInRef, sanitize({ status: 'completed', tenantId: tenantId }));
             }
             
-            // Fix Walk-in status if it's a walk-in appointment
             if (currentAppointment.isWalkIn) {
                 const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
@@ -1078,7 +1073,6 @@ export default function POSPage() {
                 }));
             }
 
-            // Professional Product Deduction from Formula
             if (currentAppointment.checkoutState?.formula) {
                 for (const item of currentAppointment.checkoutState.formula) {
                     const product = inventory.find(p => p.id === item.id);
@@ -1143,7 +1137,6 @@ export default function POSPage() {
             const { service, addOnServices, staffId, id, client: aptClient } = data;
             const servicePrice = redeemedOffer?.id === service.id ? 0 : service.price || 0;
             
-            // Robust identification for the ledger
             const finalClientName = aptClient?.name || data.clientName || finalClient?.name || 'Walk-in Customer';
             const finalClientId = aptClient?.id || data.clientId || finalClient?.id;
             const finalStaffId = staffId || data.staffId || primaryStaffId;
@@ -1156,7 +1149,6 @@ export default function POSPage() {
                 paymentMethod: checkoutDetails.paymentMethod,
                 hasReceipt: true,
                 appliedDiscountCode: appliedDiscountCode || null,
-                discountAmount: totalDiscount > 0 ? (totalDiscount / (appointmentsData.length + retailItems.length)) : null,
             };
 
             if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
@@ -1180,20 +1172,45 @@ export default function POSPage() {
             }));
         });
 
+        // Add Discount Reconcilation Transaction
+        if (totalDiscount > 0) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+                description: `Discount Applied: ${appliedDiscountCode || 'Manual'}`,
+                category: 'Discounts',
+                amount: totalDiscount,
+                type: 'expense',
+                context: 'Business',
+                paymentMethod: 'Internal',
+                clientOrVendor: finalClient?.name || 'Walk-in Customer',
+                clientId: finalClient?.id,
+                date: nowISO,
+                hasReceipt: false,
+                appointmentId: primaryAppointmentId,
+            }));
+        }
+
         const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
 
         retailItems.forEach(item => {
+            const itemRevenue = item.quantity * item.price;
+            if (itemRevenue > 0) {
+                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
+                    description: `${item.type === 'product' ? 'Retail' : item.type === 'membership' ? 'Membership' : 'Package'}: ${item.quantity}x ${item.name}`, 
+                    category: item.type === 'product' ? 'Retail' : 'Membership/Package Sales', 
+                    amount: itemRevenue,
+                    staffId: primaryStaffId, 
+                    appointmentId: primaryAppointmentId,
+                    clientOrVendor: finalClient?.name || 'Walk-in Customer', 
+                    clientId: finalClient?.id, 
+                    type: 'income' as const,
+                    context: 'Business' as const, 
+                    paymentMethod: checkoutDetails.paymentMethod, 
+                    hasReceipt: true, 
+                    date: nowISO,
+                }));
+            }
+
             if (item.type === 'product') {
-                const retailTotal = item.quantity * item.price;
-                if (retailTotal > 0) {
-                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
-                        description: `Retail: ${item.quantity}x ${item.name}`, category: 'Retail', amount: retailTotal,
-                        staffId: primaryStaffId, appointmentId: primaryAppointmentId,
-                        clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income' as const,
-                        context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
-                    }));
-                }
-                
                 if (!updatedProductLevels.has(item.id)) {
                     const product = inventory.find(p => p.id === item.id);
                     if (product) {
