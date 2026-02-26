@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -9,7 +10,7 @@ import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -29,7 +30,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
     };
 
     const safeLTV = useMemo(() => {
-        const val = Number(client.lifetimeValue);
+        const rawLtv = client.lifetimeValue;
+        // Handle cases where Firestore increment() hasn't resolved yet or field is missing
+        if (typeof rawLtv === 'object' || rawLtv === null || rawLtv === undefined) {
+            return 0;
+        }
+        const val = Number(rawLtv);
         return isNaN(val) ? 0 : val;
     }, [client.lifetimeValue]);
 

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
@@ -1008,6 +1009,7 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
+    // Determine the final client to receive the LTV update
     let finalClient = client;
     if (!finalClient && appointmentsData.length > 0) {
         finalClient = appointmentsData[0].client;
@@ -1030,45 +1032,63 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        const primaryAppointmentData = appointmentsData[0];
-        const primaryStaffId = primaryAppointmentData?.staffId || (staff && staff.find(s => s.role === 'admin')?.id) || (staff && staff[0]?.id);
-        const primaryAppointmentId = primaryAppointmentData?.id;
+        // 1. Definitively calculate revenue for LTV and Ledger
+        let finalPreTaxRevenue = 0;
         
-        const clientDocRef = finalClient ? doc(firestore, `tenants/${tenantId}/clients`, finalClient.id) : null;
-        let clientUpdates: Partial<Client> = {};
+        // Accumulate service revenue from appointments
+        appointmentsData.forEach(data => {
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || []).reduce((a, b) => a + (b.price || 0), 0);
+            finalPreTaxRevenue += (servicePrice + addOnsPrice);
+        });
+
+        // Accumulate retail revenue
+        retailItems.forEach(item => {
+            finalPreTaxRevenue += (item.quantity * item.price);
+        });
+
+        // Add additional charges (adjustments)
+        finalPreTaxRevenue += additionalCharge;
+
+        // Apply final discount
+        const finalRevenueIncrement = Math.max(0, finalPreTaxRevenue - totalDiscount);
+
+        // 2. Prepare Client Profile Updates
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, finalClient.id);
+        let clientUpdates: Partial<Client> = {
+            lifetimeValue: increment(isNaN(finalRevenueIncrement) ? 0 : finalRevenueIncrement),
+            lastAppointment: nowISO
+        };
 
         const updatedProductLevels = new Map<string, { totalStock: number, partialUses: number, partialSize: number }>();
 
-        // Re-calculate the final subtotal to ensure LTV is accurate
-        let calculatedFinalSubtotal = 0;
-
-        // Process appointments
-        for (const currentAppointment of appointmentsData) {
-            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
+        // 3. Process Appointments
+        for (const data of appointmentsData) {
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', data.id);
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             
-            const servicePrice = redeemedOffer?.id === currentAppointment.service?.id ? 0 : currentAppointment.service?.price || 0;
-            const addOnsPrice = (currentAppointment.addOnServices || []).reduce((a, b) => a + (b.price || 0), 0);
-            calculatedFinalSubtotal += servicePrice + addOnsPrice;
+            // Mark appointment as complete
+            batch.update(appointmentRef, { 
+                status: 'completed', 
+                inventoryProcessed: true, 
+                actualEndTime: nowISO 
+            });
 
-            batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
-
-            if (currentAppointment.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
+            if (data.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
                 batch.update(checkInRef, { status: 'completed', tenantId: tenantId });
             }
             
-            if (currentAppointment.isWalkIn) {
-                const walkInId = currentAppointment.id.replace('apt-walkin-', '');
+            if (data.isWalkIn) {
+                const walkInId = data.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                batch.update(walkInRef, { 
-                    status: 'completed', 
-                    serviceEndTime: nowISO 
-                });
+                batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
 
-            if (currentAppointment.checkoutState?.formula) {
-                for (const item of currentAppointment.checkoutState.formula) {
-                    const product = inventory.find(p => p.id === item.id);
+            // Deduct professional products used in the service formula
+            if (data.checkoutState?.formula) {
+                for (const formulaItem of data.checkoutState.formula) {
+                    const product = inventory.find(p => p.id === formulaItem.id);
                     if (!product) continue;
 
                     if (!updatedProductLevels.has(product.id)) {
@@ -1080,7 +1100,7 @@ export default function POSPage() {
                     }
 
                     const levels = updatedProductLevels.get(product.id)!;
-                    let quantityToDeduct = item.quantity;
+                    let quantityToDeduct = formulaItem.quantity;
                     let unit = 'units';
 
                     if (product.costingMethod === 'uses') {
@@ -1101,120 +1121,87 @@ export default function POSPage() {
                         levels.totalStock -= quantityToDeduct;
                     }
 
-                    const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                    batch.set(scRef, {
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), {
                         productId: product.id,
                         date: nowISO,
                         change: -quantityToDeduct,
                         unit: unit,
-                        reason: `Appointment #${currentAppointment.id.slice(-6)}: ${currentAppointment.clientName}`,
+                        reason: `Service #${data.id.slice(-6)}: ${data.clientName}`,
                     });
                 }
             }
-        }
-  
-        const staffInvolved = new Set<string>(Object.values(serviceStaffOverrides).filter(Boolean));
-        appointmentsData.forEach(d => { if (d.staffId) staffInvolved.add(d.staffId); });
-        staffInvolved.forEach(staffId => {
-            batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), { status: 'idle', lastServedTimestamp: nowISO });
-        });
-  
-        // Create transactions for services
-        appointmentsData.forEach(data => {
-            const { service, addOnServices, staffId, id, client: aptClient } = data;
-            const servicePrice = redeemedOffer?.id === service.id ? 0 : service.price || 0;
-            
-            const finalClientName = aptClient?.name || data.clientName || finalClient?.name || 'Walk-in Customer';
-            const finalClientId = aptClient?.id || data.clientId || finalClient?.id;
-            const finalStaffId = staffId || data.staffId || primaryStaffId;
 
+            // Log individual service transactions in ledger
             const transactionBase = {
-                clientOrVendor: finalClientName,
-                clientId: finalClientId,
+                clientOrVendor: data.clientName || finalClient.name,
+                clientId: data.client?.id || finalClient.id,
                 type: 'income' as const,
                 context: 'Business' as const,
                 paymentMethod: checkoutDetails.paymentMethod,
                 hasReceipt: true,
                 appliedDiscountCode: appliedDiscountCode || null,
+                date: nowISO,
+                staffId: data.staffId,
+                appointmentId: data.id,
             };
 
-            if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                ...transactionBase, date: nowISO,
-                description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId: finalStaffId, appointmentId: id,
-            });
-
-            addOnServices.forEach(addon => {
-                if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                    ...transactionBase, date: nowISO,
-                    description: `Add-on: ${addon.name}`, category: 'Service Revenue', amount: addon.price, staffId: finalStaffId, appointmentId: id,
+            if (servicePrice > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                    ...transactionBase,
+                    description: `Service: ${data.service?.name}`,
+                    category: 'Service Revenue',
+                    amount: servicePrice,
                 });
-            });
-        });
+            }
 
-        Object.entries(tipAllocations).forEach(([staffId, tip]) => {
-            if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
-                tipAmount: tip, clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income',
-                context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
-            });
-        });
-
-        if (totalDiscount > 0) {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                description: `Discount Applied: ${appliedDiscountCode || 'Manual'}`,
-                category: 'Discounts',
-                amount: totalDiscount,
-                type: 'expense',
-                context: 'Business',
-                paymentMethod: 'Internal',
-                clientOrVendor: finalClient?.name || 'Walk-in Customer',
-                clientId: finalClient?.id,
-                date: nowISO,
-                hasReceipt: false,
-                appointmentId: primaryAppointmentId,
+            data.addOnServices.forEach(addon => {
+                if (addon.price > 0) {
+                    batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                        ...transactionBase,
+                        description: `Add-on: ${addon.name}`,
+                        category: 'Service Revenue',
+                        amount: addon.price,
+                    });
+                }
             });
         }
 
+        // 4. Process Retail, Memberships, and Packages
         const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
 
         retailItems.forEach(item => {
             const itemRevenue = item.quantity * item.price;
-            calculatedFinalSubtotal += itemRevenue;
+            if (itemRevenue <= 0) return;
 
-            if (itemRevenue > 0) {
-                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
-                    description: `${item.type === 'product' ? 'Retail' : item.type === 'membership' ? 'Membership' : 'Package'}: ${item.quantity}x ${item.name}`, 
-                    category: item.type === 'product' ? 'Retail' : 'Membership/Package Sales', 
-                    amount: itemRevenue,
-                    staffId: primaryStaffId, 
-                    appointmentId: primaryAppointmentId,
-                    clientOrVendor: finalClient?.name || 'Walk-in Customer', 
-                    clientId: finalClient?.id, 
-                    type: 'income' as const,
-                    context: 'Business' as const, 
-                    paymentMethod: checkoutDetails.paymentMethod, 
-                    hasReceipt: true, 
-                    date: nowISO,
-                });
-            }
+            // Log ledger transaction
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                date: nowISO,
+                description: `${item.type.charAt(0).toUpperCase() + item.type.slice(1)}: ${item.quantity}x ${item.name}`, 
+                clientOrVendor: finalClient.name,
+                clientId: finalClient.id,
+                type: 'income',
+                context: 'Business',
+                category: item.type === 'product' ? 'Retail' : 'Membership/Package Sales', 
+                amount: itemRevenue,
+                paymentMethod: checkoutDetails.paymentMethod,
+                hasReceipt: true,
+                staffId: appointmentsData[0]?.staffId || null,
+            });
 
             if (item.type === 'product') {
                 if (!updatedProductLevels.has(item.id)) {
                     const product = inventory.find(p => p.id === item.id);
                     if (product) {
-                        updatedProductLevels.set(product.id, {
+                        updatedProductLevels.set(item.id, {
                             totalStock: product.totalStock,
                             partialUses: product.partialContainerUses || 0,
                             partialSize: product.partialContainerSize || 0
                         });
                     }
                 }
-                
                 const levels = updatedProductLevels.get(item.id);
-                if (levels) {
-                    levels.totalStock -= item.quantity;
-                }
-            } else if (item.type === 'membership' && clientDocRef) {
+                if (levels) levels.totalStock -= item.quantity;
+            } else if (item.type === 'membership') {
                 clientUpdates.activeMembershipId = item.id;
                 clientUpdates.subscription = {
                     membershipId: item.id,
@@ -1222,69 +1209,90 @@ export default function POSPage() {
                     nextBillingDate: addMonths(now, 1).toISOString(),
                     perkLastUsed: null,
                 };
-            } else if (item.type === 'package' && clientDocRef) {
-                const packageDetails = packages.find(p => p.id === item.id);
-                if (packageDetails) {
-                    packagesToAdd.push({
-                        packageId: item.id,
-                        sessionsRemaining: packageDetails.sessions
-                    });
-                }
+            } else if (item.type === 'package') {
+                const pkg = packages.find(p => p.id === item.id);
+                if (pkg) packagesToAdd.push({ packageId: item.id, sessionsRemaining: pkg.sessions });
             }
         });
 
-        if (packagesToAdd.length > 0 && clientDocRef) {
+        if (packagesToAdd.length > 0) {
             clientUpdates.activePackages = arrayUnion(...packagesToAdd);
         }
 
+        // 5. Apply Discounts and Adjustments to Ledger
+        if (totalDiscount > 0) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                date: nowISO,
+                description: `Discount Applied: ${appliedDiscountCode || 'Manual'}`,
+                clientOrVendor: finalClient.name,
+                clientId: finalClient.id,
+                type: 'expense',
+                context: 'Business',
+                category: 'Discounts',
+                amount: totalDiscount,
+                paymentMethod: 'Internal',
+                hasReceipt: false,
+            });
+        }
+
+        if (additionalCharge > 0) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                date: nowISO,
+                description: `Additional Charges (Time/Product Adjustments)`,
+                clientOrVendor: finalClient.name,
+                clientId: finalClient.id,
+                type: 'income',
+                context: 'Business',
+                category: 'Service Revenue',
+                amount: additionalCharge,
+                paymentMethod: checkoutDetails.paymentMethod,
+                hasReceipt: false,
+            });
+        }
+
+        // Log tips
+        Object.entries(tipAllocations).forEach(([staffId, tip]) => {
+            if (tip > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                    date: nowISO,
+                    description: 'Tip',
+                    clientOrVendor: finalClient.name,
+                    clientId: finalClient.id,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Tips',
+                    amount: tip,
+                    paymentMethod: checkoutDetails.paymentMethod,
+                    hasReceipt: true,
+                    staffId,
+                    tipAmount: tip,
+                });
+            }
+        });
+
+        // 6. Finalize Inventory Deductions
         updatedProductLevels.forEach((levels, productId) => {
-            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
-            batch.update(productRef, {
+            batch.update(doc(firestore, `tenants/${tenantId}/inventory`, productId), {
                 totalStock: levels.totalStock,
                 partialContainerUses: levels.partialUses,
                 partialContainerSize: levels.partialSize
             });
         });
-  
-        if (appliedDiscountCode && finalClient) {
-            const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-            batch.update(discountRef, {
-                usageCount: increment(1),
-                usedByClientIds: arrayUnion(finalClient.id),
-            });
-        }
+
+        // 7. Commit Batch
+        batch.update(clientDocRef, clientUpdates);
         
-        if (redeemedOffer && clientDocRef && finalClient) {
-            if (redeemedOffer.type === 'package') {
-                const packageUsed = finalClient.activePackages?.find(p => {
-                    const packageDetails = packages.find(pkg => pkg.id === p.packageId);
-                    return packageDetails?.serviceId === redeemedOffer.id;
-                });
-                
-                if (packageUsed) {
-                    clientUpdates.activePackages = (finalClient.activePackages || [])
-                        .map(p => (p.packageId === packageUsed.packageId) ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p)
-                        .filter(p => p.sessionsRemaining > 0);
-                }
-            } else if (redeemedOffer.type === 'membership') {
-                if (finalClient.subscription) {
-                    clientUpdates.subscription = {
-                        ...finalClient.subscription,
-                        perkLastUsed: nowISO,
-                    };
-                }
-            }
-        }
-        
-        if (clientDocRef) {
-            const finalLtvIncrement = Math.max(0, (calculatedFinalSubtotal + additionalCharge) - totalDiscount);
-            clientUpdates.lifetimeValue = increment(isNaN(finalLtvIncrement) ? 0 : finalLtvIncrement);
-            clientUpdates.lastAppointment = nowISO;
-            batch.update(clientDocRef, clientUpdates);
-        }
+        // Reset staff statuses to Idle
+        const allInvolvedStaffIds = new Set<string>();
+        appointmentsData.forEach(d => { if (d.staffId) allInvolvedStaffIds.add(d.staffId); });
+        Object.values(serviceStaffOverrides).forEach(id => { if (id) allInvolvedStaffIds.add(id); });
+        allInvolvedStaffIds.forEach(id => {
+            batch.update(doc(firestore, `tenants/${tenantId}/staff`, id), { status: 'idle', lastServedTimestamp: nowISO });
+        });
 
         await batch.commit();
   
+        // 8. Generate and Display Receipt
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
@@ -1295,8 +1303,9 @@ export default function POSPage() {
         ];
 
         const receiptData: ReceiptData = {
-            business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || 'Not Available' },
-            clientName: finalClient?.name || 'Walk-in Customer', date: now, 
+            business: { name: selectedTenant.name, phone: selectedTenant.twilioPhoneNumber || '555-123-4567' },
+            clientName: finalClient.name,
+            date: now, 
             items: allCartItems.map(item => ({...item, isDiscount: false})),
             subtotal, discount: totalDiscount, tax, tip: tipAmount, total,
             payment: {
@@ -1305,25 +1314,7 @@ export default function POSPage() {
                 changeDue: changeDue > 0 ? changeDue : 0,
             },
             adjustments: checkoutSummary.adjustments?.filter(adj => appliedAdjustments.has(adj.id)),
-            redeemedOffer: undefined
         };
-        
-        if (redeemedOffer) {
-            const redeemedService = services.find(s => s.id === redeemedOffer.id);
-            if (redeemedService) {
-                const redeemedOfferData: ReceiptData['redeemedOffer'] = { itemName: redeemedService.name };
-                if (redeemedOffer.type === 'package' && finalClient) {
-                    const packageUsed = finalClient.activePackages?.find(p => packages.find(pkg => pkg.id === p.packageId)?.serviceId === redeemedOffer.id);
-                    if (packageUsed) {
-                        redeemedOfferData.sessionsRemaining = packageUsed.sessionsRemaining - 1;
-                        redeemedOfferData.offeringName = packages.find(p => p.id === packageUsed.packageId)?.name;
-                    }
-                } else if (redeemedOffer.type === 'membership' && finalClient?.subscription) {
-                    redeemedOfferData.offeringName = memberships.find(m => m.id === finalClient.subscription!.membershipId)?.name;
-                }
-                receiptData.redeemedOffer = redeemedOfferData;
-            }
-        }
   
         setReceiptToPrint(receiptData);
         setIsReceiptDialogOpen(true);
@@ -1331,7 +1322,7 @@ export default function POSPage() {
   
       } catch (e) {
           console.error("Checkout failed:", e);
-          toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not save all checkout data.' });
+          toast({ variant: 'destructive', title: 'Checkout Failed', description: 'Could not process the transaction.' });
       } finally {
           setIsSubmitting(false);
       }
