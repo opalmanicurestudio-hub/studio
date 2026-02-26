@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -46,13 +45,12 @@ import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
+import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter, useInventory } from '@/firebase';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { useInventory } from '@/context/InventoryContext';
 
 
 type ClientPhoto = {
@@ -134,7 +132,7 @@ const AppointmentHistoryCard = ({
   appointment,
   onRebook,
 }: {
-  appointment: ReturnType<typeof useMemo<any[], any>>[0];
+  appointment: any;
   onRebook: (appointment: Appointment) => void;
 }) => {
   return (
@@ -289,13 +287,12 @@ export default function ClientDetailPage() {
   }, [viewingConsent, consentForms]);
 
   const appointmentsForThisClient = useMemo(() => {
-      const inventoryAppointments = (appointments || [])
+      return (appointments || [])
         .filter(apt => apt.clientId === clientId)
         .map(apt => ({
             ...apt,
             service: services.find(s => s.id === apt.serviceId)
         }));
-      return inventoryAppointments;
   }, [clientId, appointments, services]);
 
   useEffect(() => {
@@ -327,10 +324,15 @@ export default function ClientDetailPage() {
 
   const isPerkUsedThisCycle = useMemo(() => {
     if (!client?.subscription?.perkLastUsed || !client?.subscription?.nextBillingDate) return false;
-    const lastUsed = parseISO(client.subscription.perkLastUsed);
-    const nextBilling = parseISO(client.subscription.nextBillingDate);
-    const lastBilling = subMonths(nextBilling, 1);
-    return isAfter(lastUsed, lastBilling);
+    try {
+        const lastUsed = parseISO(client.subscription.perkLastUsed);
+        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const lastBilling = subMonths(nextBilling, 1);
+        return isAfter(lastUsed, lastBilling);
+    } catch (e) {
+        console.error("Date parsing error in perk tracking", e);
+        return false;
+    }
   }, [client?.subscription]);
 
   const safeLTV = useMemo(() => {

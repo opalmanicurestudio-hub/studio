@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -1039,7 +1038,6 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
-    // Determine the final client to receive the LTV update
     let finalClient = client;
     if (!finalClient && appointmentsData.length > 0) {
         finalClient = appointmentsData[0].client;
@@ -1062,43 +1060,54 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        // 1. Definitively calculate revenue for LTV and Ledger
         let finalPreTaxRevenue = 0;
         
-        // Accumulate service revenue from appointments
         appointmentsData.forEach(data => {
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || []).reduce((a, b) => a + (b.price || 0), 0);
             finalPreTaxRevenue += (servicePrice + addOnsPrice);
         });
 
-        // Accumulate retail revenue
         retailItems.forEach(item => {
             finalPreTaxRevenue += (item.quantity * item.price);
         });
 
-        // Add additional charges (adjustments)
         finalPreTaxRevenue += additionalCharge;
 
-        // Apply final discount
         const rawRevenueIncrement = finalPreTaxRevenue - totalDiscount;
         const finalRevenueIncrement = Math.max(0, isNaN(rawRevenueIncrement) ? 0 : rawRevenueIncrement);
 
-        // 2. Prepare Client Profile Updates
         const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, finalClient.id);
-        let clientUpdates: Partial<Client> = {
+        let clientUpdates: any = {
             lifetimeValue: increment(finalRevenueIncrement),
             lastAppointment: nowISO
         };
 
         const updatedProductLevels = new Map<string, { totalStock: number, partialUses: number, partialSize: number }>();
 
-        // 3. Process Appointments
         for (const data of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', data.id);
             const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
             
-            // Mark appointment as complete
+            if (redeemedOffer && redeemedOffer.id === data.service?.id) {
+                if (redeemedOffer.type === 'membership') {
+                    // Update perk usage on client profile
+                    clientUpdates['subscription.perkLastUsed'] = nowISO;
+                } else if (redeemedOffer.type === 'package') {
+                    // Decrement sessions on specific package
+                    const currentPackages = finalClient.activePackages || [];
+                    const pkgIdx = currentPackages.findIndex(p => p.packageId === redeemedOffer.id);
+                    if (pkgIdx > -1) {
+                        const newPackages = [...currentPackages];
+                        newPackages[pkgIdx] = {
+                            ...newPackages[pkgIdx],
+                            sessionsRemaining: Math.max(0, newPackages[pkgIdx].sessionsRemaining - 1)
+                        };
+                        clientUpdates.activePackages = newPackages;
+                    }
+                }
+            }
+
             batch.update(appointmentRef, { 
                 status: 'completed', 
                 inventoryProcessed: true, 
@@ -1106,8 +1115,8 @@ export default function POSPage() {
             });
 
             if (data.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
-                batch.update(checkInRef, { status: 'completed', tenantId: tenantId });
+                const ciRef = doc(firestore, 'appointmentCheckIns', data.checkInToken);
+                batch.update(ciRef, { status: 'completed', tenantId: tenantId });
             }
             
             if (data.isWalkIn) {
@@ -1116,7 +1125,6 @@ export default function POSPage() {
                 batch.update(walkInRef, { status: 'completed', serviceEndTime: nowISO });
             }
 
-            // Deduct professional products used in the service formula
             if (data.checkoutState?.formula) {
                 for (const formulaItem of data.checkoutState.formula) {
                     const product = inventory.find(p => p.id === formulaItem.id);
@@ -1162,7 +1170,6 @@ export default function POSPage() {
                 }
             }
 
-            // Log individual service transactions in ledger
             const transactionBase = {
                 clientOrVendor: data.clientName || finalClient.name,
                 clientId: data.client?.id || finalClient.id,
@@ -1197,14 +1204,12 @@ export default function POSPage() {
             });
         }
 
-        // 4. Process Retail, Memberships, and Packages
         const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
 
         retailItems.forEach(item => {
             const itemRevenue = item.quantity * item.price;
             if (itemRevenue <= 0) return;
 
-            // Log ledger transaction
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 date: nowISO,
                 description: `${item.type.charAt(0).toUpperCase() + item.type.slice(1)}: ${item.quantity}x ${item.name}`, 
@@ -1250,7 +1255,6 @@ export default function POSPage() {
             clientUpdates.activePackages = arrayUnion(...packagesToAdd);
         }
 
-        // 5. Apply Discounts and Adjustments to Ledger
         if (totalDiscount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 date: nowISO,
@@ -1281,7 +1285,6 @@ export default function POSPage() {
             });
         }
 
-        // Log tips
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
             if (tip > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
@@ -1301,7 +1304,6 @@ export default function POSPage() {
             }
         });
 
-        // 6. Finalize Inventory Deductions
         updatedProductLevels.forEach((levels, productId) => {
             batch.update(doc(firestore, `tenants/${tenantId}/inventory`, productId), {
                 totalStock: levels.totalStock,
@@ -1310,10 +1312,8 @@ export default function POSPage() {
             });
         });
 
-        // 7. Commit Batch
         batch.update(clientDocRef, clientUpdates);
         
-        // Reset staff statuses to Idle
         const allInvolvedStaffIds = new Set<string>();
         appointmentsData.forEach(d => { if (d.staffId) allInvolvedStaffIds.add(d.staffId); });
         Object.values(serviceStaffOverrides).forEach(id => { if (id) allInvolvedStaffIds.add(id); });
@@ -1323,7 +1323,6 @@ export default function POSPage() {
 
         await batch.commit();
   
-        // 8. Generate and Display Receipt
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
                 const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
@@ -1551,7 +1550,7 @@ export default function POSPage() {
              {confirmation && (
                 <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
                     <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>{confirmation.title}</AlertDialogTitle><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
+                        <AlertDialogHeader><Target title={confirmation.title}/><AlertDialogDescription>{confirmation.description}</AlertDialogDescription></AlertDialogHeader>
                         <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
