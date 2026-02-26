@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -60,7 +59,7 @@ const ClientReportPage = () => {
             const report = await generateClientReport({
                 clientName: client.name,
                 totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
-                lifetimeValue: client.lifetimeValue,
+                lifetimeValue: Number(client.lifetimeValue || 0),
                 lastSeen: formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }),
                 memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
                 hasIncidents: !!client.intel?.hasIncidents,
@@ -106,7 +105,7 @@ const ClientReportPage = () => {
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
             <AppHeader title="Client Report" />
-            <main className="flex-1 p-4 md:p-8 space-y-6">
+            <main className="flex-1 p-4 md:p-8 space-y-6 print:p-4">
                 <div className="flex items-center justify-between print:hidden">
                     <Button variant="outline" size="sm" asChild>
                         <Link href={`/clients/${client.id}`}>
@@ -195,8 +194,8 @@ const ClientReportPage = () => {
                         <Card>
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
-                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${client.lifetimeValue.toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(client.lifetimeValue / (clientAppointments.length || 1)).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${Number(client.lifetimeValue || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(Number(client.lifetimeValue || 0) / (clientAppointments.length || 1)).toFixed(2)}</span></div>
                             </CardContent>
                         </Card>
                          <Card>
@@ -335,5 +334,3 @@ const ClientReportPage = () => {
 }
 
 export default ClientReportPage;
-
-    

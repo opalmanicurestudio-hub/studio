@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -78,7 +76,7 @@ const ClientReportPage = () => {
             const report = await generateClientReport({
                 clientName: client.name,
                 totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
-                lifetimeValue: client.lifetimeValue,
+                lifetimeValue: Number(client.lifetimeValue || 0),
                 lastSeen: client.lastAppointment ? formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }) : 'N/A',
                 memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
                 hasIncidents: !!client.intel?.hasIncidents,
@@ -215,8 +213,8 @@ const ClientReportPage = () => {
                         <Card>
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
-                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${client.lifetimeValue.toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(clientAppointments.length > 0 ? client.lifetimeValue / clientAppointments.length : 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${Number(client.lifetimeValue || 0).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(clientAppointments.length > 0 ? Number(client.lifetimeValue || 0) / clientAppointments.length : 0).toFixed(2)}</span></div>
                             </CardContent>
                         </Card>
                          <Card>
@@ -355,4 +353,3 @@ const ClientReportPage = () => {
 }
 
 export default ClientReportPage;
-

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -72,7 +71,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                  <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                         <span className='text-muted-foreground'>Lifetime Value</span>
-                        <Badge variant="outline" className="font-mono text-base">${(client.lifetimeValue || 0).toFixed(2)}</Badge>
+                        <Badge variant="outline" className="font-mono text-base">${Number(client.lifetimeValue || 0).toFixed(2)}</Badge>
                     </div>
                     {lastAppointment && (
                         <div className="flex items-center justify-between">
