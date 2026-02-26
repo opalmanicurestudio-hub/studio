@@ -252,7 +252,7 @@ export default function ClientDetailPage() {
 
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
-  const { appointments, transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
+  const { appointments: allAppointments, transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
   const tenantId = selectedTenant?.id;
   
   const clientDocRef = useMemoFirebase(() => {
@@ -288,13 +288,13 @@ export default function ClientDetailPage() {
   }, [viewingConsent, consentForms]);
 
   const appointmentsForThisClient = useMemo(() => {
-      return (appointments || [])
+      return (allAppointments || [])
         .filter(apt => apt.clientId === clientId)
         .map(apt => ({
             ...apt,
             service: services.find(s => s.id === apt.serviceId)
         }));
-  }, [clientId, appointments, services]);
+  }, [clientId, allAppointments, services]);
 
   useEffect(() => {
     if (client) {
@@ -323,18 +323,27 @@ export default function ClientDetailPage() {
     return memberships.find(m => m.id === mId);
   }, [client, memberships]);
 
-  const isPerkUsedThisCycle = useMemo(() => {
-    if (!client?.subscription?.perkLastUsed || !client?.subscription?.nextBillingDate) return false;
-    try {
-        const lastUsed = parseISO(client.subscription.perkLastUsed);
-        const nextBilling = parseISO(client.subscription.nextBillingDate);
-        const lastBilling = subMonths(nextBilling, 1);
-        return isAfter(lastUsed, lastBilling);
-    } catch (e) {
-        console.error("Date parsing error in perk tracking", e);
-        return false;
-    }
-  }, [client?.subscription]);
+  const isPerkUsedInCycle = (perkId: string) => {
+    if (!client?.subscription?.nextBillingDate) return false;
+    
+    // Check if the usage was in the current billing cycle
+    const lastUsedStr = client.subscription.perkLastUsed;
+    if (!lastUsedStr) return false;
+
+    const lastUsed = parseISO(lastUsedStr);
+    const nextBilling = parseISO(client.subscription.nextBillingDate);
+    const cycleStart = subMonths(nextBilling, 1);
+
+    const isCurrentCycle = isAfter(lastUsed, cycleStart);
+    if (!isCurrentCycle) return false;
+
+    // Now check the quantity for this specific perk
+    const usageCount = client.subscription.perkUsage?.[perkId] || 0;
+    const membership = memberships.find(m => m.id === client.subscription!.membershipId);
+    const perkDef = membership?.includedServices?.find(s => s.id === perkId) || membership?.includedAddOns?.find(a => a.id === perkId);
+    
+    return usageCount >= (perkDef?.quantity || 1);
+  };
 
   const safeLTV = useMemo(() => {
     const val = Number(client?.lifetimeValue);
@@ -668,20 +677,34 @@ export default function ClientDetailPage() {
                                                         </DropdownMenu>
                                                      </div>
                                                     
-                                                    <div className="mt-4 grid grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Perk Status</p>
-                                                            {isPerkUsedThisCycle ? (
-                                                                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
-                                                                    Redeemed {client.subscription?.perkLastUsed ? format(parseISO(client.subscription.perkLastUsed), 'MMM d') : ''}
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge variant="default" className="bg-indigo-600">Ready to Use</Badge>
-                                                            )}
+                                                    <div className="mt-4 space-y-3">
+                                                        <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perk Allotment</p>
+                                                        <div className="space-y-2">
+                                                            {activeMembership.includedServices?.map(perk => {
+                                                                const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                                                const isRedeemed = isPerkUsedInCycle(perk.id);
+                                                                return (
+                                                                    <div key={perk.id} className="flex justify-between items-center text-sm">
+                                                                        <span className="flex items-center gap-2">
+                                                                            {isRedeemed ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Star className="w-4 h-4 text-indigo-400" />}
+                                                                            {perk.name}
+                                                                        </span>
+                                                                        <span className="font-medium">{used} / {perk.quantity} used</span>
+                                                                    </div>
+                                                                )
+                                                            })}
                                                         </div>
-                                                        <div className="space-y-1 text-right">
-                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Next Bill</p>
-                                                            <p className="text-sm font-semibold">{client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
+                                                        <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                                                            <div className="space-y-1">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">Status</p>
+                                                                <Badge variant="outline" className={cn(isPerkUsedInCycle('any') ? "bg-green-100 text-green-800" : "bg-indigo-600 text-white")}>
+                                                                    {isPerkUsedInCycle('any') ? 'Perks Redeemed' : 'Ready to Use'}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="space-y-1 text-right">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">Next Bill</p>
+                                                                <p className="text-sm font-semibold">{client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>

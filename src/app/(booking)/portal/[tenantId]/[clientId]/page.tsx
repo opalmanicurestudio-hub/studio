@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -51,7 +50,7 @@ export default function ClientPortalPage() {
         if (!appointments) return [];
         return appointments
             .filter(a => a.status === 'completed' || new Date(a.startTime) <= new Date())
-            .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
     }, [appointments]);
 
     const activeMembership = useMemo(() => {
@@ -60,13 +59,23 @@ export default function ClientPortalPage() {
         return memberships.find(m => m.id === mId);
     }, [client, memberships]);
 
-    const isPerkUsedThisCycle = useMemo(() => {
-        if (!client?.subscription?.perkLastUsed || !client?.subscription?.nextBillingDate) return false;
+    const isPerkUsedInCycle = (perkId: string) => {
+        if (!client?.subscription?.nextBillingDate || !client.subscription.perkLastUsed) return false;
+        
         const lastUsed = parseISO(client.subscription.perkLastUsed);
         const nextBilling = parseISO(client.subscription.nextBillingDate);
-        const lastBilling = subMonths(nextBilling, 1);
-        return isAfter(lastUsed, lastBilling);
-    }, [client?.subscription]);
+        const cycleStart = subMonths(nextBilling, 1);
+
+        const isCurrentCycle = isAfter(lastUsed, cycleStart);
+        if (!isCurrentCycle) return false;
+
+        if (perkId === 'any') return true;
+
+        const usageCount = client.subscription.perkUsage?.[perkId] || 0;
+        const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || activeMembership?.includedAddOns?.find(a => a.id === perkId);
+        
+        return usageCount >= (perkDef?.quantity || 1);
+    };
 
     if (clientLoading || appointmentsLoading) {
         return (
@@ -120,18 +129,22 @@ export default function ClientPortalPage() {
                                     )}
                                 </div>
                                 <div className="pt-2 border-t space-y-2">
-                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perk</p>
-                                    {isPerkUsedThisCycle ? (
-                                        <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                                            <CheckCircle className="w-4 h-4" />
-                                            <span className="text-sm font-medium">Redeemed for this cycle</span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
-                                            <Star className="w-4 h-4 animate-pulse" />
-                                            <span className="text-sm font-bold underline decoration-indigo-500/30">Available to use!</span>
-                                        </div>
-                                    )}
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Monthly Perks Allotment</p>
+                                    <div className="space-y-1">
+                                        {activeMembership.includedServices?.map(perk => {
+                                            const used = client.subscription?.perkUsage?.[perk.id] || 0;
+                                            const isRedeemed = isPerkUsedInCycle(perk.id);
+                                            return (
+                                                <div key={perk.id} className="flex justify-between items-center text-xs">
+                                                    <span className="flex items-center gap-1.5">
+                                                        {isRedeemed ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Star className="w-3 h-3 text-indigo-400" />}
+                                                        {perk.name}
+                                                    </span>
+                                                    <span>{used} / {perk.quantity}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                 </div>
                                 <p className="text-[10px] text-muted-foreground pt-1">Next billing: {client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
                             </>
@@ -247,28 +260,32 @@ export default function ClientPortalPage() {
                         <div>
                             <h3 className="text-lg font-bold mb-4">Membership Inclusions</h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {(activeMembership.includedServices || []).map(s => (
-                                    <Card key={s.id} className="bg-indigo-500/5 border-indigo-500/10">
-                                        <CardContent className="p-4 flex justify-between items-center">
-                                            <div className="flex items-center gap-3">
-                                                <div className={cn("p-2 rounded-full", isPerkUsedThisCycle ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                                    {isPerkUsedThisCycle ? <CheckCircle className="w-5 h-5" /> : <Star className="w-5 h-5" />}
+                                {(activeMembership.includedServices || []).map(s => {
+                                    const used = client.subscription?.perkUsage?.[s.id] || 0;
+                                    const isRedeemed = isPerkUsedInCycle(s.id);
+                                    return (
+                                        <Card key={s.id} className="bg-indigo-500/5 border-indigo-500/10">
+                                            <CardContent className="p-4 flex justify-between items-center">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={cn("p-2 rounded-full", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                                        {isRedeemed ? <CheckCircle className="w-5 h-5" /> : <Star className="w-5 h-5" />}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-bold text-sm">{s.quantity}x {s.name}</p>
+                                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month &middot; {used} used</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="font-bold text-sm">1x {s.name}</p>
-                                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month</p>
+                                                <div className="text-right">
+                                                    {isRedeemed ? (
+                                                        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
+                                                    ) : (
+                                                        <Badge variant="default" className="text-[10px] bg-indigo-600">Available</Badge>
+                                                    )}
                                                 </div>
-                                            </div>
-                                            <div className="text-right">
-                                                {isPerkUsedThisCycle ? (
-                                                    <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700">Redeemed</Badge>
-                                                ) : (
-                                                    <Badge variant="default" className="text-[10px] bg-indigo-600">Available</Badge>
-                                                )}
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                ))}
+                                            </CardContent>
+                                        </Card>
+                                    )
+                                })}
                                 {activeMembership.retailDiscount && (
                                     <Card className="bg-indigo-500/5 border-indigo-500/10">
                                         <CardContent className="p-4 flex items-center gap-3">

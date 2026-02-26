@@ -22,7 +22,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -52,15 +51,15 @@ const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Membership
     const totalCostOfPerks = useMemo(() => {
         const servicesCost = perks.services.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.cost || 0) * perk.quantity;
+            return acc + (s?.cost || 0) * (perk.quantity || 1);
         }, 0);
         const addOnsCost = perks.addOns.reduce((acc, perk) => {
             const s = services.find(svc => svc.id === perk.id);
-            return acc + (s?.cost || 0) * perk.quantity;
+            return acc + (s?.cost || 0) * (perk.quantity || 1);
         }, 0);
         const productsCost = perks.products.reduce((acc, perk) => {
             const p = inventory.find(inv => inv.id === perk.id);
-            return acc + (p?.costPerUnit || 0) * perk.quantity;
+            return acc + (p?.costPerUnit || 0) * (perk.quantity || 1);
         }, 0);
         return servicesCost + addOnsCost + productsCost;
     }, [perks, services, inventory]);
@@ -203,7 +202,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label htmlFor="mem-price">Price</Label>
-                    <Input id="mem-price" type="number" value={price} onChange={e => setPrice(Number(e.target.value))} placeholder="99.00" />
+                    <Input id="mem-price" type="number" value={price || ''} onChange={e => setPrice(Number(e.target.value))} placeholder="99.00" />
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="mem-interval">Interval</Label>
@@ -237,8 +236,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity} 
-                                    onChange={e => updatePerkQuantity('service', perk.id, parseInt(e.target.value) || 1)} 
+                                    value={perk.quantity || ''} 
+                                    onChange={e => updatePerkQuantity('service', perk.id, parseInt(e.target.value) || 0)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -260,8 +259,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity} 
-                                    onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 1)} 
+                                    value={perk.quantity || ''} 
+                                    onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 0)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -283,8 +282,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity} 
-                                    onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 1)} 
+                                    value={perk.quantity || ''} 
+                                    onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 0)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -298,7 +297,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               <div className="space-y-2">
                   <Label htmlFor="retail-discount">Retail Discount (%)</Label>
                   <div className="relative">
-                      <Input id="retail-discount" type="number" value={retailDiscount} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="e.g., 15" className="pr-8" />
+                      <Input id="retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="e.g., 15" className="pr-8" />
                       <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   </div>
               </div>
@@ -352,21 +351,30 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
          <BrowseProductsDialog
             open={isServiceSelectorOpen}
             onOpenChange={setIsServiceSelectorOpen}
-            onSelect={(selected) => setIncludedServices(selected.map(s => ({ id: s.id, name: s.name, quantity: 1 })))}
+            onSelect={(selected) => setIncludedServices(selected.map(s => {
+                const existing = includedServices.find(p => p.id === s.id);
+                return { id: s.id, name: s.name, quantity: existing?.quantity || 1 };
+            }))}
             allProducts={services.filter(s => s.type === 'service')}
             initialSelected={services.filter(s => includedServices.some(p => p.id === s.id))}
         />
         <SelectAddOnsDialog
             open={isAddOnSelectorOpen}
             onOpenChange={setIsAddOnSelectorOpen}
-            onSelect={(selected) => setIncludedAddOns(selected.map(s => ({ id: s.id, name: s.name, quantity: 1 })))}
+            onSelect={(selected) => setIncludedAddOns(selected.map(s => {
+                const existing = includedAddOns.find(p => p.id === s.id);
+                return { id: s.id, name: s.name, quantity: existing?.quantity || 1 };
+            }))}
             allAddOns={services.filter(s => s.type === 'addon')}
             initialSelected={services.filter(s => includedAddOns.some(p => p.id === s.id))}
         />
         <BrowseProductsDialog
             open={isProductSelectorOpen}
             onOpenChange={setIsProductSelectorOpen}
-            onSelect={(selected) => setIncludedProducts(selected.map(p => ({ id: p.id, name: p.name, quantity: 1 })))}
+            onSelect={(selected) => setIncludedProducts(selected.map(p => {
+                const existing = includedProducts.find(pk => pk.id === p.id);
+                return { id: p.id, name: p.name, quantity: existing?.quantity || 1 };
+            }))}
             allProducts={inventory.filter(p => p.type === 'retail')}
             initialSelected={inventory.filter(p => includedProducts.some(pk => pk.id === p.id))}
         />
