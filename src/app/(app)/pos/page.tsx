@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData, StockCorrection, Discount, Membership, Package, PricingTier, InventoryItem } from '@/lib/data';
@@ -368,6 +369,39 @@ export default function POSPage() {
         setRetailItems(prev => [...prev, cartItem]);
         setServiceToSelectProvider(null);
     };
+
+    const handleAddClient = (data: ClientFormData) => {
+        if (!firestore || !tenantId) return;
+    
+        const firstName = data.name.split(' ')[0].toUpperCase();
+        const referralCode = `${firstName}${nanoid(4)}`;
+
+        const newClient: Omit<Client, 'id'> = {
+          name: data.name,
+          email: data.email || '',
+          phone: data.phone || '',
+          avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+          lifetimeValue: 0,
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+          notes: data.notes,
+          referralCode: referralCode,
+          birthday: data.birthday ? data.birthday.toISOString() : undefined,
+          address: data.address,
+          emergencyContact: data.emergencyContact,
+          intel: {
+            referralSource: data.intel?.referralSource
+          }
+        };
+        
+        addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'clients'), newClient);
+    
+        toast({
+          title: "Client Added",
+          description: `${data.name} has been added to your client list.`,
+        });
+        setIsAddClientOpen(false);
+    }
 
     const subtotal = useMemo(() => {
         const servicesTotal = appointmentsData.reduce((total, data) => {
