@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -122,7 +121,7 @@ export default function BookingPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId });
+            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId }, {});
             toast({ title: "Welcome!", description: "A new client profile has been created for you." });
         } else {
             const existingClientDoc = querySnapshot.docs[0];
@@ -145,10 +144,10 @@ export default function BookingPage() {
             checkInToken: checkInToken,
         };
 
-        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment);
+        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment, {});
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-        await setDocumentNonBlocking(checkInDocRef, newAppointment);
+        await setDocumentNonBlocking(checkInDocRef, newAppointment, {});
         
         toast({
           title: 'Booking Confirmed!',
@@ -188,7 +187,7 @@ export default function BookingPage() {
             status: 'active',
         };
         client = { ...newClientData, id: clientId };
-        await setDocumentNonBlocking(newClientRef, client);
+        await setDocumentNonBlocking(newClientRef, client, {});
         toast({ title: "Welcome!", description: "A new client profile has been created for you." });
       } else {
         const existingClientDoc = querySnapshot.docs[0];

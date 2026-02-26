@@ -16,11 +16,33 @@ import {FirestorePermissionError} from '@/firebase/errors';
 /**
  * A utility function to deeply remove undefined values from an object.
  * Firestore does not support `undefined`.
+ * It preserves Firestore FieldValue objects (like increment, arrayUnion).
  */
 const sanitizeDataForFirebase = (data: any): any => {
-    // Using JSON.stringify/parse is a robust way to strip all undefined values,
-    // including nested ones, which is what Firestore requires.
-    return JSON.parse(JSON.stringify(data));
+    if (data === undefined) return null;
+    if (data === null || typeof data !== 'object') return data;
+    if (data instanceof Date) return data;
+    
+    // Do not traverse into Firestore FieldValue objects. 
+    // They are identified by having a constructor name like 'FieldValue' or 'FieldValueImpl'.
+    if (data.constructor && (data.constructor.name === 'FieldValue' || data.constructor.name === 'FieldValueImpl')) {
+        return data;
+    }
+
+    if (Array.isArray(data)) {
+        return data.map(sanitizeDataForFirebase);
+    }
+
+    const result: any = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            const val = data[key];
+            if (val !== undefined) {
+                result[key] = sanitizeDataForFirebase(val);
+            }
+        }
+    }
+    return result;
 };
 
 

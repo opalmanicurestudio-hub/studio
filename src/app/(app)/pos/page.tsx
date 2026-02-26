@@ -1010,6 +1010,22 @@ export default function POSPage() {
   const handleConfirmAndClose = async (checkoutDetails: { paymentMethod: string; amountTendered?: number }) => {
     setIsSubmitting(true);
     
+    // Helper to deeply remove undefined values for Firebase compatibility
+    const sanitize = (data: any): any => {
+        if (data === undefined) return null;
+        if (data === null || typeof data !== 'object') return data;
+        if (data instanceof Date) return data;
+        if (data.constructor && (data.constructor.name === 'FieldValue' || data.constructor.name === 'FieldValueImpl')) return data;
+        if (Array.isArray(data)) return data.map(sanitize);
+        const result: any = {};
+        for (const key in data) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                if (data[key] !== undefined) result[key] = sanitize(data[key]);
+            }
+        }
+        return result;
+    };
+
     // Fallback: If no client is selected but we have appointments, use the first appointment's client
     let finalClient = client;
     if (!finalClient && appointmentsData.length > 0) {
@@ -1046,21 +1062,21 @@ export default function POSPage() {
         // Process appointments
         for (const currentAppointment of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', currentAppointment.id);
-            batch.update(appointmentRef, { status: 'completed', inventoryProcessed: true, actualEndTime: nowISO });
+            batch.update(appointmentRef, sanitize({ status: 'completed', inventoryProcessed: true, actualEndTime: nowISO }));
 
             if (currentAppointment.checkInToken) {
                 const checkInRef = doc(firestore, 'appointmentCheckIns', currentAppointment.checkInToken);
-                batch.update(checkInRef, { status: 'completed' });
+                batch.update(checkInRef, sanitize({ status: 'completed' }));
             }
             
             // Fix Walk-in status if it's a walk-in appointment
             if (currentAppointment.isWalkIn) {
                 const walkInId = currentAppointment.id.replace('apt-walkin-', '');
                 const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-                batch.update(walkInRef, { 
+                batch.update(walkInRef, sanitize({ 
                     status: 'completed', 
                     serviceEndTime: nowISO 
-                });
+                }));
             }
 
             // Professional Product Deduction from Formula
@@ -1100,13 +1116,13 @@ export default function POSPage() {
                     }
 
                     const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-                    batch.set(scRef, {
+                    batch.set(scRef, sanitize({
                         productId: product.id,
                         date: nowISO,
                         change: -quantityToDeduct,
                         unit: unit,
                         reason: `Appointment #${currentAppointment.id.slice(-6)}: ${currentAppointment.clientName}`,
-                    });
+                    }));
                 }
             }
         }
@@ -1114,7 +1130,7 @@ export default function POSPage() {
         const staffInvolved = new Set<string>(Object.values(serviceStaffOverrides).filter(Boolean));
         appointmentsData.forEach(d => { if (d.staffId) staffInvolved.add(d.staffId); });
         staffInvolved.forEach(staffId => {
-            batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), { status: 'idle', lastServedTimestamp: nowISO });
+            batch.update(doc(firestore, `tenants/${tenantId}/staff`, staffId), sanitize({ status: 'idle', lastServedTimestamp: nowISO }));
         });
   
         if (clientDocRef) {
@@ -1139,29 +1155,29 @@ export default function POSPage() {
                 context: 'Business' as const,
                 paymentMethod: checkoutDetails.paymentMethod,
                 hasReceipt: true,
-                appliedDiscountCode: appliedDiscountCode,
-                discountAmount: totalDiscount > 0 ? totalDiscount / (appointmentsData.length + retailItems.length) : undefined,
+                appliedDiscountCode: appliedDiscountCode || null,
+                discountAmount: totalDiscount > 0 ? (totalDiscount / (appointmentsData.length + retailItems.length)) : null,
             };
 
-            if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+            if (servicePrice > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
                 ...transactionBase, date: nowISO,
                 description: `Service: ${service?.name}`, category: 'Service Revenue', amount: servicePrice, staffId: finalStaffId, appointmentId: id,
-            });
+            }));
 
             addOnServices.forEach(addon => {
-                if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                if (addon.price > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
                     ...transactionBase, date: nowISO,
                     description: `Add-on: ${addon.name}`, category: 'Service Revenue', amount: addon.price, staffId: finalStaffId, appointmentId: id,
-                });
+                }));
             });
         });
 
         Object.entries(tipAllocations).forEach(([staffId, tip]) => {
-            if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+            if (tip > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
                 description: 'Tip', category: 'Tips', amount: tip, staffId, appointmentId: primaryAppointmentId,
                 tipAmount: tip, clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income',
                 context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
-            });
+            }));
         });
 
         const packagesToAdd: { packageId: string; sessionsRemaining: number }[] = [];
@@ -1170,12 +1186,12 @@ export default function POSPage() {
             if (item.type === 'product') {
                 const retailTotal = item.quantity * item.price;
                 if (retailTotal > 0) {
-                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
+                     batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitize({
                         description: `Retail: ${item.quantity}x ${item.name}`, category: 'Retail', amount: retailTotal,
                         staffId: primaryStaffId, appointmentId: primaryAppointmentId,
                         clientOrVendor: finalClient?.name || 'Walk-in Customer', clientId: finalClient?.id, type: 'income' as const,
                         context: 'Business' as const, paymentMethod: checkoutDetails.paymentMethod, hasReceipt: true, date: nowISO,
-                    });
+                    }));
                 }
                 
                 if (!updatedProductLevels.has(item.id)) {
@@ -1199,7 +1215,7 @@ export default function POSPage() {
                     membershipId: item.id,
                     status: 'active',
                     nextBillingDate: addMonths(now, 1).toISOString(),
-                    perkLastUsed: undefined,
+                    perkLastUsed: null,
                 };
             } else if (item.type === 'package' && clientDocRef) {
                 const packageDetails = packages.find(p => p.id === item.id);
@@ -1218,19 +1234,19 @@ export default function POSPage() {
 
         updatedProductLevels.forEach((levels, productId) => {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
-            batch.update(productRef, {
+            batch.update(productRef, sanitize({
                 totalStock: levels.totalStock,
                 partialContainerUses: levels.partialUses,
                 partialContainerSize: levels.partialSize
-            });
+            }));
         });
   
         if (appliedDiscountCode && finalClient) {
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountCode);
-            batch.update(discountRef, {
+            batch.update(discountRef, sanitize({
                 usageCount: increment(1),
                 usedByClientIds: arrayUnion(finalClient.id),
-            });
+            }));
         }
         
         if (redeemedOffer && clientDocRef && finalClient) {
@@ -1256,7 +1272,7 @@ export default function POSPage() {
         }
         
         if (clientDocRef && Object.keys(clientUpdates).length > 0) {
-            batch.update(clientDocRef, clientUpdates);
+            batch.update(clientDocRef, sanitize(clientUpdates));
         }
 
         await batch.commit();
