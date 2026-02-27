@@ -10,12 +10,16 @@ import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { useTenant } from '@/context/TenantContext';
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
+    const { role } = useTenant();
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;
         return new Date(client.lastAppointment);
@@ -62,20 +66,24 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         <Link href={`/clients/${client.id}`} className="group">
                             <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
                         </Link>
-                        <div className="text-xs text-muted-foreground mt-2 space-y-1">
-                            {client.email && (
-                                <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                                    <Mail className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">{client.email}</span>
-                                </a>
-                            )}
-                            {client.phone && (
-                                <a href={`tel:${client.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                                    <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">{formatPhoneNumber(client.phone)}</span>
-                                </a>
-                            )}
-                        </div>
+                        {isOwnerOrAdmin ? (
+                            <div className="text-xs text-muted-foreground mt-2 space-y-1">
+                                {client.email && (
+                                    <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                        <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                                        <span className="truncate">{client.email}</span>
+                                    </a>
+                                )}
+                                {client.phone && (
+                                    <a href={`tel:${client.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                        <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                                        <span className="truncate">{formatPhoneNumber(client.phone)}</span>
+                                    </a>
+                                )}
+                            </div>
+                        ) : (
+                            <p className="text-[10px] text-muted-foreground italic mt-2">Contact info restricted.</p>
+                        )}
                     </div>
                 </div>
                  <div className="space-y-2 text-sm">

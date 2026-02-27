@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
@@ -8,7 +7,7 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import type { User } from 'firebase/auth';
 
-type UserRole = 'owner' | 'staff' | null;
+type UserRole = 'owner' | 'admin' | 'staff' | null;
 
 interface TenantContextType {
   tenants: Tenant[];
@@ -34,9 +33,9 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
   const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(ownerTenantQuery);
 
   const staffDirectoryEntryRef = useMemoFirebase(() => {
-    if (!user || !firestore || role === 'owner') return null;
+    if (!user || !firestore || (tenants && tenants.length > 0)) return null;
     return doc(firestore, 'staffDirectory', user.uid);
-  }, [user, firestore, role]);
+  }, [user, firestore, tenants]);
 
   const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
 
@@ -63,8 +62,8 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
     } else {
         // If not an owner, check if they are staff
         if (!isStaffDirectoryLoading) {
-            if (staffTenant) {
-                setRole('staff');
+            if (staffTenant && staffDirectoryEntry) {
+                setRole(staffDirectoryEntry.role || 'staff');
                 if (selectedTenant?.id !== staffTenant.id) {
                     setSelectedTenant(staffTenant);
                     localStorage.setItem('selectedTenantId', staffTenant.id);
@@ -76,7 +75,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
         }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, tenants, tenantsLoading, isStaffDirectoryLoading, staffTenant]);
+  }, [user, tenants, tenantsLoading, isStaffDirectoryLoading, staffTenant, staffDirectoryEntry]);
 
   const handleSetSelectedTenant = useCallback((tenant: Tenant) => {
     if (role === 'owner') {
