@@ -126,7 +126,6 @@ function PlannerPageContent() {
 
   const staff = useMemo(() => (role === 'staff' && user) ? (allStaff || []).filter(s => s.id === user.uid) : (allStaff || []), [allStaff, role, user]);
   
-  // Set initial mobile column when staff or resources load
   useEffect(() => { 
     if (activeView === 'staff' && staff?.length > 0 && !mobileSelectedColumnId) {
         setMobileSelectedColumnId(staff[0].id); 
@@ -135,7 +134,6 @@ function PlannerPageContent() {
     }
   }, [staff, resources, activeView, mobileSelectedColumnId]);
 
-  // Handle view change on mobile
   const handleViewChange = (v: 'staff' | 'resources') => {
       setActiveView(v);
       if (v === 'staff' && staff?.length > 0) {
@@ -192,6 +190,29 @@ function PlannerPageContent() {
     toast({ title: "Status Updated", description: `Appointment status changed to ${status}.` });
   };
 
+  const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+    if (!firestore || !tenantId) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    
+    updateDocumentNonBlocking(appointmentRef, {
+        status: 'ready_for_checkout',
+        checkoutState,
+        actualEndTime: new Date().toISOString(),
+    });
+    
+    const appointment = appointments?.find(a => a.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+    }
+
+    toast({
+        title: "Service Finished",
+        description: "The appointment has been sent to the front desk for checkout."
+    });
+    setIsTechnicianReviewOpen(false);
+  };
+
   const handleAddAppointment = async (data: any) => {
     if (!firestore || !tenantId) return;
     const id = nanoid();
@@ -246,7 +267,7 @@ function PlannerPageContent() {
                 showColumnHeader={activeView === 'resources'} isMobile={isMobile || false} activeView={activeView}
                 allStaff={allStaff || []} 
                 mobileSelectedColumnId={mobileSelectedColumnId} 
-                onMobileColumnChange={setMobileSelectedColumnId}
+                onMobileColumnChange={onMobileColumnChange}
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onPrintReceipt={setReceiptToPrint} onPrintTicket={setTicketToPrint} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
@@ -272,6 +293,18 @@ function PlannerPageContent() {
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
         onPrintTicket={setTicketToPrint}
+      />
+
+      <TechnicianReviewDialog 
+        open={isTechnicianReviewOpen}
+        onOpenChange={setIsTechnicianReviewOpen}
+        appointmentData={{
+            appointment: selectedAppointment!,
+            client: clients?.find(c => c.id === selectedAppointment?.clientId)!,
+            service: services?.find(s => s.id === selectedAppointment?.serviceId)!
+        }}
+        staff={allStaff || []}
+        onSendToFrontDesk={handleSendToFrontDesk}
       />
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={handleAddAppointment} client={clientForNewApt} appointmentToRebook={appointmentToRebook} memberships={memberships || []} />

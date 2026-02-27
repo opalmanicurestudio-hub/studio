@@ -15,6 +15,7 @@ import {
   Users,
   Cake,
   AlertTriangle,
+  Square,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,7 @@ import {
 import { cn } from '@/lib/utils';
 import { type Appointment, type Client, type Service, Resource, type Transaction } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -61,6 +62,7 @@ export function AppointmentCard({
   onCompleteClick,
   onReschedule,
   onViewDetails,
+  onFinishService,
 }: AppointmentCardProps) {
   const { services } = useInventory();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function AppointmentCard({
   const statusDisplay: Record<string, { text: string; className: string; bgClassName: string }> = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
     servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10' },
-    completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
+    completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-100' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
     ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300', bgClassName: 'bg-orange-500/10' },
@@ -131,7 +133,12 @@ export function AppointmentCard({
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 -mr-1" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent onClick={e => e.stopPropagation()}>
-                <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2 h-4 w-4" /> Checkout</DropdownMenuItem>
+                {appointment.status === 'servicing' && (
+                    <DropdownMenuItem onClick={() => onFinishService(appointment)}><Square className="mr-2 h-4 w-4" /> Finish Service</DropdownMenuItem>
+                )}
+                {appointment.status === 'ready_for_checkout' && (
+                    <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2 h-4 w-4" /> Checkout</DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2 h-4 w-4" /> Reschedule</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onViewDetails(appointment)}><FileText className="mr-2 h-4 w-4" /> View Details</DropdownMenuItem>
