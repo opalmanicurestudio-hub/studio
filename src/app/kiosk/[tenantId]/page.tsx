@@ -48,6 +48,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
@@ -121,10 +123,51 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: Par
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
     return (
         <div className="space-y-6">
-            <div className="space-y-2"><Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base text-slate-300"><User className="w-5 h-5 text-primary"/><span>Name</span></Label><Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100"/></div>
-            {isGroup && !member.isPrimary && ( <Button variant="outline" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-300 hover:text-slate-100">Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}</Button> )}
-            <div className="space-y-2"><Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base text-slate-300"><Phone className="w-5 h-5 text-primary"/><span>Phone</span></Label><Input id={`phone-${member.id}`} type="tel" value={member.phone || ''} onChange={(e) => onUpdate({ phone: e.target.value })} placeholder="For SMS updates" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100"/></div>
-            <div className="space-y-2"><Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base text-slate-300"><Mail className="w-5 h-5 text-primary"/><span>Email</span></Label><Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100"/></div>
+            <div className="space-y-2">
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
+                    <User className="w-5 h-5 text-primary"/>
+                    <span>Name</span>
+                </Label>
+                <Input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
+            </div>
+            {isGroup && !member.isPrimary && ( 
+                <Button variant="outline" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-300 hover:text-slate-100">
+                    Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}
+                </Button> 
+            )}
+            <div className="space-y-2">
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
+                    <Phone className="w-5 h-5 text-primary"/>
+                    <span>Phone</span>
+                </Label>
+                <div className="kiosk-phone-input">
+                    <PhoneInput
+                        international
+                        defaultCountry="US"
+                        value={member.phone || ''}
+                        onChange={(value) => onUpdate({ phone: value || '' })}
+                        inputComponent={Input}
+                        placeholder="For SMS updates"
+                        className="flex h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
+                    />
+                </div>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
+                    <Mail className="w-5 h-5 text-primary"/>
+                    <span>Email</span>
+                </Label>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
+            </div>
+            <style jsx global>{`
+                .kiosk-phone-input .PhoneInputCountry {
+                    margin-right: 12px;
+                }
+                .kiosk-phone-input .PhoneInputCountryIcon {
+                    width: 32px;
+                    height: 24px;
+                }
+            `}</style>
         </div>
     );
 };
@@ -196,9 +239,9 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     
     return (
         <div className="space-y-4">
-            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100">
-                <ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories
-            </Button>
+            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-sm p-2 transition-colors">
+                <ArrowLeft className="h-4 w-4"/>Back to Categories
+            </button>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
                     <ServiceSelectionCard 
