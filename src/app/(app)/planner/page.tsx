@@ -109,6 +109,12 @@ function PlannerPageContent() {
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
   const [eventToDeny, setEventToDeny] = useState<Event | null>(null);
   const [denialReason, setDenialReason] = useState('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  
+  // Missing states that were causing ReferenceErrors
+  const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
+  const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
+
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
@@ -144,12 +150,6 @@ function PlannerPageContent() {
   };
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), i)), [currentDate]);
-
-  const dailyBillInstances = useMemo(() => {
-    if (!billInstances || !billDefinitions) return [];
-    const today = startOfDay(currentDate);
-    return billInstances.filter(i => i.status !== 'paid' && isBefore(startOfDay(parseISO(i.dueDate)), addDays(today, 1))).map(i => ({ ...i, definition: billDefinitions.find(def => def.id === i.billDefinitionId)! })).filter(i => i.definition).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(a.dueDate).getTime());
-  }, [currentDate, billInstances, billDefinitions]);
 
   const itemsByColumn = useMemo(() => {
     const map = new Map<string, (Appointment | Event)[]>();
