@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -15,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award } from 'lucide-react';
+import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -354,7 +352,7 @@ export default function SettingsPage() {
     return { handleEdit, handleCancel, handleSave };
   };
 
-  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
+  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
   const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
 
@@ -596,10 +594,10 @@ export default function SettingsPage() {
                         <div>
                             <CardTitle className="flex items-center gap-2">
                             <FileText className="w-5 h-5 text-primary" />
-                            Scheduling Policies
+                            Scheduling & POS Policies
                             </CardTitle>
                             <CardDescription>
-                            Define rules for appointments, cancellations, and late arrivals.
+                            Define rules for appointments, cancellations, and checkout promotions.
                             </CardDescription>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
@@ -634,6 +632,13 @@ export default function SettingsPage() {
                             <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
                                 <div className="space-y-0.5"><Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label></div>
                                 <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2 bg-primary/5 border-primary/20">
+                                <div className="space-y-0.5">
+                                    <Label htmlFor="discount-stacking" className="font-bold flex items-center gap-2"><Percent className="w-4 h-4" /> Allow Discount Stacking</Label>
+                                    <p className="text-xs text-muted-foreground">Allow multiple discount codes to be applied to a single sale.</p>
+                                </div>
+                                <Switch id="discount-stacking" checked={tenantData.allowDiscountStacking} onCheckedChange={(checked) => setTenantData(prev => ({...prev, allowDiscountStacking: checked}))} disabled={!isPoliciesEditing} />
                             </div>
                         </div>
                         <div className="space-y-2"><Label htmlFor="cancellation-policy">Cancellation Policy</Label><div className="relative"><Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Auto-generate</Button>}</div></div>

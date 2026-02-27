@@ -1,5 +1,3 @@
-
-
 {
   "entities": {
     "User": {
@@ -80,6 +78,11 @@
         "noShowFee": {
             "type": "number",
             "description": "Fee charged for clients who do not show up for their appointment."
+        },
+        "allowDiscountStacking": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, multiple discount codes can be applied to a single transaction."
         },
         "cancellationPolicy": {
             "type": "string",
@@ -761,8 +764,7 @@
             }
         },
         "timeOff": {
-            "type": "object",
-            "properties": {
+            "object": {
                 "vacationDays": { "type": "number" },
                 "holidays": { "type": "number" }
             }
@@ -844,14 +846,6 @@
         "relatedBillInstanceId": {
             "type": "string",
             "description": "The ID of the bill instance this payment is for."
-        },
-        "appliedDiscountCode": {
-            "type": "string",
-            "description": "The discount code applied to this transaction."
-        },
-        "discountAmount": {
-            "type": "number",
-            "description": "The total discount amount applied to this transaction."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -903,24 +897,10 @@
         "title": { "type": "string" },
         "startTime": { "type": "string", "format": "date-time" },
         "endTime": { "type": "string", "format": "date-time" },
-        "type": { "type": "string", "enum": ["personal", "business", "blocked"] },
+        "type": { "type": "string" },
         "location": { "type": "string" },
         "notes": { "type": "string" },
-        "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." },
-        "status": {
-            "type": "string",
-            "enum": ["pending", "approved"],
-            "description": "The approval status of the event."
-        },
-        "approvedBy": {
-            "type": "string",
-            "description": "The UID of the user who approved the event."
-        },
-        "approvedAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Timestamp of when the event was approved."
-        }
+        "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
       },
       "required": ["id", "title", "startTime", "endTime"]
     },
@@ -1074,21 +1054,6 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
-    },
-    "Notification": {
-        "title": "Notification",
-        "description": "A notification for a specific user.",
-        "type": "object",
-        "properties": {
-            "id": { "type": "string" },
-            "userId": { "type": "string", "description": "The UID of the user to notify." },
-            "type": { "type": "string", "description": "The type of notification." },
-            "message": { "type": "string" },
-            "link": { "type": "string", "format": "uri" },
-            "createdAt": { "type": "string", "format": "date-time" },
-            "read": { "type": "boolean" }
-        },
-        "required": ["id", "userId", "message", "createdAt"]
     }
   },
   "auth": {
@@ -1103,21 +1068,11 @@
       },
       "description": "Stores user profiles."
     },
-    "/staffDirectory/{staffId}": {
-        "schema": {
-            "$ref": "#/entities/StaffDirectoryEntry"
-        },
-        "description": "Top-level directory to map staff auth UIDs to their tenant."
-    },
     "/tenants/{tenantId}": {
       "schema": {
         "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
-    },
-    "/tenants/{tenantId}/pricingTiers/{tierId}": {
-      "schema": { "$ref": "#/entities/PricingTier" },
-      "description": "Customizable pricing tiers for a tenant."
     },
     "/appointmentCheckIns/{token}": {
         "schema": {
@@ -1252,16 +1207,6 @@
         "$ref": "#/entities/Review"
       },
       "description": "Client reviews for the tenant."
-    },
-    "/tenants/{tenantId}/notifications/{notificationId}": {
-      "schema": {
-        "$ref": "#/entities/Notification"
-      },
-      "description": "Stores user-specific notifications."
     }
   }
 }
-    
-
-    
-

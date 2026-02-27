@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2 } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2, X } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -43,8 +43,8 @@ export const CheckoutHub = ({
     tipAmount,
     setTipAmount,
     onCheckout,
-    appliedDiscountCode,
-    setAppliedDiscountCode,
+    appliedDiscountCodes,
+    setAppliedDiscountCodes,
     discount,
     membershipDiscount,
     showTitle = true,
@@ -62,6 +62,7 @@ export const CheckoutHub = ({
     setRedeemedOffer,
     memberships,
     packages,
+    allowStacking,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -80,8 +81,8 @@ export const CheckoutHub = ({
     tipAmount: number,
     setTipAmount: (amount: number) => void;
     onCheckout: (details: { paymentMethod: string; amountTendered?: number }) => void;
-    appliedDiscountCode: string | undefined;
-    setAppliedDiscountCode: (code: string | undefined) => void;
+    appliedDiscountCodes: string[];
+    setAppliedDiscountCodes: (codes: string[]) => void;
     discount: number;
     membershipDiscount: number;
     showTitle?: boolean,
@@ -99,6 +100,7 @@ export const CheckoutHub = ({
     setRedeemedOffer: (offer: { type: 'membership' | 'package' | 'retail_discount'; id: string } | null) => void;
     memberships: Membership[];
     packages: Package[];
+    allowStacking: boolean;
 }) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -131,16 +133,28 @@ export const CheckoutHub = ({
 
         const d = discounts.find(d => d.code.toUpperCase() === codeUpper);
         if (d && d.isActive) {
-            if (appliedDiscountCode && appliedDiscountCode !== d.code) {
-                toast({ title: 'Discount Replaced', description: `Code ${appliedDiscountCode} replaced with ${d.code}. Only one code allowed per sale.` });
-            } else if (!appliedDiscountCode) {
-                toast({ title: 'Discount Applied', description: `${d.code} applied to sale.` });
+            if (appliedDiscountCodes.includes(d.code)) {
+                toast({ title: 'Already Applied', description: `Discount ${d.code} is already in the list.` });
+                return;
             }
-            setAppliedDiscountCode(d.code);
+
+            if (!allowStacking) {
+                if (appliedDiscountCodes.length > 0) {
+                    toast({ title: 'Discount Replaced', description: `Stacking is disabled. ${appliedDiscountCodes[0]} replaced with ${d.code}.` });
+                }
+                setAppliedDiscountCodes([d.code]);
+            } else {
+                setAppliedDiscountCodes([...appliedDiscountCodes, d.code]);
+                toast({ title: 'Discount Added', description: `${d.code} added to sale.` });
+            }
             setPromoCodeInput('');
         } else {
             toast({ variant: 'destructive', title: 'Invalid Code', description: 'This discount code is not active or invalid.' });
         }
+    };
+
+    const handleRemoveDiscount = (code: string) => {
+        setAppliedDiscountCodes(appliedDiscountCodes.filter(c => c !== code));
     };
 
     const suggestedDiscounts = useMemo(() => {
@@ -148,7 +162,7 @@ export const CheckoutHub = ({
 
         return discounts.filter(d => {
             if (!d.isActive || d.automation?.trigger === 'none') return false;
-            if (d.code === appliedDiscountCode) return false;
+            if (appliedDiscountCodes.includes(d.code)) return false;
 
             const trigger = d.automation?.trigger;
 
@@ -168,7 +182,7 @@ export const CheckoutHub = ({
 
             return false;
         });
-    }, [selectedClient, discounts, appliedDiscountCode, allAppointments]);
+    }, [selectedClient, discounts, appliedDiscountCodes, allAppointments]);
     
     const totalDiscount = discount + membershipDiscount;
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
@@ -439,16 +453,19 @@ export const CheckoutHub = ({
                             <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
                         </div>
 
-                        {appliedDiscountCode && (
-                            <div className="p-2 rounded-xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle className="h-4 w-4 text-primary" />
-                                    <div>
-                                        <p className="text-xs font-black uppercase">{appliedDiscountCode}</p>
-                                        <p className="text-[10px] text-primary font-bold">-${discount.toFixed(2)} applied</p>
+                        {appliedDiscountCodes.length > 0 && (
+                            <div className="space-y-2">
+                                {appliedDiscountCodes.map(code => (
+                                    <div key={code} className="p-2 rounded-xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle className="h-4 w-4 text-primary" />
+                                            <div>
+                                                <p className="text-xs font-black uppercase">{code}</p>
+                                            </div>
+                                        </div>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => handleRemoveDiscount(code)}><X className="h-3.5 w-3.5" /></Button>
                                     </div>
-                                </div>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => setAppliedDiscountCode(undefined)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                                ))}
                             </div>
                         )}
 

@@ -109,7 +109,7 @@ export default function POSPage() {
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
+    const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [discount, setDiscount] = useState(0);
     const [membershipDiscount, setMembershipDiscount] = useState(0);
     
@@ -234,21 +234,41 @@ export default function POSPage() {
     }, [appointmentsData, retailItems, redeemedOffer]);
 
     useEffect(() => {
-        if (!appliedDiscountCode || !discounts) {
+        if (appliedDiscountCodes.length === 0 || !discounts) {
             setDiscount(0);
             return;
         }
-        const d = discounts.find(d => d.code === appliedDiscountCode);
-        if (d) {
-            let val = 0;
-            if (d.type === 'percentage') {
-                val = subtotal * (d.value / 100);
-            } else {
-                val = d.value;
+
+        const totalCalc = appliedDiscountCodes.reduce((acc, code) => {
+            const d = discounts.find(d => d.code === code);
+            if (d) {
+                let applicableSubtotal = subtotal;
+                if (d.applicableServiceIds && d.applicableServiceIds.length > 0) {
+                    applicableSubtotal = appointmentsData.reduce((sum, data) => {
+                        let innerSum = 0;
+                        if (d.applicableServiceIds?.includes(data.serviceId)) {
+                            innerSum += (redeemedOffer?.id === data.serviceId ? 0 : data.service.price);
+                        }
+                        data.addOnServices.forEach(addon => {
+                            if (d.applicableServiceIds?.includes(addon.id)) {
+                                innerSum += addon.price;
+                            }
+                        });
+                        return sum + innerSum;
+                    }, 0);
+                }
+
+                if (d.type === 'percentage') {
+                    return acc + (applicableSubtotal * (d.value / 100));
+                } else {
+                    return acc + d.value;
+                }
             }
-            setDiscount(val);
-        }
-    }, [appliedDiscountCode, discounts, subtotal]);
+            return acc;
+        }, 0);
+
+        setDiscount(totalCalc);
+    }, [appliedDiscountCodes, discounts, subtotal, appointmentsData, redeemedOffer]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -1276,7 +1296,7 @@ export default function POSPage() {
                 context: 'Business' as const,
                 paymentMethod: checkoutDetails.paymentMethod,
                 hasReceipt: true,
-                appliedDiscountCode: appliedDiscountCode || null,
+                appliedDiscountCode: appliedDiscountCodes.join(', ') || null,
                 date: nowISO,
                 staffId: data.staffId,
                 appointmentId: data.id,
@@ -1364,7 +1384,7 @@ export default function POSPage() {
         if (totalDiscount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 date: nowISO,
-                description: `Discount Applied: ${appliedDiscountCode || 'Manual'}`,
+                description: `Discounts Applied: ${appliedDiscountCodes.join(', ') || 'Manual'}`,
                 clientOrVendor: finalClient.name,
                 clientId: finalClient.id,
                 type: 'expense',
@@ -1493,8 +1513,8 @@ export default function POSPage() {
         tipAmount,
         setTipAmount,
         onCheckout: handleConfirmAndClose,
-        appliedDiscountCode,
-        setAppliedDiscountCode,
+        appliedDiscountCodes,
+        setAppliedDiscountCodes,
         discount,
         membershipDiscount,
         showTitle: false,
@@ -1512,6 +1532,7 @@ export default function POSPage() {
         setRedeemedOffer,
         memberships: memberships || [],
         packages: packages || [],
+        allowStacking: !!selectedTenant?.allowDiscountStacking,
     };
     
     const handleStatusChangeWithConfirmation = () => {};
@@ -1523,7 +1544,7 @@ export default function POSPage() {
         setAmountTendered(0);
         setDiscount(0);
         setMembershipDiscount(0);
-        setAppliedDiscountCode(undefined);
+        setAppliedDiscountCodes([]);
         setRedeemedOffer(null);
         setServiceStaffOverrides({});
         setTipAllocations({});

@@ -514,6 +514,7 @@ export type Tenant = {
   cancellationFee?: number;
   cancellationWindowHours?: number;
   noShowFee?: number;
+  allowDiscountStacking?: boolean;
   cancellationPolicy?: string;
   noShowPolicy?: string;
   lateArrivalPolicy?: string;
