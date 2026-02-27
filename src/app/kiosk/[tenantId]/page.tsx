@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
@@ -291,7 +291,7 @@ const MemberSetup = ({
 
             <Separator className="bg-slate-800" />
             <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
+                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
                     <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
@@ -447,14 +447,30 @@ export default function WalkInPage() {
             }
 
             const walkInId = nanoid();
-            const memberWalkIn = {
-                id: walkInId, groupId, groupName: isGroup ? `${partyMembers[0].name}'s Party` : undefined,
-                isPrimaryContact: member.isPrimary, clientId, customerName: member.name, customerPhone: member.phone || '',
-                customerEmail: member.email || '', serviceIds: member.serviceIds, checkInTime: now, status: 'waiting',
-                queueOrder: Date.now() + tickets.length, preferredStaffId: member.preferredStaffId !== 'any' ? member.preferredStaffId : undefined,
-                waitForPreferredStaff: member.waitForPreferredStaff,
-                estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + s.duration, 0) || 0
+            const memberWalkIn: any = {
+                id: walkInId, 
+                groupId, 
+                isPrimaryContact: !!member.isPrimary, 
+                clientId, 
+                customerName: member.name, 
+                customerPhone: member.phone || '',
+                customerEmail: member.email || '', 
+                serviceIds: member.serviceIds, 
+                checkInTime: now, 
+                status: 'waiting',
+                queueOrder: Date.now() + tickets.length,
+                waitForPreferredStaff: !!member.waitForPreferredStaff,
+                estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + (s.duration || 0), 0) || 0
             };
+
+            if (isGroup) {
+                memberWalkIn.groupName = `${partyMembers[0].name}'s Party`;
+            }
+
+            if (member.preferredStaffId && member.preferredStaffId !== 'any') {
+                memberWalkIn.preferredStaffId = member.preferredStaffId;
+            }
+
             batch.set(doc(firestore, `tenants/${tenantId}/walkIns`, walkInId), memberWalkIn);
 
             const memberAnswers = formAnswers[member.id] || {};
