@@ -34,7 +34,7 @@ import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, La
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type Discount, type Service } from '@/lib/data';
+import { type Discount, type Service, type PricingTier } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { SelectServicesDialog } from '../services/SelectServicesDialog';
@@ -45,6 +45,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Alert, AlertDescription } from '../ui/alert';
+import { Badge } from '../ui/badge';
 
 const discountSchema = z.object({
   code: z.string().min(3, "Code must be at least 3 characters.").toUpperCase(),
@@ -72,13 +73,15 @@ type DiscountFormData = z.infer<typeof discountSchema>;
 const ProfitabilityAnalysis = ({ 
     services, 
     discountType, 
-    discountValue 
+    discountValue,
+    pricingTiers,
 }: { 
     services: Service[], 
     discountType: 'percentage' | 'fixed', 
-    discountValue: number 
+    discountValue: number,
+    pricingTiers: PricingTier[],
 }) => {
-    if (services.length === 0 || !discountValue || discountValue <= 0) {
+    if (services.length === 0 || !discountValue || discountValue <= 0 || pricingTiers.length === 0) {
         return null;
     }
 
@@ -90,21 +93,15 @@ const ProfitabilityAnalysis = ({
             </h4>
             <Accordion type="multiple" className="w-full space-y-2">
                 {services.map(service => {
-                    const tiers = [
-                        { level: 'Apprentice', price: service.serviceTiers?.find(t => t.tierId === 'apprentice')?.price || service.price * 0.8 },
-                        { level: 'Junior', price: service.serviceTiers?.find(t => t.tierId === 'junior')?.price || service.price * 0.9 },
-                        { level: 'Senior', price: service.serviceTiers?.find(t => t.tierId === 'senior')?.price || service.price },
-                        { level: 'Master', price: service.serviceTiers?.find(t => t.tierId === 'master')?.price || service.price * 1.2 },
-                    ];
-
                     return (
                         <AccordionItem key={service.id} value={service.id} className="border rounded-xl overflow-hidden">
                             <AccordionTrigger className="px-4 py-3 font-bold text-sm hover:no-underline bg-muted/20">
                                 {service.name}
                             </AccordionTrigger>
                             <AccordionContent className="p-4 space-y-3">
-                                {tiers.map(tier => {
-                                    const originalPrice = tier.price;
+                                {pricingTiers.sort((a,b) => a.rank - b.rank).map(tier => {
+                                    const tierConfig = service.serviceTiers?.find(t => t.tierId === tier.id);
+                                    const originalPrice = tierConfig ? tierConfig.price : service.price;
                                     const discountAmount = discountType === 'percentage'
                                         ? originalPrice * (discountValue / 100)
                                         : discountValue;
@@ -114,9 +111,9 @@ const ProfitabilityAnalysis = ({
                                     const newMargin = discountedPrice > 0 ? (newProfit / discountedPrice) * 100 : 0;
 
                                     return (
-                                        <div key={tier.level} className="text-xs space-y-2 p-3 bg-background rounded-lg border shadow-sm">
+                                        <div key={tier.id} className="text-xs space-y-2 p-3 bg-background rounded-lg border shadow-sm">
                                             <div className="flex justify-between items-center">
-                                                <p className="font-black uppercase text-[10px] text-muted-foreground tracking-tight">{tier.level}</p>
+                                                <p className="font-black uppercase text-[10px] text-muted-foreground tracking-tight">{tier.name}</p>
                                                 {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[9px]">Loss Warning</Badge>}
                                             </div>
                                             <div className="flex justify-between items-baseline">
@@ -147,11 +144,13 @@ const PotentialImpactAnalysis = ({
     discountValue,
     usageLimit,
     selectedServices,
+    pricingTiers,
 }: { 
     discountType: 'percentage' | 'fixed', 
     discountValue: number,
     usageLimit: number,
     selectedServices: Service[],
+    pricingTiers: PricingTier[],
 }) => {
     const impact = useMemo(() => {
         if (!usageLimit || usageLimit <= 0) {
@@ -162,13 +161,18 @@ const PotentialImpactAnalysis = ({
         let totalPotentialProfit = 0;
 
         if (selectedServices.length > 0) {
+            // Find a baseline tier, prefer 'Senior' or the one with rank 2/3
+            const baselineTier = pricingTiers.find(t => t.name.toLowerCase().includes('senior')) || pricingTiers[Math.floor(pricingTiers.length / 2)] || pricingTiers[0];
+            
             let totalOriginalPrice = 0;
             let totalCost = 0;
+            
             selectedServices.forEach(service => {
-                const seniorPrice = service.serviceTiers?.find(t => t.tierId === 'senior')?.price || service.price;
-                totalOriginalPrice += seniorPrice;
+                const tierPrice = service.serviceTiers?.find(t => t.tierId === baselineTier?.id)?.price || service.price;
+                totalOriginalPrice += tierPrice;
                 totalCost += service.cost;
             });
+            
             const avgOriginalPrice = totalOriginalPrice / selectedServices.length;
             const avgCost = totalCost / selectedServices.length;
             
@@ -190,7 +194,7 @@ const PotentialImpactAnalysis = ({
 
         return { title: 'Total Potential Impact', loss: totalPotentialLoss, profit: totalPotentialProfit, isPerUse: false };
 
-    }, [discountType, discountValue, usageLimit, selectedServices]);
+    }, [discountType, discountValue, usageLimit, selectedServices, pricingTiers]);
 
     if (!usageLimit || usageLimit <= 0) {
         return null; 
@@ -229,8 +233,14 @@ const PotentialImpactAnalysis = ({
 };
 
 
-export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOpenChange, onSave, discountToEdit, initialTrigger = 'none' }) => {
-    const { services: allServices } = useInventory();
+export const AddDiscountDialog: React.FC<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (discount: Partial<Discount>) => void;
+  discountToEdit: Discount | null;
+  initialTrigger?: 'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday';
+}> = ({ open, onOpenChange, onSave, discountToEdit, initialTrigger = 'none' }) => {
+    const { services: allServices, pricingTiers } = useInventory();
     const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
     const isMobile = useIsMobile();
 
@@ -322,8 +332,8 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 <div className="space-y-2">
                 <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Discount Type</Label>
                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                    <div><RadioGroupItem value="percentage" id="percentage-edit" className="peer sr-only" /><Label htmlFor="percentage-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">% Percentage</Label></div>
-                    <div><RadioGroupItem value="fixed" id="fixed-edit" className="peer sr-only" /><Label htmlFor="fixed-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">$ Fixed Amount</Label></div>
+                    <div><RadioGroupItem value="percentage" id="percentage-edit" className="peer sr-only" /><Label htmlFor="percentage-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"> % Percentage </Label></div>
+                    <div><RadioGroupItem value="fixed" id="fixed-edit" className="peer sr-only" /><Label htmlFor="fixed-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"> $ Fixed Amount </Label></div>
                 </RadioGroup>
                 </div>
             )}
@@ -371,7 +381,12 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                     </div>
 
                     {selectedServices.length > 0 && (
-                        <ProfitabilityAnalysis services={selectedServices} discountType={discountType} discountValue={discountValue} />
+                        <ProfitabilityAnalysis 
+                            services={selectedServices} 
+                            discountType={discountType} 
+                            discountValue={discountValue} 
+                            pricingTiers={pricingTiers}
+                        />
                     )}
 
                     <div className="space-y-2">
@@ -385,6 +400,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                         discountValue={discountValue}
                         usageLimit={usageLimit}
                         selectedServices={selectedServices}
+                        pricingTiers={pricingTiers}
                     />
 
                     <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/20">
