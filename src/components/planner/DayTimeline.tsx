@@ -1,6 +1,6 @@
 'use client';
 
-import { format, differenceInMinutes, isSameDay, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
+import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
 import { type Staff, type Appointment, type Service, type Resource, type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -186,7 +186,7 @@ export const DayTimeline = ({
                                 </Select>
                             ) : (
                                 <div className="flex items-center justify-center gap-2 h-full">
-                                    {'avatarUrl' in column ? <Avatar className="w-6 h-6"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar> : ((column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />)}
+                                    {'avatarUrl' in column ? <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar> : ((column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />)}
                                     <p className="font-semibold text-sm truncate">{column.name}</p>
                                 </div>
                             )}
