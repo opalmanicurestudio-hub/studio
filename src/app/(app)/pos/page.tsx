@@ -72,6 +72,7 @@ export default function POSPage() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [manualTicketId, setManualTicketId] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
     const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
     const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false);
@@ -169,7 +170,7 @@ export default function POSPage() {
             description: "The appointment has been sent to the front desk for checkout."
         });
         setIsTechnicianReviewOpen(false);
-        setIsDetailsOpen(false); // Stop any timers by closing the details sheet
+        setIsDetailsOpen(false);
     };
 
     const handleStartService = (id: string) => {
@@ -183,6 +184,57 @@ export default function POSPage() {
             updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
         }
     }
+
+    const payerOptions = useMemo(() => {
+        const clientIds = new Set<string>();
+        selectedAppointmentIds.forEach(aptId => {
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          if (apt) {
+            clientIds.add(apt.clientId);
+          }
+        });
+        return (clients || []).filter(c => clientIds.has(c.id));
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+
+    const checkoutHubProps = {
+        cart: retailItems, 
+        onCartChange: setRetailItems,
+        appointmentsData: Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any,
+        onSelectAppointment: handleSelectAppointment,
+        clients: clients || [],
+        isGroupCheckout: selectedAppointmentIds.size > 1,
+        payerOptions,
+        selectedClientId,
+        setSelectedClientId,
+        onAddClientClick: () => setIsAddClientOpen(true),
+        onScanClick: () => setIsScannerOpen(true),
+        subtotal,
+        tax: subtotal * 0.07,
+        total,
+        tipAmount,
+        setTipAmount,
+        onCheckout: () => setIsReceiptDialogOpen(true),
+        appliedDiscountCodes,
+        setAppliedDiscountCodes,
+        discount: 0,
+        membershipDiscount: 0,
+        isSubmitting,
+        paymentTab,
+        setPaymentTab,
+        discounts: discounts || [],
+        amountTendered,
+        setAmountTendered,
+        adjustments: [],
+        appliedAdjustments: new Set<string>(),
+        onApplyAdjustmentToggle: () => {},
+        absorbedCost: 0,
+        redeemedOffer,
+        setRedeemedOffer,
+        memberships: memberships || [],
+        packages: packages || [],
+        allowStacking: selectedTenant?.allowDiscountStacking || false,
+        showTitle: false,
+    };
 
     return (
         <>
@@ -210,9 +262,35 @@ export default function POSPage() {
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={(i: any) => setRetailItems([...retailItems, { ...i, quantity: 1, price: i.price || i.msrp || 0, type: 'product' }])} /></TabsContent>
                         </Tabs>
                     </main>
-                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub cart={retailItems} onCartChange={setRetailItems} appointmentsData={Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any} onSelectAppointment={handleSelectAppointment} clients={clients || []} isGroupCheckout={selectedAppointmentIds.size > 1} payerOptions={[]} selectedClientId={selectedClientId} setSelectedClientId={setSelectedClientId} onAddClientClick={() => setIsAddClientOpen(true)} onScanClick={() => setIsScannerOpen(true)} subtotal={subtotal} tax={subtotal * 0.07} total={total} tipAmount={tipAmount} setTipAmount={setTipAmount} onCheckout={() => setIsReceiptDialogOpen(true)} appliedDiscountCodes={appliedDiscountCodes} setAppliedDiscountCodes={setAppliedDiscountCodes} discount={0} membershipDiscount={0} isSubmitting={isSubmitting} paymentTab={paymentTab} setPaymentTab={setPaymentTab} discounts={discounts || []} amountTendered={amountTendered} setAmountTendered={setAmountTendered} adjustments={[]} appliedAdjustments={new Set()} onApplyAdjustmentToggle={() => {}} absorbedCost={0} redeemedOffer={redeemedOffer} setRedeemedOffer={setRedeemedOffer} memberships={memberships || []} packages={packages || []} allowStacking={false} /></aside>
+                    <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
+                        <h2 className="text-xl font-bold mb-4">Current Sale</h2>
+                        <CheckoutHub {...checkoutHubProps} />
+                    </aside>
                 </div>
             </div>
+
+            {isMobile && (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
+                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                        <SheetTrigger asChild>
+                            <Button className="w-full h-14 text-lg" size="lg" disabled={retailItems.length === 0 && selectedAppointmentIds.size === 0}>
+                                <div className="flex justify-between items-center w-full">
+                                    <span><ShoppingCart className="inline-block mr-2" />{retailItems.length + selectedAppointmentIds.size} item(s)</span>
+                                    <span>${total.toFixed(2)}</span>
+                                </div>
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                           <SheetHeader className="p-4 border-b">
+                               <SheetTitle>Current Sale</SheetTitle>
+                           </SheetHeader>
+                            <div className="p-4 flex-1 overflow-y-auto">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                </div>
+            )}
 
             <AppointmentDetailsSheet 
                 open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={viewingAppointment}
@@ -243,16 +321,12 @@ export default function POSPage() {
               <DialogContent className="sm:max-w-md p-0 overflow-hidden">
                 <DialogHeader className="p-4 pb-0"><DialogTitle>Scan Ticket or SKU</DialogTitle><DialogDescription>Scanning is automatic. Position the code inside the frame.</DialogDescription></DialogHeader>
                 <div className="p-4 space-y-4"><div className="relative overflow-hidden rounded-xl border-2 border-muted bg-muted/50 aspect-square"><div id="qr-reader-pos" className="w-full h-full" /><div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
-                  <Separator /><form onSubmit={handleManualTicketSubmit} className="space-y-3"><div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-widest"><Keyboard className="w-4 h-4" /><span>Manual Entry</span></div><div className="flex gap-2"><Input placeholder="Enter Ticket or Product ID..." value={manualTicketId} onChange={(e) => setManualTicketId(e.target.value)} className="h-11 font-mono uppercase" /><Button type="submit" disabled={!manualTicketId.trim()}>Pull Up</Button></div></form>
+                  <Separator /><form onSubmit={(e) => { e.preventDefault(); if (manualTicketId.trim()) { handleScan(`clarityflow://checkout/${manualTicketId.trim()}`); setManualTicketId(''); } }} className="space-y-3"><div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-widest"><Keyboard className="w-4 h-4" /><span>Manual Entry</span></div><div className="flex gap-2"><Input placeholder="Enter Ticket or Product ID..." value={manualTicketId} onChange={(e) => setManualTicketId(e.target.value)} className="h-11 font-mono uppercase" /><Button type="submit" disabled={!manualTicketId.trim()}>Pull Up</Button></div></form>
                 </div>
                 <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Close Scanner</Button></DialogFooter>
               </DialogContent>
             </Dialog>
+            <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={(d) => { if (!firestore || !selectedTenant) return; const newClient = { ...d, id: nanoid(), lifetimeValue: 0, lastAppointment: new Date().toISOString(), status: 'active' as const }; setDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'clients', newClient.id), newClient, {}); toast({ title: "Client Added" }); }} />
         </>
     );
-
-    function handleManualTicketSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        if (manualTicketId.trim()) { handleScan(`clarityflow://checkout/${manualTicketId.trim()}`); setManualTicketId(''); }
-    }
 }
