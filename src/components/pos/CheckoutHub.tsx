@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -12,7 +11,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -23,7 +22,7 @@ import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { subMonths, parseISO, isAfter, format, isSameMonth } from 'date-fns';
+import { subMonths, parseISO, isAfter, format, isSameMonth, differenceInDays } from 'date-fns';
 
 
 export const CheckoutHub = ({ 
@@ -134,7 +133,7 @@ export const CheckoutHub = ({
 
         const d = discounts.find(d => d.code.toUpperCase() === codeUpper);
         if (d && d.isActive) {
-            // Check compatibility for manual entry too
+            // Check compatibility
             const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || 
                                 (d.applicableServiceIds.some(id => cartServiceIds.includes(id)));
             
@@ -149,10 +148,10 @@ export const CheckoutHub = ({
             }
 
             if (!allowStacking) {
+                setAppliedDiscountCodes([d.code]);
                 if (appliedDiscountCodes.length > 0) {
                     toast({ title: 'Discount Replaced', description: `Stacking is disabled. ${appliedDiscountCodes[0]} replaced with ${d.code}.` });
                 }
-                setAppliedDiscountCodes([d.code]);
             } else {
                 setAppliedDiscountCodes([...appliedDiscountCodes, d.code]);
                 toast({ title: 'Discount Added', description: `${d.code} added to sale.` });
@@ -170,9 +169,14 @@ export const CheckoutHub = ({
     const suggestedDiscounts = useMemo(() => {
         if (!selectedClient || !discounts) return [];
 
+        const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
+
         return discounts.filter(d => {
             if (!d.isActive || d.automation?.trigger === 'none') return false;
             if (appliedDiscountCodes.includes(d.code)) return false;
+
+            // Usage limit check
+            if (d.limitOnePerCustomer && d.usedByClientIds?.includes(selectedClient.id)) return false;
 
             // Automation compatibility check
             const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || 
@@ -186,13 +190,17 @@ export const CheckoutHub = ({
             }
 
             if (trigger === 'loyalty' && d.automation?.appointmentThreshold) {
-                const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
-                return completedCount >= d.automation.appointmentThreshold;
+                // Trigger if they just hit the threshold or a multiple of it
+                return completedCount > 0 && (completedCount % d.automation.appointmentThreshold === 0);
             }
 
             if (trigger === 'new_client') {
-                const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
                 return completedCount === 0;
+            }
+
+            if (trigger === 're_engagement' && d.automation?.daysSinceLastVisit && selectedClient.lastAppointment) {
+                const daysSince = differenceInDays(new Date(), parseISO(selectedClient.lastAppointment));
+                return daysSince >= d.automation.daysSinceLastVisit;
             }
 
             return false;

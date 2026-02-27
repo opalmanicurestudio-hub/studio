@@ -1447,6 +1447,18 @@ export default function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/staff`, id), { status: 'idle', lastServedTimestamp: nowISO });
         });
 
+        // Update discount usage metrics for all applied codes
+        for (const code of appliedDiscountCodes) {
+            const matchingDiscount = discounts.find(d => d.code === code);
+            if (matchingDiscount) {
+                const discountRef = doc(firestore, `tenants/${tenantId}/discounts`, matchingDiscount.id);
+                batch.update(discountRef, {
+                    usageCount: increment(1),
+                    usedByClientIds: arrayUnion(finalClient.id)
+                });
+            }
+        }
+
         await batch.commit();
   
         const allCartItems = [
