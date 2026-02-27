@@ -121,15 +121,23 @@ export const CheckoutHub = ({
     const cartServiceIds = useMemo(() => {
         const appointmentServiceIds = appointmentsData.map(a => a.serviceId);
         const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
-        return [...new Set([...appointmentServiceIds, ...cartServices])];
+        const appointmentAddOnIds = appointmentsData.flatMap(a => a.addOnIds || []);
+        return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
     }, [cart, appointmentsData]);
 
     const handleApplyDiscount = (code: string) => {
-        const d = discounts.find(d => d.code.toUpperCase() === code.toUpperCase());
+        const codeUpper = code.trim().toUpperCase();
+        if (!codeUpper) return;
+
+        const d = discounts.find(d => d.code.toUpperCase() === codeUpper);
         if (d && d.isActive) {
+            if (appliedDiscountCode && appliedDiscountCode !== d.code) {
+                toast({ title: 'Discount Replaced', description: `Code ${appliedDiscountCode} replaced with ${d.code}. Only one code allowed per sale.` });
+            } else if (!appliedDiscountCode) {
+                toast({ title: 'Discount Applied', description: `${d.code} applied to sale.` });
+            }
             setAppliedDiscountCode(d.code);
             setPromoCodeInput('');
-            toast({ title: 'Discount Applied', description: `${d.code} applied to sale.` });
         } else {
             toast({ variant: 'destructive', title: 'Invalid Code', description: 'This discount code is not active or invalid.' });
         }

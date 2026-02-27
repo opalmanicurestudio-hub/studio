@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -32,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -40,7 +38,7 @@ import { type Discount, type Service } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { SelectServicesDialog } from '../services/SelectServicesDialog';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -71,14 +69,6 @@ const discountSchema = z.object({
 
 type DiscountFormData = z.infer<typeof discountSchema>;
 
-interface AddDiscountDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (data: Partial<Discount>) => void;
-  discountToEdit: Discount | null;
-  initialTrigger?: 'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday';
-}
-
 const ProfitabilityAnalysis = ({ 
     services, 
     discountType, 
@@ -94,41 +84,50 @@ const ProfitabilityAnalysis = ({
 
     return (
         <div className="space-y-4">
-            <h4 className="font-medium text-sm">Profitability Analysis per Service</h4>
+            <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <Landmark className="w-3 h-3" />
+                Service Profitability Analysis
+            </h4>
             <Accordion type="multiple" className="w-full space-y-2">
                 {services.map(service => {
                     const tiers = [
-                        { level: 'apprentice', price: service.pricingTiers?.find(t => t.level === 'apprentice')?.price || service.price * 0.8 },
-                        { level: 'junior', price: service.pricingTiers?.find(t => t.level === 'junior')?.price || service.price * 0.9 },
-                        { level: 'senior', price: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price },
-                        { level: 'master', price: service.pricingTiers?.find(t => t.level === 'master')?.price || service.price * 1.2 },
+                        { level: 'Apprentice', price: service.serviceTiers?.find(t => t.tierId === 'apprentice')?.price || service.price * 0.8 },
+                        { level: 'Junior', price: service.serviceTiers?.find(t => t.tierId === 'junior')?.price || service.price * 0.9 },
+                        { level: 'Senior', price: service.serviceTiers?.find(t => t.tierId === 'senior')?.price || service.price },
+                        { level: 'Master', price: service.serviceTiers?.find(t => t.tierId === 'master')?.price || service.price * 1.2 },
                     ];
 
                     return (
-                        <AccordionItem key={service.id} value={service.id} className="border rounded-md">
-                            <AccordionTrigger className="p-3 font-medium text-sm hover:no-underline">
+                        <AccordionItem key={service.id} value={service.id} className="border rounded-xl overflow-hidden">
+                            <AccordionTrigger className="px-4 py-3 font-bold text-sm hover:no-underline bg-muted/20">
                                 {service.name}
                             </AccordionTrigger>
-                            <AccordionContent className="p-3 pt-0 text-xs space-y-2">
+                            <AccordionContent className="p-4 space-y-3">
                                 {tiers.map(tier => {
                                     const originalPrice = tier.price;
-                                    const discountedPrice = discountType === 'percentage'
-                                        ? originalPrice * (1 - discountValue / 100)
-                                        : originalPrice - discountValue;
+                                    const discountAmount = discountType === 'percentage'
+                                        ? originalPrice * (discountValue / 100)
+                                        : discountValue;
                                     
+                                    const discountedPrice = Math.max(0, originalPrice - discountAmount);
                                     const newProfit = discountedPrice - service.cost;
                                     const newMargin = discountedPrice > 0 ? (newProfit / discountedPrice) * 100 : 0;
 
                                     return (
-                                        <div key={tier.level} className="text-xs space-y-2 p-2 bg-background rounded-md border">
-                                            <p className="font-semibold text-sm capitalize">{tier.level}</p>
-                                            <div className="flex justify-between">
-                                                <span>Original Price: <span className="font-mono">${originalPrice.toFixed(2)}</span></span>
-                                                <span>Profit: <span className="font-mono">${(originalPrice - service.cost).toFixed(2)}</span></span>
+                                        <div key={tier.level} className="text-xs space-y-2 p-3 bg-background rounded-lg border shadow-sm">
+                                            <div className="flex justify-between items-center">
+                                                <p className="font-black uppercase text-[10px] text-muted-foreground tracking-tight">{tier.level}</p>
+                                                {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[9px]">Loss Warning</Badge>}
                                             </div>
-                                            <div className="flex justify-between font-semibold text-primary">
-                                                <span>Discounted Price: <span className="font-mono">${discountedPrice.toFixed(2)}</span></span>
-                                                <span>New Profit: <span className={cn("font-mono", newProfit < 0 && "text-destructive")}>${newProfit.toFixed(2)}</span> ({newMargin.toFixed(1)}%)</span>
+                                            <div className="flex justify-between items-baseline">
+                                                <span className="text-muted-foreground">Retail: <span className="font-bold text-foreground">${originalPrice.toFixed(2)}</span></span>
+                                                <span className="text-muted-foreground">New: <span className="font-bold text-primary">${discountedPrice.toFixed(2)}</span></span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-2 border-t border-dashed">
+                                                <span className="font-bold">Net Profit</span>
+                                                <span className={cn("font-black font-mono text-sm", newProfit >= 0 ? "text-primary" : "text-destructive")}>
+                                                    ${newProfit.toFixed(2)} ({newMargin.toFixed(0)}%)
+                                                </span>
                                             </div>
                                         </div>
                                     )
@@ -166,7 +165,7 @@ const PotentialImpactAnalysis = ({
             let totalOriginalPrice = 0;
             let totalCost = 0;
             selectedServices.forEach(service => {
-                const seniorPrice = service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price;
+                const seniorPrice = service.serviceTiers?.find(t => t.tierId === 'senior')?.price || service.price;
                 totalOriginalPrice += seniorPrice;
                 totalCost += service.cost;
             });
@@ -199,29 +198,29 @@ const PotentialImpactAnalysis = ({
 
     return (
         <div className="space-y-2">
-            <Label>Potential Financial Impact</Label>
-            <Card className="bg-muted/50">
+            <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Exposure Risk Analysis</Label>
+            <Card className="bg-muted/50 border-2">
                 <CardContent className="p-4 grid grid-cols-2 gap-4">
-                     <div className="text-center p-3 rounded-lg bg-background">
-                        <p className="text-xs text-muted-foreground">Est. Total Discount</p>
+                     <div className="text-center p-3 rounded-xl bg-background border shadow-sm">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Max Expense</p>
                         {isNaN(impact.loss) ? (
-                             <p className="text-lg font-bold text-destructive">N/A*</p>
+                             <p className="text-xl font-black text-destructive">N/A*</p>
                         ) : (
-                             <p className="text-lg font-bold text-destructive">-${impact.loss.toFixed(2)}</p>
+                             <p className="text-xl font-black text-destructive">-${impact.loss.toFixed(2)}</p>
                         )}
                     </div>
-                     <div className="text-center p-3 rounded-lg bg-background">
-                        <p className="text-xs text-muted-foreground">Est. Total Net Profit</p>
+                     <div className="text-center p-3 rounded-xl bg-background border shadow-sm">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Target Net Profit</p>
                          {isNaN(impact.profit) ? (
-                            <p className="text-lg font-bold text-primary">N/A*</p>
+                            <p className="text-xl font-black text-primary">N/A*</p>
                         ) : (
-                            <p className={cn("text-lg font-bold", impact.profit >= 0 ? "text-primary" : "text-destructive")}>${impact.profit.toFixed(2)}</p>
+                            <p className={cn("text-xl font-black", impact.profit >= 0 ? "text-primary" : "text-destructive")}>${impact.profit.toFixed(2)}</p>
                         )}
                     </div>
                 </CardContent>
                 {isNaN(impact.loss) && (
-                     <CardFooter className="p-2 pt-0">
-                        <p className="text-[10px] text-muted-foreground text-center w-full">* Cart-wide percentage discounts depend on the total value of each sale.</p>
+                     <CardFooter className="p-3 pt-0">
+                        <p className="text-[10px] text-muted-foreground text-center w-full leading-tight">* Multi-service percentage discounts depend on the total cart value. Impact cannot be pre-calculated.</p>
                      </CardFooter>
                 )}
             </Card>
@@ -303,39 +302,39 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
 
     const formId = "discount-form";
     const title = discountToEdit ? 'Edit Discount' : 'Create New Discount';
-    const description = "Fill in the details for your promotional code.";
+    const description = "Define your rules and values. Note: Only one code can be applied per transaction.";
 
     const formContent = (
       <div className="grid gap-6 py-4">
         <div className="space-y-2">
-            <Label htmlFor="code">Discount Code</Label>
-            <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} />
+            <Label htmlFor="code" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Discount Code</Label>
+            <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} className="font-black h-12 text-xl tracking-tight" />
             {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
         </div>
         <div className="space-y-2">
-            <Label htmlFor="description">Description (Internal)</Label>
-            <Textarea id="description" placeholder="e.g., Summer sale promotion" {...register('description')} />
+            <Label htmlFor="description" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Internal Description</Label>
+            <Textarea id="description" placeholder="e.g., Seasonal promotion for email subscribers." {...register('description')} />
         </div>
         <Controller
             name="type"
             control={control}
             render={({ field }) => (
                 <div className="space-y-2">
-                <Label>Type</Label>
+                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Discount Type</Label>
                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                    <div><RadioGroupItem value="percentage" id="percentage" className="peer sr-only" /><Label htmlFor="percentage" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">% Percentage</Label></div>
-                    <div><RadioGroupItem value="fixed" id="fixed" className="peer sr-only" /><Label htmlFor="fixed" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">$ Fixed Amount</Label></div>
+                    <div><RadioGroupItem value="percentage" id="percentage-edit" className="peer sr-only" /><Label htmlFor="percentage-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">% Percentage</Label></div>
+                    <div><RadioGroupItem value="fixed" id="fixed-edit" className="peer sr-only" /><Label htmlFor="fixed-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">$ Fixed Amount</Label></div>
                 </RadioGroup>
                 </div>
             )}
         />
         <div className="space-y-2">
-            <Label htmlFor="value">Value</Label>
+            <Label htmlFor="value" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Value</Label>
             <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground">
                     {discountType === 'percentage' ? <Percent /> : <DollarSign />}
                 </span>
-                <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-8" {...register('value')} />
+                <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-9 h-12 text-xl font-black" {...register('value')} />
             </div>
             {errors.value && <p className="text-sm text-destructive">{errors.value.message}</p>}
         </div>
@@ -344,20 +343,20 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
 
         <Accordion type="single" collapsible>
             <AccordionItem value="applicability" className="border-0">
-                <AccordionTrigger className="p-0 hover:no-underline font-medium text-base">Rules & Applicability</AccordionTrigger>
+                <AccordionTrigger className="p-0 hover:no-underline font-black text-[10px] uppercase tracking-widest text-muted-foreground">Rules & Applicability</AccordionTrigger>
                 <AccordionContent className="pt-4 space-y-6">
                     <div className="space-y-2">
-                        <Label>Applicability</Label>
+                        <Label className="font-bold">Applicability Rules</Label>
                         <p className="text-xs text-muted-foreground">
-                            Apply this discount to specific services, or leave empty to apply to the entire cart.
+                            Restrict this discount to specific services to protect your low-margin treatments. Leave empty to apply to the entire cart.
                         </p>
                         {selectedServices.length > 0 && (
-                            <Card>
+                            <Card className="rounded-xl border-2">
                                 <CardContent className="p-2 space-y-2">
                                     {selectedServices.map(service => (
-                                        <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                                            <span className="text-sm font-medium">{service.name}</span>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeService(service.id)} type="button">
+                                        <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2.5 rounded-lg border border-border/50">
+                                            <span className="text-xs font-bold">{service.name}</span>
+                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeService(service.id)} type="button">
                                                 <Trash2 className="h-4 w-4"/>
                                             </Button>
                                         </div>
@@ -365,9 +364,9 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                                 </CardContent>
                             </Card>
                         )}
-                        <Button variant="outline" type="button" className="w-full" onClick={() => setIsServiceSelectorOpen(true)}>
+                        <Button variant="outline" type="button" className="w-full h-11 border-dashed" onClick={() => setIsServiceSelectorOpen(true)}>
                             <PlusCircle className="mr-2 h-4 w-4"/>
-                            {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
+                            {selectedServices.length > 0 ? 'Modify Service Restrictions' : 'Restrict to Specific Services'}
                         </Button>
                     </div>
 
@@ -376,9 +375,9 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                     )}
 
                     <div className="space-y-2">
-                        <Label htmlFor="usage-limit">Usage Limit</Label>
-                        <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
-                        <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
+                        <Label htmlFor="usage-limit" className="font-bold">Total Usage Limit</Label>
+                        <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} className="h-11" />
+                        <p className="text-[10px] text-muted-foreground font-medium uppercase">Set to 0 for unlimited campaign duration.</p>
                     </div>
 
                     <PotentialImpactAnalysis 
@@ -388,12 +387,15 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                         selectedServices={selectedServices}
                     />
 
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="limit-per-customer" className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" />One use per customer</Label>
+                    <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/20">
+                        <div className="space-y-0.5">
+                            <Label htmlFor="limit-per-customer" className="font-bold flex items-center gap-2">One use per customer</Label>
+                            <p className="text-[10px] text-muted-foreground uppercase font-black">Prevents repeat exploitation</p>
+                        </div>
                         <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
                     </div>
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="is-active">Active</Label>
+                    <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/20">
+                        <Label htmlFor="is-active" className="font-bold">Status: Active</Label>
                         <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
                     </div>
                 </AccordionContent>
@@ -404,25 +406,30 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
 
         <Accordion type="single" collapsible defaultValue={initialTrigger !== 'none' ? 'automation' : undefined}>
             <AccordionItem value="automation" className="border-0">
-                <AccordionTrigger className="p-0 hover:no-underline font-medium text-base">Automation</AccordionTrigger>
+                <AccordionTrigger className="p-0 hover:no-underline font-black text-[10px] uppercase tracking-widest text-muted-foreground">Smart Automation</AccordionTrigger>
                  <AccordionContent className="pt-4 space-y-4">
-                    <p className="text-xs text-muted-foreground">Set up rules to automatically suggest this discount at checkout.</p>
+                    <Alert className="bg-primary/5 border-primary/20">
+                        <Wand className="h-4 w-4 text-primary" />
+                        <AlertDescription className="text-xs">
+                            Automated discounts are intelligently suggested in the POS whenever an eligible client is checked out.
+                        </AlertDescription>
+                    </Alert>
                     <Controller
                         name="automation.trigger"
                         control={control}
                         render={({ field }) => (
                         <div className="space-y-2">
-                            <Label>Trigger</Label>
+                            <Label className="font-bold">Trigger Rule</Label>
                             <Select onValueChange={field.onChange} value={field.value}>
-                            <SelectTrigger>
+                            <SelectTrigger className="h-11">
                                 <SelectValue placeholder="No Automation" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="none">None (Manual Entry Only)</SelectItem>
-                                <SelectItem value="new_client">New Client's First Visit</SelectItem>
-                                <SelectItem value="loyalty">Loyalty (After X Visits)</SelectItem>
-                                <SelectItem value="re_engagement">Re-engagement (After Inactivity)</SelectItem>
-                                <SelectItem value="birthday">Birthday Special</SelectItem>
+                                <SelectItem value="none">Manual Entry Only</SelectItem>
+                                <SelectItem value="new_client">New Client Welcome (1st Visit)</SelectItem>
+                                <SelectItem value="loyalty">Loyalty Milestone (Visits)</SelectItem>
+                                <SelectItem value="re_engagement">Win-Back (Inactivity)</SelectItem>
+                                <SelectItem value="birthday">Birthday Celebration</SelectItem>
                             </SelectContent>
                             </Select>
                         </div>
@@ -434,9 +441,9 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                         control={control}
                         render={({ field }) => (
                             <div className="space-y-2">
-                            <Label>Appointment Threshold</Label>
-                            <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} />
-                            <p className="text-xs text-muted-foreground">Trigger when the client completes this many appointments.</p>
+                            <Label className="font-bold">Visit Threshold</Label>
+                            <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} className="h-11" />
+                            <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger reward after this many completed services.</p>
                             </div>
                         )}
                         />
@@ -447,20 +454,12 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                         control={control}
                         render={({ field }) => (
                             <div className="space-y-2">
-                            <Label>Days Since Last Visit</Label>
-                            <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} />
-                            <p className="text-xs text-muted-foreground">Trigger when a client hasn't visited in this many days.</p>
+                            <Label className="font-bold">Days of Inactivity</Label>
+                            <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} className="h-11" />
+                            <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger win-back offer after this many days away.</p>
                             </div>
                         )}
                         />
-                    )}
-                    {automationTrigger === 'birthday' && (
-                        <Alert>
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertDescription>
-                            This discount will be suggested for clients whose birthday is in the current month.
-                            </AlertDescription>
-                        </Alert>
                     )}
                  </AccordionContent>
             </AccordionItem>
@@ -475,7 +474,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
         <>
             <DialogComponent open={open} onOpenChange={onOpenChange}>
                 <ContentComponent
-                    className={isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-md"}
+                    className={isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-xl"}
                     side={isMobile ? "bottom" : undefined}
                 >
                     <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
@@ -491,7 +490,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                         <DialogFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 pt-4")}>
                            <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
                                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-                                <Button type="submit">Save Discount</Button>
+                                <Button type="submit">Save Discount & Apply Rules</Button>
                             </div>
                         </DialogFooter>
                     </form>
