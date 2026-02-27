@@ -8,7 +8,7 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion } from 'f
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package } from '@/lib/data';
 import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
-import { isSameDay, parseISO, addMonths } from 'date-fns';
+import { isSameDay, parseISO, addMonths, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -148,6 +148,19 @@ export default function BookingPage() {
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
         await setDocumentNonBlocking(checkInDocRef, newAppointment, {});
+
+        // Notify staff member
+        if (newAppointment.staffId) {
+            const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
+            addDocumentNonBlocking(notificationsRef, {
+                userId: newAppointment.staffId,
+                type: 'new_appointment',
+                message: `New booking: ${formData.clientName} for ${selectedService?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
         
         toast({
           title: 'Booking Confirmed!',

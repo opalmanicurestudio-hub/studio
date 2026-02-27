@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
@@ -38,7 +37,6 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
 
-    const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
     const [clearedNotificationIds, setClearedNotificationIds] = useState<Set<string>>(new Set());
 
@@ -127,7 +125,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     }, [userNotificationsData, readNotificationIds]);
 
     const licenseNotifications = useMemo(() => {
-        if (!staff) return [];
+        if (!staff || (role !== 'owner' && role !== 'admin')) return [];
         return staff.map(member => {
             if (!member.compliance?.licenseExpiry) return null;
 
@@ -149,10 +147,10 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             
             return null;
         }).filter((n): n is AppNotification => n !== null);
-    }, [staff, readNotificationIds]);
+    }, [staff, readNotificationIds, role]);
 
     const lowStockNotifications = useMemo(() => {
-        if (!inventory) return [];
+        if (!inventory || (role !== 'owner' && role !== 'admin')) return [];
         return inventory
             .filter(item => item.reorderPoint && item.totalStock <= item.reorderPoint)
             .map(item => {
@@ -166,10 +164,10 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
                     icon: <PackageX className="h-4 w-4 text-destructive" />
                 }
             });
-    }, [inventory, readNotificationIds]);
+    }, [inventory, readNotificationIds, role]);
 
     const expiredStockNotifications = useMemo(() => {
-        if (!inventory) return [];
+        if (!inventory || (role !== 'owner' && role !== 'admin')) return [];
         const expired: AppNotification[] = [];
         inventory.forEach(item => {
             (item.batches || []).forEach(batch => {
@@ -187,10 +185,10 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             });
         });
         return expired;
-    }, [inventory, readNotificationIds]);
+    }, [inventory, readNotificationIds, role]);
 
     const billsDueSoonNotifications = useMemo(() => {
-        if (!billInstances || !billDefinitions) return [];
+        if (!billInstances || !billDefinitions || (role !== 'owner' && role !== 'admin')) return [];
         const today = new Date();
         return billInstances
             .filter(instance => {
@@ -213,19 +211,18 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
                     icon: <Landmark className="h-4 w-4 text-orange-500" />
                 };
             });
-    }, [billInstances, billDefinitions, readNotificationIds]);
+    }, [billInstances, billDefinitions, readNotificationIds, role]);
 
-    useEffect(() => {
-        const allNotifications = [
+    const notifications = useMemo(() => {
+        return [
             ...eventRequestNotifications,
             ...licenseNotifications,
             ...lowStockNotifications,
             ...expiredStockNotifications,
             ...billsDueSoonNotifications,
             ...userSpecificNotifications,
-        ].filter(n => !clearedNotificationIds.has(String(n.id)));
-        
-        setNotifications(allNotifications.sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0)));
+        ].filter(n => !clearedNotificationIds.has(String(n.id)))
+         .sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0));
         
     }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications, userSpecificNotifications, clearedNotificationIds]);
 

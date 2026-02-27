@@ -1,10 +1,9 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, PricingTier } from '@/lib/data';
 import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
@@ -56,6 +55,15 @@ export default function StaffDetailPage() {
   const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
 
+  const allAppointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
+  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
+
+  const allEventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
+  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
+
+  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+
 
   // Filter services offered by this staff member
   const staffServices = useMemo(() => {
@@ -98,7 +106,7 @@ export default function StaffDetailPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId });
+            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId }, {});
             toast({ title: "Welcome!", description: "A new client profile has been created for you." });
         } else {
             const existingClientDoc = querySnapshot.docs[0];
@@ -121,10 +129,23 @@ export default function StaffDetailPage() {
             checkInToken: checkInToken,
         };
 
-        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment);
+        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment, {});
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-        await setDocumentNonBlocking(checkInDocRef, newAppointment);
+        await setDocumentNonBlocking(checkInDocRef, newAppointment, {});
+
+        // Notify staff member
+        if (newAppointment.staffId) {
+            const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
+            addDocumentNonBlocking(notificationsRef, {
+                userId: newAppointment.staffId,
+                type: 'new_appointment',
+                message: `New booking: ${formData.clientName} for ${selectedService?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
+                link: '/planner',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
         
         toast({
           title: 'Booking Confirmed!',
@@ -140,7 +161,7 @@ export default function StaffDetailPage() {
     }
   };
 
-  const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading || pricingTiersLoading;
+  const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading || pricingTiersLoading || appointmentsLoading || eventsLoading || scheduleProfilesLoading;
 
     const formattedSchedule = useMemo(() => {
         const availability = staffMember?.availability;
@@ -294,7 +315,7 @@ export default function StaffDetailPage() {
                     <div id="services" className="space-y-4 pt-6">
                         <h2 className="text-2xl font-bold text-center">Services</h2>
                         {staffServices.map(service => (
-                            <BookingServices services={[service]} onServiceSelect={handleServiceSelect} />
+                            <BookingServices key={service.id} services={[service]} onServiceSelect={handleServiceSelect} />
                         ))}
                     </div>
 
