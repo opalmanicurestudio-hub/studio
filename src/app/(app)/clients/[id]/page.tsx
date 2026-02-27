@@ -749,7 +749,7 @@ export default function ClientDetailPage() {
                                             )}
                                             {(client.activePackages && client.activePackages.length > 0) && (
                                                 <div className="space-y-2">
-                                                    h4 className="font-semibold text-sm">Active Packages</h4>
+                                                    <h4 className="font-semibold text-sm">Active Packages</h4>
                                                     {client.activePackages.map((pack, index) => {
                                                          const packageDetails = packages?.find(pkg => pkg.id === pack.packageId);
                                                          const serviceDetails = services?.find(s => s.id === packageDetails?.serviceId);
