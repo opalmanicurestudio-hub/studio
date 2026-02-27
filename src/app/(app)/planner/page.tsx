@@ -114,10 +114,6 @@ function PlannerPageContent() {
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   const [mobileSelectedColumnId, setMobileSelectedColumnId] = useState<string>('');
-  const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
-  const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
-  const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
     
   const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
@@ -143,12 +139,16 @@ function PlannerPageContent() {
       }
   };
 
+  const onMobileColumnChange = (id: string) => {
+      setMobileSelectedColumnId(id);
+  };
+
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), i)), [currentDate]);
 
   const dailyBillInstances = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
     const today = startOfDay(currentDate);
-    return billInstances.filter(i => i.status !== 'paid' && isBefore(startOfDay(parseISO(i.dueDate)), addDays(today, 1))).map(i => ({ ...i, definition: billDefinitions.find(def => def.id === i.billDefinitionId)! })).filter(i => i.definition).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
+    return billInstances.filter(i => i.status !== 'paid' && isBefore(startOfDay(parseISO(i.dueDate)), addDays(today, 1))).map(i => ({ ...i, definition: billDefinitions.find(def => def.id === i.billDefinitionId)! })).filter(i => i.definition).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(a.dueDate).getTime());
   }, [currentDate, billInstances, billDefinitions]);
 
   const itemsByColumn = useMemo(() => {
