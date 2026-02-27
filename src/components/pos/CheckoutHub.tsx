@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,7 +22,7 @@ import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { subMonths, parseISO, isAfter } from 'date-fns';
+import { subMonths, parseISO, isAfter, format, isSameMonth } from 'date-fns';
 
 
 export const CheckoutHub = ({ 
@@ -101,15 +101,11 @@ export const CheckoutHub = ({
     packages: Package[];
 }) => {
     
-    const [promoCode, setPromoCode] = useState('');
+    const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { inventory } = useInventory();
+    const { appointments: allAppointments } = useInventory();
     const { toast } = useToast();
 
-    useEffect(() => {
-        setPromoCode(appliedDiscountCode || '');
-    }, [appliedDiscountCode]);
-    
     const selectedClient = useMemo(() => {
         return clients.find((c: Client) => c.id === selectedClientId);
     }, [selectedClientId, clients]);
@@ -127,9 +123,46 @@ export const CheckoutHub = ({
         const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
         return [...new Set([...appointmentServiceIds, ...cartServices])];
     }, [cart, appointmentsData]);
+
+    const handleApplyDiscount = (code: string) => {
+        const d = discounts.find(d => d.code.toUpperCase() === code.toUpperCase());
+        if (d && d.isActive) {
+            setAppliedDiscountCode(d.code);
+            setPromoCodeInput('');
+            toast({ title: 'Discount Applied', description: `${d.code} applied to sale.` });
+        } else {
+            toast({ variant: 'destructive', title: 'Invalid Code', description: 'This discount code is not active or invalid.' });
+        }
+    };
+
+    const suggestedDiscounts = useMemo(() => {
+        if (!selectedClient || !discounts) return [];
+
+        return discounts.filter(d => {
+            if (!d.isActive || d.automation?.trigger === 'none') return false;
+            if (d.code === appliedDiscountCode) return false;
+
+            const trigger = d.automation?.trigger;
+
+            if (trigger === 'birthday' && selectedClient.birthday) {
+                return isSameMonth(new Date(), parseISO(selectedClient.birthday));
+            }
+
+            if (trigger === 'loyalty' && d.automation?.appointmentThreshold) {
+                const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
+                return completedCount >= d.automation.appointmentThreshold;
+            }
+
+            if (trigger === 'new_client') {
+                const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
+                return completedCount === 0;
+            }
+
+            return false;
+        });
+    }, [selectedClient, discounts, appliedDiscountCode, allAppointments]);
     
     const totalDiscount = discount + membershipDiscount;
-    
     const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
      const quickTenderOptions = useMemo(() => {
@@ -381,6 +414,65 @@ export const CheckoutHub = ({
                         </div>
                     )}
 
+                    {/* DISCOUNTS SECTION */}
+                    <div className="space-y-2 md:space-y-3">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discounts & Rewards</h3>
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                <Input 
+                                    placeholder="Enter Code..." 
+                                    value={promoCodeInput}
+                                    onChange={(e) => setPromoCodeInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)}
+                                    className="pl-8 h-9 text-xs"
+                                />
+                            </div>
+                            <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
+                        </div>
+
+                        {appliedDiscountCode && (
+                            <div className="p-2 rounded-xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle className="h-4 w-4 text-primary" />
+                                    <div>
+                                        <p className="text-xs font-black uppercase">{appliedDiscountCode}</p>
+                                        <p className="text-[10px] text-primary font-bold">-${discount.toFixed(2)} applied</p>
+                                    </div>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => setAppliedDiscountCode(undefined)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                        )}
+
+                        <AnimatePresence>
+                            {suggestedDiscounts.length > 0 && (
+                                <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-2 pt-1">
+                                    <p className="text-[9px] font-black uppercase text-amber-600 tracking-widest flex items-center gap-1.5">
+                                        <Wand2 className="h-3 w-3" /> Suggested Rewards
+                                    </p>
+                                    {suggestedDiscounts.map(d => (
+                                        <Button 
+                                            key={d.id} 
+                                            variant="outline" 
+                                            className="w-full justify-between h-auto py-2.5 px-3 border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-500/30 text-left"
+                                            onClick={() => handleApplyDiscount(d.code)}
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[11px] font-black uppercase text-amber-700 dark:text-amber-400">{d.code}</p>
+                                                <p className="text-[10px] text-muted-foreground truncate">{d.description}</p>
+                                            </div>
+                                            <div className="text-right ml-2 shrink-0">
+                                                <p className="text-xs font-black text-amber-700 dark:text-amber-400">
+                                                    {d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF
+                                                </p>
+                                            </div>
+                                        </Button>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
                     {/* ADJUSTMENTS */}
                     {(adjustments && adjustments.length > 0) && (
                         <div className="space-y-2 md:space-y-3">
@@ -510,7 +602,13 @@ export const CheckoutHub = ({
                     </div>
                 </div>
             </div>
-            <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={(code) => { setPromoCode(code); }} cartServiceIds={cartServiceIds} />
+            <BrowseDiscountsDialog 
+                open={isDiscountBrowserOpen} 
+                onOpenChange={setIsDiscountBrowserOpen} 
+                allDiscounts={discounts || []} 
+                onSelect={handleApplyDiscount} 
+                cartServiceIds={cartServiceIds} 
+            />
         </div>
     );
 };

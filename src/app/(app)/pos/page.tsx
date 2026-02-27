@@ -44,7 +44,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
-import { InServiceAppointmentCard } from '@/components/pos/InServiceCustomerCard';
+import { InServiceAppointmentCard } from '@/components/pos/InServiceAppointmentCard';
 import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 import { Separator } from '@/components/ui/separator';
 
@@ -109,10 +109,10 @@ export default function POSPage() {
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [promoCode, setPromoCode] = useState('');
+    const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const [discount, setDiscount] = useState(0);
     const [membershipDiscount, setMembershipDiscount] = useState(0);
-    const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
+    
     const router = useRouter();
     const searchParams = useSearchParams();
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
@@ -217,6 +217,38 @@ export default function POSPage() {
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter((a): a is Appointment & { client: Client; service: Service; addOnServices: Service[]; staff: Staff; groupInfo: { name: string; id: string; } | null; } => !!a);
     }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const subtotal = useMemo(() => {
+        const servicesTotal = appointmentsData.reduce((total, data) => {
+            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const addOnsPrice = (data.addOnServices || [])
+                .reduce((a, b) => a + (b.price || 0), 0);
+            return total + servicePrice + addOnsPrice;
+        }, 0);
+
+        const manualItemsTotal = retailItems.reduce((acc, item) => {
+            return acc + (item.quantity * item.price);
+        }, 0);
+        
+        return servicesTotal + manualItemsTotal;
+    }, [appointmentsData, retailItems, redeemedOffer]);
+
+    useEffect(() => {
+        if (!appliedDiscountCode || !discounts) {
+            setDiscount(0);
+            return;
+        }
+        const d = discounts.find(d => d.code === appliedDiscountCode);
+        if (d) {
+            let val = 0;
+            if (d.type === 'percentage') {
+                val = subtotal * (d.value / 100);
+            } else {
+                val = d.value;
+            }
+            setDiscount(val);
+        }
+    }, [appliedDiscountCode, discounts, subtotal]);
 
     const checkoutSummary = useMemo(() => {
         if (appointmentsData.length === 0) {
@@ -403,21 +435,6 @@ export default function POSPage() {
         setIsAddClientOpen(false);
     }
 
-    const subtotal = useMemo(() => {
-        const servicesTotal = appointmentsData.reduce((total, data) => {
-            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
-            const addOnsPrice = (data.addOnServices || [])
-                .reduce((a, b) => a + (b.price || 0), 0);
-            return total + servicePrice + addOnsPrice;
-        }, 0);
-
-        const manualItemsTotal = retailItems.reduce((acc, item) => {
-            return acc + (item.quantity * item.price);
-        }, 0);
-        
-        return servicesTotal + manualItemsTotal;
-    }, [appointmentsData, retailItems, redeemedOffer]);
-    
     const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     const retailTotalForDiscount = useMemo(() => {
