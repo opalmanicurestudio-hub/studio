@@ -44,8 +44,8 @@ export const DayTimeline = ({
     isMobile,
     activeView,
     allStaff,
-    mobileSelectedStaffId,
-    onMobileStaffChange,
+    mobileSelectedColumnId,
+    onMobileColumnChange,
 }: { 
     date: Date; 
     columns: (Staff | Resource)[];
@@ -77,8 +77,8 @@ export const DayTimeline = ({
     isMobile: boolean;
     activeView: 'staff' | 'resources';
     allStaff: Staff[];
-    mobileSelectedStaffId: string;
-    onMobileStaffChange: (id: string) => void;
+    mobileSelectedColumnId: string;
+    onMobileColumnChange: (id: string) => void;
 }) => {
     const START_HOUR = 0;
     const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -90,6 +90,13 @@ export const DayTimeline = ({
         setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
       }
     }, []);
+
+    // Filter columns for mobile view
+    const displayedColumns = useMemo(() => {
+        if (!isMobile) return columns;
+        const selected = columns.find(c => c.id === mobileSelectedColumnId);
+        return selected ? [selected] : (columns.length > 0 ? [columns[0]] : []);
+    }, [isMobile, columns, mobileSelectedColumnId]);
 
     const positionedItemsByColumn = useMemo(() => {
         const map = new Map<string, any[]>();
@@ -127,7 +134,7 @@ export const DayTimeline = ({
         const dayStart = setHours(startOfDay(date), START_HOUR);
         const service = (services || []).find(s => s.id === item.serviceId);
         let client = (clients || []).find(c => c.id === item.clientId);
-        if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' };
+        if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' } as any;
         if (!client || !service) return null;
 
         const padBefore = service.padBefore || 0;
@@ -170,19 +177,49 @@ export const DayTimeline = ({
         }
     }, [date, columns]);
 
-    const gridStyle = { gridTemplateColumns: `repeat(${columns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` };
+    const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` };
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r" style={{ width: isMobile ? '40px' : '48px' }} />
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
-                    {columns.map(column => (
+                    {displayedColumns.map(column => (
                         <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                            {isMobile && activeView === 'staff' ? (
-                                <Select value={mobileSelectedStaffId} onValueChange={onMobileStaffChange}>
-                                    <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent"><SelectValue asChild><div className="flex items-center justify-center gap-2 h-full w-full"><Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar><div><p className="font-semibold text-base truncate">{column.name}</p></div></div></SelectValue></SelectTrigger>
-                                    <SelectContent>{allStaff.map(s => (<SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>))}</SelectContent>
+                            {isMobile ? (
+                                <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
+                                    <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
+                                        <SelectValue asChild>
+                                            <div className="flex items-center justify-center gap-2 h-full w-full">
+                                                {'avatarUrl' in column ? (
+                                                    <Avatar className="w-8 h-8">
+                                                        <AvatarImage src={(column as Staff).avatarUrl} />
+                                                        <AvatarFallback>{column.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                ) : (
+                                                    (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
+                                                )}
+                                                <div><p className="font-semibold text-base truncate">{column.name}</p></div>
+                                            </div>
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {columns.map(c => (
+                                            <SelectItem key={c.id} value={c.id}>
+                                                <div className="flex items-center gap-2">
+                                                    {'avatarUrl' in c ? (
+                                                        <Avatar className="w-6 h-6">
+                                                            <AvatarImage src={(c as Staff).avatarUrl} />
+                                                            <AvatarFallback>{c.name.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                    ) : (
+                                                        (c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />
+                                                    )}
+                                                    <span>{c.name}</span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
                                 </Select>
                             ) : (
                                 <div className="flex items-center justify-center gap-2 h-full">
@@ -197,13 +234,21 @@ export const DayTimeline = ({
                     {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end"><span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
                 </div>
                 <div className="col-start-2 grid relative" style={gridStyle}>
-                    {columns.map(column => (
+                    {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r">
                             {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed" />))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => (item.itemType === 'appointment' ? renderAppointment(item) : renderEvent(item)))}
                         </div>
                     ))}
-                    {isToday(date) && <div className="absolute w-full flex items-center z-20" style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}><div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div><div className="h-px w-full bg-red-500"></div></div>}
+                    {isToday(date) && (
+                        <div 
+                            className="absolute w-full flex items-center z-20 pointer-events-none" 
+                            style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}
+                        >
+                            <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1.25 border-2 border-background shadow-sm"></div>
+                            <div className="h-px w-full bg-red-500/50"></div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

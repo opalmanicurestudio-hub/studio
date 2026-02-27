@@ -33,7 +33,7 @@ import {
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
+import { useFirebase, useCollection, useDoc, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
 import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch, addDoc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -82,7 +82,6 @@ function PlannerPageContent() {
 
   const { data: checkIns } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
   
-  // Appointments and events are already formatted as Date objects by the InventoryProvider
   const appointments = useMemo(() => {
     if (!appointmentsFromInventory) return [];
     if (!checkIns) return appointmentsFromInventory;
@@ -114,19 +113,37 @@ function PlannerPageContent() {
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
-  const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
+  const [mobileSelectedColumnId, setMobileSelectedColumnId] = useState<string>('');
   const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
+  const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
     
   const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
   const { data: resources } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const staff = useMemo(() => (role === 'staff' && user) ? (allStaff || []).filter(s => s.id === user.uid) : (allStaff || []), [allStaff, role, user]);
-  useEffect(() => { if (staff?.length > 0 && !mobileSelectedStaffId) setMobileSelectedStaffId(staff[0].id); }, [staff, mobileSelectedStaffId]);
+  
+  // Set initial mobile column when staff or resources load
+  useEffect(() => { 
+    if (activeView === 'staff' && staff?.length > 0 && !mobileSelectedColumnId) {
+        setMobileSelectedColumnId(staff[0].id); 
+    } else if (activeView === 'resources' && resources?.length > 0 && !mobileSelectedColumnId) {
+        setMobileSelectedColumnId(resources[0].id);
+    }
+  }, [staff, resources, activeView, mobileSelectedColumnId]);
+
+  // Handle view change on mobile
+  const handleViewChange = (v: 'staff' | 'resources') => {
+      setActiveView(v);
+      if (v === 'staff' && staff?.length > 0) {
+          setMobileSelectedColumnId(staff[0].id);
+      } else if (v === 'resources' && resources?.length > 0) {
+          setMobileSelectedColumnId(resources[0].id);
+      }
+  };
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), i)), [currentDate]);
 
@@ -197,7 +214,7 @@ function PlannerPageContent() {
                         <Button variant="outline" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
                         <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
                         <Separator orientation="vertical" className="h-6" />
-                        <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5">
+                        <RadioGroup value={activeView} onValueChange={(v: any) => handleViewChange(v)} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5">
                             <Label htmlFor="staff-view" className="flex items-center justify-center rounded-sm p-1 cursor-pointer transition-colors peer-data-[state=checked]:bg-background"><User className="h-3.5 w-3.5" /><RadioGroupItem value="staff" id="staff-view" className="sr-only" /></Label>
                             <Label htmlFor="res-view" className="flex items-center justify-center rounded-sm p-1 cursor-pointer transition-colors peer-data-[state=checked]:bg-background"><Building className="h-3.5 w-3.5" /><RadioGroupItem value="resources" id="res-view" className="sr-only" /></Label>
                         </RadioGroup>
@@ -223,9 +240,13 @@ function PlannerPageContent() {
       
       <main className="flex-1 flex flex-col min-h-0">
             <DayTimeline 
-                date={currentDate} columns={activeView === 'staff' ? staff : resources || []} itemsByColumn={itemsByColumn}
+                date={currentDate} 
+                columns={activeView === 'staff' ? staff : resources || []} 
+                itemsByColumn={itemsByColumn}
                 showColumnHeader={activeView === 'resources'} isMobile={isMobile || false} activeView={activeView}
-                allStaff={allStaff || []} mobileSelectedStaffId={mobileSelectedStaffId} onMobileStaffChange={setMobileSelectedStaffId}
+                allStaff={allStaff || []} 
+                mobileSelectedColumnId={mobileSelectedColumnId} 
+                onMobileColumnChange={setMobileSelectedColumnId}
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onPrintReceipt={setReceiptToPrint} onPrintTicket={setTicketToPrint} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
@@ -257,7 +278,7 @@ function PlannerPageContent() {
       {selectedAppointment && <EditAppointmentDialog open={isEditAppointmentOpen} onOpenChange={setIsEditAppointmentOpen} appointment={selectedAppointment} clients={clients || []} services={services || []} appointments={appointments || []} onConfirm={a => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', a.id), a)} />}
       
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           <DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader>
           <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
           <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Cancel</Button></DialogFooter>
