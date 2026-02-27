@@ -95,8 +95,8 @@ export const CheckoutHub = ({
     appliedAdjustments: Set<string>;
     onApplyAdjustmentToggle: (adjustmentId: string, apply: boolean) => void;
     absorbedCost: number;
-    redeemedOffer: { type: 'membership' | 'package'; id: string } | null;
-    setRedeemedOffer: (offer: { type: 'membership' | 'package'; id: string } | null) => void;
+    redeemedOffer: { type: 'membership' | 'package' | 'retail_discount'; id: string } | null;
+    setRedeemedOffer: (offer: { type: 'membership' | 'package' | 'retail_discount'; id: string } | null) => void;
     memberships: Membership[];
     packages: Package[];
 }) => {
@@ -328,6 +328,56 @@ export const CheckoutHub = ({
                                     <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-3.5 h-3.5"/></Button>
                                 </div>
                             ))}
+                            
+                            {/* Membership Retail Discount Support */}
+                            {selectedClient && (
+                                <div className="mt-2">
+                                    {(() => {
+                                        const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
+                                        const retailDiscount = membership?.retailDiscount;
+                                        const retailDiscountLimit = membership?.retailDiscountLimit || 0;
+                                        
+                                        if (!retailDiscount) return null;
+
+                                        const isRedeemed = redeemedOffer?.type === 'retail_discount';
+                                        const usage = selectedClient.subscription?.perkUsage?.['retail_discount'] || 0;
+                                        
+                                        const isUsedInThisCycle = selectedClient.subscription?.nextBillingDate ? (
+                                            isAfter(parseISO(selectedClient.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(selectedClient.subscription.nextBillingDate), 1))
+                                        ) : false;
+
+                                        const effectiveUsage = isUsedInThisCycle ? usage : 0;
+                                        const hasUsesLeft = retailDiscountLimit === 0 || effectiveUsage < retailDiscountLimit;
+
+                                        if (!hasUsesLeft && !isRedeemed) return null;
+
+                                        return (
+                                            <Card className={cn("border-2", isRedeemed ? "bg-primary/5 border-primary" : "border-indigo-500/20")}>
+                                                <CardContent className="p-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <div>
+                                                            <p className="font-bold text-xs">{retailDiscount}% Member Retail Discount</p>
+                                                            {retailDiscountLimit > 0 && (
+                                                                <p className="text-[9px] text-muted-foreground uppercase font-black">
+                                                                    {effectiveUsage}/{retailDiscountLimit} Used this cycle
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                        <Button 
+                                                            variant={isRedeemed ? "outline" : "secondary"} 
+                                                            size="sm" 
+                                                            className="h-8 text-[10px] font-black uppercase"
+                                                            onClick={() => setRedeemedOffer(isRedeemed ? null : { type: 'retail_discount', id: 'retail_discount' })}
+                                                        >
+                                                            {isRedeemed ? 'Remove' : 'Apply'}
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })()}
+                                </div>
+                            )}
                         </div>
                     )}
 

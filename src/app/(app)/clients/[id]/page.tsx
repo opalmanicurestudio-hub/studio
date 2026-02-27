@@ -342,10 +342,20 @@ export default function ClientDetailPage() {
 
     // Now check the quantity for this specific perk
     const usageCount = client.subscription.perkUsage?.[perkId] || 0;
-    const membership = memberships?.find(m => m.id === client.subscription!.membershipId);
-    const perkDef = membership?.includedServices?.find(s => s.id === perkId) || membership?.includedAddOns?.find(a => a.id === perkId);
     
-    return usageCount >= (perkDef?.quantity || 1);
+    // Handle both specific service perks and the retail discount perk
+    let perkDefQuantity = 1;
+    if (perkId === 'retail_discount') {
+        perkDefQuantity = activeMembership?.retailDiscountLimit || 0;
+    } else {
+        const perkDef = activeMembership?.includedServices?.find(s => s.id === perkId) || activeMembership?.includedAddOns?.find(a => a.id === perkId);
+        perkDefQuantity = perkDef?.quantity || 1;
+    }
+    
+    // If quantity is 0, it means unlimited
+    if (perkDefQuantity === 0) return false;
+
+    return usageCount >= perkDefQuantity;
   };
 
   const safeLTV = useMemo(() => {
@@ -696,6 +706,20 @@ export default function ClientDetailPage() {
                                                                     </div>
                                                                 )
                                                             })}
+                                                            {activeMembership.retailDiscount && (
+                                                                <div className="flex justify-between items-center text-sm">
+                                                                    <span className="flex items-center gap-2">
+                                                                        {isPerkUsedInCycle('retail_discount') ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Percent className="w-4 h-4 text-indigo-400" />}
+                                                                        Retail Discount ({activeMembership.retailDiscount}%)
+                                                                    </span>
+                                                                    <span className="font-medium">
+                                                                        {activeMembership.retailDiscountLimit === 0 
+                                                                            ? 'Unlimited' 
+                                                                            : `${client.subscription?.perkUsage?.['retail_discount'] || 0} / ${activeMembership.retailDiscountLimit} used`
+                                                                        }
+                                                                    </span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                                                             <div className="space-y-1">

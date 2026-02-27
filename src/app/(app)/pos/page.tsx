@@ -115,7 +115,7 @@ export default function POSPage() {
     const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | undefined>(undefined);
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
+    const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
     const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
@@ -429,16 +429,29 @@ export default function POSPage() {
     useEffect(() => {
         if (client && client.subscription?.status === 'active') {
             const membership = memberships.find(m => m.id === client.subscription!.membershipId);
+            
+            // Apply automatic membership discount if no limit or handled automatically
             if (membership?.retailDiscount && retailTotalForDiscount > 0) {
-                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
-                setMembershipDiscount(discountValue);
+                // If there's a limit, it's handled via 'redeemedOffer' in CheckoutHub manually
+                if (!membership.retailDiscountLimit || membership.retailDiscountLimit === 0) {
+                    const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                    setMembershipDiscount(discountValue);
+                } else {
+                    // Manual limited redemption
+                    if (redeemedOffer?.type === 'retail_discount') {
+                        const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                        setMembershipDiscount(discountValue);
+                    } else {
+                        setMembershipDiscount(0);
+                    }
+                }
             } else {
                 setMembershipDiscount(0);
             }
         } else {
             setMembershipDiscount(0);
         }
-    }, [client, retailTotalForDiscount, memberships]);
+    }, [client, retailTotalForDiscount, memberships, redeemedOffer]);
 
     const totalDiscount = discount + membershipDiscount;
     const subtotalAfterDiscounts = Math.max(0, (subtotal + additionalCharge) - totalDiscount);
@@ -1138,7 +1151,7 @@ export default function POSPage() {
         let finalPreTaxRevenue = 0;
         
         appointmentsData.forEach(data => {
-            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const servicePrice = redeemedOffer?.id === data.service?.id && (redeemedOffer.type === 'membership' || redeemedOffer.type === 'package') ? 0 : data.service?.price || 0;
             const addOnsPrice = (data.addOnServices || []).reduce((a, b) => a + (b.price || 0), 0);
             finalPreTaxRevenue += (servicePrice + addOnsPrice);
         });
@@ -1162,7 +1175,7 @@ export default function POSPage() {
 
         for (const data of appointmentsData) {
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', data.id);
-            const servicePrice = redeemedOffer?.id === data.service?.id ? 0 : data.service?.price || 0;
+            const servicePrice = redeemedOffer?.id === data.service?.id && (redeemedOffer.type === 'membership' || redeemedOffer.type === 'package') ? 0 : data.service?.price || 0;
             
             if (redeemedOffer && redeemedOffer.id === data.service?.id) {
                 if (redeemedOffer.type === 'membership') {
@@ -1333,6 +1346,13 @@ export default function POSPage() {
             clientUpdates.activePackages = arrayUnion(...packagesToAdd);
         }
 
+        // Handle Membership Retail Discount Usage
+        if (redeemedOffer?.type === 'retail_discount') {
+            clientUpdates['subscription.perkLastUsed'] = nowISO;
+            const discountKey = `subscription.perkUsage.retail_discount`;
+            clientUpdates[discountKey] = increment(1);
+        }
+
         if (totalDiscount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), {
                 date: nowISO,
@@ -1403,7 +1423,7 @@ export default function POSPage() {
   
         const allCartItems = [
             ...appointmentsData.flatMap(d => {
-                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id ? 0 : d.service.price }] : [];
+                const mainService = d.service ? [{ name: d.service.name, quantity: 1, price: redeemedOffer?.id === d.service.id && (redeemedOffer.type === 'membership' || redeemedOffer.type === 'package') ? 0 : d.service.price }] : [];
                 const addOns = d.addOnServices.map(s => ({ name: s.name, quantity: 1, price: s.price, isDiscount: false }));
                 return [...mainService, ...addOns];
             }),

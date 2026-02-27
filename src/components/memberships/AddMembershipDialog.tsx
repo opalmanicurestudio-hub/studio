@@ -31,12 +31,13 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Trash2, DollarSign, Percent, Award } from 'lucide-react';
+import { PlusCircle, Trash2, DollarSign, Percent, Award, Info } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Membership, type Service, type InventoryItem, type MembershipPerk } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useInventory } from '@/context/InventoryContext';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -114,6 +115,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
   const [includedAddOns, setIncludedAddOns] = useState<MembershipPerk[]>([]);
   const [includedProducts, setIncludedProducts] = useState<MembershipPerk[]>([]);
   const [retailDiscount, setRetailDiscount] = useState<number>(0);
+  const [retailDiscountLimit, setRetailDiscountLimit] = useState<number>(0);
 
   const [forfeitOnLateCancel, setForfeitOnLateCancel] = useState(true);
   const [forfeitOnNoShow, setForfeitOnNoShow] = useState(true);
@@ -134,6 +136,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setIncludedAddOns(membershipToEdit.includedAddOns || []);
       setIncludedProducts(membershipToEdit.includedProducts || []);
       setRetailDiscount(membershipToEdit.retailDiscount || 0);
+      setRetailDiscountLimit(membershipToEdit.retailDiscountLimit || 0);
       setForfeitOnLateCancel(membershipToEdit.forfeitOnLateCancel);
       setForfeitOnNoShow(membershipToEdit.forfeitOnNoShow);
       setAllowRollover(membershipToEdit.allowRollover);
@@ -147,6 +150,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setIncludedAddOns([]);
       setIncludedProducts([]);
       setRetailDiscount(0);
+      setRetailDiscountLimit(0);
       setForfeitOnLateCancel(true);
       setForfeitOnNoShow(true);
       setAllowRollover(false);
@@ -165,6 +169,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       includedAddOns,
       includedProducts,
       retailDiscount,
+      retailDiscountLimit,
       forfeitOnLateCancel,
       forfeitOnNoShow,
       allowRollover,
@@ -236,8 +241,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity || ''} 
-                                    onChange={e => updatePerkQuantity('service', perk.id, parseInt(e.target.value) || 0)} 
+                                    value={perk.quantity || 1} 
+                                    onChange={e => updatePerkQuantity('service', perk.id, parseInt(e.target.value) || 1)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -259,8 +264,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity || ''} 
-                                    onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 0)} 
+                                    value={perk.quantity || 1} 
+                                    onChange={e => updatePerkQuantity('addon', perk.id, parseInt(e.target.value) || 1)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -282,8 +287,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                                 <Label className="text-[10px]">Qty</Label>
                                 <Input 
                                     type="number" 
-                                    value={perk.quantity || ''} 
-                                    onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 0)} 
+                                    value={perk.quantity || 1} 
+                                    onChange={e => updatePerkQuantity('product', perk.id, parseInt(e.target.value) || 1)} 
                                     className="w-14 h-8 text-center"
                                 />
                             </div>
@@ -294,12 +299,29 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
                 )}
                  <Button variant="outline" className="w-full" onClick={() => setIsProductSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Products</Button>
               </div>
-              <div className="space-y-2">
-                  <Label htmlFor="retail-discount">Retail Discount (%)</Label>
-                  <div className="relative">
-                      <Input id="retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="e.g., 15" className="pr-8" />
-                      <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  </div>
+              
+              <Separator />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="retail-discount">Retail Discount (%)</Label>
+                    <div className="relative">
+                        <Input id="retail-discount" type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="e.g., 15" className="pr-8" />
+                        <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="retail-discount-limit" className="flex items-center gap-2">
+                        Uses per Cycle
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                                <TooltipContent><p>Limit how many times per month/year this discount can be used. Set to 0 for unlimited.</p></TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </Label>
+                    <Input id="retail-discount-limit" type="number" value={retailDiscountLimit || ''} onChange={e => setRetailDiscountLimit(Number(e.target.value))} placeholder="0 for Unlimited" />
+                </div>
               </div>
           </CardContent>
       </Card>

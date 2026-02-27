@@ -302,6 +302,7 @@ export type AppointmentCheckoutState = {
     tipAmount: number;
     additionalCharge: number;
     absorbedCost: number;
+    redeemedRetailDiscount?: boolean;
 };
 
 export type Appointment = {
@@ -457,6 +458,7 @@ export type Membership = {
   includedAddOns?: MembershipPerk[];
   includedProducts?: MembershipPerk[];
   retailDiscount?: number;
+  retailDiscountLimit?: number; // 0 for unlimited
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;
   allowRollover: boolean;
