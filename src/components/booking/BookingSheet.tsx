@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -24,7 +23,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -56,6 +55,7 @@ import { useToast } from '@/hooks/use-toast';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -177,93 +177,99 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
     
-    const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
-    let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
-
-    const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
-
-    if (staffDaySchedule) {
-        workingHours = staffDaySchedule;
-    } else {
-        workingHours = publicScheduleProfile?.week?.[dayName];
-    }
+    // Calculate availability based on either the specific staff member or across all staff
+    const staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
     
-    if (!workingHours || !workingHours.enabled) {
-      return [];
-    }
+    const options: Set<string> = new Set();
     
-    const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
-    const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
-    
-    const busyIntervals: { start: Date, end: Date }[] = [];
+    staffMembersToCheck.forEach(staffMember => {
+        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
+        const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
 
-    appointments
-      .filter(apt => {
-        if (!isSameDay(apt.startTime, date)) return false;
-        if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
-        return true;
-      })
-      .forEach(apt => {
-        const aptService = services.find(s => s.id === apt.serviceId);
-        const padBefore = aptService?.padBefore || 0;
-        const padAfter = aptService?.padAfter || 0;
-        busyIntervals.push({
-          start: addMinutes(apt.startTime, -padBefore),
-          end: addMinutes(apt.endTime, padAfter),
-        });
-      });
-
-    events
-      .filter(evt => {
-        if (!isSameDay(evt.startTime, date)) return false;
-        if (evt.type !== 'blocked') return false;
-        return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
-      })
-      .forEach(evt => {
-        busyIntervals.push({ start: evt.startTime, end: evt.endTime });
-      });
-
-    const options: string[] = [];
-    
-    let earliestBookableTime = dayStartWithBusinessHours;
-    const now = new Date();
-
-    if (isToday(date) && now > dayStartWithBusinessHours) {
-        const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
-        const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
-        const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
-        if (intervalsToSkip > 0) {
-            earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
-        }
-    }
-    
-    let currentTime = earliestBookableTime;
-
-    while (currentTime < dayEndWithBusinessHours) {
-        const potentialStartTime = currentTime;
-        const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-        const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-        
-        if (potentialEndTime > dayEndWithBusinessHours) {
-            break;
+        if (staffDaySchedule?.enabled) {
+            workingHours = staffDaySchedule;
+        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
+            return; // Specifically off
+        } else {
+            workingHours = publicScheduleProfile?.week?.[dayName];
         }
         
-        const isOverlapping = busyIntervals.some((interval) =>
-            areIntervalsOverlapping(
-                { start: potentialStartTime, end: potentialEndTime },
-                interval,
-                { inclusive: false }
-            )
-        );
-
-        if (!isOverlapping) {
-            options.push(format(potentialStartTime, 'HH:mm'));
+        if (!workingHours || !workingHours.enabled) {
+          return;
         }
+        
+        const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
+        const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+        
+        const busyIntervals: { start: Date, end: Date }[] = [];
 
-        currentTime = addMinutes(currentTime, bookingInterval);
-    }
-    return options;
-}, [date, selectedStaffId, service, staff, appointments, events, publicScheduleProfile, services]);
+        appointments
+          .filter(apt => {
+            if (!isSameDay(apt.startTime, date)) return false;
+            if (apt.staffId !== staffMember.id) return false;
+            return true;
+          })
+          .forEach(apt => {
+            const aptService = services.find(s => s.id === apt.serviceId);
+            const padBefore = aptService?.padBefore || 0;
+            const padAfter = aptService?.padAfter || 0;
+            busyIntervals.push({
+              start: addMinutes(apt.startTime, -padBefore),
+              end: addMinutes(apt.endTime, padAfter),
+            });
+          });
+
+        events
+          .filter(evt => {
+            if (!isSameDay(evt.startTime, date)) return false;
+            if (evt.type !== 'blocked') return false;
+            return !evt.staffId || evt.staffId === 'all' || (evt.staffId === staffMember.id);
+          })
+          .forEach(evt => {
+            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
+          });
+
+        let earliestBookableTime = dayStartWithBusinessHours;
+        const now = new Date();
+
+        if (isToday(date) && now > dayStartWithBusinessHours) {
+            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
+            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
+            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
+            if (intervalsToSkip > 0) {
+                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
+            }
+        }
+        
+        let currentTime = earliestBookableTime;
+
+        while (currentTime < dayEndWithBusinessHours) {
+            const potentialStartTime = currentTime;
+            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+            
+            if (potentialEndTime > dayEndWithBusinessHours) {
+                break;
+            }
+            
+            const isOverlapping = busyIntervals.some((interval) =>
+                areIntervalsOverlapping(
+                    { start: potentialStartTime, end: potentialEndTime },
+                    interval,
+                    { inclusive: false }
+                )
+            );
+
+            if (!isOverlapping) {
+                options.add(format(potentialStartTime, 'HH:mm'));
+            }
+
+            currentTime = addMinutes(currentTime, bookingInterval);
+        }
+    });
+
+    return Array.from(options).sort();
+}, [date, selectedStaffId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];
@@ -414,8 +420,29 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
       const availableQualifiedStaff = qualifiedStaff.filter(staffMember => {
+        // Check availability for this specific day based on staff availability or business hours
+        const dayName = format(startDateTime, 'eeee').toLowerCase();
+        const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
+        
+        let workingHours;
+        if (staffDaySchedule?.enabled) {
+            workingHours = staffDaySchedule;
+        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
+            return false; // Specifically off
+        } else {
+            workingHours = publicScheduleProfile?.week?.[dayName];
+        }
+
+        if (!workingHours || !workingHours.enabled) return false;
+
+        const openTime = timeStringToDate(workingHours.start, startDateTime);
+        const closeTime = timeStringToDate(workingHours.end, startDateTime);
+        
+        if (startDateTime < openTime || endDateTime > closeTime) return false;
+
         const isBusy = appointments.some(apt => 
             apt.staffId === staffMember.id &&
+            apt.status !== 'cancelled' &&
             areIntervalsOverlapping(
                 { start: startDateTime, end: endDateTime },
                 { start: apt.startTime, end: apt.endTime },
@@ -426,13 +453,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       });
 
       if (availableQualifiedStaff.length > 0) {
-        // Simple logic: pick the first available. A more complex system could use 'fair play'.
+        // "Fair Play" logic: assign to the qualified staff member who has the longest time since their last service completion.
+        availableQualifiedStaff.sort((a, b) => {
+            const timeA = a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0;
+            const timeB = b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0;
+            return timeA - timeB; // Earliest timestamp (or no timestamp) first
+        });
         finalStaffId = availableQualifiedStaff[0].id; 
       } else {
         toast({
             variant: 'destructive',
             title: 'No staff available',
-            description: 'We apologize, but no staff members are available for the selected time. Please choose another time.',
+            description: 'We apologize, but no qualified staff members are available for the selected time. Please choose another time.',
         });
         return;
       }
