@@ -1,8 +1,8 @@
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X } from 'lucide-react';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard } from 'lucide-react';
 import { type Event, type Staff, type Appointment, type AppointmentCheckoutState, type Resource, type Membership } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
@@ -171,6 +171,36 @@ function PlannerPageContent() {
     return map;
   }, [currentDate, appointments, events, staff, resources, activeView]);
 
+  const billsDue = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
+    return billInstances.map(instance => {
+      const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+      return { ...instance, definition: definition! };
+    }).filter(item => 
+        item.definition && 
+        item.status !== 'paid' && 
+        (item.status === 'overdue' || isBefore(parseISO(item.dueDate), addDays(new Date(), 1)))
+    );
+  }, [billInstances, billDefinitions]);
+
+  const kpis = useMemo(() => {
+    if (!appointments || !transactions) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
+    
+    const start = startOfWeek(currentDate);
+    const end = endOfDay(addDays(start, 6));
+
+    const weekTransactions = transactions.filter(t => t.date >= start && t.date <= end && t.type === 'income' && t.category === 'Service Revenue');
+    const weeklyRevenue = weekTransactions.reduce((acc, t) => acc + t.amount, 0);
+
+    return {
+        weeklyRevenue,
+        projectedRevenue: weeklyRevenue * 1.2,
+        weeklyBreakEven: 1500,
+        weeklyNetProfit: weeklyRevenue - 1500,
+        absorbedCosts: 120,
+    };
+  }, [currentDate, appointments, transactions]);
+
   const handleScan = useCallback((data: string) => {
     if (!appointments) return;
     const raw = data.trim();
@@ -223,7 +253,7 @@ function PlannerPageContent() {
         description: "The appointment has been sent to the front desk for checkout."
     });
     setIsTechnicianReviewOpen(false);
-    setIsDetailsOpen(false); // Immediately close details sheet to stop timers
+    setIsDetailsOpen(false);
   };
 
   const handleAddAppointment = async (data: any) => {
@@ -252,7 +282,7 @@ function PlannerPageContent() {
     if (apt?.checkInToken) {
         updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
     }
-  }
+  };
 
   const handleAddEvent = (data: any) => {
     if (!firestore || !tenantId) return;
@@ -261,6 +291,44 @@ function PlannerPageContent() {
     setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), event, {});
     setIsAddEventOpen(false);
     toast({ title: "Event Added" });
+  };
+
+  const handleLogPaymentConfirm = (paymentData: any) => {
+    if (!selectedBill || !firestore || !user || !tenantId) return;
+    
+    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    const newAmountPaid = (selectedBill.amountPaid || 0) + paymentData.amount;
+    const newAmountDue = selectedBill.amountDue - paymentData.amount;
+    const newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+    
+    updateDocumentNonBlocking(billInstanceRef, {
+        amountPaid: newAmountPaid,
+        amountDue: newAmountDue,
+        status: newStatus
+    });
+
+    const newTransaction: Omit<Transaction, 'id'> = {
+        date: paymentData.date.toISOString(),
+        description: `Payment for ${selectedBill.definition.name}`,
+        clientOrVendor: selectedBill.definition.name,
+        type: 'payment',
+        context: selectedBill.definition.context,
+        category: selectedBill.definition.category,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        hasReceipt: !!paymentData.receiptUrl,
+        receiptUrl: paymentData.receiptUrl,
+        relatedBillInstanceId: selectedBill.id,
+    };
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, newTransaction);
+    
+    toast({
+        title: "Payment Logged",
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+    })
+
+    setSelectedBill(null);
   };
 
   return (
@@ -280,8 +348,35 @@ function PlannerPageContent() {
                         </RadioGroup>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4" /></Button>
-                        <Button size="sm" className="hidden lg:flex" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
+                        {(role === 'owner' || role === 'admin') && (
+                            <div className="flex items-center gap-2 mr-2">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="outline" size="icon" className="relative h-8 w-8" onClick={() => setIsBillsSheetOpen(true)}>
+                                                <CreditCard className="h-4 w-4" />
+                                                {billsDue.length > 0 && (
+                                                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white">
+                                                        {billsDue.length}
+                                                    </span>
+                                                )}
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Bills Due</p></TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
+                                                <BarChart className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Weekly Stats</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
+                        )}
+                        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4" /></Button>
+                        <Button size="sm" className="hidden lg:flex h-8" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                     </div>
                 </div>
                 <ScrollArea className="w-full">
@@ -362,6 +457,33 @@ function PlannerPageContent() {
         onNewAppointmentClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
         onNewEventClick={() => setIsAddEventOpen(true)}
       />
+
+      <BillsDueSheet 
+        open={isBillsSheetOpen} 
+        onOpenChange={setIsBillsSheetOpen} 
+        billInstances={billsDue as any} 
+        isMobile={isMobile || false} 
+        onLogPaymentClick={(instance) => {
+            setSelectedBill(instance as any);
+            setIsBillsSheetOpen(false);
+        }}
+      />
+
+      <WeeklyKpiSheet 
+        open={isKpiSheetOpen} 
+        onOpenChange={setIsKpiSheetOpen} 
+        kpis={kpis} 
+        isMobile={isMobile || false} 
+      />
+
+      {selectedBill && (
+        <LogPaymentDialog
+            open={!!selectedBill}
+            onOpenChange={(isOpen) => !isOpen && setSelectedBill(null)}
+            billInstance={selectedBill}
+            onConfirm={handleLogPaymentConfirm}
+        />
+      )}
     </div>
   );
 }
