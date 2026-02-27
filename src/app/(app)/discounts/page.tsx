@@ -221,37 +221,53 @@ export default function DiscountsPage() {
         }
     };
     
-    const kpiData = useMemo(() => {
+    const { kpiData, savingsByCode } = useMemo(() => {
         if (!transactions || !discounts || !appointments) {
           return {
-            grossSales: 0,
-            netSales: 0,
-            discountsApplied: 0,
-            promoEffectiveness: 0,
-            mostPopularCode: 'N/A',
-            totalRedemptions: 0,
+            kpiData: { grossSales: 0, netSales: 0, discountsApplied: 0, promoEffectiveness: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
+            savingsByCode: {} as Record<string, number>
           };
         }
 
         const incomeTransactions = transactions.filter(
-          (t) => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail')
+          (t) => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail' || t.category === 'Membership/Package Sales')
         );
     
-        const discountedTransactions = incomeTransactions.filter(t => t.discountAmount && t.discountAmount > 0);
-        const totalRedemptions = discountedTransactions.length;
+        const discountTransactions = transactions.filter(t => t.type === 'expense' && t.category === 'Discounts');
+        
+        // Accurate total redemptions by summing usageCount from all discount docs
+        const totalRedemptions = (discounts || []).reduce((sum, d) => sum + (d.usageCount || 0), 0);
 
-        const netSales = discountedTransactions.reduce((acc, t) => acc + t.amount, 0);
-        const discountsApplied = discountedTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
+        const netSales = incomeTransactions.reduce((acc, t) => acc + t.amount, 0);
+        const discountsApplied = discountTransactions.reduce((acc, t) => acc + t.amount, 0);
         const grossSales = netSales + discountsApplied;
     
-        const uniqueDiscountedClientIds = new Set(discountedTransactions.map(t => t.clientId).filter((id): id is string => !!id));
+        // Calculate savings per code by parsing the discount transactions
+        const codeSavings: Record<string, number> = {};
+        const codeCounts: Record<string, number> = {};
+
+        discountTransactions.forEach(t => {
+            if (t.appliedDiscountCode) {
+                const codes = t.appliedDiscountCode.split(',').map(c => c.trim());
+                // Split the expense amount proportionally among codes used in that transaction
+                const perCodeAmount = t.amount / codes.length;
+                codes.forEach(c => {
+                    if (c) {
+                        codeSavings[c] = (codeSavings[c] || 0) + perCodeAmount;
+                        codeCounts[c] = (codeCounts[c] || 0) + 1;
+                    }
+                });
+            }
+        });
+
+        const uniqueDiscountedClientIds = new Set(discountTransactions.map(t => t.clientId).filter((id): id is string => !!id));
         
         let retainedClients = 0;
         uniqueDiscountedClientIds.forEach(clientId => {
-            const clientDiscountedTransactions = discountedTransactions.filter(t => t.clientId === clientId);
-            if (clientDiscountedTransactions.length === 0) return;
+            const clientDiscountTransactions = discountTransactions.filter(t => t.clientId === clientId);
+            if (clientDiscountTransactions.length === 0) return;
             
-            const lastDiscountedTx = clientDiscountedTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            const lastDiscountedTx = clientDiscountTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
             
             const hasSubsequentAppointment = appointments.some(apt => 
                 apt.clientId === clientId && 
@@ -267,24 +283,20 @@ export default function DiscountsPage() {
           ? (retainedClients / uniqueDiscountedClientIds.size) * 100 
           : 0;
     
-        const codeCounts = discountedTransactions.reduce((acc, t) => {
-            if(t.appliedDiscountCode) {
-                acc[t.appliedDiscountCode] = (acc[t.appliedDiscountCode] || 0) + 1;
-            }
-            return acc;
-        }, {} as Record<string, number>);
-    
         const mostPopularCode = Object.keys(codeCounts).length > 0 
             ? Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]
             : 'N/A';
     
         return {
-          grossSales,
-          netSales,
-          discountsApplied,
-          promoEffectiveness,
-          mostPopularCode,
-          totalRedemptions,
+          kpiData: {
+            grossSales,
+            netSales,
+            discountsApplied,
+            promoEffectiveness,
+            mostPopularCode,
+            totalRedemptions,
+          },
+          savingsByCode: codeSavings
         };
       }, [transactions, discounts, appointments]);
     
@@ -350,7 +362,7 @@ export default function DiscountsPage() {
                         </CardHeader>
                         <CardContent>
                         <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
-                        <p className="text-xs text-muted-foreground">Total times any discount was used.</p>
+                        <p className="text-xs text-muted-foreground">Sum of usage counts from all active codes.</p>
                         </CardContent>
                     </Card>
                      <Card>
@@ -400,7 +412,13 @@ export default function DiscountsPage() {
                                 ) : filteredDiscounts.length > 0 ? (
                                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {filteredDiscounts.map(discount => (
-                                            <DiscountCard key={discount.id} discount={discount} onEdit={handleEdit} onDelete={handleDelete} />
+                                            <DiscountCard 
+                                                key={discount.id} 
+                                                discount={discount} 
+                                                onEdit={handleEdit} 
+                                                onDelete={handleDelete}
+                                                totalSavings={savingsByCode[discount.code.toUpperCase()] || 0}
+                                            />
                                         ))}
                                     </div>
                                 ) : (
@@ -494,7 +512,4 @@ export default function DiscountsPage() {
             </main>
         </div>
     )
-
-    
-
 }

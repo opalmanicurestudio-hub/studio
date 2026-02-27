@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -1393,6 +1394,7 @@ export default function POSPage() {
                 amount: totalDiscount,
                 paymentMethod: 'Internal',
                 hasReceipt: false,
+                appliedDiscountCode: appliedDiscountCodes.join(', '),
             });
         }
 
