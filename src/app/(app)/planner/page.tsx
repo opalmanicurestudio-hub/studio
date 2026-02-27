@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -88,8 +89,6 @@ function PlannerPageContent() {
     const checkInMap = new Map(checkIns.map(ci => [ci.checkInToken, ci]));
     return appointmentsFromInventory.map(apt => {
         const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
-        // CRITICAL: Only override status if the main record is still in early stages.
-        // Once a service has started or reached checkout, the main record is the source of truth.
         const shouldOverrideStatus = apt.status === 'confirmed' || apt.status === 'deposit_pending';
         return ci ? { 
             ...apt, 
@@ -193,7 +192,14 @@ function PlannerPageContent() {
 
   const handleUpdateStatus = (id: string, status: Appointment['status']) => {
     if (!firestore || !tenantId) return;
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), { status });
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+    updateDocumentNonBlocking(appointmentRef, { status });
+    
+    const apt = appointments?.find(a => a.id === id);
+    if (apt?.checkInToken) {
+        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status });
+    }
+
     toast({ title: "Status Updated", description: `Appointment status changed to ${status}.` });
   };
 
@@ -218,6 +224,7 @@ function PlannerPageContent() {
         description: "The appointment has been sent to the front desk for checkout."
     });
     setIsTechnicianReviewOpen(false);
+    setIsDetailsOpen(false); // Immediately close details sheet to stop timers
   };
 
   const handleAddAppointment = async (data: any) => {
@@ -235,6 +242,18 @@ function PlannerPageContent() {
       setSelectedAppointment(apt);
       setIsTechnicianReviewOpen(true);
   };
+
+  const handleStartService = (id: string) => {
+    if (!firestore || !tenantId) return;
+    const now = new Date().toISOString();
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: now });
+    
+    const apt = appointments?.find(a => a.id === id);
+    if (apt?.checkInToken) {
+        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
+    }
+  }
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -285,7 +304,7 @@ function PlannerPageContent() {
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
                 dailyTransactions={transactions?.filter(t => isSameDay(new Date(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
-                onStartService={id => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id), { status: 'servicing', actualStartTime: new Date().toISOString() })}
+                onStartService={handleStartService}
                 onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
                 onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
                 walkIns={walkIns} clients={clients} services={services} resources={resources || []} publicScheduleProfile={publicScheduleProfile}
@@ -297,7 +316,7 @@ function PlannerPageContent() {
         client={clients?.find(c => c.id === selectedAppointment?.clientId) || null}
         service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
         tmhr={tmhr} transactions={transactions || []}
-        onStartService={id => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id), { status: 'servicing', actualStartTime: new Date().toISOString() })}
+        onStartService={handleStartService}
         onFinishService={handleFinishService}
         onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
         onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -168,7 +169,20 @@ export default function POSPage() {
             description: "The appointment has been sent to the front desk for checkout."
         });
         setIsTechnicianReviewOpen(false);
+        setIsDetailsOpen(false); // Stop any timers by closing the details sheet
     };
+
+    const handleStartService = (id: string) => {
+        if (!firestore || !tenantId) return;
+        const now = new Date().toISOString();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: now });
+        
+        const apt = appointments?.find(a => a.id === id);
+        if (apt?.checkInToken) {
+            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
+        }
+    }
 
     return (
         <>
@@ -205,7 +219,9 @@ export default function POSPage() {
                 client={clients?.find(c => c.id === viewingAppointment?.clientId) || null}
                 service={services?.find(s => s.id === viewingAppointment?.serviceId) || null}
                 tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
-                onStartService={() => {}} onFinishService={handleFinishService} onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
+                onStartService={handleStartService} 
+                onFinishService={handleFinishService} 
+                onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
                 resources={[]}
             />
 
