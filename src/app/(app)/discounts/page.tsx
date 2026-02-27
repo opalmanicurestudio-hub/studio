@@ -231,20 +231,22 @@ export default function DiscountsPage() {
 
         const discountTransactions = transactions.filter(t => t.type === 'expense' && t.category === 'Discounts');
         
-        // Accurate total redemptions by summing usageCount from all discount docs
+        // Sum total redemptions from all discount objects directly
         const totalRedemptions = (discounts || []).reduce((sum, d) => sum + (d.usageCount || 0), 0);
 
+        // Sum the total "marketing expense" from the ledger
         const totalDiscountsValue = discountTransactions.reduce((acc, t) => acc + t.amount, 0);
     
-        // Calculate savings per code by parsing the discount transactions
+        // Distribute transaction-level savings to specific codes
         const codeSavings: Record<string, number> = {};
         const codeCounts: Record<string, number> = {};
 
         discountTransactions.forEach(t => {
             if (t.appliedDiscountCode) {
+                // If stacking was used, we distribute the total discount amount equally among the codes
+                // This is an accurate reflection of the total ledger impact
                 const codes = t.appliedDiscountCode.split(',').map(c => c.trim());
-                // Split the expense amount proportionally among codes used in that transaction
-                const perCodeAmount = t.amount / codes.length;
+                const perCodeAmount = t.amount / (codes.length || 1);
                 codes.forEach(c => {
                     if (c) {
                         const upperC = c.toUpperCase();
