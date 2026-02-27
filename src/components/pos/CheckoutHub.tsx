@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2, X } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2, X, ShoppingCart, ChevronDown } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,7 +15,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Progress } from '@/components/ui/progress';
+import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Switch } from '../ui/switch';
@@ -302,166 +302,181 @@ export const CheckoutHub = ({
 
             <ScrollArea className="flex-1 min-h-0 my-2 md:my-4 px-4 md:px-0">
                 <div className="space-y-4 md:space-y-6 pb-4">
-                    {/* APPOINTMENT ITEMS */}
-                    {appointmentsData.length > 0 && (
-                        <div className="space-y-2 md:space-y-3">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Services</h3>
-                            {appointmentsData.map(data => {
-                                const { service, client } = data;
-                                if (!service || !client) return null;
+                    {/* ACCORDION WRAPPER FOR ITEMS */}
+                    <Accordion type="single" collapsible defaultValue="items" className="w-full">
+                        <AccordionItem value="items" className="border-none">
+                            <AccordionTrigger className="p-0 hover:no-underline py-2">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                    <ShoppingCart className="w-3 h-3" />
+                                    Items in Sale ({appointmentsData.length + cart.length})
+                                </h3>
+                            </AccordionTrigger>
+                            <AccordionContent className="pt-2 pb-4">
+                                <div className="space-y-4">
+                                    {/* APPOINTMENT ITEMS */}
+                                    {appointmentsData.length > 0 && (
+                                        <div className="space-y-2">
+                                            {appointmentsData.map(data => {
+                                                const { service, client } = data;
+                                                if (!service || !client) return null;
 
-                                const isRedeemed = redeemedOffer?.id === service.id;
+                                                const isRedeemed = redeemedOffer?.id === service.id;
 
-                                const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
-                                const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
-                                
-                                const currentPerkUsage = client.subscription?.perkUsage?.[service.id] || 0;
-                                const isUsedInThisCycle = client.subscription?.nextBillingDate ? (
-                                    isAfter(parseISO(client.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(client.subscription.nextBillingDate), 1))
-                                ) : false;
+                                                const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
+                                                const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
+                                                
+                                                const currentPerkUsage = client.subscription?.perkUsage?.[service.id] || 0;
+                                                const isUsedInThisCycle = client.subscription?.nextBillingDate ? (
+                                                    isAfter(parseISO(client.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(client.subscription.nextBillingDate), 1))
+                                                ) : false;
 
-                                const effectiveUsageCount = isUsedInThisCycle ? currentPerkUsage : 0;
-                                const hasMembershipPerk = !!membershipPerk && effectiveUsageCount < membershipPerk.quantity;
-                                
-                                const packagePerk = client.activePackages?.find(p => {
-                                    const packageDetails = packages.find(pkg => pkg.id === p.packageId);
-                                    return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
-                                });
+                                                const effectiveUsageCount = isUsedInThisCycle ? currentPerkUsage : 0;
+                                                const hasMembershipPerk = !!membershipPerk && effectiveUsageCount < membershipPerk.quantity;
+                                                
+                                                const packagePerk = client.activePackages?.find(p => {
+                                                    const packageDetails = packages.find(pkg => pkg.id === p.packageId);
+                                                    return packageDetails?.serviceId === service.id && p.sessionsRemaining > 0;
+                                                });
 
-                                const hasPerk = hasMembershipPerk || !!packagePerk;
-                                
-                                const handleRedeem = () => {
-                                    if (isRedeemed) {
-                                        setRedeemedOffer(null);
-                                    } else if (redeemedOffer) {
-                                        toast({ variant: 'destructive', title: 'Only one offer can be redeemed per transaction.' });
-                                    } else {
-                                        setRedeemedOffer({ type: packagePerk ? 'package' : 'membership', id: service.id });
-                                    }
-                                };
-                                
-                                if (!hasPerk && !isRedeemed) {
-                                    return (
-                                        <div key={data.id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-muted/20 border rounded-xl">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-bold text-xs md:text-sm truncate">
-                                                    {service.name}
-                                                </p>
-                                                {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
-                                            </div>
-                                            <p className="font-bold font-mono text-xs md:text-sm">
-                                                ${(service.price || 0).toFixed(2)}
-                                            </p>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5"/></Button>
+                                                const hasPerk = hasMembershipPerk || !!packagePerk;
+                                                
+                                                const handleRedeem = () => {
+                                                    if (isRedeemed) {
+                                                        setRedeemedOffer(null);
+                                                    } else if (redeemedOffer) {
+                                                        toast({ variant: 'destructive', title: 'Only one offer can be redeemed per transaction.' });
+                                                    } else {
+                                                        setRedeemedOffer({ type: packagePerk ? 'package' : 'membership', id: service.id });
+                                                    }
+                                                };
+                                                
+                                                if (!hasPerk && !isRedeemed) {
+                                                    return (
+                                                        <div key={data.id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-muted/20 border rounded-xl">
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-bold text-xs md:text-sm truncate">
+                                                                    {service.name}
+                                                                </p>
+                                                                {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
+                                                            </div>
+                                                            <p className="font-bold font-mono text-xs md:text-sm">
+                                                                ${(service.price || 0).toFixed(2)}
+                                                            </p>
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5"/></Button>
+                                                        </div>
+                                                    )
+                                                }
+                                            
+                                                return (
+                                                    <Card key={data.id} className={cn("overflow-hidden rounded-xl border-2", isRedeemed ? "bg-primary/5 border-primary shadow-sm" : "border-indigo-500/20")}>
+                                                        <CardContent className="p-2 md:p-3">
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="font-bold text-xs md:text-sm truncate">
+                                                                        {service.name}
+                                                                    </p>
+                                                                    {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
+                                                                    <p className={cn("text-xs md:text-sm font-black mt-1 font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>
+                                                                        ${(service.price || 0).toFixed(2)}
+                                                                    </p>
+                                                                </div>
+                                                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                                            </div>
+
+                                                            {isRedeemed ? (
+                                                                <div className="mt-2 p-1.5 rounded-lg bg-green-500/10 text-green-700 dark:text-green-300 flex items-center justify-between border border-green-500/20">
+                                                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tight">
+                                                                        <CheckCircle className="w-3 h-3" />
+                                                                        Perk Applied
+                                                                    </div>
+                                                                    <Button variant="ghost" size="xs" onClick={handleRedeem} className="h-5 px-1.5 text-[9px] font-bold uppercase hover:bg-green-500/20 text-green-700 dark:text-green-300 underline">Undo</Button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="mt-2">
+                                                                    <Button variant="secondary" size="sm" className="w-full text-[10px] md:text-[11px] h-8 md:h-9 font-bold uppercase tracking-tight" onClick={handleRedeem}>
+                                                                        {hasMembershipPerk && <><Award className="w-3 h-3 mr-1.5 text-indigo-500"/>Redeem ({effectiveUsageCount}/{membershipPerk.quantity})</>}
+                                                                        {packagePerk && <><Repeat className="w-3 h-3 mr-1.5 text-teal-500"/>Use 1 Session</>}
+                                                                    </Button>
+                                                                </div>
+                                                            )}
+                                                        </CardContent>
+                                                    </Card>
+                                                )
+                                            })}
                                         </div>
-                                    )
-                                }
-                            
-                                return (
-                                    <Card key={data.id} className={cn("overflow-hidden rounded-xl border-2", isRedeemed ? "bg-primary/5 border-primary shadow-sm" : "border-indigo-500/20")}>
-                                        <CardContent className="p-2 md:p-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-bold text-xs md:text-sm truncate">
-                                                        {service.name}
-                                                    </p>
-                                                    {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
-                                                    <p className={cn("text-xs md:text-sm font-black mt-1 font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>
-                                                        ${(service.price || 0).toFixed(2)}
-                                                    </p>
-                                                </div>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                            </div>
+                                    )}
 
-                                            {isRedeemed ? (
-                                                <div className="mt-2 p-1.5 rounded-lg bg-green-500/10 text-green-700 dark:text-green-300 flex items-center justify-between border border-green-500/20">
-                                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tight">
-                                                        <CheckCircle className="w-3 h-3" />
-                                                        Perk Applied
+                                    {/* RETAIL ITEMS */}
+                                    {cart.length > 0 && (
+                                        <div className="space-y-2">
+                                            {cart.map(item => (
+                                                <div key={item.id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-muted/20 border rounded-xl">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-bold text-xs md:text-sm truncate">{item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}</p>
+                                                        <p className="text-[9px] md:text-[10px] text-muted-foreground uppercase font-bold">{item.type}</p>
                                                     </div>
-                                                    <Button variant="ghost" size="xs" onClick={handleRedeem} className="h-5 px-1.5 text-[9px] font-bold uppercase hover:bg-green-500/20 text-green-700 dark:text-green-300 underline">Undo</Button>
+                                                    <p className="font-bold font-mono text-xs md:text-sm">${(item.price * item.quantity).toFixed(2)}</p>
+                                                    <div className="flex items-center gap-1">
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-3.5 h-3.5"/></Button>
+                                                    </div>
                                                 </div>
-                                            ) : (
+                                            ))}
+                                            
+                                            {/* Membership Retail Discount Support */}
+                                            {selectedClient && (
                                                 <div className="mt-2">
-                                                    <Button variant="secondary" size="sm" className="w-full text-[10px] md:text-[11px] h-8 md:h-9 font-bold uppercase tracking-tight" onClick={handleRedeem}>
-                                                        {hasMembershipPerk && <><Award className="w-3 h-3 mr-1.5 text-indigo-500"/>Redeem ({effectiveUsageCount}/{membershipPerk.quantity})</>}
-                                                        {packagePerk && <><Repeat className="w-3 h-3 mr-1.5 text-teal-500"/>Use 1 Session</>}
-                                                    </Button>
+                                                    {(() => {
+                                                        const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
+                                                        const retailDiscount = membership?.retailDiscount;
+                                                        const retailDiscountLimit = membership?.retailDiscountLimit || 0;
+                                                        
+                                                        if (!retailDiscount) return null;
+
+                                                        const isRedeemed = redeemedOffer?.type === 'retail_discount';
+                                                        const usage = selectedClient.subscription?.perkUsage?.['retail_discount'] || 0;
+                                                        
+                                                        const isUsedInThisCycle = selectedClient.subscription?.nextBillingDate ? (
+                                                            isAfter(parseISO(selectedClient.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(selectedClient.subscription.nextBillingDate), 1))
+                                                        ) : false;
+
+                                                        const effectiveUsage = isUsedInThisCycle ? usage : 0;
+                                                        const hasUsesLeft = retailDiscountLimit === 0 || effectiveUsage < retailDiscountLimit;
+
+                                                        if (!hasUsesLeft && !isRedeemed) return null;
+
+                                                        return (
+                                                            <Card className={cn("border-2", isRedeemed ? "bg-primary/5 border-primary" : "border-indigo-500/20")}>
+                                                                <CardContent className="p-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div>
+                                                                            <p className="font-bold text-xs">{retailDiscount}% Member Retail Discount</p>
+                                                                            {retailDiscountLimit > 0 && (
+                                                                                <p className="text-[9px] text-muted-foreground uppercase font-black">
+                                                                                    {effectiveUsage}/{retailDiscountLimit} Used this cycle
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                        <Button 
+                                                                            variant={isRedeemed ? "outline" : "secondary"} 
+                                                                            size="sm" 
+                                                                            className="h-8 text-[10px] font-black uppercase"
+                                                                            onClick={() => setRedeemedOffer(isRedeemed ? null : { type: 'retail_discount', id: 'retail_discount' })}
+                                                                        >
+                                                                            {isRedeemed ? 'Remove' : 'Apply'}
+                                                                        </Button>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        );
+                                                    })()}
                                                 </div>
                                             )}
-                                        </CardContent>
-                                    </Card>
-                                )
-                            })}
-                        </div>
-                    )}
-
-                    {/* RETAIL ITEMS */}
-                    {cart.length > 0 && (
-                        <div className="space-y-2 md:space-y-3">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Retail & Products</h3>
-                            {cart.map(item => (
-                                <div key={item.id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-muted/20 border rounded-xl">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-xs md:text-sm truncate">{item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}</p>
-                                        <p className="text-[9px] md:text-[10px] text-muted-foreground uppercase font-bold">{item.type}</p>
-                                    </div>
-                                    <p className="font-bold font-mono text-xs md:text-sm">${(item.price * item.quantity).toFixed(2)}</p>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-3.5 h-3.5"/></Button>
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
-                            
-                            {/* Membership Retail Discount Support */}
-                            {selectedClient && (
-                                <div className="mt-2">
-                                    {(() => {
-                                        const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
-                                        const retailDiscount = membership?.retailDiscount;
-                                        const retailDiscountLimit = membership?.retailDiscountLimit || 0;
-                                        
-                                        if (!retailDiscount) return null;
-
-                                        const isRedeemed = redeemedOffer?.type === 'retail_discount';
-                                        const usage = selectedClient.subscription?.perkUsage?.['retail_discount'] || 0;
-                                        
-                                        const isUsedInThisCycle = selectedClient.subscription?.nextBillingDate ? (
-                                            isAfter(parseISO(selectedClient.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(selectedClient.subscription.nextBillingDate), 1))
-                                        ) : false;
-
-                                        const effectiveUsage = isUsedInThisCycle ? usage : 0;
-                                        const hasUsesLeft = retailDiscountLimit === 0 || effectiveUsage < retailDiscountLimit;
-
-                                        if (!hasUsesLeft && !isRedeemed) return null;
-
-                                        return (
-                                            <Card className={cn("border-2", isRedeemed ? "bg-primary/5 border-primary" : "border-indigo-500/20")}>
-                                                <CardContent className="p-3">
-                                                    <div className="flex justify-between items-center">
-                                                        <div>
-                                                            <p className="font-bold text-xs">{retailDiscount}% Member Retail Discount</p>
-                                                            {retailDiscountLimit > 0 && (
-                                                                <p className="text-[9px] text-muted-foreground uppercase font-black">
-                                                                    {effectiveUsage}/{retailDiscountLimit} Used this cycle
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        <Button 
-                                                            variant={isRedeemed ? "outline" : "secondary"} 
-                                                            size="sm" 
-                                                            className="h-8 text-[10px] font-black uppercase"
-                                                            onClick={() => setRedeemedOffer(isRedeemed ? null : { type: 'retail_discount', id: 'retail_discount' })}
-                                                        >
-                                                            {isRedeemed ? 'Remove' : 'Apply'}
-                                                        </Button>
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
-                                        );
-                                    })()}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
 
                     {/* DISCOUNTS SECTION */}
                     <div className="space-y-2 md:space-y-3">
