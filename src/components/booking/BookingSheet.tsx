@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -10,7 +9,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   type Service,
@@ -20,10 +19,11 @@ import {
   type Tenant,
   type ConsentForm,
   type PricingTier,
+  type Client,
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -42,8 +42,6 @@ import {
   addMinutes,
   isBefore,
   isToday,
-  getDay,
-  parse,
   parseISO,
 } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -53,7 +51,6 @@ import { z } from 'zod';
 import { PhoneInput } from '../ui/phone-input';
 import { useToast } from '@/hooks/use-toast';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
-import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
@@ -65,20 +62,19 @@ const bookingSchema = z.object({
 
 type BookingFormData = z.infer<typeof bookingSchema>;
 
-
 const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
     const isAnyStaff = staff.id === 'any';
     return (
         <label htmlFor={`staff-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
-            <Card className={cn('transition-all', isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50', disabled && 'bg-muted/50 hover:border-muted')}>
+            <Card className={cn('transition-all', isSelected ? 'border-primary ring-2 ring-primary shadow-md' : 'hover:border-primary/50', disabled && 'bg-muted/50 hover:border-muted')}>
                 <CardContent className="p-4 flex flex-col items-center gap-3">
-                    <Avatar className="w-16 h-16">
-                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
-                        <AvatarFallback className="text-muted-foreground">
+                    <Avatar className="w-16 h-16 border-2 border-background shadow-inner">
+                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
+                        <AvatarFallback className="text-muted-foreground bg-muted">
                             {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
                         </AvatarFallback>
                     </Avatar>
-                    <p className="font-semibold text-sm text-center">{staff.name}</p>
+                    <p className="font-semibold text-sm text-center truncate w-full">{staff.name}</p>
                     <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" disabled={disabled} />
                 </CardContent>
             </Card>
@@ -101,6 +97,7 @@ interface BookingSheetProps {
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
     setBookingStep: (step: string) => void
   ) => void;
 }
@@ -108,21 +105,11 @@ interface BookingSheetProps {
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-
-    if (!timeStr) {
-      return d;
-    }
-
+    if (!timeStr) return d;
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
-
-    if (period === 'PM' && hours < 12) {
-        hours += 12;
-    }
-    if (period === 'AM' && hours === 12) {
-        hours = 0;
-    }
-
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
     d.setHours(hours, minutes);
     return d;
 }
@@ -141,13 +128,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   tenant,
   onConfirm,
 }) => {
-  if (!service) return null
-  
   const [selectedStaffId, setSelectedStaffId] = useState(initialStaffId || 'any');
   const [date, setDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-
-  const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
+  const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
   const [isDepositPaid, setIsDepositPaid] = useState(false);
   const { toast } = useToast();
 
@@ -155,119 +139,62 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     resolver: zodResolver(bookingSchema),
   });
 
-  const { control, handleSubmit, register, formState: { errors } } = methods;
+  const { handleSubmit } = methods;
 
   const qualifiedStaff = useMemo(() => {
-    if (!service?.requiredSkills || service.requiredSkills.length === 0) {
-        return staff;
-    }
-    return staff.filter(s => 
-        service.requiredSkills!.every(skill => (s.skillSet || []).includes(skill))
-    );
+    if (!service?.requiredSkills || service.requiredSkills.length === 0) return staff;
+    return staff.filter(s => service.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
   }, [service, staff]);
   
   const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const timeSlots = useMemo(() => {
     if (!service || !date || !publicScheduleProfile || !staff || !services) return [];
-
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
-    
-    // Calculate availability based on either the specific staff member or across all staff
     const staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
-    
     const options: Set<string> = new Set();
     
     staffMembersToCheck.forEach(staffMember => {
-        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
+        let workingHours;
         const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
-
-        if (staffDaySchedule?.enabled) {
-            workingHours = staffDaySchedule;
-        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
-            return; // Specifically off
-        } else {
-            workingHours = publicScheduleProfile?.week?.[dayName];
-        }
+        if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
+        else if (staffDaySchedule && !staffDaySchedule.enabled) return;
+        else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) {
-          return;
-        }
-        
+        if (!workingHours || !workingHours.enabled) return;
         const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
         const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
-        
         const busyIntervals: { start: Date, end: Date }[] = [];
 
-        appointments
-          .filter(apt => {
-            if (!isSameDay(apt.startTime, date)) return false;
-            if (apt.staffId !== staffMember.id) return false;
-            return true;
-          })
-          .forEach(apt => {
+        appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
-            const padBefore = aptService?.padBefore || 0;
-            const padAfter = aptService?.padAfter || 0;
-            busyIntervals.push({
-              start: addMinutes(apt.startTime, -padBefore),
-              end: addMinutes(apt.endTime, padAfter),
-            });
-          });
+            busyIntervals.push({ start: addMinutes(apt.startTime, -(aptService?.padBefore || 0)), end: addMinutes(apt.endTime, (aptService?.padAfter || 0)) });
+        });
 
-        events
-          .filter(evt => {
-            if (!isSameDay(evt.startTime, date)) return false;
-            if (evt.type !== 'blocked') return false;
-            return !evt.staffId || evt.staffId === 'all' || (evt.staffId === staffMember.id);
-          })
-          .forEach(evt => {
+        events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === staffMember.id)).forEach(evt => {
             busyIntervals.push({ start: evt.startTime, end: evt.endTime });
-          });
+        });
 
-        let earliestBookableTime = dayStartWithBusinessHours;
+        let currentTime = dayStartWithBusinessHours;
         const now = new Date();
-
-        if (isToday(date) && now > dayStartWithBusinessHours) {
-            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
-            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
-            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
-            if (intervalsToSkip > 0) {
-                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
-            }
+        if (isToday(date)) {
+            const minSinceStart = (now.getHours() * 60) + now.getMinutes();
+            const busStartMin = (currentTime.getHours() * 60) + currentTime.getMinutes();
+            const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
+            if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
         }
         
-        let currentTime = earliestBookableTime;
-
         while (currentTime < dayEndWithBusinessHours) {
-            const potentialStartTime = currentTime;
-            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-            
-            if (potentialEndTime > dayEndWithBusinessHours) {
-                break;
-            }
-            
-            const isOverlapping = busyIntervals.some((interval) =>
-                areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    interval,
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.add(format(potentialStartTime, 'HH:mm'));
-            }
-
+            const potentialEnd = addMinutes(currentTime, service.duration + (service.padBefore || 0) + (service.padAfter || 0));
+            if (potentialEnd > dayEndWithBusinessHours) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            if (!isOverlapping) options.add(format(currentTime, 'HH:mm'));
             currentTime = addMinutes(currentTime, bookingInterval);
         }
     });
-
     return Array.from(options).sort();
 }, [date, selectedStaffId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services]);
 
@@ -277,33 +204,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     }, [service, consentForms]);
     
     const { price, priceRange } = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0) {
-          return { price: service.price, priceRange: null };
-        }
-    
+        if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null };
         if (selectedStaffId && selectedStaffId !== 'any') {
           const staffMember = staff.find(s => s.id === selectedStaffId);
-          const staffPricingTierId = staffMember?.pricingTierId;
-    
-          if (staffPricingTierId) {
-            const tierPricing = service.serviceTiers.find(t => t.tierId === staffPricingTierId);
-            if (tierPricing) {
-              return { price: tierPricing.price, priceRange: null };
-            }
-          }
-          return { price: service.price, priceRange: null }; // Fallback
+          const tierPricing = service.serviceTiers.find(t => t.tierId === staffMember?.pricingTierId);
+          if (tierPricing) return { price: tierPricing.price, priceRange: null };
         }
-        
         const prices = service.serviceTiers.map(t => t.price);
-        if (prices.length === 0) return { price: service.price, priceRange: null };
-    
         const minPrice = Math.min(...prices);
         const maxPrice = Math.max(...prices);
-    
-        if (minPrice === maxPrice) {
-            return { price: minPrice, priceRange: null };
-        }
-        
+        if (minPrice === maxPrice) return { price: minPrice, priceRange: null };
         return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
       }, [service, selectedStaffId, staff]);
 
@@ -312,9 +222,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (service.depositType === 'full') return price;
         if (service.depositType === 'breakeven') return service.cost;
         if (service.depositType === 'deposit') {
-            if (service.depositSubType === 'percentage') {
-                return price * ((service.depositAmount || 0) / 100);
-            }
+            if (service.depositSubType === 'percentage') return price * ((service.depositAmount || 0) / 100);
             return service.depositAmount || 0;
         }
         return 0;
@@ -331,245 +239,125 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const currentStep = steps[currentStepIndex];
-    const progress = useMemo(() => ((currentStepIndex + 1) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
+    const progress = useMemo(() => ((currentStepIndex) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
 
   useEffect(() => {
     if (open) {
-        if (initialStaffId) {
-            setSelectedStaffId(initialStaffId);
-            setCurrentStepIndex(1); // Skip to dateTime step
-        } else {
-            setSelectedStaffId('any');
-            setCurrentStepIndex(0); // Start at staff selection
-        }
-        // Reset other states
-        setSelectedTime(null);
-        setDate(new Date());
-        methods.reset();
-        setCompletedForms(new Set());
-        setIsDepositPaid(false);
+        if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
+        else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
+        setSelectedTime(null); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false);
     }
-}, [open, initialStaffId, methods]);
+  }, [open, initialStaffId, methods]);
 
   const handleNextStep = async () => {
-    let isValid = true;
-
-    if (currentStep === 'dateTime' && !selectedTime) {
-      toast({ variant: 'destructive', title: 'Please select a time.' });
-      isValid = false;
-    }
-    if (currentStep === 'details') {
-      isValid = await methods.trigger(['clientName', 'clientEmail']);
-    }
+    if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
+    if (currentStep === 'details') { const valid = await methods.trigger(['clientName', 'clientEmail']); if (!valid) return; }
     if (currentStep === 'consents') {
-        if (completedForms.size < requiredForms.length) {
-            toast({ variant: 'destructive', title: 'Please complete all required forms.' });
-            isValid = false;
-        }
+        const allCompleted = requiredForms.every(form => {
+            const answers = formAnswers[form.id] || {};
+            return (form.fields || []).every(f => {
+                if (f.type === 'heading' || f.type === 'paragraph') return true;
+                const ans = answers[f.id];
+                return ans !== undefined && ans !== null && ans !== '';
+            });
+        });
+        if (!allCompleted) { toast({ variant: 'destructive', title: 'Incomplete Forms', description: 'Please fill out all required fields and sign all forms.' }); return; }
     }
-     if (currentStep === 'payment') {
-        if (!isDepositPaid) {
-            // In a real app this would be a Stripe interaction. For now, we simulate success.
-            setIsDepositPaid(true);
-            toast({ title: "Deposit Paid!", description: "Your deposit has been processed."});
-        }
-    }
+    if (currentStep === 'payment' && !isDepositPaid) { setIsDepositPaid(true); toast({ title: "Deposit Paid!" }); }
     
-    // Check if we are on the final step before confirmation
-    const isFinalStepBeforeConfirm = steps[currentStepIndex + 1] === 'confirmation';
-
-    if (isValid) {
-        if (isFinalStepBeforeConfirm) {
-            handleSubmit(handleConfirmBooking)();
-            return; // Exit here, form submission handles the last step
-        }
-        if (currentStepIndex < steps.length - 1) {
-            setCurrentStepIndex(currentStepIndex + 1);
-        }
-    }
-  };
-
-  const handlePrevStep = () => {
-    if (currentStepIndex > 0) {
-      // Don't allow changing staff if one was pre-selected
-      if (initialStaffId && currentStepIndex === 1) return;
-      setCurrentStepIndex(currentStepIndex - 1);
-    }
+    if (steps[currentStepIndex + 1] === 'confirmation') { handleSubmit(handleConfirmBooking)(); return; }
+    setCurrentStepIndex(currentStepIndex + 1);
   };
 
   const handleStaffSelect = (staffId: string) => {
     if (initialStaffId) return;
-    setSelectedStaffId(staffId);
-    setCurrentStepIndex(1);
-    setSelectedTime(null);
+    setSelectedStaffId(staffId); setCurrentStepIndex(1); setSelectedTime(null);
   };
   
   const handleConfirmBooking = (data: BookingFormData) => {
     if (!service || !selectedTime) return;
-
     const [hours, minutes] = selectedTime.split(':').map(Number);
     const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, service.duration);
 
-    const clientData = {
-      clientName: data.clientName,
-      clientEmail: data.clientEmail,
-      clientPhone: data.clientPhone,
-    };
+    const clientData = { clientName: data.clientName, clientEmail: data.clientEmail, clientPhone: data.clientPhone };
 
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
-      const availableQualifiedStaff = qualifiedStaff.filter(staffMember => {
-        // Check availability for this specific day based on staff availability or business hours
-        const dayName = format(startDateTime, 'eeee').toLowerCase();
-        const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
-        
-        let workingHours;
-        if (staffDaySchedule?.enabled) {
-            workingHours = staffDaySchedule;
-        } else if (staffDaySchedule && !staffDaySchedule.enabled) {
-            return false; // Specifically off
-        } else {
-            workingHours = publicScheduleProfile?.week?.[dayName];
-        }
-
-        if (!workingHours || !workingHours.enabled) return false;
-
-        const openTime = timeStringToDate(workingHours.start, startDateTime);
-        const closeTime = timeStringToDate(workingHours.end, startDateTime);
-        
-        if (startDateTime < openTime || endDateTime > closeTime) return false;
-
-        const isBusy = appointments.some(apt => 
-            apt.staffId === staffMember.id &&
-            apt.status !== 'cancelled' &&
-            areIntervalsOverlapping(
-                { start: startDateTime, end: endDateTime },
-                { start: apt.startTime, end: apt.endTime },
-                { inclusive: false }
-            )
-        );
-        return !isBusy;
+      const available = qualifiedStaff.filter(s => {
+        const day = format(startDateTime, 'eeee').toLowerCase();
+        const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
+        if (!sched?.enabled) return false;
+        const openT = timeStringToDate(sched.start, startDateTime);
+        const closeT = timeStringToDate(sched.end, startDateTime);
+        if (startDateTime < openT || endDateTime > closeT) return false;
+        return !appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }));
       });
-
-      if (availableQualifiedStaff.length > 0) {
-        // "Fair Play" logic: assign to the qualified staff member who has the longest time since their last service completion.
-        availableQualifiedStaff.sort((a, b) => {
-            const timeA = a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0;
-            const timeB = b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0;
-            return timeA - timeB; // Earliest timestamp (or no timestamp) first
-        });
-        finalStaffId = availableQualifiedStaff[0].id; 
-      } else {
-        toast({
-            variant: 'destructive',
-            title: 'No staff available',
-            description: 'We apologize, but no qualified staff members are available for the selected time. Please choose another time.',
-        });
-        return;
-      }
+      if (available.length > 0) {
+        available.sort((a, b) => (a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0));
+        finalStaffId = available[0].id;
+      } else { toast({ variant: 'destructive', title: 'No staff available' }); return; }
     }
 
-    const appointmentDetails = {
-      serviceId: service.id,
-      staffId: finalStaffId,
-      startTime: startDateTime.toISOString(),
-      endTime: endDateTime.toISOString(),
-      status: 'confirmed' as const,
-      isWalkIn: false,
-    };
-    
-    onConfirm(clientData, appointmentDetails, (step) => setCurrentStepIndex(steps.indexOf(step)));
+    const signedForms = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
+    onConfirm(clientData, { serviceId: service.id, staffId: finalStaffId, startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(), status: 'confirmed', isWalkIn: false }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
-        <SheetHeader className="p-6 pb-4">
-          <SheetTitle>Book Your Appointment</SheetTitle>
-          {currentStep !== 'confirmation' && <div className="pt-2"><Progress value={progress} className="h-2" /></div>}
+      <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col border-l-0 sm:border-l">
+        <SheetHeader className="p-6 pb-4 bg-muted/30">
+          <SheetTitle className="text-2xl font-bold">Book Appointment</SheetTitle>
+          {currentStep !== 'confirmation' && <div className="pt-2"><Progress value={progress} className="h-1.5" /></div>}
         </SheetHeader>
         <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
                 {currentStep === 'confirmation' ? (
-                    <div className="text-center py-10">
-                        <CheckCircle className="w-16 h-16 mx-auto text-green-500 mb-4" />
-                        <h2 className="text-2xl font-bold">Booking Confirmed!</h2>
-                        <p className="text-muted-foreground mt-2">
-                            Your appointment for a {service?.name} is all set. We've sent a confirmation to your email.
-                        </p>
+                    <div className="text-center py-12 space-y-4">
+                        <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto">
+                            <CheckCircle className="w-10 h-10 text-green-500" />
+                        </div>
+                        <h2 className="text-3xl font-bold">You're All Set!</h2>
+                        <p className="text-muted-foreground">Your appointment for <strong>{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
+                        <Button className="mt-4" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
                     </div>
                 ) : (
                     <>
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-medium">Your Selected Service</h3>
-                                {currentStep !== 'staff' && <Button variant="link" size="sm" className="p-0" onClick={() => onOpenChange(false)}>Change</Button>}
-                            </div>
-                            <Card className="bg-muted/50">
+                            <div className="flex items-center justify-between"><h3 className="font-bold flex items-center gap-2 text-lg"><Clock className="w-5 h-5 text-primary" /> Service</h3>{currentStep !== 'staff' && <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} className="h-auto p-0 text-muted-foreground underline">Change</Button>}</div>
+                            <Card className="overflow-hidden border-2">
                                 <CardContent className="p-4 flex gap-4 items-center">
-                                    <Image src={service?.imageUrl || 'https://picsum.photos/seed/1/100/100'} alt={service?.name || ''} width={80} height={80} className="rounded-md object-cover" />
-                                    <div className="space-y-1">
-                                        <p className="font-semibold">{service?.name}</p>
+                                    <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted"><Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" /></div>
+                                    <div className="flex-1 space-y-1">
+                                        <p className="font-bold text-lg leading-tight">{service?.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
-                                            <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service?.duration} min</span>
-                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{priceRange ? `From $${priceRange.min.toFixed(2)}` : price?.toFixed(2) ?? '0.00'}</span>
+                                            <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/>{service?.duration} min</span>
+                                            <span className="flex items-center gap-1.5 font-bold text-foreground"><DollarSign className="w-3.5 h-3.5"/>{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
                                         </div>
                                     </div>
                                 </CardContent>
                             </Card>
                         </div>
                         
-                        {currentStepIndex > 0 && currentStep !== 'confirmation' && (
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Provider</h3>
-                                    <Button variant="link" size="sm" className="p-0" onClick={handlePrevStep}>Change</Button>
-                                </div>
-                                <p className="text-muted-foreground text-sm">Selected: {selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</p>
-                            </div>
-                        )}
-                        
                         {currentStep === 'staff' && (
                            <div className="space-y-4">
-                                <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Choose Your Provider</h3>
-                                <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    <StaffSelectionCard 
-                                        staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} 
-                                        isSelected={selectedStaffId === 'any'}
-                                        disabled={!!initialStaffId}
-                                    />
-                                    {qualifiedStaff.map(s => (
-                                        <StaffSelectionCard 
-                                            key={s.id} 
-                                            staff={s} 
-                                            isSelected={selectedStaffId === s.id}
-                                            disabled={!!initialStaffId && s.id !== initialStaffId}
-                                        />
-                                    ))}
+                                <h3 className="text-lg font-bold flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> Choose Your Provider</h3>
+                                <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 gap-4">
+                                    <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} disabled={!!initialStaffId} />
+                                    {qualifiedStaff.map(s => <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} />)}
                                 </RadioGroup>
-                            </div>
-                        )}
-
-                        {currentStepIndex > 1 && currentStep !== 'confirmation' && (
-                             <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Date & Time</h3>
-                                    <Button variant="link" size="sm" className="p-0" onClick={() => setCurrentStepIndex(1)}>Change</Button>
-                                </div>
-                                <p className="text-muted-foreground text-sm">Selected: {format(date, 'EEEE, LLL d, yyyy')} at {selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</p>
                             </div>
                         )}
 
                         {currentStep === 'dateTime' && (
                              <div className="space-y-4">
-                                <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Select Date & Time</h3>
-                                <div className="p-4 rounded-lg border space-y-4">
-                                    <div className="flex items-center justify-between"><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
-                                    <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
-                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
-                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
-                                        {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>)}
+                                <h3 className="text-lg font-bold flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" /> Select Date & Time</h3>
+                                <div className="p-4 rounded-xl border-2 space-y-4 bg-muted/10">
+                                    <div className="flex items-center justify-between"><Button variant="ghost" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-bold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="ghost" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
+                                    <div className="grid grid-cols-7 gap-1.5">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border transition-all aspect-square", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-md scale-105" : "bg-background hover:border-primary/50", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button"><span className="text-[10px] uppercase font-bold">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
+                                    <div className="grid grid-cols-3 gap-2 pt-4 border-t">
+                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)} className={cn("h-11 font-semibold", selectedTime === time && "shadow-md")}>{format(timeStringToDate(time, new Date()), 'h:mm a')}</Button>))}
+                                        {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-8">No availability for this day.</p>)}
                                     </div>
                                 </div>
                             </div>
@@ -577,67 +365,68 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         
                         {currentStep === 'details' && (
                             <FormProvider {...methods}>
-                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)}>
+                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-6">
+                                    <h3 className="text-lg font-bold flex items-center gap-2"><User className="w-5 h-5 text-primary" /> Your Information</h3>
                                     <div className="space-y-4">
-                                        <h3 className="text-lg font-medium">Your Information</h3>
-                                        <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" {...register('clientName')} />{errors.clientName && <p className="text-sm text-destructive">{errors.clientName.message}</p>}</div>
-                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register('clientEmail')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
-                                        <PhoneInput name="clientPhone" label="Phone" />
+                                        <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" {...methods.register('clientName')} className="h-12" /></div>
+                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...methods.register('clientEmail')} className="h-12" /></div>
+                                        <PhoneInput name="clientPhone" label="Phone (for SMS alerts)" />
                                     </div>
                                 </form>
                             </FormProvider>
                         )}
+
                         {currentStep === 'consents' && (
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-medium">Consent Forms</h3>
-                                {requiredForms.map(form => (
-                                    <Card key={form.id}>
-                                        <CardHeader><CardTitle className="text-base">{form.title}</CardTitle></CardHeader>
-                                        <CardContent className="space-y-4">
-                                            {form.fields?.map(field => <FormFieldRenderer key={field.id} field={field} />)}
-                                        </CardContent>
-                                        <CardFooter>
-                                            <Button onClick={() => setCompletedForms(prev => new Set(prev.add(form.id)))} disabled={completedForms.has(form.id)}>
-                                                {completedForms.has(form.id) ? <><CheckCircle className="w-4 h-4 mr-2"/>Completed</> : 'Acknowledge & Sign'}
-                                            </Button>
-                                        </CardFooter>
-                                    </Card>
-                                ))}
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-bold flex items-center gap-2"><FileSignature className="w-5 h-5 text-primary" /> Consent Forms</h3>
+                                <div className="space-y-8">
+                                    {requiredForms.map(form => (
+                                        <div key={form.id} className="space-y-4 p-4 rounded-xl border-2 bg-muted/5">
+                                            <div className="flex items-center gap-2 text-lg font-bold pb-2 border-b"><ListChecks className="w-5 h-5 text-primary" />{form.title}</div>
+                                            <div className="space-y-6">
+                                                {form.fields?.map(field => (
+                                                    <FormFieldRenderer 
+                                                        key={field.id} 
+                                                        field={field} 
+                                                        value={formAnswers[form.id]?.[field.id]}
+                                                        onChange={(val) => setFormAnswers(prev => ({
+                                                            ...prev,
+                                                            [form.id]: { ...(prev[form.id] || {}), [field.id]: val }
+                                                        }))}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
+
                         {currentStep === 'summary' && (
                              <div className="space-y-4">
-                                <h3 className="text-lg font-medium">Review & Confirm</h3>
-                                <Card className="bg-muted/50">
-                                    <CardContent className="p-4 text-sm space-y-3">
-                                        <div className="flex justify-between"><span>Service:</span> <span className="font-semibold">{service?.name}</span></div>
-                                        <div className="flex justify-between"><span>Provider:</span> <span className="font-semibold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
-                                        <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEEE, LLL d, yyyy')}</span></div>
-                                        <div className="flex justify-between"><span>Time:</span> <span className="font-semibold">{selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</span></div>
-                                        <Separator className="my-2"/>
-                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : (priceRange ? priceRange.min.toFixed(2) : price?.toFixed(2) ?? '0.00')}</span></div>
-                                        {depositAmount > 0 ? (
-                                            priceRange ? (
-                                                <p className="text-xs text-muted-foreground text-right">
-                                                    Final price of ${priceRange.min.toFixed(2)} - ${priceRange.max.toFixed(2)} determined by provider.
-                                                </p>
-                                            ) : (
-                                                <p className="text-xs text-muted-foreground text-right">
-                                                    Remaining balance of ${((price ?? 0) - depositAmount).toFixed(2)} due at appointment.
-                                                </p>
-                                            )
-                                        ) : null}
+                                <h3 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-primary" /> Review & Confirm</h3>
+                                <Card className="bg-primary/5 border-primary/20 overflow-hidden">
+                                    <CardContent className="p-6 space-y-4">
+                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Provider</span> <span className="font-bold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
+                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Date</span> <span className="font-bold">{format(date, 'EEEE, MMM d, yyyy')}</span></div>
+                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Time</span> <span className="font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>
+                                        <Separator className="bg-primary/10" />
+                                        <div className="flex justify-between items-center text-xl font-black"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
+                                        {depositAmount > 0 && <p className="text-xs text-right text-muted-foreground">A deposit of <strong>${depositAmount.toFixed(2)}</strong> will be required next.</p>}
                                     </CardContent>
                                 </Card>
                             </div>
                         )}
+
                         {currentStep === 'payment' && (
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-medium">Deposit Required</h3>
-                                <Card><CardContent className="p-6 space-y-4">
-                                    <div className="text-center"><p className="text-sm text-muted-foreground">A deposit of</p><p className="text-4xl font-bold">${depositAmount.toFixed(2)}</p><p className="text-xs text-muted-foreground">is required to secure your booking.</p></div>
-                                    <div className="space-y-2"><Label htmlFor="card-number">Card Number</Label><Input id="card-number" placeholder="**** **** **** 1234" /></div>
-                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="expiry">Expiry</Label><Input id="expiry" placeholder="MM / YY" /></div><div className="space-y-2"><Label htmlFor="cvc">CVC</Label><Input id="cvc" placeholder="123" /></div></div>
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-primary" /> Secure Deposit</h3>
+                                <Card className="border-2 shadow-lg"><CardContent className="p-8 space-y-6">
+                                    <div className="text-center space-y-1"><p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Required Deposit</p><p className="text-5xl font-black text-primary">${depositAmount.toFixed(2)}</p></div>
+                                    <div className="space-y-4 pt-4 border-t">
+                                        <div className="space-y-2"><Label>Card Number</Label><Input placeholder="**** **** **** 1234" className="h-12" /></div>
+                                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Expiry</Label><Input placeholder="MM / YY" className="h-12" /></div><div className="space-y-2"><Label>CVC</Label><Input placeholder="123" className="h-12" /></div></div>
+                                    </div>
                                 </CardContent></Card>
                             </div>
                         )}
@@ -646,17 +435,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </div>
         </ScrollArea>
         {currentStep !== 'confirmation' && (
-            <SheetFooter className="p-6 border-t">
-                {currentStepIndex > 0 && <Button variant="ghost" onClick={handlePrevStep}>Back</Button>}
-                <div className="flex-1" />
-                <Button onClick={handleNextStep} className="w-full sm:w-auto">
-                    {currentStep === 'summary' && depositAmount > 0 
-                        ? 'Continue to Payment' 
-                        : (currentStep === 'summary' && depositAmount === 0) || currentStep === 'payment'
-                        ? 'Book Appointment'
-                        : 'Continue'
-                    }
-                </Button>
+            <SheetFooter className="p-6 border-t bg-muted/10 backdrop-blur-sm">
+                <div className="flex w-full gap-3">
+                    {currentStepIndex > 0 && <Button variant="outline" onClick={handlePrevStep} className="flex-1 h-12">Back</Button>}
+                    <Button onClick={handleNextStep} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
+                        {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : currentStep === 'summary' || currentStep === 'payment' ? 'Confirm Booking' : 'Continue'}
+                    </Button>
+                </div>
             </SheetFooter>
         )}
       </SheetContent>
