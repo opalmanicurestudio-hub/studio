@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -6,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
+import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift, FileSignature } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
@@ -54,6 +55,12 @@ const ClientReportPage = () => {
     }, [firestore, tenantId]);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
+    const signedConsentsQuery = useMemoFirebase(() => {
+        if (!firestore || !clientId || !tenantId) return null;
+        return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
+    }, [firestore, tenantId, clientId]);
+    const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
+
     const clientAppointments = useMemo(() => {
         if (!appointments) return [];
         return [...appointments].sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
@@ -100,7 +107,7 @@ const ClientReportPage = () => {
         }
     };
     
-    const isPageLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading;
+    const isPageLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || signedConsentsLoading;
 
     if (isPageLoading && !client) {
       return (
@@ -296,6 +303,51 @@ const ClientReportPage = () => {
                                     </Card>
                                 ))}
                                 {(!client.customFormulas || client.customFormulas.length === 0) && <p className="text-center text-muted-foreground">No custom formulas saved.</p>}
+                            </div>
+                        </div>
+
+                        <div>
+                            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><FileSignature className="w-5 h-5"/> Signed Forms</h2>
+                            <div className="space-y-4">
+                                {signedConsents && signedConsents.length > 0 ? (
+                                    signedConsents.map((consent: any) => (
+                                        <Card key={consent.id} className="bg-muted/30">
+                                            <CardHeader className="pb-2">
+                                                <div className="flex justify-between items-center">
+                                                    <CardTitle className="text-base">{consent.formTitle}</CardTitle>
+                                                    <p className="text-xs text-muted-foreground">Signed {format(parseISO(consent.signedAt), 'PPP p')}</p>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 pt-2">
+                                                    {Object.entries(consent.formData || {}).map(([key, value]: [string, any]) => {
+                                                        if (typeof value === 'string' && value.startsWith('data:image')) return null; // Signature handled separately
+                                                        return (
+                                                            <div key={key} className="space-y-1">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">{key.replace(/-/g, ' ')}</p>
+                                                                <p className="text-sm">{Array.isArray(value) ? value.join(', ') : String(value)}</p>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                                {/* Find signature if it exists */}
+                                                {Object.values(consent.formData || {}).map((value: any, idx) => {
+                                                    if (typeof value === 'string' && value.startsWith('data:image')) {
+                                                        return (
+                                                            <div key={idx} className="mt-6 pt-4 border-t border-dashed">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Digital Signature</p>
+                                                                <div className="relative w-40 h-20 bg-white border rounded p-1">
+                                                                    <Image src={value} alt="Signature" fill className="object-contain" />
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    }
+                                                    return null;
+                                                })}
+                                            </CardContent>
+                                        </Card>
+                                    ))
+                                ) : <p className="text-center text-muted-foreground py-4">No signed forms on record.</p>}
                             </div>
                         </div>
 

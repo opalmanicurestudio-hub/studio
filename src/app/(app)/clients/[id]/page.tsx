@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -654,7 +654,12 @@ export default function ClientDetailPage() {
                     {isOwnerOrAdmin && <TabsTrigger value="referrals">Referrals</TabsTrigger>}
                     <TabsTrigger value="photos">Photos</TabsTrigger>
                     <TabsTrigger value="incidents">Incidents</TabsTrigger>
-                    <TabsTrigger value="consents">Consents</TabsTrigger>
+                    <TabsTrigger value="consents" className="relative">
+                        Consents
+                        {signedConsents && signedConsents.length > 0 && (
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-black">{signedConsents.length}</span>
+                        )}
+                    </TabsTrigger>
                   </TabsList>
                 </div>
                 
@@ -994,11 +999,16 @@ export default function ClientDetailPage() {
                                     {signedConsents.map((consent: any) => (
                                         <Card key={consent.id} className="hover:bg-muted/50 transition-colors">
                                             <CardContent className="p-4 flex items-center justify-between">
-                                                <div>
-                                                    <p className="font-semibold">{consent.formTitle}</p>
-                                                    <p className="text-sm text-muted-foreground">Signed on {format(parseISO(consent.signedAt), 'PPP p')}</p>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-primary/10 rounded-md">
+                                                        <FileSignature className="w-5 h-5 text-primary" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-semibold">{consent.formTitle}</p>
+                                                        <p className="text-sm text-muted-foreground">Signed on {format(parseISO(consent.signedAt), 'PPP p')}</p>
+                                                    </div>
                                                 </div>
-                                                <Button variant="outline" onClick={() => setViewingConsent(consent)}>View</Button>
+                                                <Button variant="outline" onClick={() => setViewingConsent(consent)}>View Responses</Button>
                                             </CardContent>
                                         </Card>
                                     ))}
@@ -1067,42 +1077,62 @@ export default function ClientDetailPage() {
                 <DialogHeader>
                     <DialogTitle>{viewingConsent?.formTitle}</DialogTitle>
                     <DialogDescription>
-                    Signed on {viewingConsent ? format(parseISO(viewingConsent.signedAt), 'PPP p') : ''}
+                    Signed by {client.name} on {viewingConsent ? format(parseISO(viewingConsent.signedAt), 'PPP p') : ''}
                     </DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
                 <div className="py-4 space-y-4 pl-6">
-                {viewingConsent && formTemplateForViewing && formTemplateForViewing.fields ? (
-                    formTemplateForViewing.fields.map((field: any) => {
-                    const answer = viewingConsent.formData ? viewingConsent.formData[field.id] : undefined;
+                {viewingConsent ? (
+                    (() => {
+                        const template = formTemplateForViewing;
+                        // Use template fields if available, otherwise try to map over formData keys
+                        const fieldIds = template?.fields?.map(f => f.id) || Object.keys(viewingConsent.formData || {});
+                        
+                        return fieldIds.map((id: string) => {
+                            const field = template?.fields?.find(f => f.id === id);
+                            const label = field?.label || id;
+                            const answer = viewingConsent.formData ? viewingConsent.formData[id] : undefined;
 
-                    if (field.type === 'heading') {
-                        return <h3 key={field.id} className="text-lg font-semibold pt-4">{field.label}</h3>
-                    }
-                    if (field.type === 'paragraph') {
-                        return <p key={field.id} className="text-sm text-muted-foreground">{field.label}</p>
-                    }
-                    
-                    return (
-                        <div key={field.id} className="space-y-1 pt-2">
-                        <Label className="font-semibold">{field.label}</Label>
-                        {field.type === 'signature' && typeof answer === 'string' && answer.startsWith('data:image') ? (
-                            <div className="p-2 border rounded-md bg-muted/50 flex justify-center">
-                            <Image src={answer} alt="Signature" width={250} height={125} className="object-contain" />
-                            </div>
-                        ) : (
-                            <p className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md break-words">
-                            {answer !== undefined ? String(answer) : <span className="italic">No answer provided</span>}
-                            </p>
-                        )}
-                        </div>
-                    );
-                    })
+                            if (field?.type === 'heading') {
+                                return <h3 key={id} className="text-lg font-bold pt-4 border-b pb-1">{label}</h3>
+                            }
+                            if (field?.type === 'paragraph') {
+                                return <p key={id} className="text-sm text-muted-foreground leading-relaxed">{label}</p>
+                            }
+                            
+                            return (
+                                <div key={id} className="space-y-1.5 pt-2">
+                                <Label className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{label}</Label>
+                                {field?.type === 'signature' && typeof answer === 'string' && answer.startsWith('data:image') ? (
+                                    <div className="p-4 border rounded-xl bg-muted/30 flex justify-center shadow-inner">
+                                        <div className="relative w-full max-w-[300px] aspect-[2/1]">
+                                            <Image src={answer} alt="Signature" fill className="object-contain" />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-3 bg-muted/50 rounded-lg border border-border/50 break-words min-h-[40px] flex items-center">
+                                        {answer !== undefined ? (
+                                            <p className="text-sm">
+                                                {Array.isArray(answer) ? answer.join(', ') : String(answer)}
+                                            </p>
+                                        ) : <span className="text-sm italic text-muted-foreground/50">No answer provided</span>}
+                                    </div>
+                                )}
+                                </div>
+                            );
+                        });
+                    })()
                 ) : (
-                    <p>Could not load form details.</p>
+                    <p>Loading form details...</p>
                 )}
                 </div>
                 </ScrollArea>
+                <DialogFooter className="border-t pt-4">
+                    <Button variant="outline" onClick={() => window.print()} className="gap-2">
+                        <Printer className="w-4 h-4" /> Print Record
+                    </Button>
+                    <Button onClick={() => setViewingConsent(null)}>Close</Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
         <AlertDialog open={!!feeToWaive} onOpenChange={() => setFeeToWaive(null)}>
