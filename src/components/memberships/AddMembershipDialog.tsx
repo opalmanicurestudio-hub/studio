@@ -38,6 +38,7 @@ import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Separator } from '@/components/ui/separator';
 
 interface AddMembershipDialogProps {
   open: boolean;
