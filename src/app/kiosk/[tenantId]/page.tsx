@@ -155,7 +155,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
     const id = `service-card-${service.id}`;
     return (
         <div className="relative">
-            <Checkbox id={id} checked={isSelected} onCheckedChange={onToggle} className="peer sr-only" />
+            <Checkbox id={id} checked={isSelected} onToggle={onToggle} className="peer sr-only" />
             <Label htmlFor={id} className="block cursor-pointer rounded-xl border-2 border-slate-700 bg-slate-800/50 transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full">
                 <div className="p-3 flex flex-col items-center justify-between gap-3 h-full">
                     <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">{service.imageUrl ? <Image src={service.imageUrl} alt={service.name} fill className="object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-500"><Scissors className="w-8 h-8"/></div>}</div>
@@ -291,7 +291,7 @@ const MemberSetup = ({
 
             <Separator className="bg-slate-800" />
             <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
                     <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
@@ -366,7 +366,7 @@ export default function WalkInPage() {
   const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0);
   const [memberSubStep, setMemberSubStep] = useState<MemberSubStep>('details');
-  const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, Record<string, any>>>>({});
+  const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
   const [confirmedParty, setConfirmedParty] = useState<WalkInTicketData[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
