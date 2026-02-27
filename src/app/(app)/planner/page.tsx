@@ -82,18 +82,18 @@ function PlannerPageContent() {
 
   const { data: checkIns } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
   
+  // Appointments and events are already formatted as Date objects by the InventoryProvider
   const appointments = useMemo(() => {
     if (!appointmentsFromInventory) return [];
-    const base = appointmentsFromInventory.map(apt => ({ ...apt, startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime), endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime), actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : new Date(apt.actualStartTime)) : undefined, actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : new Date(apt.actualEndTime)) : undefined }));
-    if (!checkIns) return base;
+    if (!checkIns) return appointmentsFromInventory;
     const checkInMap = new Map(checkIns.map(ci => [ci.checkInToken, ci]));
-    return base.map(apt => {
+    return appointmentsFromInventory.map(apt => {
         const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
         return ci ? { ...apt, checkInStatus: ci.checkInStatus || apt.checkInStatus, lateTimeMinutes: ci.lateTimeMinutes ?? apt.lateTimeMinutes, status: ci.status || apt.status } : apt;
     });
   }, [appointmentsFromInventory, checkIns]);
   
-  const events = useMemo(() => eventsFromInventory?.map(evt => ({ ...evt, startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime), endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime) })) || [], [eventsFromInventory]);
+  const events = eventsFromInventory || [];
   
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -259,7 +259,7 @@ function PlannerPageContent() {
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
           <DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader>
-          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
+          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
           <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>

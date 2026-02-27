@@ -52,7 +52,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 type EditableFormulaItem = { id: string; name: string; price: number; quantity: number; imageUrl?: string; stock?: number; type: 'product' | 'service' | 'membership' | 'package'; staffId?: string; };
 
 export default function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
     const { firestore, selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
@@ -79,7 +79,8 @@ export default function POSPage() {
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
 
-    const appointments = useMemo(() => appointmentsFromDB?.map(apt => ({ ...apt, startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any), endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any) })) || [], [appointmentsFromDB]);
+    // Appointments are already formatted as Date objects by the InventoryProvider
+    const appointments = appointmentsFromInventory || [];
 
     const readyForCheckoutAppointments = useMemo(() => appointments.filter(apt => apt.status === 'ready_for_checkout').map(apt => ({ ...apt, client: clients?.find(c => c.id === apt.clientId), service: services?.find(s => s.id === apt.serviceId), addOnServices: (apt.addOnIds || []).map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[], staff: staff?.find(s => s.id === apt.staffId) })), [appointments, clients, services, staff]);
 

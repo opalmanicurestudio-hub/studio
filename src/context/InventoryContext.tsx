@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
@@ -33,6 +31,17 @@ import {
 } from '@/lib/financial-data';
 import { parseISO } from 'date-fns';
 
+/**
+ * Utility to safely convert Firestore/API values to Date objects.
+ * Handles Timestamps, ISO Strings, and already converted Dates.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
 
 interface InventoryContextType {
   inventory: InventoryItem[];
@@ -94,10 +103,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
-      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : new Date(apt.actualStartTime)) : undefined,
-      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : new Date(apt.actualEndTime)) : undefined,
+      startTime: safeDate(apt.startTime),
+      endTime: safeDate(apt.endTime),
+      actualStartTime: apt.actualStartTime ? safeDate(apt.actualStartTime) : undefined,
+      actualEndTime: apt.actualEndTime ? safeDate(apt.actualEndTime) : undefined,
     }));
   }, [appointmentsFromDB]);
 
@@ -105,7 +114,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     if (!rawActivityLogs) return [];
     return rawActivityLogs.map(log => ({
       ...log,
-      timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp as any),
+      timestamp: safeDate(log.timestamp),
     }));
   }, [rawActivityLogs]);
 
@@ -113,7 +122,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     if (!rawTransactions) return [];
     return rawTransactions.map(t => ({
       ...t,
-      date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date as any),
+      date: safeDate(t.date),
     }));
   }, [rawTransactions]);
 

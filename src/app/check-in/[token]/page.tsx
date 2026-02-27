@@ -24,6 +24,17 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
 
+/**
+ * Utility to safely convert Firestore/API values to Date objects.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
+
 const ServicingView = ({ serviceName }: { serviceName: string }) => (
     <Card className="w-full max-w-md">
         <CardHeader className="text-center">
@@ -147,8 +158,8 @@ export default function CheckInPage() {
         if (!allAppointmentsFromDB) return [];
         return allAppointmentsFromDB.map(apt => ({
             ...apt,
-            startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-            endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+            startTime: safeDate(apt.startTime),
+            endTime: safeDate(apt.endTime),
         }));
     }, [allAppointmentsFromDB]);
     
@@ -156,8 +167,8 @@ export default function CheckInPage() {
         if (!appointmentData) return null;
         return {
             ...appointmentData,
-            startTime: (appointmentData.startTime as any)?.toDate ? (appointmentData.startTime as any).toDate() : parseISO(appointmentData.startTime as any),
-            endTime: (appointmentData.endTime as any)?.toDate ? (appointmentData.endTime as any).toDate() : parseISO(appointmentData.endTime as any),
+            startTime: safeDate(appointmentData.startTime),
+            endTime: safeDate(appointmentData.endTime),
         };
     }, [appointmentData]);
 
