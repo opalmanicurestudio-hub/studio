@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -13,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Discount } from '@/lib/data';
-import { Search, Tag, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Search, Tag, CheckCircle2, AlertCircle, Ban } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -79,7 +80,7 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Browse Active Discounts</DialogTitle>
-          <DialogDescription>Select a discount code to apply. Only one code can be used per sale.</DialogDescription>
+          <DialogDescription>Select a discount code to apply. Only compatible discounts can be selected.</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
           <div className="relative">
@@ -97,15 +98,15 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
                 <div
                   key={discount.id}
                   className={cn(
-                    "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer",
+                    "flex items-center gap-3 p-3 rounded-xl border transition-all",
                     discount.isCompatible 
-                        ? "hover:bg-primary/5 hover:border-primary/50 bg-background border-border shadow-sm" 
-                        : "opacity-60 bg-muted/30 grayscale border-dashed"
+                        ? "hover:bg-primary/5 hover:border-primary/50 bg-background border-border shadow-sm cursor-pointer" 
+                        : "opacity-50 bg-muted/30 grayscale border-dashed cursor-not-allowed"
                   )}
-                  onClick={() => handleSelect(discount.code)}
+                  onClick={() => discount.isCompatible && handleSelect(discount.code)}
                 >
                   <div className={cn("p-2 rounded-lg", discount.isCompatible ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                    <Tag className="w-5 h-5" />
+                    {discount.isCompatible ? <Tag className="w-5 h-5" /> : <Ban className="w-5 h-5" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -119,6 +120,7 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
                             </Badge>
                         ) : (
                             <Badge variant="outline" className="text-[10px] h-4 px-1 opacity-50">
+                                <AlertCircle className="w-2.5 h-2.5 mr-1" />
                                 Incompatible
                             </Badge>
                         )}

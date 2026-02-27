@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -133,6 +134,15 @@ export const CheckoutHub = ({
 
         const d = discounts.find(d => d.code.toUpperCase() === codeUpper);
         if (d && d.isActive) {
+            // Check compatibility for manual entry too
+            const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || 
+                                (d.applicableServiceIds.some(id => cartServiceIds.includes(id)));
+            
+            if (!isCompatible) {
+                toast({ variant: 'destructive', title: 'Incompatible Discount', description: 'This code is restricted to services not currently in the cart.' });
+                return;
+            }
+
             if (appliedDiscountCodes.includes(d.code)) {
                 toast({ title: 'Already Applied', description: `Discount ${d.code} is already in the list.` });
                 return;
@@ -164,6 +174,11 @@ export const CheckoutHub = ({
             if (!d.isActive || d.automation?.trigger === 'none') return false;
             if (appliedDiscountCodes.includes(d.code)) return false;
 
+            // Automation compatibility check
+            const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || 
+                                (d.applicableServiceIds.some(id => cartServiceIds.includes(id)));
+            if (!isCompatible) return false;
+
             const trigger = d.automation?.trigger;
 
             if (trigger === 'birthday' && selectedClient.birthday) {
@@ -182,34 +197,38 @@ export const CheckoutHub = ({
 
             return false;
         });
-    }, [selectedClient, discounts, appliedDiscountCodes, allAppointments]);
+    }, [selectedClient, discounts, appliedDiscountCodes, allAppointments, cartServiceIds]);
     
-    const totalDiscount = discount + membershipDiscount;
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+    const totalDiscountValue = discount + membershipDiscount;
+    const subtotalAfterDiscounts = Math.max(0, (subtotal + (adjustments?.filter(a => appliedAdjustments.has(a.id)).reduce((s, a) => s + a.cost, 0) || 0)) - totalDiscountValue);
+    const taxValue = subtotalAfterDiscounts * 0.07;
+    const grandTotal = subtotalAfterDiscounts + taxValue + tipAmount;
     
-     const quickTenderOptions = useMemo(() => {
+    const changeDueValue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
+    
+    const quickTenderOptions = useMemo(() => {
         const options = new Set<number>();
-        if (total <= 0) return [];
+        if (grandTotal <= 0) return [];
     
         const roundUp = (num: number, multiple: number) => Math.ceil(num / multiple) * multiple;
 
-        const next5 = roundUp(total, 5);
-        if (next5 > total) options.add(next5);
+        const next5 = roundUp(grandTotal, 5);
+        if (next5 > grandTotal) options.add(next5);
 
-        const next10 = roundUp(total, 10);
-        if (next10 > total) options.add(next10);
+        const next10 = roundUp(grandTotal, 10);
+        if (next10 > grandTotal) options.add(next10);
 
-        const next20 = roundUp(total, 20);
-        if (next20 > total) options.add(next20);
+        const next20 = roundUp(grandTotal, 20);
+        if (next20 > grandTotal) options.add(next20);
         
-        const next50 = roundUp(total, 50);
-        if (next50 > total) options.add(next50);
+        const next50 = roundUp(grandTotal, 50);
+        if (next50 > grandTotal) options.add(next50);
         
-        const next100 = roundUp(total, 100);
-        if (next100 > total) options.add(next100);
+        const next100 = roundUp(grandTotal, 100);
+        if (next100 > grandTotal) options.add(next100);
 
         return Array.from(options).sort((a,b) => a - b).slice(0, 3);
-    }, [total]);
+    }, [grandTotal]);
 
     return (
         <div className="flex flex-col h-full max-h-full">
@@ -218,7 +237,7 @@ export const CheckoutHub = ({
                     <h2 className="text-xl font-bold">Current Sale</h2>
                 </div>
             )}
-             <div className="mb-2 md:mb-4 flex-shrink-0 px-4 md:px-0">
+            <div className="mb-2 md:mb-4 flex-shrink-0 px-4 md:px-0">
                 <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">Payer</Label>
                 <div className="flex gap-2 mt-1">
                     <Select
@@ -537,10 +556,10 @@ export const CheckoutHub = ({
             <div className="flex-shrink-0 pt-2 md:pt-4 border-t bg-card px-4 md:px-0">
                 <div className="space-y-1.5 md:space-y-2.5 text-sm">
                     <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Subtotal</p><p className="font-mono">${subtotal.toFixed(2)}</p></div>
-                    {totalDiscount > 0 && (
+                    {totalDiscountValue > 0 && (
                         <div className="flex justify-between text-[11px] md:text-sm text-primary font-black uppercase tracking-tight">
                             <span className="flex items-center gap-1.5"><Percent className="w-3 h-3 md:w-3.5 md:h-3.5" /> Discounts Applied</span>
-                            <span className="font-mono">-${totalDiscount.toFixed(2)}</span>
+                            <span className="font-mono">-${totalDiscountValue.toFixed(2)}</span>
                         </div>
                     )}
                     <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Estimated Tax</p><p className="font-mono">${tax.toFixed(2)}</p></div>
@@ -598,11 +617,11 @@ export const CheckoutHub = ({
                                         />
                                     </div>
                                 </div>
-                                {changeDue > 0 && (
+                                {changeDueValue > 0 && (
                                     <div className="space-y-1">
                                         <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600">Change Due</Label>
                                         <div className="h-10 md:h-12 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl">
-                                            <p className="font-black text-lg md:text-xl text-green-600 font-mono">${changeDue.toFixed(2)}</p>
+                                            <p className="font-black text-lg md:text-xl text-green-600 font-mono">${changeDueValue.toFixed(2)}</p>
                                         </div>
                                     </div>
                                 )}
