@@ -1,83 +1,17 @@
-
-
 'use client';
 
-import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
-import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X } from 'lucide-react';
-import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
-import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths } from 'date-fns';
-import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useToast } from '@/hooks/use-toast';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { format, differenceInMinutes, isSameDay, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
+import { type Staff, type Appointment, type Service, type Resource, type Event } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
-import { Badge } from '@/components/ui/badge';
-import { AddEventDialog } from '@/components/planner/AddEventDialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogTrigger,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
-import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
-import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
-import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
-import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
-import { EditEventDialog } from '@/components/planner/EditEventDialog';
-import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { type ReceiptData } from './PrintReceipt';
+import { type TicketData } from './PrintTicket';
 import { EventCard } from '@/components/planner/EventCard';
-import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
-import { PickingListDialog } from '@/components/planner/PickingListDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { WalkIn, type Client, type Service } from '@/lib/data';
-import { DayTimeline as OriginalDayTimeline } from '@/components/planner/DayTimeline'; // Assuming original is renamed
-import { nanoid } from 'nanoid';
-import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
-import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
-import { Html5Qrcode } from 'html5-qrcode';
-import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
-import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useTenant } from '@/context/TenantContext';
-import { useInventory } from '@/context/InventoryContext';
-
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Building, HardHat, Lock } from 'lucide-react';
 
 export const DayTimeline = ({ 
     date, 
@@ -98,16 +32,15 @@ export const DayTimeline = ({
     onAddTransaction,
     onReschedule,
     onRebook,
-    onOpenPickingList,
     onStartService,
     onFinishService,
     onBookNewForClient,
     onDeleteEvent,
+    onViewDetails,
     walkIns,
     clients,
     services,
     resources,
-    publicScheduleProfile,
     isMobile,
     activeView,
     allStaff,
@@ -132,169 +65,87 @@ export const DayTimeline = ({
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
     onRebook: (appointment: Appointment) => void;
-    onOpenPickingList: () => void;
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
     onDeleteEvent: (eventId: string) => void;
-    walkIns: WalkIn[] | null;
-    clients: Client[] | null;
+    onViewDetails: (appointment: Appointment) => void;
+    walkIns: any[] | null;
+    clients: any[] | null;
     services: Service[] | null;
     resources: Resource[];
-    publicScheduleProfile: any;
     isMobile: boolean;
     activeView: 'staff' | 'resources';
     allStaff: Staff[];
     mobileSelectedStaffId: string;
     onMobileStaffChange: (id: string) => void;
 }) => {
-    const START_HOUR = 0; // Start at midnight
-    const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
+    const START_HOUR = 0;
+    const hours = Array.from({ length: 24 }, (_, i) => i);
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
-        const storedTmhr = localStorage.getItem('tmhr');
-        setTmhr(parseFloat(storedTmhr || '50'));
+        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
       }
     }, []);
 
     const positionedItemsByColumn = useMemo(() => {
-    const map = new Map<string, any[]>();
-    if (!itemsByColumn) {
-      return map;
-    }
-    for (const [columnId, items] of itemsByColumn.entries()) {
-        let layoutInfo = items.map(item => ({
-            ...item,
-            layout: { cols: 0, col: 0 }
-        }));
-
-        function positionCluster(cluster: any[]) {
-            cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-
-            const columns: any[][] = [];
-            for(const item of cluster) {
-                let placed = false;
-                for (let i = 0; i < columns.length; i++) {
-                    const col = columns[i];
-                    
-                    const hasOverlap = col.some(existingItem => 
-                        areIntervalsOverlapping(
-                            { start: item.startTime, end: item.endTime },
-                            { start: existingItem.startTime, end: existingItem.endTime },
-                            { inclusive: false }
-                        )
-                    );
-
-                    if (!hasOverlap) {
-                        col.push(item);
-                        item.layout.col = i;
-                        placed = true;
-                        break;
+        const map = new Map<string, any[]>();
+        if (!itemsByColumn) return map;
+        for (const [columnId, items] of itemsByColumn.entries()) {
+            let layoutInfo = items.map(item => ({ ...item, layout: { cols: 0, col: 0 } }));
+            function positionCluster(cluster: any[]) {
+                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                const columns: any[][] = [];
+                for(const item of cluster) {
+                    let placed = false;
+                    for (let i = 0; i < columns.length; i++) {
+                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
+                            columns[i].push(item); item.layout.col = i; placed = true; break;
+                        }
                     }
+                    if (!placed) { columns.push([item]); item.layout.col = columns.length - 1; }
                 }
-                if (!placed) {
-                    columns.push([item]);
-                    item.layout.col = columns.length - 1;
-                }
+                cluster.forEach(item => item.layout.cols = columns.length);
             }
-            for (const item of cluster) {
-                item.layout.cols = columns.length;
+            let lastEventEnd: Date | null = null;
+            let currentCluster: any[] = [];
+            for (const item of layoutInfo) {
+                if (lastEventEnd !== null && item.startTime >= lastEventEnd) { positionCluster(currentCluster); currentCluster = []; }
+                currentCluster.push(item);
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
             }
+            if (currentCluster.length > 0) positionCluster(currentCluster);
+            map.set(columnId, layoutInfo.map(item => ({ ...item, layout: { width: `${100 / item.layout.cols}%`, left: `${(100 / item.layout.cols) * item.layout.col}%` } })));
         }
-        
-        let lastEventEnd: Date | null = null;
-        let currentCluster: any[] = [];
-        for (const item of layoutInfo) {
-            if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
-                positionCluster(currentCluster);
-                currentCluster = [];
-            }
-            currentCluster.push(item);
-            lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
-        }
-
-        if (currentCluster.length > 0) {
-            positionCluster(currentCluster);
-        }
-        
-        const positionedItems = layoutInfo.map(item => ({
-            ...item,
-            layout: {
-                width: `${100 / item.layout.cols}%`,
-                left: `${(100 / item.layout.cols) * item.layout.col}%`,
-            }
-        }));
-        map.set(columnId, positionedItems);
-    }
-    return map;
+        return map;
     }, [itemsByColumn]);
-
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        
-        // Find service
         const service = (services || []).find(s => s.id === item.serviceId);
-        
-        // Try to find full client object
         let client = (clients || []).find(c => c.id === item.clientId);
-
-        // If client object isn't found BUT we have a denormalized name (from a walk-in)
-        // create a temporary client object.
-        if (!client && item.clientName) {
-            client = { 
-                id: item.clientId, 
-                name: item.clientName, 
-                email: '', 
-                phone: '', 
-                avatarUrl: '', 
-                lifetimeValue: 0, 
-                lastAppointment: '' 
-            };
-        }
-        
-        // If we still don't have a client or a service, we can't render the card.
-        if (!client || !service) {
-          return null;
-        }
+        if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' };
+        if (!client || !service) return null;
 
         const padBefore = service.padBefore || 0;
-        const coreDuration = differenceInMinutes(item.endTime, item.startTime);
-        const totalDuration = coreDuration + padBefore + (service.padAfter || 0);
-        
-        const actualStartTime = subMinutes(item.startTime, padBefore);
-        const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
-        
-        if (minutesFromStart < 0) return null;
-
-        const top = minutesFromStart * (160/60);
+        const totalDuration = differenceInMinutes(item.endTime, item.startTime) + padBefore + (service.padAfter || 0);
+        const top = differenceInMinutes(subMinutes(item.startTime, padBefore), dayStart) * (160/60);
         const height = totalDuration * (160/60);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
        
         return (
-            <div key={item.id} className="absolute pr-2 z-10" style={style} data-is-event-card="true">
+            <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <AppointmentCard
-                    appointment={item}
-                    client={client}
-                    service={service}
-                    style={{ height: '100%'}}
-                    tmhr={tmhr}
-                    onUpdateStatus={onUpdateStatus}
-                    onDelete={onDeleteAppointment}
-                    onCompleteClick={onCompleteClick}
-                    onPrintReceipt={onPrintReceipt}
-                    onPrintTicket={onPrintTicket}
-                    onEdit={onEditAppointment}
-                    onReschedule={onReschedule}
-                    onRebook={onRebook}
-                    onStartService={onStartService}
-                    onFinishService={onFinishService}
-                    onBookNewForClient={onBookNewForClient}
-                    resources={resources}
-                    transactions={allTransactions}
+                    appointment={item} client={client} service={service} style={{ height: '100%'}}
+                    tmhr={tmhr} onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
+                    onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
+                    onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
+                    onStartService={onStartService} onFinishService={onFinishService}
+                    onBookNewForClient={onBookNewForClient} onViewDetails={onViewDetails}
+                    resources={resources} transactions={allTransactions}
                 />
             </div>
         );
@@ -302,166 +153,57 @@ export const DayTimeline = ({
 
     const renderEvent = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-        
-        if (minutesFromStart < 0) return null;
-
-        const duration = differenceInMinutes(item.endTime, item.startTime);
-        const height = duration * (160/60);
-        const top = minutesFromStart * (160/60);
-
-        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
-
-        const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
-
+        const mins = differenceInMinutes(item.startTime, dayStart);
+        if (mins < 0) return null;
+        const style = { top: `${mins * (160/60)}px`, height: `${differenceInMinutes(item.endTime, item.startTime) * (160/60)}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         return (
-             <div key={item.id} className="absolute pr-2 z-10" style={style} data-is-event-card="true">
-                <EventCard
-                    event={item}
-                    transactions={eventTransactions}
-                    onChecklistItemToggle={onChecklistItemToggle}
-                    onUpdateEvent={onUpdateEvent}
-                    onEditEvent={onEditEvent}
-                    onAddTransaction={onAddTransaction}
-                    onDeleteEvent={onDeleteEvent}
-                />
+             <div key={item.id} className="absolute pr-2 z-10" style={style}>
+                <EventCard event={item} transactions={dailyTransactions?.filter(t => t.relatedEventId === item.id) || []} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} onDeleteEvent={onDeleteEvent} />
             </div>
         )
     };
 
-    const TimeIndicator = () => {
-        const [top, setTop] = useState(0);
-
-        useEffect(() => {
-            const updatePosition = () => {
-                const now = new Date();
-                const minutesFromStart = differenceInMinutes(now, startOfDay(now));
-                setTop(minutesFromStart * (160 / 60)); // 160px is h-40
-            };
-
-            updatePosition();
-            const interval = setInterval(updatePosition, 60000);
-            return () => clearInterval(interval);
-        }, []);
-
-        if (top === 0) return null;
-
-        return (
-            <div className="absolute w-full flex items-center z-20" style={{ top: `${top}px` }}>
-                <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
-                <div className="h-px w-full bg-red-500"></div>
-            </div>
-        );
-    };
-
     useEffect(() => {
         if (isToday(date) && scrollContainerRef.current) {
-            const now = new Date();
-            const minutesFromStart = differenceInMinutes(now, startOfDay(now));
-            const scrollPosition = (minutesFromStart * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
-
-            scrollContainerRef.current.scrollTo({
-                top: Math.max(0, scrollPosition),
-                behavior: 'smooth'
-            });
+            const pos = (differenceInMinutes(new Date(), startOfDay(new Date())) * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
+            scrollContainerRef.current.scrollTo({ top: Math.max(0, pos), behavior: 'smooth' });
         }
-    }, [date, columns]); // Rerun when date or staff changes
+    }, [date, columns]);
 
-    const gridStyle = {
-      gridTemplateColumns: `repeat(${columns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))`
-    };
+    const gridStyle = { gridTemplateColumns: `repeat(${columns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` };
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
-                
-                <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                
+                <div className="sticky top-0 z-30 bg-background h-14 border-b border-r" style={{ width: isMobile ? '40px' : '48px' }} />
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
-                    {columns.map(column => {
-                        const staffColumn = column as Staff; // Cast to access staff properties
-                        return (
-                            <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                                {isMobile && activeView === 'staff' ? (
-                                    <Select value={mobileSelectedStaffId} onValueChange={onMobileStaffChange}>
-                                        <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
-                                            <SelectValue asChild>
-                                                <div className="flex items-center justify-center gap-2 h-full w-full">
-                                                    <Avatar className="w-8 h-8">
-                                                        <AvatarImage src={staffColumn.avatarUrl} />
-                                                        <AvatarFallback>{staffColumn.name.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <div>
-                                                        <p className="font-semibold text-base truncate">{staffColumn.name}</p>
-                                                        <p className="text-xs text-muted-foreground capitalize">{staffColumn.skillLevel || 'Staff'}</p>
-                                                    </div>
-                                                </div>
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {allStaff.map(s => (
-                                                <SelectItem key={s.id} value={s.id}>
-                                                    <div className="flex items-center gap-2">
-                                                        <Avatar className="w-6 h-6">
-                                                            <AvatarImage src={s.avatarUrl} />
-                                                            <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                                                        </Avatar>
-                                                        <span>{s.name}</span>
-                                                    </div>
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <div className="flex items-center justify-center gap-2 h-full">
-                                        {'avatarUrl' in column ? (
-                                            <Avatar className="w-6 h-6"><AvatarImage src={staffColumn.avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
-                                        ) : (
-                                            <div className="w-6 h-6 flex items-center justify-center">
-                                                {(column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />}
-                                            </div>
-                                        )}
-                                        <p className="font-semibold text-sm truncate">{column.name}</p>
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
-                </div>
-                
-                {/* Time labels column */}
-                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-12")}>
-                    {hours.map(hour => (
-                        <div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end">
-                            <span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                    {columns.map(column => (
+                        <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                            {isMobile && activeView === 'staff' ? (
+                                <Select value={mobileSelectedStaffId} onValueChange={onMobileStaffChange}>
+                                    <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent"><SelectValue asChild><div className="flex items-center justify-center gap-2 h-full w-full"><Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar><div><p className="font-semibold text-base truncate">{column.name}</p></div></div></SelectValue></SelectTrigger>
+                                    <SelectContent>{allStaff.map(s => (<SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>))}</SelectContent>
+                                </Select>
+                            ) : (
+                                <div className="flex items-center justify-center gap-2 h-full">
+                                    {'avatarUrl' in column ? <Avatar className="w-6 h-6"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar> : ((column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />)}
+                                    <p className="font-semibold text-sm truncate">{column.name}</p>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
-
-                {/* Main content grid */}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-12")}>
+                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end"><span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
+                </div>
                 <div className="col-start-2 grid relative" style={gridStyle}>
-                    {columns.map(column => {
-                        const positionedItems = positionedItemsByColumn.get(column.id) || [];
-                        return (
-                            <div key={column.id} className="relative border-r">
-                                {/* Grid lines */}
-                                {hours.map(hour => (
-                                    <div key={hour} className="h-40 border-b border-dashed" />
-                                ))}
-                                {/* Items */}
-                                {positionedItems.map(item => {
-                                    if ((item as any).itemType === 'appointment') {
-                                        return renderAppointment(item);
-                                    } else if ((item as any).itemType === 'event') {
-                                        return renderEvent(item);
-                                    }
-                                    return null;
-                                })}
-                            </div>
-                        )
-                    })}
-
-                    {isToday(date) && <TimeIndicator />}
+                    {columns.map(column => (
+                        <div key={column.id} className="relative border-r">
+                            {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed" />))}
+                            {(positionedItemsByColumn.get(column.id) || []).map(item => (item.itemType === 'appointment' ? renderAppointment(item) : renderEvent(item)))}
+                        </div>
+                    ))}
+                    {isToday(date) && <div className="absolute w-full flex items-center z-20" style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}><div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div><div className="h-px w-full bg-red-500"></div></div>}
                 </div>
             </div>
         </div>
