@@ -19,7 +19,7 @@ import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFire
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -27,7 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, getDay, parseISO } from 'date-fns';
+import { format, getDay, parseISO, parse } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -47,19 +47,71 @@ import { StaffSelectionCard } from '@/components/shared/StaffSelectionCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Separator } from '@/components/ui/separator';
+import Link from 'next/link';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
 
+const isBusinessOpen = (date: Date, schedule: any) => {
+    if (!schedule || !schedule.week) return { open: true };
+    const dayName = format(date, 'eeee').toLowerCase();
+    const dayHours = schedule.week[dayName];
+    if (!dayHours || !dayHours.enabled) return { open: false };
+
+    try {
+        const now = date;
+        const parseTime = (timeStr: string) => {
+            return parse(timeStr, timeStr.length > 7 ? 'hh:mm a' : 'h:mm a', now);
+        };
+        
+        const openTime = parseTime(dayHours.start);
+        const closeTime = parseTime(dayHours.end);
+
+        return { 
+            open: now >= openTime && now <= closeTime,
+            hours: `${dayHours.start} - ${dayHours.end}`
+        };
+    } catch (e) {
+        return { open: true }; 
+    }
+};
+
+const ClosedView = ({ schedule }: { schedule: any }) => (
+    <div className="text-center space-y-6 max-w-md">
+        <div className="inline-block p-6 bg-slate-900/50 rounded-full border border-slate-800 mb-4">
+            <Clock className="w-12 h-12 text-primary" />
+        </div>
+        <h1 className="text-4xl font-bold text-white">We're Currently Closed</h1>
+        <p className="text-slate-400">Our self-check-in kiosk is only available during business hours. Please come back during our scheduled times or book an appointment online.</p>
+        {schedule && (
+            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-sm">
+                <p className="font-bold text-primary mb-2 uppercase tracking-widest text-[10px]">Today's Hours</p>
+                <p className="text-white text-lg">{isBusinessOpen(new Date(), schedule).hours || 'Closed'}</p>
+            </div>
+        )}
+        <Button asChild variant="outline" className="w-full border-slate-700 text-slate-300 h-12">
+            <Link href="/">Return Home</Link>
+        </Button>
+    </div>
+);
+
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full">
-        <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-center">Who are we serving today?</h2>
+        <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-center mb-8">Who are we serving today?</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
-                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center"><User className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" /><h3 className="text-3xl md:text-4xl font-bold tracking-tight">Just Me</h3><p className="text-slate-400 mt-2">I'm checking in for myself.</p></div>
+                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
+                    <User className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
+                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">Just Me</h3>
+                    <p className="text-slate-400 mt-2">I'm checking in for myself.</p>
+                </div>
             </div>
              <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
-                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center"><Users className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" /><h3 className="text-3xl md:text-4xl font-bold tracking-tight">My Group</h3><p className="text-slate-400 mt-2">I'm checking in for myself and others.</p></div>
+                <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
+                    <Users className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
+                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">My Group</h3>
+                    <p className="text-slate-400 mt-2">I'm checking in for myself and others.</p>
+                </div>
             </div>
         </div>
     </motion.div>
@@ -219,7 +271,7 @@ const MemberSetup = ({
                 <h2 className="text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
                 <div className="flex items-center justify-between gap-4 mt-2">
                     <p className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-xs">
-                        {subStepTitles[memberSubStep].icon} {subStepTitles[memberSubStep].title}
+                        {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
                     </p>
                     {isGroup && <p className="text-xs font-black text-primary bg-primary/10 px-2 py-1 rounded-md">{member.index + 1} / {partyMembers.length}</p>}
                 </div>
@@ -239,13 +291,13 @@ const MemberSetup = ({
 
             <Separator className="bg-slate-800" />
             <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
                     <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
                 ) : (
                     <div className="flex flex-col sm:flex-row gap-3">
-                        {isGroup && <Button size="lg" variant="outline" onClick={onAddAnother} disabled={isSubmitting} className="h-14 border-slate-700 text-slate-300 px-8 text-lg">Add Another Guest</Button>}
+                        {isGroup && !isLastMember && <Button size="lg" variant="outline" onClick={onAddAnother} disabled={isSubmitting} className="h-14 border-slate-700 text-slate-300 px-8 text-lg">Next Guest</Button>}
                         <Button size="lg" onClick={onSubmit} disabled={isSubmitting} className="h-14 px-12 text-xl font-black shadow-xl shadow-primary/20">{isSubmitting ? <Loader className="animate-spin" /> : 'Finish & Join Queue'}</Button>
                     </div>
                 )}
@@ -253,6 +305,38 @@ const MemberSetup = ({
         </motion.div>
     );
 };
+
+const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 md:p-16 text-center space-y-8">
+        <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="w-12 h-12 text-green-500" />
+        </div>
+        <div className="space-y-2">
+            <h2 className="text-5xl font-black tracking-tight text-white">You're in line!</h2>
+            <p className="text-slate-400 text-xl">We'll text you as soon as your pro is ready.</p>
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+            {confirmedParty.map(ticket => (
+                <Card key={ticket.id} className="bg-slate-800/30 border-slate-700 text-left">
+                    <CardContent className="p-4 flex justify-between items-center">
+                        <div>
+                            <p className="font-bold text-white">{ticket.name}</p>
+                            <p className="text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10">
+                            <Printer className="w-5 h-5" />
+                        </Button>
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+
+        <div className="pt-8">
+            <Button size="lg" onClick={onDone} className="h-16 px-12 text-2xl font-black">Finish</Button>
+        </div>
+    </motion.div>
+);
 
 export default function WalkInPage() {
   const { firestore } = useFirebase();
@@ -318,6 +402,27 @@ export default function WalkInPage() {
     setMemberSubStep(next);
   };
 
+  const handleBack = () => {
+    if (memberSubStep === 'details') {
+        if (currentMemberIndex > 0) {
+            setCurrentMemberIndex(currentMemberIndex - 1);
+            setMemberSubStep('staff'); 
+        } else {
+            setStep('partyType');
+        }
+    } else {
+        const subSteps: MemberSubStep[] = ['details', 'services'];
+        const member = partyMembers[currentMemberIndex];
+        const primaryService = services?.find((s: Service) => s.id === member.serviceIds[0]);
+        const requiredForms = consentForms?.filter((f: ConsentForm) => primaryService?.requiredFormIds?.includes(f.id)) || [];
+        if (requiredForms.length > 0) subSteps.push('consents');
+        subSteps.push('staff');
+
+        const currentIndex = subSteps.indexOf(memberSubStep);
+        setMemberSubStep(subSteps[currentIndex - 1]);
+    }
+  };
+
   const handleSubmit = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -373,7 +478,7 @@ export default function WalkInPage() {
 
   const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
 
-  if (tenantLoading || !services) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader className="animate-spin text-primary" /></div>;
+  if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader className="animate-spin text-primary" /></div>;
   if (isClosed) return <div className="h-screen flex items-center justify-center bg-slate-950 p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
 
   return (
