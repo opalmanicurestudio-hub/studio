@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -255,6 +254,15 @@ function PlannerPageContent() {
     }
   }
 
+  const handleAddEvent = (data: any) => {
+    if (!firestore || !tenantId) return;
+    const id = nanoid();
+    const event = { ...data, id, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() };
+    setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), event, {});
+    setIsAddEventOpen(false);
+    toast({ title: "Event Added" });
+  };
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -273,7 +281,7 @@ function PlannerPageContent() {
                     </div>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4" /></Button>
-                        <Button size="sm" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
+                        <Button size="sm" className="hidden lg:flex" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                     </div>
                 </div>
                 <ScrollArea className="w-full">
@@ -339,6 +347,7 @@ function PlannerPageContent() {
       />
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={handleAddAppointment} client={clientForNewApt} appointmentToRebook={appointmentToRebook} memberships={memberships || []} />
+      <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={handleAddEvent} staff={allStaff || []} />
       {selectedAppointment && <EditAppointmentDialog open={isEditAppointmentOpen} onOpenChange={setIsEditAppointmentOpen} appointment={selectedAppointment} clients={clients || []} services={services || []} appointments={appointments || []} onConfirm={a => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', a.id), a)} />}
       
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
@@ -348,6 +357,11 @@ function PlannerPageContent() {
           <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FloatingActionButton 
+        onNewAppointmentClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
+        onNewEventClick={() => setIsAddEventOpen(true)}
+      />
     </div>
   );
 }
