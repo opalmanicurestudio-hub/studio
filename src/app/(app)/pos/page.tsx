@@ -85,11 +85,35 @@ export default function POSPage() {
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
 
-    const appointments = appointmentsFromInventory || [];
+    const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
 
     const readyForCheckoutAppointments = useMemo(() => appointments.filter(apt => apt.status === 'ready_for_checkout').map(apt => ({ ...apt, client: clients?.find(c => c.id === apt.clientId), service: services?.find(s => s.id === apt.serviceId), addOnServices: (apt.addOnIds || []).map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[], staff: staff?.find(s => s.id === apt.staffId) })), [appointments, clients, services, staff]);
 
-    const handleSelectAppointment = (id: string) => setSelectedAppointmentIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    const handleSelectAppointment = useCallback((id: string) => {
+        setSelectedAppointmentIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    // Auto-select client as payee when appointments are selected
+    useEffect(() => {
+        if (selectedAppointmentIds.size > 0 && !selectedClientId) {
+            const firstAptId = Array.from(selectedAppointmentIds)[0];
+            const apt = readyForCheckoutAppointments.find(a => a.id === firstAptId);
+            if (apt) {
+                setSelectedClientId(apt.clientId);
+            }
+        } else if (selectedAppointmentIds.size === 0 && retailItems.length === 0) {
+            // Optional: reset to null/walk-in if cart is cleared
+            // setSelectedClientId(null);
+        }
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId, retailItems.length]);
 
     const handleScan = useCallback((data: string) => {
       const raw = data.trim();
@@ -115,7 +139,7 @@ export default function POSPage() {
               toast({ title: "Product Added" });
           } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
       }
-    }, [appointments, inventory, retailItems, toast]);
+    }, [appointments, inventory, retailItems, toast, handleSelectAppointment]);
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -323,7 +347,7 @@ export default function POSPage() {
                 <div className="p-4 space-y-4"><div className="relative overflow-hidden rounded-xl border-2 border-muted bg-muted/50 aspect-square"><div id="qr-reader-pos" className="w-full h-full" /><div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
                   <Separator /><form onSubmit={(e) => { e.preventDefault(); if (manualTicketId.trim()) { handleScan(`clarityflow://checkout/${manualTicketId.trim()}`); setManualTicketId(''); } }} className="space-y-3"><div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-widest"><Keyboard className="w-4 h-4" /><span>Manual Entry</span></div><div className="flex gap-2"><Input placeholder="Enter Ticket or Product ID..." value={manualTicketId} onChange={(e) => setManualTicketId(e.target.value)} className="h-11 font-mono uppercase" /><Button type="submit" disabled={!manualTicketId.trim()}>Pull Up</Button></div></form>
                 </div>
-                <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Close Scanner</Button></DialogFooter>
+                <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Close Scanner</Button></DialogFooter>
               </DialogContent>
             </Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={(d) => { if (!firestore || !selectedTenant) return; const newClient = { ...d, id: nanoid(), lifetimeValue: 0, lastAppointment: new Date().toISOString(), status: 'active' as const }; setDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'clients', newClient.id), newClient, {}); toast({ title: "Client Added" }); }} />
