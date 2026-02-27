@@ -24,8 +24,10 @@ const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { id: clientId } = params;
     const { firestore, isUserLoading } = useFirebase();
-    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+    const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
     const tenantId = selectedTenant?.id;
+    
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isLoadingAi, setIsLoadingAi] = useState(false);
@@ -151,8 +153,14 @@ const ClientReportPage = () => {
                         </Avatar>
                         <div className="space-y-1 flex-1">
                             <h1 className="text-3xl font-bold">{client.name}</h1>
-                            <p className="text-muted-foreground">{client.email}</p>
-                            <p className="text-muted-foreground">{client.phone}</p>
+                            {isOwnerOrAdmin ? (
+                                <>
+                                    <p className="text-muted-foreground">{client.email}</p>
+                                    <p className="text-muted-foreground">{client.phone}</p>
+                                </>
+                            ) : (
+                                <p className="text-sm text-muted-foreground italic">Contact info restricted.</p>
+                            )}
                         </div>
                          <div className="text-sm text-muted-foreground text-center sm:text-right">
                              <p>Report Generated:</p>

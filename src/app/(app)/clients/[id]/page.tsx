@@ -251,10 +251,12 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
 
   const { firestore, isUserLoading } = useFirebase();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
   const { appointments: allAppointments, transactions, memberships, packages, services, staff, consentForms, discounts, clients: allClients } = useInventory();
   const tenantId = selectedTenant?.id;
   
+  const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+
   const clientDocRef = useMemoFirebase(() => {
     if (!firestore || !clientId || !tenantId) return null;
     return doc(firestore, `tenants/${tenantId}/clients`, clientId);
@@ -586,10 +588,12 @@ export default function ClientDetailPage() {
                         Back to Clients
                     </Link>
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Profile
-                </Button>
+                {isOwnerOrAdmin && (
+                    <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit Profile
+                    </Button>
+                )}
             </div>
             
             <Card>
@@ -610,22 +614,26 @@ export default function ClientDetailPage() {
                             <h1 className="text-2xl font-bold">{client.name}</h1>
                             {activeMembership && <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">Active Member</Badge>}
                         </div>
-                        <div className="text-muted-foreground space-y-2">
-                            <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 break-all hover:text-primary transition-colors">
-                                <Mail className="w-4 h-4 flex-shrink-0" />
-                                <span className="break-all">{client.email}</span>
-                            </a>
-                            <div className="flex items-center justify-center sm:justify-start gap-2">
-                                <Phone className="w-4 h-4 flex-shrink-0" />
-                                <span>{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</span>
-                                <div className="ml-auto flex items-center gap-1">
-                                    <a href={`tel:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
-                                        <Phone className="w-4 h-4 text-primary" />
-                                    </a>
-                                    <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                        {isOwnerOrAdmin ? (
+                            <div className="text-muted-foreground space-y-2">
+                                <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 break-all hover:text-primary transition-colors">
+                                    <Mail className="w-4 h-4 flex-shrink-0" />
+                                    <span className="break-all">{client.email}</span>
+                                </a>
+                                <div className="flex items-center justify-center sm:justify-start gap-2">
+                                    <Phone className="w-4 h-4 flex-shrink-0" />
+                                    <span>{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</span>
+                                    <div className="ml-auto flex items-center gap-1">
+                                        <a href={`tel:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
+                                            <Phone className="w-4 h-4 text-primary" />
+                                        </a>
+                                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground italic">Contact info restricted by business owner.</p>
+                        )}
                     </div>
                      <Button variant="outline" asChild>
                         <Link href={`/clients/${client.id}/report`}>
@@ -642,7 +650,7 @@ export default function ClientDetailPage() {
                   <TabsList className="flex flex-wrap h-auto p-0 bg-transparent gap-1 mx-0">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
-                    <TabsTrigger value="referrals">Referrals</TabsTrigger>
+                    {isOwnerOrAdmin && <TabsTrigger value="referrals">Referrals</TabsTrigger>}
                     <TabsTrigger value="photos">Photos</TabsTrigger>
                     <TabsTrigger value="incidents">Incidents</TabsTrigger>
                     <TabsTrigger value="consents">Consents</TabsTrigger>
@@ -658,7 +666,7 @@ export default function ClientDetailPage() {
                                   <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6">
                                       <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Birthday</p><p>{client.birthday ? format(new Date(client.birthday), 'MMMM d') : 'N/A'}</p></div>
                                       <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Referral Source</p><p>{client.intel?.referralSource || 'N/A'}</p></div>
-                                      {client.address && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Home className="w-4 h-4"/>Address</p><p>{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
+                                      {isOwnerOrAdmin && client.address && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Home className="w-4 h-4"/>Address</p><p>{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                       {client.emergencyContact && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><UserIcon className="w-4 h-4"/>Emergency Contact</p><p>{client.emergencyContact.name} ({client.emergencyContact.relationship})<br/>{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
                                   </CardContent>
                               </Card>
@@ -680,14 +688,16 @@ export default function ClientDetailPage() {
                                                             <h4 className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
                                                             <p className="font-bold text-lg mt-1">{activeMembership.name}</p>
                                                         </div>
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
-                                                            <DropdownMenuContent>
-                                                                {(!client.subscription || client.subscription.status !== 'past_due') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
-                                                                {(!client.subscription || client.subscription.status !== 'canceled') && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
-                                                                {(client.subscription && client.subscription.status !== 'active') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
+                                                        {isOwnerOrAdmin && (
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 -mt-1"><MoreHorizontal/></Button></DropdownMenuTrigger>
+                                                                <DropdownMenuContent>
+                                                                    {(!client.subscription || client.subscription.status !== 'past_due') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('past_due')}>Mark as Past Due</DropdownMenuItem>}
+                                                                    {(!client.subscription || client.subscription.status !== 'canceled') && <DropdownMenuItem className="text-destructive" onClick={() => handleUpdateSubscriptionStatus('canceled')}>Cancel Membership</DropdownMenuItem>}
+                                                                    {(client.subscription && client.subscription.status !== 'active') && <DropdownMenuItem onClick={() => handleUpdateSubscriptionStatus('active')}>Reactivate</DropdownMenuItem>}
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        )}
                                                      </div>
                                                     
                                                     <div className="mt-4 space-y-3">
@@ -767,9 +777,11 @@ export default function ClientDetailPage() {
                                <Card>
                                    <CardHeader className="flex flex-row items-center justify-between">
                                        <CardTitle>Client Accounts</CardTitle>
-                                       <Button variant="ghost" size="icon" onClick={handleReconcileLTV} title="Reconcile LTV">
-                                           <RefreshCw className="h-4 w-4" />
-                                       </Button>
+                                       {isOwnerOrAdmin && (
+                                           <Button variant="ghost" size="icon" onClick={handleReconcileLTV} title="Reconcile LTV">
+                                               <RefreshCw className="h-4 w-4" />
+                                           </Button>
+                                       )}
                                    </CardHeader>
                                    <CardContent className="space-y-4">
                                       <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
@@ -781,7 +793,7 @@ export default function ClientDetailPage() {
                                         <div className="p-4 rounded-lg bg-destructive/10"><div className="text-sm font-medium text-destructive">Outstanding Balance</div><div className="text-2xl font-bold text-destructive">${(client.outstandingBalance || 0).toFixed(2)}</div></div>
                                       </div>
                                    </CardContent>
-                                    {(client.unpaidFees && client.unpaidFees.length > 0) && (
+                                    {(isOwnerOrAdmin && client.unpaidFees && client.unpaidFees.length > 0) && (
                                         <>
                                             <Separator />
                                             <CardContent className="p-4">
@@ -875,40 +887,42 @@ export default function ClientDetailPage() {
                       </Card>
                   </TabsContent>
                    <TabsContent value="referrals" className="m-0">
-                      <Card>
-                          <CardHeader><CardTitle>Referral Program</CardTitle><CardDescription>Manage this client's referral activity.</CardDescription></CardHeader>
-                          <CardContent className="space-y-6">
-                              <div className="space-y-2">
-                                  <Label htmlFor="referral-code">Unique Referral Code</Label>
-                                  <div className="grid grid-cols-[1fr,auto] gap-2">
-                                      <Input 
-                                          id="referral-code" 
-                                          value={editableReferralCode} 
-                                          onChange={handleCodeChange}
-                                      />
-                                      {isCodeDirty ? (
-                                          <Button onClick={handleSaveReferralCode}><Save className="w-4 h-4 mr-2" /> Save</Button>
-                                      ) : (
-                                          <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
-                                      )}
-                                  </div>
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                  <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Referred By</div><div className="text-lg font-semibold">{client.referredBy || 'N/A'}</div></div>
-                                  <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Successful Referrals</div><div className="text-lg font-semibold">{client.successfulReferrals?.length || 0}</div></div>
-                              </div>
-                               {client.successfulReferrals && client.successfulReferrals.length > 0 && (
-                                  <div>
-                                      <h4 className="font-medium text-sm mb-2">Referred Clients</h4>
-                                      <div className="space-y-2">
-                                          {client.successfulReferrals.map((name, index) => (
-                                              <div key={index} className="flex items-center p-3 rounded-md bg-muted/50"><UserIcon className="w-4 h-4 mr-3 text-muted-foreground" /><span className="text-sm">{name}</span></div>
-                                          ))}
-                                      </div>
-                                  </div>
-                              )}
-                          </CardContent>
-                      </Card>
+                      {isOwnerOrAdmin && (
+                        <Card>
+                            <CardHeader><CardTitle>Referral Program</CardTitle><CardDescription>Manage this client's referral activity.</CardDescription></CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="referral-code">Unique Referral Code</Label>
+                                    <div className="grid grid-cols-[1fr,auto] gap-2">
+                                        <Input 
+                                            id="referral-code" 
+                                            value={editableReferralCode} 
+                                            onChange={handleCodeChange}
+                                        />
+                                        {isCodeDirty ? (
+                                            <Button onClick={handleSaveReferralCode}><Save className="w-4 h-4 mr-2" /> Save</Button>
+                                        ) : (
+                                            <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Referred By</div><div className="text-lg font-semibold">{client.referredBy || 'N/A'}</div></div>
+                                    <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Successful Referrals</div><div className="text-lg font-semibold">{client.successfulReferrals?.length || 0}</div></div>
+                                </div>
+                                {client.successfulReferrals && client.successfulReferrals.length > 0 && (
+                                    <div>
+                                        <h4 className="font-medium text-sm mb-2">Referred Clients</h4>
+                                        <div className="space-y-2">
+                                            {client.successfulReferrals.map((name, index) => (
+                                                <div key={index} className="flex items-center p-3 rounded-md bg-muted/50"><UserIcon className="w-4 h-4 mr-3 text-muted-foreground" /><span className="text-sm">{name}</span></div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                      )}
                   </TabsContent>
                   <TabsContent value="photos" className="m-0">
                       <Card>

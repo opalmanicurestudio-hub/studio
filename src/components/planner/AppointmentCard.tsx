@@ -277,7 +277,7 @@ const AppointmentDetails = ({
                         </p>
                     </div>
                 </div>
-                {isOwnerOrAdmin && (
+                {isOwnerOrAdmin ? (
                     <div className="text-muted-foreground text-sm space-y-1">
                         <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                             <Mail className="w-4 h-4" /> {client.email}
@@ -289,6 +289,8 @@ const AppointmentDetails = ({
                             <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
                         </div>
                     </div>
+                ) : (
+                    <p className="text-xs text-muted-foreground italic">Contact info restricted by business owner.</p>
                 )}
                 <div className="text-muted-foreground text-sm pt-4 space-y-2">
                     <div>
@@ -333,15 +335,19 @@ const AppointmentDetails = ({
                             <UserIcon className="mr-2"/>View Client Profile
                         </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onEdit(appointment), 150)}}>
-                        <Edit className="mr-2"/>Edit Details
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                        onClick={() => { setIsDetailsOpen(false); setTimeout(() => onReschedule(appointment), 150)}}
-                        disabled={appointment.status === 'completed'}
-                    >
-                        <Calendar className="mr-2"/>Reschedule
-                    </DropdownMenuItem>
+                    {isOwnerOrAdmin && (
+                        <>
+                            <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onEdit(appointment), 150)}}>
+                                <Edit className="mr-2"/>Edit Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                                onClick={() => { setIsDetailsOpen(false); setTimeout(() => onReschedule(appointment), 150)}}
+                                disabled={appointment.status === 'completed'}
+                            >
+                                <Calendar className="mr-2"/>Reschedule
+                            </DropdownMenuItem>
+                        </>
+                    )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onRebook(appointment), 150) }}>
                         <Repeat className="mr-2"/>Rebook Same Service
@@ -353,16 +359,22 @@ const AppointmentDetails = ({
                     <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
                         <TicketIcon className="mr-2"/>Print Ticket
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleShareLink}>
-                        <LinkIcon className="mr-2"/>Share Check-in Link
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { /* toast is not defined */ }}>
-                        <Send className="mr-2"/>Resend Confirmation
-                    </DropdownMenuItem>
+                    {isOwnerOrAdmin && (
+                        <>
+                            <DropdownMenuItem onClick={handleShareLink}>
+                                <LinkIcon className="mr-2"/>Share Check-in Link
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { /* toast logic */ }}>
+                                <Send className="mr-2"/>Resend Confirmation
+                            </DropdownMenuItem>
+                        </>
+                    )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}>
-                        <Trash2 className="mr-2"/>Delete Appointment
-                    </DropdownMenuItem>
+                    {isOwnerOrAdmin && (
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}>
+                            <Trash2 className="mr-2"/>Delete Appointment
+                        </DropdownMenuItem>
+                    )}
                 </DropdownMenuContent>
             </DropdownMenu>
 
@@ -685,11 +697,11 @@ export function AppointmentCard({
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button aria-haspopup="true" size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
+                  <Button aria-haspopup="true" size="icon" variant="ghost" className="h-7 w-7" onClick={(event) => event.stopPropagation()}>
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
                     <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -727,9 +739,9 @@ export function AppointmentCard({
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0 -mr-1" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>
+                      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0 -mr-1" onClick={(event) => event.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
                         <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
                         <DropdownMenuSeparator />
