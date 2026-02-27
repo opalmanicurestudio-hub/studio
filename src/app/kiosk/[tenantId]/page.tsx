@@ -152,32 +152,63 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
         return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: false };
     }, [service, staffTierId, pricingTiers]);
 
-    const id = `service-card-${service.id}`;
     return (
-        <div className="relative">
-            <Checkbox id={id} checked={isSelected} onToggle={onToggle} className="peer sr-only" />
-            <Label htmlFor={id} className="block cursor-pointer rounded-xl border-2 border-slate-700 bg-slate-800/50 transition-all hover:shadow-lg peer-data-[state=checked]:border-primary peer-data-[state=checked]:ring-2 peer-data-[state=checked]:ring-primary h-full">
-                <div className="p-3 flex flex-col items-center justify-between gap-3 h-full">
-                    <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">{service.imageUrl ? <Image src={service.imageUrl} alt={service.name} fill className="object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-500"><Scissors className="w-8 h-8"/></div>}</div>
-                    <div className="text-center"><p className="font-semibold text-sm text-slate-100">{service.name}</p><p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>{hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}</div>
+        <div 
+            className={cn(
+                "block cursor-pointer rounded-xl border-2 transition-all hover:shadow-lg h-full",
+                isSelected ? "border-primary ring-2 ring-primary bg-primary/5 shadow-primary/10" : "border-slate-700 bg-slate-800/50"
+            )}
+            onClick={(e) => {
+                e.preventDefault();
+                onToggle();
+            }}
+        >
+            <div className="p-3 flex flex-col items-center justify-between gap-3 h-full">
+                <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
+                    {service.imageUrl ? (
+                        <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-500">
+                            <Scissors className="w-8 h-8"/>
+                        </div>
+                    )}
                 </div>
-            </Label>
+                <div className="text-center">
+                    <p className="font-semibold text-sm text-slate-100">{service.name}</p>
+                    <p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>
+                    {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
+                </div>
+            </div>
         </div>
     );
 };
 
 const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; staff: Staff[]; pricingTiers: PricingTier[]; }) => {
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-    const handleServiceToggle = (serviceId: string) => { onUpdate({ serviceIds: [serviceId] }); };
+    const handleServiceToggle = (serviceId: string) => { 
+        onUpdate({ serviceIds: [serviceId] }); 
+    };
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+    
     if (!selectedCategory) {
         return ( <div className="grid grid-cols-1 gap-4">{categories.map(category => ( <button key={category} className="w-full p-8 text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
+    
     return (
         <div className="space-y-4">
-            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100"><ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories</Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100">
+                <ArrowLeft className="mr-2 h-4 w-4"/>Back to Categories
+            </Button>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( <ServiceSelectionCard key={service.id} service={service} isSelected={member.serviceIds.includes(service.id)} onToggle={() => handleServiceToggle(service.id)} pricingTiers={pricingTiers}/> ))}
+                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
+                    <ServiceSelectionCard 
+                        key={service.id} 
+                        service={service} 
+                        isSelected={member.serviceIds.includes(service.id)} 
+                        onToggle={() => handleServiceToggle(service.id)} 
+                        pricingTiers={pricingTiers}
+                    /> 
+                ))}
             </div>
         </div>
     );
