@@ -530,8 +530,6 @@ export default function POSPage() {
         const appointmentIdFromData = rawData.split('/').pop()?.trim();
         if (!appointmentIdFromData) return;
 
-        // Standardize: The scanner gets the ID part. 
-        // We look for an exact ID match or a matching short-code (last 6).
         const appointment = readyForCheckoutAppointments.find(apt => 
             apt.id === appointmentIdFromData || apt.id.toUpperCase().endsWith(appointmentIdFromData.toUpperCase())
         );
@@ -540,7 +538,6 @@ export default function POSPage() {
             handleSelectAppointment(appointment.id);
             toast({ title: "Client Added", description: `${appointment.clientName}'s services added to sale.` });
         } else {
-            // Check if it exists at all but just isn't ready
             const rawApt = appointments.find(a => a.id === appointmentIdFromData || a.id.toUpperCase().endsWith(appointmentIdFromData.toUpperCase()));
             if (rawApt) {
                 toast({ 
@@ -580,7 +577,6 @@ export default function POSPage() {
             toast({ variant: 'destructive', title: 'Product Not Found', description: "Could not find the product in inventory." });
         }
       } else {
-        // Handle Products/SKUs/ShortIDs
         const product = inventory.find(p => 
             p.sku === rawData || 
             p.id === rawData || 
@@ -591,7 +587,6 @@ export default function POSPage() {
             handleAddToCart(product);
             toast({ title: "Product Added", description: `${product.name} added to cart.` });
         } else {
-            // Last chance: Treat raw data as a potential short-code if it's alphanumeric and ~6 chars
             if (rawData.length >= 5 && rawData.length <= 8) {
                 const appointment = readyForCheckoutAppointments.find(apt => 
                     apt.id.toUpperCase().endsWith(rawData.toUpperCase())
@@ -610,7 +605,6 @@ export default function POSPage() {
     const handleManualTicketSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (manualTicketId.trim()) {
-            // Standardize entry: Try to match exactly or as shortcode
             handleScan(`clarityflow://checkout/${manualTicketId.trim()}`);
             setManualTicketId('');
         }
@@ -1196,12 +1190,10 @@ export default function POSPage() {
             
             if (redeemedOffer && redeemedOffer.id === data.service?.id) {
                 if (redeemedOffer.type === 'membership') {
-                    // Update perk usage on client profile
                     clientUpdates['subscription.perkLastUsed'] = nowISO;
                     const perkKey = `subscription.perkUsage.${data.service.id}`;
                     clientUpdates[perkKey] = increment(1);
                 } else if (redeemedOffer.type === 'package') {
-                    // Decrement sessions on specific package
                     const currentPackages = finalClient.activePackages || [];
                     const pkgIdx = currentPackages.findIndex(p => p.packageId === redeemedOffer.id);
                     if (pkgIdx > -1) {
@@ -1363,7 +1355,6 @@ export default function POSPage() {
             clientUpdates.activePackages = arrayUnion(...packagesToAdd);
         }
 
-        // Handle Membership Retail Discount Usage
         if (redeemedOffer?.type === 'retail_discount') {
             clientUpdates['subscription.perkLastUsed'] = nowISO;
             const discountKey = `subscription.perkUsage.retail_discount`;
