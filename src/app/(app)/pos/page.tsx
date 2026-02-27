@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -16,7 +16,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteFiel
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
@@ -38,6 +38,7 @@ import { InServiceAppointmentCard } from '@/components/pos/InServiceAppointmentC
 import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
+import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -78,8 +79,10 @@ export default function POSPage() {
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
+    
+    const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
+    const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
 
-    // Appointments are already formatted as Date objects by the InventoryProvider
     const appointments = appointmentsFromInventory || [];
 
     const readyForCheckoutAppointments = useMemo(() => appointments.filter(apt => apt.status === 'ready_for_checkout').map(apt => ({ ...apt, client: clients?.find(c => c.id === apt.clientId), service: services?.find(s => s.id === apt.serviceId), addOnServices: (apt.addOnIds || []).map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[], staff: staff?.find(s => s.id === apt.staffId) })), [appointments, clients, services, staff]);
@@ -139,6 +142,34 @@ export default function POSPage() {
 
     const total = subtotal + (subtotal * 0.07) + tipAmount;
 
+    const handleFinishService = (apt: Appointment) => {
+        setAppointmentToReview(apt);
+        setIsTechnicianReviewOpen(true);
+    };
+
+    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        updateDocumentNonBlocking(appointmentRef, {
+            status: 'ready_for_checkout',
+            checkoutState,
+            actualEndTime: new Date().toISOString(),
+        });
+        
+        const appointment = appointments?.find(a => a.id === appointmentId);
+        if (appointment?.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+            updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+        }
+
+        toast({
+            title: "Service Finished",
+            description: "The appointment has been sent to the front desk for checkout."
+        });
+        setIsTechnicianReviewOpen(false);
+    };
+
     return (
         <>
             <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -149,7 +180,14 @@ export default function POSPage() {
                         <Card><CardHeader><CardTitle>Currently In Service</CardTitle></CardHeader><CardContent>
                             {(appointments.filter(a => a.status === 'servicing')).length > 0 ? (
                                 <ScrollArea><div className="flex space-x-4 pb-4">{appointments.filter(a => a.status === 'servicing').map(apt => (
-                                    <div key={apt.id} className="w-72 shrink-0"><InServiceAppointmentCard appointment={apt} services={services} staff={staff} onSendToCheckout={() => {}} /></div>
+                                    <div key={apt.id} className="w-72 shrink-0">
+                                        <InServiceAppointmentCard 
+                                            appointment={apt} 
+                                            services={services} 
+                                            staff={staff} 
+                                            onSendToCheckout={() => handleFinishService(apt)} 
+                                        />
+                                    </div>
                                 ))}</div><ScrollBar orientation="horizontal" /></ScrollArea>
                             ) : <p className="text-center text-muted-foreground p-8">No clients in service.</p>}
                         </CardContent></Card>
@@ -167,8 +205,23 @@ export default function POSPage() {
                 client={clients?.find(c => c.id === viewingAppointment?.clientId) || null}
                 service={services?.find(s => s.id === viewingAppointment?.serviceId) || null}
                 tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
-                onStartService={() => {}} onFinishService={() => {}} onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
+                onStartService={() => {}} onFinishService={handleFinishService} onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
+                resources={[]}
             />
+
+            {appointmentToReview && (
+                <TechnicianReviewDialog 
+                    open={isTechnicianReviewOpen}
+                    onOpenChange={setIsTechnicianReviewOpen}
+                    appointmentData={{
+                        appointment: appointmentToReview,
+                        client: clients?.find(c => c.id === appointmentToReview.clientId),
+                        service: services?.find(s => s.id === appointmentToReview.serviceId)
+                    }}
+                    staff={staff || []}
+                    onSendToFrontDesk={handleSendToFrontDesk}
+                />
+            )}
 
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0 overflow-hidden">

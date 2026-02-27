@@ -69,7 +69,7 @@ function PlannerPageContent() {
   
   const { user } = useUser();
   const { selectedTenant, role } = useTenant();
-  const firestore = useFirebase().firestore;
+  const { firestore } = useFirebase();
   const tenantId = selectedTenant?.id;
   const router = useRouter();
   
@@ -88,7 +88,15 @@ function PlannerPageContent() {
     const checkInMap = new Map(checkIns.map(ci => [ci.checkInToken, ci]));
     return appointmentsFromInventory.map(apt => {
         const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
-        return ci ? { ...apt, checkInStatus: ci.checkInStatus || apt.checkInStatus, lateTimeMinutes: ci.lateTimeMinutes ?? apt.lateTimeMinutes, status: ci.status || apt.status } : apt;
+        // CRITICAL: Only override status if the main record is still in early stages.
+        // Once a service has started or reached checkout, the main record is the source of truth.
+        const shouldOverrideStatus = apt.status === 'confirmed' || apt.status === 'deposit_pending';
+        return ci ? { 
+            ...apt, 
+            checkInStatus: ci.checkInStatus || apt.checkInStatus, 
+            lateTimeMinutes: ci.lateTimeMinutes ?? apt.lateTimeMinutes, 
+            status: (shouldOverrideStatus && ci.status) ? ci.status : apt.status 
+        } : apt;
     });
   }, [appointmentsFromInventory, checkIns]);
   
@@ -111,7 +119,6 @@ function PlannerPageContent() {
   const [denialReason, setDenialReason] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   
-  // Missing states that were causing ReferenceErrors
   const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
 
@@ -224,6 +231,11 @@ function PlannerPageContent() {
     toast({ title: "Appointment Booked" });
   };
 
+  const handleFinishService = (apt: Appointment) => {
+      setSelectedAppointment(apt);
+      setIsTechnicianReviewOpen(true);
+  };
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -274,7 +286,7 @@ function PlannerPageContent() {
                 dailyTransactions={transactions?.filter(t => isSameDay(new Date(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={id => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id), { status: 'servicing', actualStartTime: new Date().toISOString() })}
-                onFinishService={a => { setSelectedAppointment(a); setIsTechnicianReviewOpen(true); }} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
+                onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
                 onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
                 walkIns={walkIns} clients={clients} services={services} resources={resources || []} publicScheduleProfile={publicScheduleProfile}
             />
@@ -286,7 +298,7 @@ function PlannerPageContent() {
         service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
         tmhr={tmhr} transactions={transactions || []}
         onStartService={id => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id), { status: 'servicing', actualStartTime: new Date().toISOString() })}
-        onFinishService={a => { setSelectedAppointment(a); setIsTechnicianReviewOpen(true); }}
+        onFinishService={handleFinishService}
         onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
         onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
         onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
