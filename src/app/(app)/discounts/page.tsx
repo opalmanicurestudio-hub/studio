@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit, MoreHorizontal, UserPlus } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit, MoreHorizontal, UserPlus, TrendingUp, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -224,23 +224,17 @@ export default function DiscountsPage() {
     const { kpiData, savingsByCode } = useMemo(() => {
         if (!transactions || !discounts || !appointments) {
           return {
-            kpiData: { grossSales: 0, netSales: 0, discountsApplied: 0, promoEffectiveness: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
+            kpiData: { totalDiscountsValue: 0, promoRetentionRate: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
             savingsByCode: {} as Record<string, number>
           };
         }
 
-        const incomeTransactions = transactions.filter(
-          (t) => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail' || t.category === 'Membership/Package Sales')
-        );
-    
         const discountTransactions = transactions.filter(t => t.type === 'expense' && t.category === 'Discounts');
         
         // Accurate total redemptions by summing usageCount from all discount docs
         const totalRedemptions = (discounts || []).reduce((sum, d) => sum + (d.usageCount || 0), 0);
 
-        const netSales = incomeTransactions.reduce((acc, t) => acc + t.amount, 0);
-        const discountsApplied = discountTransactions.reduce((acc, t) => acc + t.amount, 0);
-        const grossSales = netSales + discountsApplied;
+        const totalDiscountsValue = discountTransactions.reduce((acc, t) => acc + t.amount, 0);
     
         // Calculate savings per code by parsing the discount transactions
         const codeSavings: Record<string, number> = {};
@@ -253,8 +247,9 @@ export default function DiscountsPage() {
                 const perCodeAmount = t.amount / codes.length;
                 codes.forEach(c => {
                     if (c) {
-                        codeSavings[c] = (codeSavings[c] || 0) + perCodeAmount;
-                        codeCounts[c] = (codeCounts[c] || 0) + 1;
+                        const upperC = c.toUpperCase();
+                        codeSavings[upperC] = (codeSavings[upperC] || 0) + perCodeAmount;
+                        codeCounts[upperC] = (codeCounts[upperC] || 0) + 1;
                     }
                 });
             }
@@ -279,7 +274,7 @@ export default function DiscountsPage() {
             }
         });
     
-        const promoEffectiveness = uniqueDiscountedClientIds.size > 0 
+        const promoRetentionRate = uniqueDiscountedClientIds.size > 0 
           ? (retainedClients / uniqueDiscountedClientIds.size) * 100 
           : 0;
     
@@ -289,10 +284,8 @@ export default function DiscountsPage() {
     
         return {
           kpiData: {
-            grossSales,
-            netSales,
-            discountsApplied,
-            promoEffectiveness,
+            totalDiscountsValue,
+            promoRetentionRate,
             mostPopularCode,
             totalRedemptions,
           },
@@ -316,7 +309,7 @@ export default function DiscountsPage() {
                     <div>
                         <h1 className="text-3xl font-bold">Discounts & Automations</h1>
                         <p className="text-muted-foreground mt-1">
-                            Create promotional codes and set up automated marketing triggers.
+                            Analyze performance and manage your promotional logic.
                         </p>
                     </div>
                      <Button onClick={handleAdd}>
@@ -324,65 +317,45 @@ export default function DiscountsPage() {
                     </Button>
                 </div>
                 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Gross Sales</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
+                            <TicketIcon className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold">${kpiData.grossSales.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Revenue from discounted sales, before discount.</p>
+                            <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
+                            <p className="text-xs text-muted-foreground">Across all active campaigns.</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Discounts Applied</CardTitle>
-                        <Percent className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">Total Savings Given</CardTitle>
+                            <Percent className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold text-destructive">-${kpiData.discountsApplied.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Total value of all discounts given.</p>
+                            <div className="text-2xl font-bold text-destructive">-${kpiData.totalDiscountsValue.toFixed(2)}</div>
+                            <p className="text-xs text-muted-foreground">Total direct cost of promotions.</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Net Sales</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">Promo Retention Rate</CardTitle>
+                            <Repeat className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold text-primary">${kpiData.netSales.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Actual revenue from discounted sales.</p>
+                            <div className="text-2xl font-bold">{kpiData.promoRetentionRate.toFixed(1)}%</div>
+                            <p className="text-xs text-muted-foreground">% of discounted clients who returned.</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
-                        <TicketIcon className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
+                            <Star className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
-                        <p className="text-xs text-muted-foreground">Sum of usage counts from all active codes.</p>
-                        </CardContent>
-                    </Card>
-                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
-                        <Star className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                        <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
-                        <p className="text-xs text-muted-foreground">The most frequently used code.</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Promo Retention</CardTitle>
-                        <Repeat className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                        <div className="text-2xl font-bold">{kpiData.promoEffectiveness.toFixed(1)}%</div>
-                        <p className="text-xs text-muted-foreground">% of discounted clients who returned.</p>
+                            <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
+                            <p className="text-xs text-muted-foreground">Your best performing campaign.</p>
                         </CardContent>
                     </Card>
                 </div>
