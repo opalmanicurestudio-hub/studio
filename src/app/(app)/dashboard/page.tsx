@@ -426,7 +426,7 @@ const OwnerDashboard = () => {
                 return (
                   <div key={apt.id} className="flex items-center gap-4">
                     <Avatar className="hidden h-9 w-9 sm:flex">
-                      <AvatarImage src={client.avatarUrl} alt="Avatar" />
+                      <AvatarImage src={client.avatarUrl || undefined} alt="Avatar" />
                       <AvatarFallback>
                         {client.name.split(' ').map(n => n[0]).join('').substring(0,2)}
                       </AvatarFallback>
@@ -590,7 +590,7 @@ const StaffDashboardView = () => {
                 (a.status === 'confirmed' || a.status === 'servicing') && 
                 a.startTime >= todayStart && a.startTime <= todayEnd
             )
-            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+            .sort((a, b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime())
             .map(apt => ({
                 ...apt,
                 client: clients.find(c => c.id === apt.clientId),
@@ -843,7 +843,7 @@ const StaffDashboardView = () => {
                     <div className="mb-4 p-3 border-2 border-primary bg-primary/5 rounded-lg space-y-3">
                          <Badge>Up Next</Badge>
                         <div className="flex items-center gap-4">
-                            <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl} /><AvatarFallback>{getInitials(nextAppointment.client?.name)}</AvatarFallback></Avatar>
+                            <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl || undefined} /><AvatarFallback>{getInitials(nextAppointment.client?.name)}</AvatarFallback></Avatar>
                             <div>
                                 <p className="font-semibold">{nextAppointment.client?.name}</p>
                                 <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
@@ -864,7 +864,7 @@ const StaffDashboardView = () => {
                         {upcomingAppointments.map((apt) => (
                             <div key={apt.id} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50">
                                 <Avatar className="h-10 w-10">
-                                    <AvatarImage src={apt.client?.avatarUrl || ''} alt={apt.client?.name || ''} />
+                                    <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} />
                                     <AvatarFallback>{getInitials(apt.client?.name)}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">

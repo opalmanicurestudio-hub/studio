@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import {
@@ -39,7 +38,7 @@ export function AppHeaderClient({ title }: AppHeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.photoURL || ''} alt="User" />
+                  <AvatarImage src={user?.photoURL || undefined} alt="User" />
                   <AvatarFallback>{user?.displayName?.charAt(0) || 'U'}</AvatarFallback>
                 </Avatar>
               </Button>
