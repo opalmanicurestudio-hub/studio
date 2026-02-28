@@ -35,10 +35,10 @@ interface WaitingCustomerCardProps {
 }
 
 const statusOptions = [
-    { value: 'pending', label: 'Pending', icon: Clock, color: 'text-slate-400' },
-    { value: 'on_my_way', label: 'On Way', icon: Car, color: 'text-blue-500' },
-    { value: 'arrived', label: 'Arrived', icon: MapPin, color: 'text-green-500' },
-    { value: 'running_late', label: 'Late', icon: AlertTriangle, color: 'text-amber-500' },
+    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-slate-400' },
+    { value: 'on_my_way', label: 'Mark as On My Way', icon: Car, color: 'text-blue-500' },
+    { value: 'arrived', label: 'Mark as Arrived', icon: MapPin, color: 'text-green-500' },
+    { value: 'running_late', label: 'Mark as Running Late', icon: AlertTriangle, color: 'text-amber-500' },
 ];
 
 /**
@@ -68,8 +68,6 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
     const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
     const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
 
-    const activeStatus = statusOptions.find(s => s.value === checkInStatus) || statusOptions[0];
-
     const handleLateConfirm = () => {
         onUpdateStatus(item.id, isWalkIn, 'running_late', parseInt(tempLateMinutes) || 0);
         setIsLateEntryOpen(false);
@@ -86,7 +84,7 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                     <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
                             <div className="min-w-0">
-                                <p className="font-bold truncate flex items-center gap-2 text-sm">
+                                <p className="font-bold truncate flex items-center gap-2 text-sm text-foreground">
                                     {!isWalkIn && <Clock className="w-3 h-3 text-primary shrink-0" />}
                                     {customerName}
                                 </p>
@@ -110,12 +108,12 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
 
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-dashed">
                     <div className="flex gap-1.5">
-                        {statusOptions.map((status) => {
-                            const Icon = status.icon;
-                            const isActive = checkInStatus === status.value;
-                            return (
-                                <TooltipProvider key={status.value}>
-                                    <Tooltip>
+                        <TooltipProvider>
+                            {statusOptions.map((status) => {
+                                const Icon = status.icon;
+                                const isActive = checkInStatus === status.value;
+                                return (
+                                    <Tooltip key={status.value}>
                                         <TooltipTrigger asChild>
                                             <Button
                                                 variant={isActive ? 'default' : 'outline'}
@@ -137,9 +135,9 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                                         </TooltipTrigger>
                                         <TooltipContent><p>{status.label}</p></TooltipContent>
                                     </Tooltip>
-                                </TooltipProvider>
-                            );
-                        })}
+                                );
+                            })}
+                        </TooltipProvider>
                     </div>
                     {checkInStatus === 'running_late' && (
                         <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-black animate-pulse">
@@ -189,29 +187,51 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                 )}
             </CardContent>
             <CardFooter className="p-2 border-t bg-muted/30">
-                <div className="flex justify-around w-full">
-                    {isWalkIn && onMoveToFront && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onMoveToFront(item.id)}>
-                            <TrendingUp className="w-4 h-4" />
-                        </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onAssign}>
-                        <UserPlus className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onPrintTicket(item.id)}>
-                        <Printer className="w-4 h-4" />
-                    </Button>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4"/></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => onCancel(item.id)} className="text-destructive">
-                                <Trash2 className="w-4 h-4 mr-2" /> Cancel Walk-in
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
+                <TooltipProvider>
+                    <div className="flex justify-around w-full">
+                        {isWalkIn && onMoveToFront && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onMoveToFront(item.id)}>
+                                        <TrendingUp className="w-4 h-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Move to Front</p></TooltipContent>
+                            </Tooltip>
+                        )}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onAssign}>
+                                    <UserPlus className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Assign Staff</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onPrintTicket(item.id)}>
+                                    <Printer className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Print Ticket</p></TooltipContent>
+                        </Tooltip>
+                        <DropdownMenu>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4"/></Button>
+                                    </DropdownMenuTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent><p>More Actions</p></TooltipContent>
+                            </Tooltip>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => onCancel(item.id)} className="text-destructive">
+                                    <Trash2 className="w-4 h-4 mr-2" /> Cancel Walk-in
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </TooltipProvider>
             </CardFooter>
 
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
