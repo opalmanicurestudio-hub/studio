@@ -33,6 +33,16 @@ const statusOptions = [
     { value: 'running_late', label: 'Late', icon: AlertTriangle, color: 'text-amber-500' },
 ];
 
+/**
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
+
 export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus }) => {
     const isWalkIn = item.type === 'walk-in';
     const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
@@ -42,7 +52,7 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
     const lateTimeMinutes = (item as any).lateTimeMinutes || 0;
     
     const primaryServices = services?.filter(s => serviceIds.includes(s.id));
-    const waitTime = isWalkIn ? formatDistanceToNow(parseISO(checkInTime), { addSuffix: true }) : format(new Date(checkInTime), 'h:mm a');
+    const waitTime = isWalkIn ? formatDistanceToNow(safeDate(checkInTime), { addSuffix: true }) : format(safeDate(checkInTime), 'h:mm a');
     
     const preferredStaffId = isWalkIn ? (item as WalkIn).preferredStaffId : (item as Appointment).staffId;
     const preferredStaff = staffList?.find(s => s.id === preferredStaffId);
@@ -79,7 +89,12 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                             </div>
                             <div className="text-right shrink-0">
                                 {primaryServices?.map(s => <p key={s.id} className="text-[11px] font-bold leading-tight">{s.name}</p>)}
-                                <p className="text-[10px] text-muted-foreground">{isWalkIn ? (item as WalkIn).estimatedDuration : differenceInMinutes(parseISO((item as Appointment).endTime), parseISO((item as Appointment).startTime))} min</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                    {isWalkIn 
+                                        ? `${(item as WalkIn).estimatedDuration} min` 
+                                        : `${differenceInMinutes(safeDate((item as Appointment).endTime), safeDate((item as Appointment).startTime))} min`
+                                    }
+                                </p>
                             </div>
                         </div>
                     </div>
