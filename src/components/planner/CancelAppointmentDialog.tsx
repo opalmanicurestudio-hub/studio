@@ -16,15 +16,21 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { type Appointment, type Tenant } from '@/lib/data';
-import { DollarSign, AlertTriangle } from 'lucide-react';
+import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appointment: Appointment;
   tenant: Tenant | null;
-  onConfirm: (data: { reason: string; chargeFee: boolean; feeAmount: number }) => void;
+  onConfirm: (data: { 
+    reason: string; 
+    chargeFee: boolean; 
+    feeAmount: number;
+    paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
+  }) => Promise<void>;
 }
 
 export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = ({
@@ -36,17 +42,25 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 }) => {
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const feeAmount = tenant?.cancellationFee || 0;
 
-  const handleConfirm = () => {
-    onConfirm({
-      reason: reason === 'other' ? customReason : reason,
-      chargeFee,
-      feeAmount: chargeFee ? feeAmount : 0,
-    });
-    onOpenChange(false);
+  const handleConfirm = async () => {
+    setIsSubmitting(true);
+    try {
+        await onConfirm({
+            reason: reason === 'other' ? customReason : reason,
+            chargeFee,
+            feeAmount: chargeFee ? feeAmount : 0,
+            paymentMethod: chargeFee ? paymentMethod : 'waived',
+        });
+        onOpenChange(false);
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   return (
@@ -89,27 +103,53 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             <div className="space-y-4 pt-4 border-t">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-base font-bold">Charge Cancellation Fee</Label>
-                  <p className="text-xs text-muted-foreground">Apply a ${feeAmount.toFixed(2)} fee to client&apos;s account.</p>
+                  <Label className="text-base font-bold">Apply Cancellation Fee</Label>
+                  <p className="text-xs text-muted-foreground">The policy fee is ${feeAmount.toFixed(2)}.</p>
                 </div>
                 <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
               </div>
               
               {chargeFee && (
-                <Alert variant="destructive" className="bg-destructive/10 text-destructive border-destructive/20">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle className="text-xs font-black uppercase">Fee Enforcement</AlertTitle>
-                  <AlertDescription className="text-[11px] leading-tight">
-                    This will add ${feeAmount.toFixed(2)} to {appointment.clientName}&apos;s outstanding balance. This is calculated as an &quot;Enforced Fee&quot; in reports.
-                  </AlertDescription>
-                </Alert>
+                <div className="space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
+                    <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-2">
+                        <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5" : "border-border")}>
+                            <RadioGroupItem value="card_on_file" id="pay-card" className="sr-only" />
+                            <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
+                            <span className="text-xs font-bold leading-tight">Charge Card<br/>on File</span>
+                        </label>
+                        <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5" : "border-border")}>
+                            <RadioGroupItem value="add_to_balance" id="pay-balance" className="sr-only" />
+                            <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
+                            <span className="text-xs font-bold leading-tight">Add to Client<br/>Balance</span>
+                        </label>
+                    </RadioGroup>
+
+                    <Alert variant="destructive" className="bg-destructive/10 text-destructive border-destructive/20">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle className="text-xs font-black uppercase">Collection Notice</AlertTitle>
+                        <AlertDescription className="text-[11px] leading-tight">
+                            {paymentMethod === 'card_on_file' 
+                                ? `Attempting to charge the card ending in **** 4242. If payment fails, you may choose to add it to their balance instead.`
+                                : `This adds $${feeAmount.toFixed(2)} to ${appointment.clientName}'s profile. It will be flagged for collection during their next visit.`
+                            }
+                        </AlertDescription>
+                    </Alert>
+                </div>
               )}
             </div>
           )}
         </div>
         <DialogFooter className="sm:justify-between gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Go Back</Button>
-          <Button variant="destructive" onClick={handleConfirm} className="font-bold">Confirm Cancellation</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Go Back</Button>
+          <Button 
+            variant={chargeFee ? "default" : "destructive"} 
+            onClick={handleConfirm} 
+            className="font-bold min-w-[140px]"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee ? 'Confirm & Charge' : 'Confirm Cancellation')}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -23,6 +24,7 @@ import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { subMonths, parseISO, isAfter, format, isSameMonth, differenceInDays } from 'date-fns';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 
 export const CheckoutHub = ({ 
@@ -282,6 +284,19 @@ export const CheckoutHub = ({
 
             <ScrollArea className="flex-1 min-h-0 my-2 md:my-4 px-4 md:px-0">
                 <div className="space-y-4 md:space-y-6 pb-4">
+                    {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                            <Alert variant="destructive" className="bg-destructive/10 text-destructive border-destructive/20 shadow-sm border-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Warning</AlertTitle>
+                                <AlertDescription className="text-xs space-y-2 mt-1">
+                                    <p>This client owes <strong>${selectedClient.outstandingBalance!.toFixed(2)}</strong> from past unpaid fees.</p>
+                                    <Button variant="destructive" size="sm" className="w-full h-8 font-bold text-[10px] uppercase">Add to Current Sale</Button>
+                                </AlertDescription>
+                            </Alert>
+                        </motion.div>
+                    )}
+
                     <Accordion type="single" collapsible defaultValue="items" className="w-full">
                         <AccordionItem value="items" className="border-none">
                             <AccordionTrigger className="p-0 hover:no-underline py-2">

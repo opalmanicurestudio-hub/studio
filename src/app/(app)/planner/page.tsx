@@ -241,45 +241,75 @@ function PlannerPageContent() {
     }
   };
 
-  const handleConfirmCancellation = async (data: { reason: string; chargeFee: boolean; feeAmount: number }) => {
+  const handleConfirmCancellation = async (data: { 
+    reason: string; 
+    chargeFee: boolean; 
+    feeAmount: number;
+    paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
+  }) => {
     if (!selectedAppointment || !firestore || !tenantId) return;
 
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
 
     const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
 
     // 1. Update Appointment
     batch.update(appointmentRef, {
         status: 'cancelled',
         cancellationReason: data.reason,
         cancellationFeeApplied: data.feeAmount,
+        cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
     });
 
-    // 2. If charging fee, update client profile
+    // 2. Handle Fee Collection
     if (data.chargeFee && data.feeAmount > 0) {
-        const feeId = nanoid();
-        const feeEntry = {
-            feeId,
-            appointmentId: selectedAppointment.id,
-            appointmentDate: selectedAppointment.startTime.toISOString(),
-            feeAmount: data.feeAmount,
-            reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
-        };
-        batch.update(clientRef, {
-            unpaidFees: arrayUnion(feeEntry),
-            outstandingBalance: increment(data.feeAmount)
-        });
+        if (data.paymentMethod === 'card_on_file') {
+            // Log as immediate transaction (Simulating successful stripe charge)
+            const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(transactionRef, {
+                date: now,
+                description: `Cancellation Fee: ${selectedAppointment.clientName} (#${selectedAppointment.id.slice(-6).toUpperCase()})`,
+                clientOrVendor: selectedAppointment.clientName || 'Client',
+                clientId: selectedAppointment.clientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Cancellation Fee',
+                amount: data.feeAmount,
+                paymentMethod: 'Card on File',
+                hasReceipt: false,
+                appointmentId: selectedAppointment.id,
+            });
+            toast({ title: "Card Charged Successfully", description: `$${data.feeAmount.toFixed(2)} collected from card on file.` });
+        } else if (data.paymentMethod === 'add_to_balance') {
+            // Add to client profile debt
+            const feeId = nanoid();
+            const feeEntry = {
+                feeId,
+                appointmentId: selectedAppointment.id,
+                appointmentDate: selectedAppointment.startTime.toISOString(),
+                feeAmount: data.feeAmount,
+                reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
+            };
+            batch.update(clientRef, {
+                unpaidFees: arrayUnion(feeEntry),
+                outstandingBalance: increment(data.feeAmount)
+            });
+            toast({ title: "Fee Added to Balance", description: `Client now owes $${data.feeAmount.toFixed(2)} for this cancellation.` });
+        }
+    } else if (data.paymentMethod === 'waived') {
+        batch.update(appointmentRef, { cancellationFeeWaived: true });
+        toast({ title: "Cancellation Waived", description: "The fee was absorbed as a service gesture." });
     }
 
     try {
         await batch.commit();
-        toast({ title: "Appointment Cancelled" });
         setIsCancelDialogOpen(false);
         setIsDetailsOpen(false);
     } catch (e) {
         console.error(e);
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to cancel appointment.' });
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to process cancellation.' });
     }
   };
 
@@ -589,7 +619,7 @@ function PlannerPageContent() {
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           <DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader>
-          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0_0,0.5)]" /></div></div>
+          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
           <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>
