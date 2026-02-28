@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon, User as UserIcon } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon, User as UserIcon, Scissors } from 'lucide-react';
 import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays, getDay, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Event, type Tenant, type Staff } from '@/lib/data';
@@ -312,7 +312,7 @@ export default function CheckInPage() {
         const newEndTime = addMinutes(startDateTime, service.duration);
         
         const updateData: any = {
-            startTime: newStartTime.toISOString(),
+            startTime: startDateTime.toISOString(),
             endTime: newEndTime.toISOString(),
             status: 'confirmed' as const,
             checkInStatus: 'pending' as const,
@@ -486,9 +486,11 @@ export default function CheckInPage() {
             <CardContent className="space-y-6">
                 <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
                      <div className="flex items-center gap-3">
-                        <Avatar>
-                            <AvatarImage src={client.avatarUrl} />
-                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                        <Avatar className="w-12 h-12">
+                            <AvatarImage src={service.imageUrl} alt={service.name} />
+                            <AvatarFallback className="bg-muted">
+                                <Scissors className="w-6 h-6 text-muted-foreground" />
+                            </AvatarFallback>
                         </Avatar>
                         <div>
                              <p className="font-semibold">{service.name}</p>
