@@ -2,18 +2,18 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
 import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
-import { Sparkles, TrendingUp } from 'lucide-react';
+import { Sparkles, TrendingUp, Users, Clock, CheckCircle } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { NotifiedCustomerCard } from './NotifiedCustomerCard';
+import { cn } from '@/lib/utils';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -50,7 +50,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     groupSizes,
     onToggleWaitForStaff,
 }) => {
-    const [activeTab, setActiveTab] = useState('waiting');
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
     const notifiedQueue = useMemo(() => {
@@ -77,64 +76,82 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     };
 
     return (
-        <>
-            <div className="flex justify-end items-center gap-4 mb-4">
-                <Button onClick={onAssignNext} className="w-full sm:w-auto">
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Assign Next
-                </Button>
+        <div className="space-y-6">
+            {/* Waiting Lane */}
+            <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                        <h3 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Waiting List</h3>
+                        <Badge variant="secondary" className="font-bold">{orderedWaitingQueue.length}</Badge>
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={onAssignNext} className="h-8 text-xs text-primary font-black hover:text-primary hover:bg-primary/5">
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                        AUTO-ASSIGN
+                    </Button>
+                </div>
+                {orderedWaitingQueue.length > 0 ? (
+                    <ScrollArea className="w-full">
+                        <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={onReorder} className="flex space-x-4 pb-4">
+                            {orderedWaitingQueue.map(walkIn => (
+                                <Reorder.Item key={walkIn.id} value={walkIn} className="w-72 shrink-0">
+                                    <WaitingCustomerCard 
+                                        walkIn={walkIn} 
+                                        services={services} 
+                                        staffList={staff}
+                                        onAssign={() => handleOpenAssignDialog(walkIn)} 
+                                        onCancel={onCancel}
+                                        onMoveToFront={handleMoveToFront}
+                                        onPrintTicket={onPrintTicket}
+                                        groupSize={groupSizes.get(walkIn.groupId) || 1}
+                                    />
+                                </Reorder.Item>
+                            ))}
+                        </Reorder.Group>
+                        <ScrollBar orientation="horizontal" />
+                    </ScrollArea>
+                ) : (
+                    <div className="text-center py-8 border-2 border-dashed rounded-xl bg-muted/20">
+                        <p className="text-sm text-muted-foreground">The waitlist is clear.</p>
+                    </div>
+                )}
             </div>
-            <Tabs defaultValue="waiting" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{orderedWaitingQueue.length}</Badge></TabsTrigger>
-                    <TabsTrigger value="notified">Notified <Badge className="ml-2">{notifiedQueue.length}</Badge></TabsTrigger>
-                </TabsList>
-                <TabsContent value="waiting" className="mt-4">
-                     {orderedWaitingQueue.length > 0 ? (
-                        <ScrollArea>
-                            <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={onReorder} className="flex space-x-4 pb-4">
-                                {orderedWaitingQueue.map(walkIn => (
-                                    <Reorder.Item key={walkIn.id} value={walkIn} className="w-72 shrink-0">
-                                        <WaitingCustomerCard 
-                                            walkIn={walkIn} 
-                                            services={services} 
-                                            staffList={staff}
-                                            onAssign={() => handleOpenAssignDialog(walkIn)} 
-                                            onCancel={onCancel}
-                                            onMoveToFront={handleMoveToFront}
-                                            onPrintTicket={onPrintTicket}
-                                            groupSize={groupSizes.get(walkIn.groupId) || 1}
-                                        />
-                                    </Reorder.Item>
-                                ))}
-                            </Reorder.Group>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    ) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
-                </TabsContent>
-                <TabsContent value="notified" className="mt-4">
-                    {notifiedQueue.length > 0 ? (
-                        <ScrollArea>
-                            <div className="flex space-x-4 pb-4">
-                                {notifiedQueue.map(walkIn => (
-                                    <div key={walkIn.id} className="w-72 shrink-0">
-                                        <NotifiedCustomerCard 
-                                            walkIn={walkIn} 
-                                            services={services} 
-                                            staff={staff}
-                                            onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)}
-                                            onSkip={onSkip}
-                                            onCancel={onCancel}
-                                            onReturnToQueue={onReturnToQueue}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    ) : <p className="text-center text-muted-foreground p-8">No clients have been notified yet.</p>}
-                </TabsContent>
-            </Tabs>
+
+            <Separator className="border-dashed" />
+
+            {/* Notified Lane */}
+            <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <h3 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Ready to Start</h3>
+                    <Badge variant="secondary" className="font-bold bg-green-500/10 text-green-700">{notifiedQueue.length}</Badge>
+                </div>
+                {notifiedQueue.length > 0 ? (
+                    <ScrollArea className="w-full">
+                        <div className="flex space-x-4 pb-4">
+                            {notifiedQueue.map(walkIn => (
+                                <div key={walkIn.id} className="w-72 shrink-0">
+                                    <NotifiedCustomerCard 
+                                        walkIn={walkIn} 
+                                        services={services} 
+                                        staff={staff}
+                                        onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)}
+                                        onSkip={onSkip}
+                                        onCancel={onCancel}
+                                        onReturnToQueue={onReturnToQueue}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <ScrollBar orientation="horizontal" />
+                    </ScrollArea>
+                ) : (
+                    <div className="text-center py-8 border-2 border-dashed rounded-xl bg-muted/20">
+                        <p className="text-sm text-muted-foreground">No clients waiting at the station.</p>
+                    </div>
+                )}
+            </div>
+
             <AssignStaffDialog
                 open={!!walkInToAssign}
                 onOpenChange={() => setWalkInToAssign(null)}
@@ -143,6 +160,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                 onAssign={handleAssignConfirm}
                 onToggleWaitForStaff={onToggleWaitForStaff}
             />
-        </>
+        </div>
     );
 };

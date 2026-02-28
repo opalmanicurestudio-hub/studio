@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState, getServicePrice, type Discount, type Membership, type Package } from '@/lib/data';
@@ -24,7 +24,7 @@ import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -52,7 +52,6 @@ export default function POSPage() {
     const router = useRouter();
     const isMobile = useIsMobile();
 
-    const [activeTab, setActiveTab] = useState('catalog');
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
@@ -71,8 +70,8 @@ export default function POSPage() {
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     
-    const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
+    const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
 
     // Turn Rotation State
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
@@ -424,7 +423,7 @@ export default function POSPage() {
 
                 batch.update(appointmentRef, { 
                     status: 'completed',
-                    inventoryProcessed: true,
+                    revenue: getServicePrice(service, provider),
                     discountAmount: (totalDiscountValue + membershipDiscountValue) / (selectedAppointmentIds.size || 1),
                     appliedDiscountCode: appliedDiscountCodes.join(', ')
                 });
@@ -679,7 +678,8 @@ export default function POSPage() {
             <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
+                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
+                        {/* 1. Team & Assignment Section */}
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChange} 
@@ -689,45 +689,106 @@ export default function POSPage() {
                             assignmentMode={assignmentMode}
                             onAssignmentModeChange={setAssignmentMode}
                         />
-                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} onScanClick={() => setIsScannerOpen(true)} />
-                        <Card><CardHeader><CardTitle>Currently In Service</CardTitle></CardHeader><CardContent>
-                            {(appointments.filter(a => a.status === 'servicing')).length > 0 ? (
-                                <ScrollArea><div className="flex space-x-4 pb-4">{appointments.filter(a => a.status === 'servicing').map(apt => (
-                                    <div key={apt.id} className="w-72 shrink-0">
-                                        <InServiceAppointmentCard 
-                                            appointment={apt} 
+
+                        {/* 2. Flow Board: Walk-ins & In Service */}
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                                    <Users className="w-6 h-6 text-primary" />
+                                    Studio Flow Board
+                                </h2>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="bg-background">{walkIns?.filter(w => w.status === 'waiting').length} Waiting</Badge>
+                                    <Badge variant="outline" className="bg-background">{appointments.filter(a => a.status === 'servicing').length} In Service</Badge>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Walk-in Column */}
+                                <Card className="border-2 shadow-sm bg-background/50 backdrop-blur-sm">
+                                    <CardHeader className="p-4 border-b">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-lg">Waitlist</CardTitle>
+                                            <Button size="sm" variant="outline" onClick={() => {}} className="h-8">
+                                                <Plus className="w-4 h-4 mr-1" /> Add
+                                            </Button>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="p-4">
+                                        <WalkInQueue 
+                                            walkIns={walkIns} 
+                                            appointments={appointments.filter(a => a.status === 'servicing')} 
                                             services={services} 
                                             staff={staff} 
-                                            onSendToCheckout={() => handleFinishService(apt)} 
+                                            onAssignStaff={() => {}}
+                                            onAssignNext={() => {}}
+                                            onCancel={() => {}}
+                                            onStartService={handleStartService}
+                                            orderedWaitingQueue={[]}
+                                            onReorder={() => {}}
+                                            assignmentMode="ordered_list"
+                                            onPrintTicket={() => {}}
+                                            onSkip={() => {}}
+                                            onReturnToQueue={() => {}}
+                                            groupSizes={new Map()}
+                                            onToggleWaitForStaff={() => {}}
                                         />
-                                    </div>
-                                ))}</div><ScrollBar orientation="horizontal" /></ScrollArea>
-                            ) : <p className="text-center text-muted-foreground p-8">No clients in service.</p>}
-                        </CardContent></Card>
-                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                            <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="catalog">Retail Catalog</TabsTrigger><TabsTrigger value="queue">Walk-in Queue</TabsTrigger></TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} /></TabsContent>
-                            <TabsContent value="queue" className="flex-1 mt-6">
-                                <WalkInQueue 
-                                    walkIns={walkIns} 
-                                    appointments={readyForCheckoutAppointments.map(a => a.appointment).filter(a => a.status === 'servicing')} 
-                                    services={services} 
-                                    staff={staff} 
-                                    onAssignStaff={() => {}}
-                                    onAssignNext={() => {}}
-                                    onCancel={() => {}}
-                                    onStartService={handleStartService}
-                                    orderedWaitingQueue={[]}
-                                    onReorder={() => {}}
-                                    assignmentMode="ordered_list"
-                                    onPrintTicket={() => {}}
-                                    onSkip={() => {}}
-                                    onReturnToQueue={() => {}}
-                                    groupSizes={new Map()}
-                                    onToggleWaitForStaff={() => {}}
-                                />
-                            </TabsContent>
-                        </Tabs>
+                                    </CardContent>
+                                </Card>
+
+                                {/* In Service Column */}
+                                <Card className="border-2 shadow-sm bg-background/50 backdrop-blur-sm">
+                                    <CardHeader className="p-4 border-b">
+                                        <CardTitle className="text-lg">Currently In Service</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="p-4">
+                                        <ScrollArea className="h-full">
+                                            <div className="space-y-3">
+                                                {appointments.filter(a => a.status === 'servicing').length > 0 ? (
+                                                    appointments.filter(a => a.status === 'servicing').map(apt => (
+                                                        <InServiceAppointmentCard 
+                                                            key={apt.id} 
+                                                            appointment={apt} 
+                                                            services={services} 
+                                                            staff={staff} 
+                                                            onSendToCheckout={() => handleFinishService(apt)} 
+                                                        />
+                                                    ))
+                                                ) : (
+                                                    <div className="text-center py-12 border-2 border-dashed rounded-xl">
+                                                        <Clock className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                                                        <p className="text-sm text-muted-foreground">No active services.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </ScrollArea>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
+
+                        {/* 3. Checkout Queue Section */}
+                        <CheckoutQueue 
+                            appointments={readyForCheckoutAppointments} 
+                            onSelectAppointment={handleSelectAppointment} 
+                            selectedAppointmentIds={selectedAppointmentIds} 
+                            onScanClick={() => setIsScannerOpen(true)} 
+                        />
+
+                        {/* 4. Retail & Menu Section */}
+                        <div className="space-y-4">
+                            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                                <ShoppingCart className="w-6 h-6 text-primary" />
+                                Menu & Products
+                            </h2>
+                            <RetailCatalog 
+                                services={services || []} 
+                                inventory={inventory || []} 
+                                memberships={memberships || []} 
+                                packages={packages || []} 
+                                onAddToCart={handleAddToCart} 
+                            />
+                        </div>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
                         <h2 className="text-xl font-bold mb-4">Current Sale</h2>
