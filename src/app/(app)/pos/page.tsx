@@ -118,6 +118,18 @@ export default function POSPage() {
         });
     }, []);
 
+    const handleAddToCart = useCallback((item: any) => {
+        setRetailItems(prev => {
+            const existing = prev.find(i => i.id === item.id);
+            if (existing) {
+                return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+            }
+            const price = 'interval' in item || 'sessions' in item ? item.price : ('price' in item ? item.price : item.msrp || 0);
+            const type = 'price' in item ? ('duration' in item ? 'service' : 'product') : 'product';
+            return [...prev, { id: item.id, name: item.name, quantity: 1, price, type: type as any, imageUrl: item.imageUrl, stock: item.totalStock }];
+        });
+    }, []);
+
     // Auto-select client as payee when appointments are selected
     useEffect(() => {
         if (selectedAppointmentIds.size > 0 && !selectedClientId) {
@@ -147,13 +159,11 @@ export default function POSPage() {
       } else {
           const product = inventory.find(p => p.sku === raw || p.id === id);
           if (product) {
-              const existing = retailItems.find(i => i.id === product.id);
-              if (existing) setRetailItems(retailItems.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-              else setRetailItems([...retailItems, { id: product.id, name: product.name, price: product.msrp || 0, quantity: 1, type: 'product' }]);
+              handleAddToCart(product);
               toast({ title: "Product Added" });
           } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
       }
-    }, [appointments, inventory, retailItems, toast, handleSelectAppointment, handleAddToCart]);
+    }, [appointments, inventory, toast, handleSelectAppointment, handleAddToCart]);
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -301,10 +311,7 @@ export default function POSPage() {
                         </CardContent></Card>
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="catalog">Retail Catalog</TabsTrigger><TabsTrigger value="queue">Walk-in Queue</TabsTrigger></TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={(i: any) => {
-                                const price = 'interval' in i || 'sessions' in i ? i.price : ('price' in i ? i.price : i.msrp || 0);
-                                setRetailItems([...retailItems, { id: i.id, name: i.name, quantity: 1, price, type: 'product' }]);
-                            }} /></TabsContent>
+                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} /></TabsContent>
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
