@@ -74,6 +74,94 @@ export default function POSPage() {
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
 
+    // Turn Rotation State
+    const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
+    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
+
+    useEffect(() => {
+        if (staff) {
+            const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+            setOrderedStaff(sorted);
+        }
+    }, [staff]);
+
+    const handleStaffReorder = (newOrder: Staff[]) => {
+        setOrderedStaff(newOrder);
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        newOrder.forEach((staffMember, index) => {
+            const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffMember.id);
+            batch.update(staffRef, { turnOrder: index });
+        });
+        batch.commit().catch(err => {
+            console.error("Failed to save staff order:", err);
+            toast({ variant: 'destructive', title: "Error", description: "Could not save turn order." });
+        });
+    };
+
+    const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        if (!firestore || !tenantId || !staff) return;
+        
+        const member = staff.find(s => s.id === staffId);
+        if (!member) return;
+
+        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        const now = new Date().toISOString();
+
+        let staffUpdate: Partial<Staff> = {};
+        let logEntry: any = { staffId, type: action, timestamp: now };
+
+        switch (action) {
+            case 'clock_in': staffUpdate = { active: true }; break;
+            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+            case 'break_end':
+                if (member.breakStartTime) {
+                    const duration = differenceInMinutes(new Date(now), new Date(member.breakStartTime));
+                    logEntry.durationMinutes = duration;
+                }
+                staffUpdate = { onBreak: false, breakStartTime: undefined };
+                break;
+        }
+        addDocumentNonBlocking(activityLogsRef, logEntry);
+        updateDocumentNonBlocking(staffDocRef, staffUpdate);
+    };
+
+    const enrichedOrderedStaff = useMemo(() => {
+        if (!orderedStaff || !transactions) return orderedStaff;
+        
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        return orderedStaff.map(member => {
+            const staffTransactionsToday = (transactions || []).filter(t => {
+                if (t.staffId !== member.id) return false;
+                const transactionDate = new Date(t.date);
+                return transactionDate >= todayStart && transactionDate <= todayEnd;
+            });
+
+            const serviceRevenue = staffTransactionsToday
+                .filter(t => t.category === 'Service Revenue')
+                .reduce((acc, t) => acc + t.amount, 0);
+
+            const retailSales = staffTransactionsToday
+                .filter(t => t.category === 'Retail')
+                .reduce((acc, t) => acc + t.amount, 0);
+
+            const totalSales = serviceRevenue + retailSales;
+            const tips = staffTransactionsToday.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+            
+            return {
+                ...member,
+                stats: {
+                    totalSales,
+                    tips,
+                }
+            };
+        });
+    }, [orderedStaff, transactions]);
+
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
 
     const readyForCheckoutAppointments = useMemo(() => {
@@ -592,6 +680,15 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
+                        <TeamStatus 
+                            staff={enrichedOrderedStaff} 
+                            onStatusChange={handleStatusChange} 
+                            appointments={appointments} 
+                            services={services} 
+                            onReorder={handleStaffReorder}
+                            assignmentMode={assignmentMode}
+                            onAssignmentModeChange={setAssignmentMode}
+                        />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} onScanClick={() => setIsScannerOpen(true)} />
                         <Card><CardHeader><CardTitle>Currently In Service</CardTitle></CardHeader><CardContent>
                             {(appointments.filter(a => a.status === 'servicing')).length > 0 ? (
