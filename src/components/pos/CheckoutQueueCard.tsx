@@ -13,23 +13,21 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { Badge } from '../ui/badge';
 
 interface CheckoutQueueCardProps {
-  appointment: Appointment & { 
-    client?: Client, 
-    service?: Service, 
-    addOnServices: Service[], 
-    staff?: Staff,
-    groupInfo?: { name: string; id: string; } | null;
+  appointmentData: {
+    id: string;
+    appointment: Appointment;
+    client: Client;
+    service: Service;
+    addOnServices: Service[];
+    staff: Staff;
   };
   isSelected: boolean;
   onSelect: () => void;
 }
 
-export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointment, isSelected, onSelect }) => {
-  const { client, service, addOnServices, staff, checkoutState, groupInfo } = appointment;
-
-  if (!client || !service) {
-    return null; // Or a skeleton/error state
-  }
+export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmentData, isSelected, onSelect }) => {
+  const { appointment: apt, client, service, addOnServices, staff } = appointmentData;
+  const checkoutState = apt.checkoutState;
 
   const hasAdditionalCharges = useMemo(() => {
     if (!service || !checkoutState?.actualDuration) return false;
@@ -57,12 +55,12 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
     return mainPrice + addOnsTotal;
   }, [service, addOnServices, staff]);
 
-  const ticketId = appointment.id.slice(-6).toUpperCase();
+  const ticketId = apt.id.slice(-6).toUpperCase();
 
   return (
     <div className="w-72 shrink-0">
         <Label
-            htmlFor={`apt-checkout-${appointment.id}`}
+            htmlFor={`apt-checkout-${apt.id}`}
             className={cn(
                 "block cursor-pointer rounded-lg border-2 bg-card text-card-foreground transition-all",
                 isSelected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/50"
@@ -71,7 +69,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
             <CardContent className="p-4 space-y-3">
                 <div className="flex items-start gap-4">
                     <Checkbox
-                        id={`apt-checkout-${appointment.id}`}
+                        id={`apt-checkout-${apt.id}`}
                         checked={isSelected}
                         onCheckedChange={onSelect}
                         className="mt-1"
@@ -79,11 +77,6 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                     <div className="flex-1 space-y-1">
                         <div className="font-semibold flex items-center gap-2">
                             {client.name}
-                            {groupInfo && (
-                                <Badge variant="destructive" className="text-xs">
-                                    {groupInfo.name}
-                                </Badge>
-                            )}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
                                     <Tooltip>
@@ -99,7 +92,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                                 )}
                             </TooltipProvider>
                         </div>
-                        <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'h:mm a')}</p>
+                        <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'h:mm a')}</p>
                         <p className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded-md w-fit flex items-center gap-1 mt-1">
                             <TicketIcon className="w-2.5 h-2.5" />
                             {ticketId}

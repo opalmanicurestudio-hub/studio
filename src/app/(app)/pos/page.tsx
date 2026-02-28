@@ -86,7 +86,25 @@ export default function POSPage() {
 
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
 
-    const readyForCheckoutAppointments = useMemo(() => appointments.filter(apt => apt.status === 'ready_for_checkout').map(apt => ({ ...apt, client: clients?.find(c => c.id === apt.clientId), service: services?.find(s => s.id === apt.serviceId), addOnServices: (apt.addOnIds || []).map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[], staff: staff?.find(s => s.id === apt.staffId) })), [appointments, clients, services, staff]);
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointments || !clients || !services || !staff) return [];
+        return appointments
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return { 
+                    id: apt.id,
+                    appointment: apt, 
+                    client, 
+                    service, 
+                    addOnServices, 
+                    staff: staffMember 
+                };
+            }).filter((a): a is { id: string, appointment: Appointment, client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+    }, [appointments, clients, services, staff]);
 
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
@@ -104,9 +122,9 @@ export default function POSPage() {
     useEffect(() => {
         if (selectedAppointmentIds.size > 0 && !selectedClientId) {
             const firstAptId = Array.from(selectedAppointmentIds)[0];
-            const apt = readyForCheckoutAppointments.find(a => a.id === firstAptId);
-            if (apt) {
-                setSelectedClientId(apt.clientId);
+            const aptData = readyForCheckoutAppointments.find(a => a.id === firstAptId);
+            if (aptData) {
+                setSelectedClientId(aptData.appointment.clientId);
             }
         }
     }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
@@ -135,7 +153,7 @@ export default function POSPage() {
               toast({ title: "Product Added" });
           } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
       }
-    }, [appointments, inventory, retailItems, toast, handleSelectAppointment]);
+    }, [appointments, inventory, retailItems, toast, handleSelectAppointment, handleAddToCart]);
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -154,11 +172,11 @@ export default function POSPage() {
 
     const subtotal = useMemo(() => {
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
-            const apt = readyForCheckoutAppointments.find(a => a.id === id);
-            if (!apt) return acc;
+            const aptData = readyForCheckoutAppointments.find(a => a.id === id);
+            if (!aptData) return acc;
             
-            const servicePrice = redeemedOffer?.id === apt.serviceId ? 0 : getServicePrice(apt.service, apt.staff);
-            const addOnsPrice = apt.addOnServices.reduce((s, a) => s + getServicePrice(a, apt.staff), 0);
+            const servicePrice = redeemedOffer?.id === aptData.appointment.serviceId ? 0 : getServicePrice(aptData.service, aptData.staff);
+            const addOnsPrice = aptData.addOnServices.reduce((s, a) => s + getServicePrice(a, aptData.staff), 0);
             
             return acc + servicePrice + addOnsPrice;
         }, 0);
@@ -212,9 +230,9 @@ export default function POSPage() {
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
-          if (apt) {
-            clientIds.add(apt.clientId);
+          const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
+          if (aptData) {
+            clientIds.add(aptData.appointment.clientId);
           }
         });
         return (clients || []).filter(c => clientIds.has(c.id));
@@ -266,7 +284,7 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6 pb-24 lg:pb-8">
-                        <CheckoutQueue appointments={readyForCheckoutAppointments as any} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} onScanClick={() => setIsScannerOpen(true)} />
+                        <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} onScanClick={() => setIsScannerOpen(true)} />
                         <Card><CardHeader><CardTitle>Currently In Service</CardTitle></CardHeader><CardContent>
                             {(appointments.filter(a => a.status === 'servicing')).length > 0 ? (
                                 <ScrollArea><div className="flex space-x-4 pb-4">{appointments.filter(a => a.status === 'servicing').map(apt => (

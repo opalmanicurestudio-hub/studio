@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -11,7 +10,14 @@ import { Search, QrCode } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface CheckoutQueueProps {
-  appointments: (Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff })[];
+  appointments: {
+    id: string;
+    appointment: Appointment;
+    client: Client;
+    service: Service;
+    addOnServices: Service[];
+    staff: Staff;
+  }[];
   onSelectAppointment: (appointmentId: string) => void;
   selectedAppointmentIds: Set<string>;
   onScanClick: () => void;
@@ -24,8 +30,8 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
     if (!searchTerm) return appointments;
     const lowercasedFilter = searchTerm.toLowerCase();
     return appointments.filter(apt => 
-      apt.client?.name.toLowerCase().includes(lowercasedFilter) ||
-      apt.service?.name.toLowerCase().includes(lowercasedFilter)
+      apt.client.name.toLowerCase().includes(lowercasedFilter) ||
+      apt.service.name.toLowerCase().includes(lowercasedFilter)
     );
   }, [appointments, searchTerm]);
 
@@ -61,12 +67,12 @@ export const CheckoutQueue: React.FC<CheckoutQueueProps> = ({ appointments, onSe
           <ScrollArea>
             <div className="flex space-x-4 pb-4">
               {filteredAppointments.length > 0 ? (
-                filteredAppointments.map(order => (
+                filteredAppointments.map(data => (
                     <CheckoutQueueCard
-                    key={order.id}
-                    appointment={order}
-                    isSelected={selectedAppointmentIds.has(order.id)}
-                    onSelect={() => onSelectAppointment(order.id)}
+                        key={data.id}
+                        appointmentData={data}
+                        isSelected={selectedAppointmentIds.has(data.id)}
+                        onSelect={() => onSelectAppointment(data.id)}
                     />
                 ))
               ) : (
