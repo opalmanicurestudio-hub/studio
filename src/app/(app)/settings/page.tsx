@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { 
   DollarSign, 
   Save, 
@@ -52,7 +53,6 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -368,7 +368,7 @@ export default function SettingsPage() {
                                         </Button>
                                     </div>
                                 ) : (
-                                    <>
+                                    <React.Fragment>
                                         <p className="font-medium">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
                                             {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
@@ -376,7 +376,7 @@ export default function SettingsPage() {
                                                 <Edit className="w-4 h-4" />
                                             </Button>
                                         </div>
-                                    </>
+                                    </React.Fragment>
                                 )}
                             </div>
                         ))}

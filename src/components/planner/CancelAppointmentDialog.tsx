@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
 import { 
   DollarSign, 
@@ -30,11 +31,9 @@ import {
   Calculator, 
   ShieldCheck 
 } from 'lucide-react';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -63,7 +62,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mock card info - in production this comes from a secure customer vault
   const cardOnFile = { brand: 'Visa', last4: '4242' };
 
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
@@ -111,7 +109,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh] h-full sm:h-auto">
+      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh]">
         <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -119,8 +117,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         
-        {/* Fixed: Replaced ScrollArea with a native scrollable div for better mobile reliability */}
-        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+        <div className="flex-1 overflow-y-auto min-h-0">
             <div className="px-6 py-4 space-y-6">
                 <Card className="bg-muted/30 border-2 overflow-hidden shadow-sm">
                   <CardHeader className="p-4 pb-2">
@@ -167,25 +164,18 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     </label>
                   </RadioGroup>
                   {reason === 'other' && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                    <div className="mt-2">
                         <Textarea 
                         placeholder="Please specify details..." 
                         value={customReason} 
                         onChange={(e) => setCustomReason(e.target.value)}
-                        className="mt-2"
                         />
-                    </motion.div>
+                    </div>
                   )}
                 </div>
 
-                <AnimatePresence>
-                    {(isLateCancellation || reason === 'no-show') && (
-                    <motion.div 
-                        initial={{ opacity: 0, height: 0 }} 
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="space-y-4 pt-4 border-t pb-4"
-                    >
+                {(isLateCancellation || reason === 'no-show') && (
+                    <div className="space-y-4 pt-4 border-t pb-4">
                         <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
                         <div className="space-y-0.5">
                             <Label className="text-base font-black">Enforce Policy Fee</Label>
@@ -215,13 +205,12 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                             </RadioGroup>
                         </div>
                         )}
-                    </motion.div>
-                    )}
-                </AnimatePresence>
+                    </div>
+                )}
             </div>
         </div>
 
-        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0 pb-safe">
+        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 flex-1">Back</Button>
           <Button 
             variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
