@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { CardContent } from '@/components/ui/card';
-import { type Appointment, type Service, type Client, type Staff } from '@/lib/data';
+import { type Appointment, type Service, type Client, type Staff, getServicePrice } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -51,7 +51,12 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
     return false;
   }, [service, checkoutState]);
 
-  const totalPrice = (service.price || 0) + addOnServices.reduce((acc, s) => acc + s.price, 0);
+  const totalPrice = useMemo(() => {
+    const mainPrice = getServicePrice(service, staff);
+    const addOnsTotal = addOnServices.reduce((acc, s) => acc + getServicePrice(s, staff), 0);
+    return mainPrice + addOnsTotal;
+  }, [service, addOnServices, staff]);
+
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (

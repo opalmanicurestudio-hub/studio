@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState, getServicePrice } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -109,11 +108,8 @@ export default function POSPage() {
             if (apt) {
                 setSelectedClientId(apt.clientId);
             }
-        } else if (selectedAppointmentIds.size === 0 && retailItems.length === 0) {
-            // Optional: reset to null/walk-in if cart is cleared
-            // setSelectedClientId(null);
         }
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId, retailItems.length]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
 
     const handleScan = useCallback((data: string) => {
       const raw = data.trim();
@@ -160,7 +156,11 @@ export default function POSPage() {
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const apt = readyForCheckoutAppointments.find(a => a.id === id);
             if (!apt) return acc;
-            return acc + (redeemedOffer?.id === apt.serviceId ? 0 : apt.service?.price || 0) + apt.addOnServices.reduce((s, a) => s + a.price, 0);
+            
+            const servicePrice = redeemedOffer?.id === apt.serviceId ? 0 : getServicePrice(apt.service, apt.staff);
+            const addOnsPrice = apt.addOnServices.reduce((s, a) => s + getServicePrice(a, apt.staff), 0);
+            
+            return acc + servicePrice + addOnsPrice;
         }, 0);
         const retailTotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
         return servicesTotal + retailTotal;
@@ -283,7 +283,10 @@ export default function POSPage() {
                         </CardContent></Card>
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="catalog">Retail Catalog</TabsTrigger><TabsTrigger value="queue">Walk-in Queue</TabsTrigger></TabsList>
-                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={(i: any) => setRetailItems([...retailItems, { ...i, quantity: 1, price: i.price || i.msrp || 0, type: 'product' }])} /></TabsContent>
+                            <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={(i: any) => {
+                                const price = 'interval' in i || 'sessions' in i ? i.price : ('price' in i ? i.price : i.msrp || 0);
+                                setRetailItems([...retailItems, { id: i.id, name: i.name, quantity: 1, price, type: 'product' }]);
+                            }} /></TabsContent>
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">

@@ -637,5 +637,13 @@ export type Notification = {
   read: boolean;
 };
 
+export const getServicePrice = (service: Service | undefined, staffMember: Staff | undefined): number => {
+    if (!service) return 0;
+    if (!staffMember || !staffMember.pricingTierId || !service.serviceTiers) {
+        return service.price || 0;
+    }
+    const tierPrice = service.serviceTiers.find(t => t.tierId === staffMember.pricingTierId);
+    return tierPrice ? tierPrice.price : (service.price || 0);
+};
 
 export { nanoid };

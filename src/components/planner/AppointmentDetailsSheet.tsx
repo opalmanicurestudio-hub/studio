@@ -56,7 +56,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, Resource, type Transaction } from '@/lib/data';
+import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -100,7 +100,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   onPrintTicket,
 }) => {
   const isMobile = useIsMobile();
-  const { inventory, services: allServices, resources } = useInventory();
+  const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -133,6 +133,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const isCompleted = appointment.status === 'completed';
     const addOns = (appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
     const allServicesInApt = [service, ...addOns];
+    const assignedStaffMember = staff.find(s => s.id === appointment.staffId);
 
     const formulaForCosting = (isCompleted && appointment.checkoutState?.formula) 
         ? appointment.checkoutState.formula 
@@ -156,10 +157,12 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const timeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const breakEven = timeCost + productCost;
     
-    const revenue = isCompleted ? transactions.filter(t => t.appointmentId === appointment.id && t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0) : allServicesInApt.reduce((acc, s) => acc + (s?.price || 0), 0);
+    const revenue = isCompleted 
+        ? transactions.filter(t => t.appointmentId === appointment.id && t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0) 
+        : allServicesInApt.reduce((acc, s) => acc + getServicePrice(s, assignedStaffMember), 0);
 
     return { revenue, breakEven, profit: revenue - breakEven, timeCost, productCost };
-  }, [appointment, service, tmhr, inventory, transactions, allServices]);
+  }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
   if (!appointment || !client || !service) return null;
 

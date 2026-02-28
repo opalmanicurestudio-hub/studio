@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2, X, ShoppingCart, ChevronDown } from 'lucide-react';
-import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package } from '@/lib/data';
+import { type Appointment, type Service, type Client, type Discount, type Staff, Membership, Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -37,9 +37,9 @@ export const CheckoutHub = ({
     setSelectedClientId,
     onAddClientClick,
     onScanClick,
-    subtotal,
-    tax,
-    total,
+    subtotal: propSubtotal,
+    tax: propTax,
+    total: propTotal,
     tipAmount,
     setTipAmount,
     onCheckout,
@@ -105,7 +105,7 @@ export const CheckoutHub = ({
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments } = useInventory();
+    const { appointments: allAppointments, inventory, services } = useInventory();
     const { toast } = useToast();
 
     const selectedClient = useMemo(() => {
@@ -126,6 +126,24 @@ export const CheckoutHub = ({
         const appointmentAddOnIds = appointmentsData.flatMap(a => a.addOnIds || []);
         return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
     }, [cart, appointmentsData]);
+
+    const subtotal = useMemo(() => {
+        const servicesTotal = appointmentsData.reduce((total, data) => {
+            const { service, staff } = data;
+            const servicePrice = redeemedOffer?.id === service?.id ? 0 : getServicePrice(service, staff);
+            const addOnsPrice = (data.appointment.addOnIds || [])
+                .map(id => services.find(s => s.id === id))
+                .filter((s): s is Service => !!s)
+                .reduce((a, b) => a + getServicePrice(b, staff), 0);
+            return total + servicePrice + addOnsPrice;
+        }, 0);
+
+        const retailTotal = cart.reduce((acc, item) => {
+            return acc + (item.quantity * item.price);
+        }, 0);
+        
+        return servicesTotal + retailTotal;
+    }, [appointmentsData, services, cart, redeemedOffer]);
 
     const handleApplyDiscount = (code: string) => {
         const codeUpper = code.trim().toUpperCase();
@@ -317,9 +335,10 @@ export const CheckoutHub = ({
                                     {appointmentsData.length > 0 && (
                                         <div className="space-y-2">
                                             {appointmentsData.map(data => {
-                                                const { service, client } = data;
+                                                const { service, client, staff } = data;
                                                 if (!service || !client) return null;
 
+                                                const itemPrice = getServicePrice(service, staff);
                                                 const isRedeemed = redeemedOffer?.id === service.id;
 
                                                 const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
@@ -360,7 +379,7 @@ export const CheckoutHub = ({
                                                                 {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
                                                             </div>
                                                             <p className="font-bold font-mono text-xs md:text-sm">
-                                                                ${(service.price || 0).toFixed(2)}
+                                                                ${itemPrice.toFixed(2)}
                                                             </p>
                                                             <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5"/></Button>
                                                         </div>
@@ -377,7 +396,7 @@ export const CheckoutHub = ({
                                                                     </p>
                                                                     {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
                                                                     <p className={cn("text-xs md:text-sm font-black mt-1 font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>
-                                                                        ${(service.price || 0).toFixed(2)}
+                                                                        ${itemPrice.toFixed(2)}
                                                                     </p>
                                                                 </div>
                                                                 <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -585,7 +604,7 @@ export const CheckoutHub = ({
                             <span className="font-mono">-${totalDiscountValue.toFixed(2)}</span>
                         </div>
                     )}
-                    <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Estimated Tax</p><p className="font-mono">${tax.toFixed(2)}</p></div>
+                    <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Estimated Tax</p><p className="font-mono">${taxValue.toFixed(2)}</p></div>
                     <div className="flex justify-between text-sm items-center py-0.5 md:py-1">
                         <p className="font-black uppercase text-[10px] md:text-[11px] tracking-widest text-muted-foreground">Gratuity</p>
                         <div className="relative w-28 md:w-32">
@@ -600,7 +619,7 @@ export const CheckoutHub = ({
                         </div>
                     </div>
                     <Separator className="my-1.5 md:my-3" />
-                    <div className="flex justify-between items-baseline font-black text-2xl md:text-3xl text-primary tracking-tighter"><p className="text-[10px] md:text-sm uppercase tracking-widest text-muted-foreground">Total</p><p className="font-mono">${total.toFixed(2)}</p></div>
+                    <div className="flex justify-between items-baseline font-black text-2xl md:text-3xl text-primary tracking-tighter"><p className="text-[10px] md:text-sm uppercase tracking-widest text-muted-foreground">Total</p><p className="font-mono">${grandTotal.toFixed(2)}</p></div>
                 </div>
                 
                 <div className="mt-3 md:mt-6 space-y-3 md:space-y-4 pb-8 md:pb-10">
@@ -653,7 +672,7 @@ export const CheckoutHub = ({
                                 {quickTenderOptions.map(val => (
                                     <Button key={val} variant="outline" size="sm" className="flex-1 font-bold h-8 md:h-9 rounded-xl text-xs md:text-sm shrink-0" onClick={() => setAmountTendered(val)}>${val}</Button>
                                 ))}
-                                <Button variant="outline" size="sm" className="flex-1 font-black h-8 md:h-9 rounded-xl border-primary text-primary text-xs md:text-sm shrink-0" onClick={() => setAmountTendered(total)}>Exact</Button>
+                                <Button variant="outline" size="sm" className="flex-1 font-black h-8 md:h-9 rounded-xl border-primary text-primary text-xs md:text-sm shrink-0" onClick={() => setAmountTendered(grandTotal)}>Exact</Button>
                             </div>
                         </motion.div>
                     )}
@@ -662,9 +681,9 @@ export const CheckoutHub = ({
                         <Button 
                             className="w-full h-14 md:h-16 text-xl md:text-2xl font-black rounded-2xl shadow-xl shadow-primary/20 transition-all active:scale-95" 
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
-                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}
+                            disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < grandTotal)}
                         >
-                            {isSubmitting ? <Loader className="animate-spin" /> : `Collect $${total.toFixed(2)}`}
+                            {isSubmitting ? <Loader className="animate-spin" /> : `Collect $${grandTotal.toFixed(2)}`}
                         </Button>
                     </div>
                 </div>
