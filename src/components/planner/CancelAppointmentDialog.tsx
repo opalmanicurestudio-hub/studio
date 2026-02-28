@@ -99,7 +99,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         </DialogHeader>
         <div className="space-y-6 py-4">
           {/* Financial Impact Breakdown */}
-          {financialData && (
+          {financialImpact && (
             <div className="p-4 rounded-xl border-2 bg-muted/30 space-y-3">
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-widest">
                     <TrendingDown className="w-3 h-3" />
@@ -108,12 +108,12 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <p className="text-[10px] text-muted-foreground font-bold uppercase">Overhead Loss</p>
-                        <p className="text-lg font-black text-destructive">${financialImpact?.overheadLoss.toFixed(2)}</p>
+                        <p className="text-lg font-black text-destructive">${financialImpact.overheadLoss.toFixed(2)}</p>
                         <p className="text-[9px] text-muted-foreground leading-tight">Fixed costs for this {service?.duration}m slot</p>
                     </div>
                     <div className="text-right border-l pl-4">
                         <p className="text-[10px] text-muted-foreground font-bold uppercase">Revenue Gap</p>
-                        <p className="text-lg font-black text-destructive">${financialImpact?.potentialRevenue.toFixed(2)}</p>
+                        <p className="text-lg font-black text-destructive">${financialImpact.potentialRevenue.toFixed(2)}</p>
                         <p className="text-[9px] text-muted-foreground leading-tight">Total lost sales opportunity</p>
                     </div>
                 </div>
