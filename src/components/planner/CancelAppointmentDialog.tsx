@@ -14,11 +14,12 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { type Appointment, type Tenant } from '@/lib/data';
-import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban } from 'lucide-react';
+import { type Appointment, type Tenant, type Service } from '@/lib/data';
+import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
-import { differenceInHours } from 'date-fns';
+import { differenceInHours, differenceInMinutes } from 'date-fns';
+import { useInventory } from '@/context/InventoryContext';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -40,11 +41,25 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   tenant,
   onConfirm,
 }) => {
+  const { services } = useInventory();
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
+
+  const financialImpact = useMemo(() => {
+    if (!service || !tenant?.tmhr) return null;
+    const duration = service.duration || 60;
+    const hours = duration / 60;
+    const overheadLoss = hours * tenant.tmhr;
+    return {
+        overheadLoss,
+        potentialRevenue: service.price,
+    };
+  }, [service, tenant?.tmhr]);
 
   const isLateCancellation = useMemo(() => {
     if (!appointment || !tenant?.cancellationWindowHours) return false;
@@ -79,10 +94,32 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         <DialogHeader>
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
-            Are you sure you want to cancel the appointment for {appointment.clientName}?
+            Confirming cancellation for {appointment.clientName}.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 py-4">
+          {/* Financial Impact Breakdown */}
+          {financialData && (
+            <div className="p-4 rounded-xl border-2 bg-muted/30 space-y-3">
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-widest">
+                    <TrendingDown className="w-3 h-3" />
+                    Business Impact Analysis
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase">Overhead Loss</p>
+                        <p className="text-lg font-black text-destructive">${financialImpact?.overheadLoss.toFixed(2)}</p>
+                        <p className="text-[9px] text-muted-foreground leading-tight">Fixed costs for this {service?.duration}m slot</p>
+                    </div>
+                    <div className="text-right border-l pl-4">
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase">Revenue Gap</p>
+                        <p className="text-lg font-black text-destructive">${financialImpact?.potentialRevenue.toFixed(2)}</p>
+                        <p className="text-[9px] text-muted-foreground leading-tight">Total lost sales opportunity</p>
+                    </div>
+                </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reason for Cancellation</Label>
             <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">

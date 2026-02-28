@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info, Users, Sparkles } from 'lucide-react';
+import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info, Users, Sparkles, Landmark, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { buttonVariants } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -645,8 +646,23 @@ export default function SettingsPage() {
 
                         {/* Cancellations Section */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <Ban className="w-4 h-4" /> Cancellation Window & Fees
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Ban className="w-4 h-4" /> Cancellation Window & Fees
+                                </div>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div className="flex items-center gap-1.5 cursor-help text-[10px] bg-primary/10 px-2 py-1 rounded-full text-primary">
+                                                <Landmark className="w-3 h-3" />
+                                                Financial Goal: Recover TMHR
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-[250px]">
+                                            <p>Your current TMHR is <strong>${selectedTenant?.tmhr?.toFixed(2)}</strong>. To recover fixed overhead for a 1-hour slot, your cancellation fee should be at least 50-75% of this rate.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
@@ -655,7 +671,14 @@ export default function SettingsPage() {
                                     <p className="text-[10px] text-muted-foreground">The minimum notice required to avoid a late fee.</p>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
+                                    <div className="flex items-center justify-between">
+                                        <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
+                                        {isPoliciesEditing && selectedTenant?.tmhr && (
+                                            <Button variant="link" size="xs" className="h-auto p-0 text-[10px] font-black uppercase text-primary" onClick={() => setTenantData(prev => ({...prev, cancellationFee: (selectedTenant.tmhr || 0) * 0.5}))}>
+                                                Set to 50% TMHR
+                                            </Button>
+                                        )}
+                                    </div>
                                     <div className="relative">
                                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="25.00" className="pl-8" disabled={!isPoliciesEditing}/>
@@ -676,12 +699,25 @@ export default function SettingsPage() {
 
                         {/* No-Shows Section */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <Users className="w-4 h-4" /> No-Show Enforcement
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4" /> No-Show Enforcement
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[10px] bg-destructive/10 px-2 py-1 rounded-full text-destructive">
+                                    <ShieldAlert className="w-3 h-3" />
+                                    Max Risk Protection
+                                </div>
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="no-show-fee">No-Show Penalty Fee</Label>
+                                    <div className="flex items-center justify-between">
+                                        <Label htmlFor="no-show-fee">No-Show Penalty Fee</Label>
+                                        {isPoliciesEditing && selectedTenant?.tmhr && (
+                                            <Button variant="link" size="xs" className="h-auto p-0 text-[10px] font-black uppercase text-destructive" onClick={() => setTenantData(prev => ({...prev, noShowFee: (selectedTenant.tmhr || 0) * 1.0}))}>
+                                                Set to 100% TMHR
+                                            </Button>
+                                        )}
+                                    </div>
                                     <div className="relative">
                                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input id="no-show-fee" type="number" value={tenantData.noShowFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="50.00" className="pl-8" disabled={!isPoliciesEditing} />
