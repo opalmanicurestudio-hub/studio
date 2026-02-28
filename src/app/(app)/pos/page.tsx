@@ -41,16 +41,6 @@ import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
-const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      <div className={cn("p-2 rounded-lg", iconBgColor)}>{React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}</div>
-    </CardHeader>
-    <CardContent><div className="text-2xl font-bold">{value}</div><p className="text-xs text-muted-foreground">{description}</p></CardContent>
-  </Card>
-);
-
 type EditableFormulaItem = { id: string; name: string; price: number; quantity: number; imageUrl?: string; stock?: number; type: 'product' | 'service' | 'membership' | 'package'; staffId?: string; };
 
 export default function POSPage() {
@@ -60,7 +50,6 @@ export default function POSPage() {
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
     const router = useRouter();
-    const searchParams = useSearchParams();
     const isMobile = useIsMobile();
 
     const [activeTab, setActiveTab] = useState('catalog');
@@ -98,7 +87,7 @@ export default function POSPage() {
                 const staffMember = staff.find(s => s.id === apt.staffId);
                 return { 
                     id: apt.id,
-                    appointment: apt, 
+                    appointment: apt,
                     client, 
                     service, 
                     addOnServices, 
@@ -185,7 +174,6 @@ export default function POSPage() {
         return () => { if (html5QrCode?.isScanning) html5QrCode.stop(); };
     }, [isScannerOpen, handleScan, toast]);
 
-    // Financial calculations
     const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     const subtotal = useMemo(() => {
@@ -206,7 +194,6 @@ export default function POSPage() {
         let disc = 0;
         let memDisc = 0;
 
-        // 1. Membership Retail Discount
         if (selectedClientId) {
             const client = clients.find(c => c.id === selectedClientId);
             if (client?.activeMembershipId && redeemedOffer?.type === 'retail_discount') {
@@ -218,7 +205,6 @@ export default function POSPage() {
             }
         }
 
-        // 2. Applied Discount Codes
         appliedDiscountCodes.forEach(code => {
             const d = discounts.find(disc => disc.code === code);
             if (!d) return;
@@ -262,7 +248,6 @@ export default function POSPage() {
     const tax = subtotalAfterDiscounts * 0.07;
     const total = subtotalAfterDiscounts + tax + tipAmount;
 
-    // Auto-select client as payee when appointments are selected
     useEffect(() => {
         if (selectedAppointmentIds.size > 0 && !selectedClientId) {
             const firstAptId = Array.from(selectedAppointmentIds)[0];
@@ -285,6 +270,17 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
+        // Track local product states to handle multiple impacts on same SKU in one checkout
+        const productStates = new Map<string, any>();
+        const getProductState = (id: string) => {
+            if (productStates.has(id)) return productStates.get(id);
+            const p = inventory.find(i => i.id === id);
+            if (!p) return null;
+            const state = { ...p, batches: JSON.parse(JSON.stringify(p.batches)) };
+            productStates.set(id, state);
+            return state;
+        };
+
         try {
             // 1. Process Appointments
             for (const id of Array.from(selectedAppointmentIds)) {
@@ -294,6 +290,49 @@ export default function POSPage() {
                 const { appointment, service, staff: provider, client: aptClient } = data;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 
+                // Inventory Logic: Professional Products from Formula
+                if (appointment.checkoutState?.formula) {
+                    for (const formulaItem of appointment.checkoutState.formula) {
+                        const pState = getProductState(formulaItem.id);
+                        if (!pState) continue;
+
+                        const qty = formulaItem.quantity;
+                        if (pState.costingMethod === 'uses') {
+                            const usesPerContainer = pState.estimatedUses || 1;
+                            let currentUses = (pState.partialContainerUses || 0) - qty;
+                            while (currentUses < 0 && pState.totalStock > 0) {
+                                // FIFO Batch Reduction
+                                const sorted = pState.batches.sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+                                for (const b of sorted) { if (b.stock > 0) { b.stock -= 1; break; } }
+                                pState.totalStock -= 1;
+                                currentUses += usesPerContainer;
+                            }
+                            pState.partialContainerUses = currentUses;
+                        } else if (pState.costingMethod === 'size') {
+                            const sizePerContainer = pState.size || 1;
+                            let currentSize = (pState.partialContainerSize || 0) - qty;
+                            while (currentSize < 0 && pState.totalStock > 0) {
+                                const sorted = pState.batches.sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+                                for (const b of sorted) { if (b.stock > 0) { b.stock -= 1; break; } }
+                                pState.totalStock -= 1;
+                                currentSize += sizePerContainer;
+                            }
+                            pState.partialContainerSize = currentSize;
+                        } else {
+                            pState.totalStock -= qty;
+                        }
+
+                        const scRef = doc(collection(firestore, 'tenants', tenantId, 'stockCorrections'));
+                        batch.set(scRef, {
+                            productId: pState.id,
+                            date: nowISO,
+                            change: -qty,
+                            unit: pState.costingMethod === 'uses' ? (pState.useUnit || 'uses') : (pState.unit || 'units'),
+                            reason: `Appointment #${appointment.id.slice(-6).toUpperCase()} by ${provider.name}`
+                        });
+                    }
+                }
+
                 batch.update(appointmentRef, { 
                     status: 'completed',
                     inventoryProcessed: true,
@@ -347,9 +386,28 @@ export default function POSPage() {
 
             // 2. Process Retail
             for (const item of retailItems) {
-                if (item.type === 'product') {
-                    const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
-                    batch.update(productRef, { totalStock: increment(-item.quantity) });
+                const pState = getProductState(item.id);
+                if (pState && item.type === 'product') {
+                    // FIFO Deduction
+                    const sorted = pState.batches.sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+                    let remaining = item.quantity;
+                    for (const b of sorted) {
+                        if (remaining <= 0) break;
+                        const d = Math.min(b.stock, remaining);
+                        b.stock -= d;
+                        remaining -= d;
+                    }
+                    pState.totalStock = sorted.reduce((acc: number, b: any) => acc + b.stock, 0);
+                    pState.batches = sorted;
+
+                    const scRef = doc(collection(firestore, 'tenants', tenantId, 'stockCorrections'));
+                    batch.set(scRef, {
+                        productId: pState.id,
+                        date: nowISO,
+                        change: -item.quantity,
+                        unit: 'units',
+                        reason: 'Retail Sale'
+                    });
                 }
                 
                 const retailTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
@@ -366,6 +424,17 @@ export default function POSPage() {
                     hasReceipt: true,
                 });
             }
+
+            // Write all modified product states back
+            productStates.forEach((state, id) => {
+                const productRef = doc(firestore, 'tenants', tenantId, 'inventory', id);
+                batch.update(productRef, {
+                    totalStock: state.totalStock,
+                    batches: state.batches,
+                    partialContainerUses: state.partialContainerUses ?? 0,
+                    partialContainerSize: state.partialContainerSize ?? 0
+                });
+            });
 
             // 3. Process Tips
             if (tipAmount > 0) {
@@ -540,6 +609,26 @@ export default function POSPage() {
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="catalog">Retail Catalog</TabsTrigger><TabsTrigger value="queue">Walk-in Queue</TabsTrigger></TabsList>
                             <TabsContent value="catalog" className="flex-1 mt-6"><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} /></TabsContent>
+                            <TabsContent value="queue" className="flex-1 mt-6">
+                                <WalkInQueue 
+                                    walkIns={walkIns} 
+                                    appointments={readyForCheckoutAppointments.map(a => a.appointment).filter(a => a.status === 'servicing')} 
+                                    services={services} 
+                                    staff={staff} 
+                                    onAssignStaff={() => {}}
+                                    onAssignNext={() => {}}
+                                    onCancel={() => {}}
+                                    onStartService={handleStartService}
+                                    orderedWaitingQueue={[]}
+                                    onReorder={() => {}}
+                                    assignmentMode="ordered_list"
+                                    onPrintTicket={() => {}}
+                                    onSkip={() => {}}
+                                    onReturnToQueue={() => {}}
+                                    groupSizes={new Map()}
+                                    onToggleWaitForStaff={() => {}}
+                                />
+                            </TabsContent>
                         </Tabs>
                     </main>
                     <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto">
