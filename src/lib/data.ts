@@ -99,6 +99,7 @@ export type Staff = {
   lastServedTimestamp?: string;
   turnOrder?: number;
   skillSet?: string[];
+  pin?: string;
 };
 
 export type ActivityLog = {
@@ -284,6 +285,7 @@ export type InventoryItem = {
   shippingCostToCustomer?: number;
   internalNotes?: string;
   sku?: string;
+  restockingMarkup?: number;
 };
 
 export type AppointmentCheckoutState = {
@@ -335,6 +337,10 @@ export type Appointment = {
   cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other';
   cancellationFeeApplied?: number;
   cancellationFeeWaived?: boolean;
+  revenue?: number;
+  tipAmount?: number;
+  discountAmount?: number;
+  appliedDiscountCode?: string;
 };
 
 export type EventChecklistItem = {

@@ -703,6 +703,8 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
+        const totalRevenueForLTV = subtotal - discount - membershipDiscount;
+
         const productStates = new Map<string, any>();
         const getProductState = (id: string) => {
             if (productStates.has(id)) return productStates.get(id);
@@ -722,6 +724,14 @@ export default function POSPage() {
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 const shortTicketId = appointment.id.slice(-6).toUpperCase();
                 
+                const servicePrice = redeemedOffer?.id === service.id ? 0 : getServicePrice(service, provider);
+                const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, provider), 0);
+                
+                const totalAptGross = servicePrice + addOnsPrice;
+                const proportionOfTotal = subtotal > 0 ? totalAptGross / subtotal : 0;
+                const aptDiscount = (discount + membershipDiscount) * proportionOfTotal;
+                const aptRevenue = totalAptGross - aptDiscount;
+
                 if (appointment.checkoutState?.formula) {
                     for (const formulaItem of appointment.checkoutState.formula) {
                         const pState = getProductState(formulaItem.id);
@@ -765,8 +775,9 @@ export default function POSPage() {
 
                 batch.update(appointmentRef, { 
                     status: 'completed',
-                    revenue: getServicePrice(service, provider),
-                    discountAmount: (discount + membershipDiscount) / (selectedAppointmentIds.size || 1),
+                    revenue: aptRevenue,
+                    tipAmount: selectedAppointmentIds.size === 1 ? tipAmount : (tipAmount * proportionOfTotal),
+                    discountAmount: aptDiscount,
                     appliedDiscountCode: appliedDiscountCodes.join(', ')
                 });
 
@@ -777,7 +788,6 @@ export default function POSPage() {
                 const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
                 batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
 
-                const servicePrice = redeemedOffer?.id === service.id ? 0 : getServicePrice(service, provider);
                 const serviceTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                 batch.set(serviceTxnRef, {
                     date: nowISO,
@@ -862,6 +872,14 @@ export default function POSPage() {
                     partialContainerSize: state.partialContainerSize ?? 0
                 });
             });
+
+            if (selectedClientId) {
+                const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
+                batch.update(clientDocRef, { 
+                    lifetimeValue: increment(totalRevenueForLTV),
+                    lastAppointment: nowISO
+                });
+            }
 
             if (tipAmount > 0) {
                 const tipTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));

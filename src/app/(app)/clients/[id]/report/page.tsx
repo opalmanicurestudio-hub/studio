@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -8,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift, FileSignature } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import Image from 'next/image';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
@@ -146,10 +146,12 @@ const ClientReportPage = () => {
                             Back to Profile
                         </Link>
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handlePrint}>
-                        <Printer className="h-4 w-4 mr-2" />
-                        Print Report
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={handlePrint}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print Report
+                        </Button>
+                    </div>
                 </div>
 
                 <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg shadow-sm print:shadow-none print:p-0">
@@ -258,24 +260,28 @@ const ClientReportPage = () => {
                         <div>
                             <h2 className="text-xl font-semibold mb-4">Appointment History</h2>
                             <div className="border rounded-lg">
-                                {clientAppointments.slice(0, 5).map((apt, index) => {
+                                {clientAppointments.slice(0, 10).map((apt, index) => {
                                     const service = services?.find(s => s.id === apt.serviceId);
+                                    const total = (apt.revenue || service?.price || 0) + (apt.tipAmount || 0);
                                     return (
-                                        <div key={apt.id} className={`p-4 ${index < 4 ? 'border-b' : ''}`}>
+                                        <div key={apt.id} className={`p-4 ${index < 9 ? 'border-b' : ''}`}>
                                             <div className="flex justify-between items-center">
                                                 <div>
                                                     <p className="font-semibold">{service?.name || 'Unknown Service'}</p>
                                                     <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'MMMM d, yyyy')}</p>
                                                 </div>
-                                                <Badge
-                                                    variant="secondary"
-                                                    className={cn(
-                                                        'capitalize',
-                                                        statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
-                                                    )}
-                                                    >
-                                                    {apt.status.replace('_', ' ')}
-                                                </Badge>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-lg">${total.toFixed(2)}</p>
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className={cn(
+                                                            'capitalize text-[10px]',
+                                                            statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
+                                                        )}
+                                                        >
+                                                        {apt.status.replace('_', ' ')}
+                                                    </Badge>
+                                                </div>
                                             </div>
                                         </div>
                                     )

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -137,6 +136,7 @@ const AppointmentHistoryCard = ({
   appointment: any;
   onRebook: (appointment: Appointment) => void;
 }) => {
+  const total = (appointment.revenue || appointment.service?.price || 0) + (appointment.tipAmount || 0);
   return (
     <Card className="flex flex-col">
       <CardContent className="p-4 space-y-3 flex-1">
@@ -161,9 +161,9 @@ const AppointmentHistoryCard = ({
             </div>
         </div>
         <div className="flex justify-between items-center text-sm pt-3 border-t">
-          <span className="text-muted-foreground">Total</span>
+          <span className="text-muted-foreground">Total (Incl. Tips)</span>
           <span className="font-semibold text-lg">
-            ${(appointment.service?.price || 0).toFixed(2)}
+            ${total.toFixed(2)}
           </span>
         </div>
       </CardContent>
