@@ -44,7 +44,7 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { RadioGroup, RadioGroupGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -127,9 +127,9 @@ function PlannerPageContent() {
   const [mobileSelectedColumnId, setMobileSelectedColumnId] = useState<string>('');
   const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
     
-  const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
+  const { data: scheduleProfilesData } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
   const { data: resources } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
-  const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+  const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
 
   const staff = useMemo(() => (role === 'staff' && user) ? (allStaff || []).filter(s => s.id === user.uid) : (allStaff || []), [allStaff, role, user]);
   
@@ -230,6 +230,10 @@ function PlannerPageContent() {
     }
 
     toast({ title: "Status Updated", description: `Appointment status changed to ${status}.` });
+  };
+
+  const handleCancelAppointment = (id: string) => {
+    handleUpdateStatus(id, 'cancelled');
   };
 
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
@@ -423,6 +427,7 @@ function PlannerPageContent() {
         onFinishService={handleFinishService}
         onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
         onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
+        onCancel={handleCancelAppointment}
         onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
@@ -449,7 +454,7 @@ function PlannerPageContent() {
         <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           <DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader>
           <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
-          <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} className="w-full">Cancel</Button></DialogFooter>
+          <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

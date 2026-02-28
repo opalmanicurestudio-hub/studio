@@ -30,11 +30,12 @@ import {
   Play,
   Square,
   Repeat,
-  LinkIcon,
+  Link as LinkIcon,
   Building,
   HardHat,
   MapPin,
   PlusCircle,
+  XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,6 +78,7 @@ interface AppointmentDetailsSheetProps {
   onFinishService: (apt: Appointment) => void;
   onEdit: (apt: Appointment) => void;
   onDelete: (id: string) => void;
+  onCancel: (id: string) => void;
   onReschedule: (apt: Appointment) => void;
   onRebook: (apt: Appointment) => void;
   onBookNewForClient: (clientId: string) => void;
@@ -95,6 +97,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   onFinishService,
   onEdit,
   onDelete,
+  onCancel,
   onReschedule,
   onRebook,
   onBookNewForClient,
@@ -220,6 +223,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                       Ticket ID: {ticketId}
                     </p>
                     {appointment.status === 'ready_for_checkout' && <Badge className="bg-orange-500 hover:bg-orange-600">Checkout Ready</Badge>}
+                    {appointment.status === 'cancelled' && <Badge variant="destructive">Cancelled</Badge>}
                   </div>
                 </div>
               </div>
@@ -261,7 +265,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     {isOwnerOrAdmin && (
                     <>
                         <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-4 w-4"/>Edit Details</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
                     </>
                     )}
                     <DropdownMenuSeparator />
@@ -270,7 +274,16 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><Printer className="mr-2 h-4 w-4"/>Print Ticket</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {isOwnerOrAdmin && <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}><Trash2 className="mr-2 h-4 w-4"/>Delete Appointment</DropdownMenuItem>}
+                    {isOwnerOrAdmin && (
+                        <>
+                            <DropdownMenuItem onClick={() => { onOpenChange(false); onCancel(appointment.id); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}>
+                                <XCircle className="mr-2 h-4 w-4" /> Cancel Appointment
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}>
+                                <Trash2 className="mr-2 h-4 w-4"/>Delete Permanently
+                            </DropdownMenuItem>
+                        </>
+                    )}
                 </DropdownMenuContent>
                 </DropdownMenu>
             </div>

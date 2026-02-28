@@ -89,17 +89,24 @@ const ThankYouView = ({ tenantId }: { tenantId: string }) => (
     </Card>
 );
 
-const CancelledView = () => (
-     <Card className="w-full max-w-md">
+const CancelledView = ({ tenantId }: { tenantId?: string }) => (
+     <Card className="w-full max-w-md border-destructive/20">
         <CardHeader className="text-center">
-             <div className="flex justify-center mb-4"><ClarityFlowLogo /></div>
-            <CardTitle className="text-destructive">Appointment Cancelled</CardTitle>
+             <div className="flex justify-center mb-4"><ClarityFlowLogo className="grayscale opacity-50" /></div>
+            <CardTitle className="text-destructive text-2xl font-black">Appointment Cancelled</CardTitle>
         </CardHeader>
-        <CardContent className="text-center">
-            <p>This appointment has been cancelled. If you believe this is an error, please contact us directly.</p>
+        <CardContent className="text-center space-y-4">
+            <p className="text-muted-foreground">This appointment has been cancelled and is no longer on our schedule. If you believe this is an error, please contact us directly.</p>
         </CardContent>
-         <CardFooter>
-             <Button asChild className="w-full"><Link href="/">Go to Homepage</Link></Button>
+         <CardFooter className="flex flex-col gap-3">
+             {tenantId && (
+                <Button asChild className="w-full h-12 text-lg font-bold">
+                    <Link href={`/book/${tenantId}`}>Book a New Appointment</Link>
+                </Button>
+             )}
+             <Button asChild variant="ghost" className="w-full text-muted-foreground">
+                <Link href="/">Return to Homepage</Link>
+            </Button>
         </CardFooter>
     </Card>
 );
@@ -300,9 +307,9 @@ export default function CheckInPage() {
         if (!appointment || !firestore || !service || !rescheduleDate || !rescheduleTime || !tenantId) return;
 
         const [hours, minutes] = rescheduleTime.split(':').map(Number);
-        const newStartTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
+        const startDateTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
 
-        const newEndTime = addMinutes(newStartTime, service.duration);
+        const newEndTime = addMinutes(startDateTime, service.duration);
         
         const updateData: any = {
             startTime: newStartTime.toISOString(),
@@ -349,7 +356,7 @@ export default function CheckInPage() {
         return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={ticketId} />;
     }
     if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} />;
-    if (appointment.status === 'cancelled') return <CancelledView />;
+    if (appointment.status === 'cancelled') return <CancelledView tenantId={tenant.id} />;
 
     const renderCancellationFlow = () => {
         switch (rescheduleStep) {
@@ -473,7 +480,7 @@ export default function CheckInPage() {
         <Card className="w-full max-w-md">
             <CardHeader className="text-center">
                 <div className="flex justify-center mb-4"><ClarityFlowLogo /></div>
-                <CardTitle>Hello, {client.name.split(' ')[0]}!</CardTitle>
+                <CardTitle>Hello, {client.name.split(' ')[0] || 'there'}!</CardTitle>
                 <CardDescription>Ready for your appointment?</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -495,7 +502,7 @@ export default function CheckInPage() {
                                     <AvatarImage src={assignedStaff.avatarUrl} />
                                     <AvatarFallback>{assignedStaff.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
-                                <div className="text-xs">
+                                <div className="text-xs text-left">
                                     <p className="font-bold text-muted-foreground uppercase tracking-widest text-[9px]">Your Professional</p>
                                     <p className="font-semibold">{assignedStaff.name}</p>
                                 </div>
