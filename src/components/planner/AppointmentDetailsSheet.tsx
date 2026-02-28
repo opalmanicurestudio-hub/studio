@@ -182,7 +182,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
-    <Sheet border-l-0 sm:border-l open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
         <SheetHeader className="p-6 pb-0">
           <SheetTitle>Appointment Details</SheetTitle>
