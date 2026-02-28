@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -49,7 +47,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, InventoryItem } from '@/lib/data';
+import { Client, Service, Appointment, InventoryItem, Event } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
@@ -147,6 +145,7 @@ const EditAppointmentForm = ({
     client, 
     service,
     appointments,
+    events,
     services,
     onConfirm
 }: { 
@@ -154,6 +153,7 @@ const EditAppointmentForm = ({
     client: Client;
     service: Service;
     appointments: Appointment[];
+    events: Event[];
     services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
@@ -212,16 +212,27 @@ const EditAppointmentForm = ({
             }
         });
 
+        const blockedEventsOnDate = events.filter(
+            evt => evt.type === 'blocked' && 
+            format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd') &&
+            (!evt.staffId || evt.staffId === 'all' || evt.staffId === appointment.staffId)
+        ).map(evt => ({
+            start: evt.startTime,
+            end: evt.endTime
+        }));
+
+        const combinedBusyIntervals = [...existingAppointmentsOnDate, ...blockedEventsOnDate];
+
         for (let i = dayStart.getTime(); i < dayEnd.getTime(); i += 15 * 60000) {
             const potentialStartTime = new Date(i);
             
             const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
             const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
 
-            const isOverlapping = existingAppointmentsOnDate.some(apt =>
+            const isOverlapping = combinedBusyIntervals.some(interval =>
                 areIntervalsOverlapping(
                     { start: potentialStartTime, end: potentialEndTime },
-                    { start: apt.start, end: apt.end },
+                    { start: interval.start, end: interval.end },
                     { inclusive: false }
                 )
             );
@@ -238,7 +249,7 @@ const EditAppointmentForm = ({
         }
 
         return options;
-    }, [date, selectedService, appointments, services, appointment.id, appointment.startTime]);
+    }, [date, selectedService, appointments, events, services, appointment.id, appointment.startTime, appointment.staffId]);
 
     const handleSubmit = () => {
         if (!selectedClientId || !selectedService || !date || !startTime) return;
@@ -260,8 +271,6 @@ const EditAppointmentForm = ({
             addOnIds: selectedAddOns.map(s => s.id),
             requiredResourceIds: allRequiredResourceIds,
         };
-        // Here we would also save the edited formula, likely on the appointment object itself
-        // For now, it just updates the appointment time/service
         onConfirm(updatedAppointment);
     }
     
@@ -458,6 +467,7 @@ const EditAppointmentForm = ({
 
 export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
   const isMobile = useIsMobile();
+  const { events } = useInventory();
   const client = clients.find(c => c.id === appointment.clientId);
   const service = services.find(s => s.id === appointment.serviceId);
 
@@ -466,7 +476,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
   const title = "Edit Appointment";
   const description = "Modify the details for this appointment.";
   
-  const FormContent = <EditAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />;
+  const FormContent = <EditAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} events={events || []} services={services} onConfirm={onConfirm} />;
 
   if (isMobile) {
     return (

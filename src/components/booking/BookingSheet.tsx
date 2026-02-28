@@ -353,7 +353,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         const openT = timeStringToDate(sched.start, startDateTime);
         const closeT = timeStringToDate(sched.end, startDateTime);
         if (startDateTime < openT || endDateTime > closeT) return false;
-        return !appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }));
+        
+        const isAptOverlapping = appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }));
+        if (isAptOverlapping) return false;
+
+        const isEventOverlapping = events.some(evt => evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === s.id) && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false }));
+        if (isEventOverlapping) return false;
+
+        return true;
       });
       if (available.length > 0) {
         available.sort((a, b) => (a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0));
