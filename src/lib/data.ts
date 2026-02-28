@@ -337,6 +337,7 @@ export type Appointment = {
   cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other';
   cancellationFeeApplied?: number;
   cancellationFeeWaived?: boolean;
+  cancellationPaymentStatus?: 'paid' | 'unpaid' | 'waived';
   revenue?: number;
   tipAmount?: number;
   discountAmount?: number;

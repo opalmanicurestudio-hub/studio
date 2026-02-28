@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent } from 'lucide-react';
+import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -45,6 +45,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { buttonVariants } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -117,7 +118,7 @@ export default function SettingsPage() {
 
     const tenantRef = doc(firestore, 'tenants', tenantId);
     try {
-      await updateDocumentNonBlocking(tenantRef, { name: newName.trim() });
+      updateDocumentNonBlocking(tenantRef, { name: newName.trim() });
       toast({ title: "Business Name Updated" });
       setEditingTenantId(null);
     } catch (error) {
@@ -341,7 +342,7 @@ export default function SettingsPage() {
       });
       try {
         const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-        await updateDoc(tenantRef, dataToUpdate);
+        updateDocumentNonBlocking(tenantRef, dataToUpdate);
         toast({ title: 'Settings Saved!' });
         setIsEditing(false);
       } catch (error) {
@@ -588,16 +589,16 @@ export default function SettingsPage() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="policies" className="mt-6">
+            <TabsContent value="policies" className="mt-6 space-y-6">
                 <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                             <CardTitle className="flex items-center gap-2">
                             <FileText className="w-5 h-5 text-primary" />
-                            Scheduling & POS Policies
+                            Business Policies
                             </CardTitle>
                             <CardDescription>
-                            Define rules for appointments, cancellations, and checkout promotions.
+                            Define rules for cancellations, no-shows, and late arrivals.
                             </CardDescription>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
@@ -611,39 +612,98 @@ export default function SettingsPage() {
                         )}
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
-                                <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="cancellation-window">Cancellation Window (hours)</Label>
-                                <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
-                                <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="cancellation-fee" type="number" value={tenantData.cancellationFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="25.00" className="pl-8" disabled={!isPoliciesEditing}/></div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="no-show-fee">No-Show Fee</Label>
-                                <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="no-show-fee" type="number" value={tenantData.noShowFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="50.00" className="pl-8" disabled={!isPoliciesEditing} /></div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
-                                <div className="space-y-0.5"><Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label></div>
-                                <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2 bg-primary/5 border-primary/20">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="discount-stacking" className="font-bold flex items-center gap-2"><Percent className="w-4 h-4" /> Allow Discount Stacking</Label>
-                                    <p className="text-xs text-muted-foreground">Allow multiple discount codes to be applied to a single sale.</p>
+                    <CardContent className="space-y-8">
+                        {/* Lateness Section */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <Clock className="w-4 h-4" /> Lateness & Grace Periods
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="late-grace-period">Arrival Grace Period (minutes)</Label>
+                                    <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
+                                    <p className="text-[10px] text-muted-foreground">The buffer time before an appointment is considered "Late".</p>
                                 </div>
-                                <Switch id="discount-stacking" checked={tenantData.allowDiscountStacking} onCheckedChange={(checked) => setTenantData(prev => ({...prev, allowDiscountStacking: checked}))} disabled={!isPoliciesEditing} />
+                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                                    <div className="space-y-0.5">
+                                        <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
+                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger cancellation after grace period</p>
+                                    </div>
+                                    <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="late-arrival-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Late Arrival Policy Text</Label>
+                                <div className="relative">
+                                    <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
+                                </div>
                             </div>
                         </div>
-                        <div className="space-y-2"><Label htmlFor="cancellation-policy">Cancellation Policy</Label><div className="relative"><Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Auto-generate</Button>}</div></div>
-                        <div className="space-y-2"><Label htmlFor="late-arrival-policy">Late Arrival Policy</Label><div className="relative"><Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button">Auto-generate</Button>}</div></div>
-                        <div className="space-y-2"><Label htmlFor="no-show-policy">No-Show Policy</Label><div className="relative"><Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Auto-generate</Button>}</div></div>
+
+                        <Separator />
+
+                        {/* Cancellations Section */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <Ban className="w-4 h-4" /> Cancellation Window & Fees
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="cancellation-window">Policy Window (hours)</Label>
+                                    <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
+                                    <p className="text-[10px] text-muted-foreground">The minimum notice required to avoid a late fee.</p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="25.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground">Standard fee for cancellations inside the window.</p>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="cancellation-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Cancellation Policy Text</Label>
+                                <div className="relative">
+                                    <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        {/* No-Shows Section */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <Users className="w-4 h-4" /> No-Show Enforcement
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="no-show-fee">No-Show Penalty Fee</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="no-show-fee" type="number" value={tenantData.noShowFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="50.00" className="pl-8" disabled={!isPoliciesEditing} />
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground">Total penalty for failing to arrive without notice.</p>
+                                </div>
+                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                                    <div className="space-y-0.5">
+                                        <Label htmlFor="discount-stacking" className="font-bold flex items-center gap-2"><Percent className="w-4 h-4" /> Allow Discount Stacking</Label>
+                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Allow multiple codes per sale</p>
+                                    </div>
+                                    <Switch id="discount-stacking" checked={tenantData.allowDiscountStacking} onCheckedChange={(checked) => setTenantData(prev => ({...prev, allowDiscountStacking: checked}))} disabled={!isPoliciesEditing} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="no-show-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">No-Show Policy Text</Label>
+                                <div className="relative">
+                                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
+                                </div>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             </TabsContent>

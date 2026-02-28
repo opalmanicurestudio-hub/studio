@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -23,16 +22,18 @@ import {
 } from '@/components/ui/sheet';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarIcon, ChevronLeft, ChevronRight, Clock, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, differenceInHours } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
 import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useTenant } from '@/context/TenantContext';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -72,12 +73,20 @@ const RescheduleAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { scheduleProfiles, staff } = useInventory();
+    const { selectedTenant: tenant } = useTenant();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
     const [rescheduleDate, setRescheduleDate] = useState(appointment.startTime);
     const [rescheduleTime, setRescheduleTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
 
     const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
+
+    const isWithinCancellationWindow = useMemo(() => {
+        if (!appointment || !tenant?.cancellationWindowHours) return false;
+        const startTime = appointment.startTime instanceof Date ? appointment.startTime : new Date(appointment.startTime);
+        const hoursUntil = differenceInHours(startTime, new Date());
+        return hoursUntil < tenant.cancellationWindowHours;
+    }, [appointment, tenant]);
 
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -195,6 +204,16 @@ const RescheduleAppointmentForm = ({
     return (
         <form id="reschedule-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
             <div className="space-y-6">
+                {isWithinCancellationWindow && (
+                    <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400 border-2 shadow-sm">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle className="text-xs font-black uppercase tracking-tight">Policy Alert: Late Reschedule</AlertTitle>
+                        <AlertDescription className="text-xs">
+                            This appointment is within the {tenant?.cancellationWindowHours}-hour window. Consider if a late-move fee of ${tenant?.cancellationFee?.toFixed(2)} should be applied.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 <Card>
                     <CardContent className="p-4">
                         <div className="flex items-center gap-4">
@@ -225,7 +244,7 @@ const RescheduleAppointmentForm = ({
                         <Label>Date</Label>
                         <div className="rounded-lg border p-4 space-y-4">
                             <div className="flex justify-between items-center">
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePreviousWeek}><ChevronLeft className="w-4 h-4"/></Button>
+                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePreviousWeek} type="button"><ChevronLeft className="w-4 h-4"/></Button>
                                 <span className="font-semibold">{format(rescheduleDate, 'MMMM yyyy')}</span>
                                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleNextWeek}><ChevronRight className="w-4 h-4"/></Button>
                             </div>
@@ -295,6 +314,7 @@ export const RescheduleDialog = ({
     onConfirm: (apt: Appointment) => void 
 }) => {
   const isMobile = useIsMobile();
+  const { events } = useInventory();
   const client = clients.find(c => c.id === appointment.clientId);
   const service = services.find(s => s.id === appointment.serviceId);
 

@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,9 +15,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { type Appointment, type Tenant } from '@/lib/data';
-import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader } from 'lucide-react';
+import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { differenceInHours } from 'date-fns';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -46,16 +46,26 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const feeAmount = tenant?.cancellationFee || 0;
+  const isLateCancellation = useMemo(() => {
+    if (!appointment || !tenant?.cancellationWindowHours) return false;
+    const startTime = appointment.startTime instanceof Date ? appointment.startTime : new Date(appointment.startTime);
+    const hoursUntil = differenceInHours(startTime, new Date());
+    return hoursUntil < tenant.cancellationWindowHours;
+  }, [appointment, tenant]);
+
+  const feeAmount = useMemo(() => {
+    if (reason === 'no-show') return tenant?.noShowFee || 0;
+    return isLateCancellation ? (tenant?.cancellationFee || 0) : 0;
+  }, [reason, isLateCancellation, tenant]);
 
   const handleConfirm = async () => {
     setIsSubmitting(true);
     try {
         await onConfirm({
             reason: reason === 'other' ? customReason : reason,
-            chargeFee,
+            chargeFee: chargeFee && feeAmount > 0,
             feeAmount: chargeFee ? feeAmount : 0,
-            paymentMethod: chargeFee ? paymentMethod : 'waived',
+            paymentMethod: (chargeFee && feeAmount > 0) ? paymentMethod : 'waived',
         });
         onOpenChange(false);
     } finally {
@@ -82,7 +92,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               </label>
               <label htmlFor="r2" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <RadioGroupItem value="no-show" id="r2" />
-                <span className="font-semibold text-sm">No-Show</span>
+                <div className="flex flex-col">
+                    <span className="font-semibold text-sm">No-Show</span>
+                    {tenant?.noShowFee && <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">${tenant.noShowFee.toFixed(2)} penalty applies</span>}
+                </div>
               </label>
               <label htmlFor="r3" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <RadioGroupItem value="other" id="r3" />
@@ -99,12 +112,23 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             )}
           </div>
 
-          {feeAmount > 0 && (
+          {(isLateCancellation || reason === 'no-show') ? (
             <div className="space-y-4 pt-4 border-t">
-              <div className="flex items-center justify-between">
+              <Alert className="bg-destructive/10 text-destructive border-destructive/20 shadow-sm border-2">
+                <Clock className="h-4 w-4" />
+                <AlertTitle className="text-xs font-black uppercase tracking-tight">Policy Violation Detected</AlertTitle>
+                <AlertDescription className="text-xs space-y-2 mt-1">
+                    {reason === 'no-show' 
+                        ? `A no-show penalty of $${(tenant?.noShowFee || 0).toFixed(2)} is standard for this business.`
+                        : `This cancellation is within the ${tenant?.cancellationWindowHours}-hour window. A fee of $${(tenant?.cancellationFee || 0).toFixed(2)} is applicable.`
+                    }
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
                 <div className="space-y-0.5">
-                  <Label className="text-base font-bold">Apply Cancellation Fee</Label>
-                  <p className="text-xs text-muted-foreground">The policy fee is ${feeAmount.toFixed(2)}.</p>
+                  <Label className="text-base font-bold">Apply Fee</Label>
+                  <p className="text-xs text-muted-foreground">Collect ${feeAmount.toFixed(2)} from client</p>
                 </div>
                 <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
               </div>
@@ -124,31 +148,28 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                             <span className="text-xs font-bold leading-tight">Add to Client<br/>Balance</span>
                         </label>
                     </RadioGroup>
-
-                    <Alert variant="destructive" className="bg-destructive/10 text-destructive border-destructive/20">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle className="text-xs font-black uppercase">Collection Notice</AlertTitle>
-                        <AlertDescription className="text-[11px] leading-tight">
-                            {paymentMethod === 'card_on_file' 
-                                ? `Attempting to charge the card ending in **** 4242. If payment fails, you may choose to add it to their balance instead.`
-                                : `This adds $${feeAmount.toFixed(2)} to ${appointment.clientName}'s profile. It will be flagged for collection during their next visit.`
-                            }
-                        </AlertDescription>
-                    </Alert>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl border-2 bg-green-500/5 border-green-500/10 flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-500" />
+                <div className="flex-1">
+                    <p className="text-xs font-bold text-green-700">Outside Policy Window</p>
+                    <p className="text-[10px] text-green-600/80 leading-tight">No late cancellation fee is required for this appointment.</p>
+                </div>
             </div>
           )}
         </div>
         <DialogFooter className="sm:justify-between gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Go Back</Button>
           <Button 
-            variant={chargeFee ? "default" : "destructive"} 
+            variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
             onClick={handleConfirm} 
             className="font-bold min-w-[140px]"
             disabled={isSubmitting}
           >
-            {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee ? 'Confirm & Charge' : 'Confirm Cancellation')}
+            {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee && feeAmount > 0 ? 'Confirm & Charge' : 'Confirm Cancellation')}
           </Button>
         </DialogFooter>
       </DialogContent>
