@@ -197,9 +197,9 @@ export default function CheckInPage() {
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
-    const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
-    const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
-    const handleDateSelect = (day: Date) => setRescheduleDate(day);
+    const handlePreviousWeek = () => setDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setDate(prev => addWeeks(prev, 1));
+    const handleDateSelect = (day: Date) => setDate(day);
 
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !allAppointments || !publicScheduleProfile) return [];
@@ -262,6 +262,26 @@ export default function CheckInPage() {
 
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         updateDocumentNonBlocking(appointmentCheckInRef, updateData);
+
+        // Notify staff of movement
+        if (appointment.staffId) {
+            const statusLabels = {
+                on_my_way: 'is on their way',
+                arrived: 'has arrived',
+                running_late: `is running ${lateMinutes} minutes late`,
+                auto_cancelled: 'appointment was auto-cancelled due to lateness'
+            };
+            const label = statusLabels[newStatus as keyof typeof statusLabels] || 'updated status';
+            const notificationRef = collection(firestore, `tenants/${tenantId}/notifications`);
+            addDocumentNonBlocking(notificationRef, {
+                userId: appointment.staffId,
+                type: 'client_movement',
+                message: `${client?.name || appointment.clientName} ${label}.`,
+                link: '/planner',
+                createdAt: new Date().toISOString(),
+                read: false,
+            });
+        }
 
         setCurrentStatus(newStatus);
     };
@@ -559,10 +579,15 @@ export default function CheckInPage() {
                         </div>
                     </div>
                 ) : currentStatus === 'pending' ? (
-                    <div className="grid grid-cols-2 gap-4">
-                        <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline">Running Late?</Button>
-                        <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')}>
-                            <Car className="mr-2" /> On My Way
+                    <div className="flex flex-col gap-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-14">Running Late?</Button>
+                            <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-14">
+                                <Car className="mr-2" /> On My Way
+                            </Button>
+                        </div>
+                        <Button size="lg" variant="secondary" onClick={() => handleUpdateStatus('arrived')} className="h-14">
+                            <Check className="mr-2" /> I'm Here / Arrived
                         </Button>
                     </div>
                 ) : currentStatus === 'on_my_way' ? (
@@ -579,6 +604,7 @@ export default function CheckInPage() {
                     <div className="p-4 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 rounded-lg text-center">
                         <p className="font-semibold">Thank you for letting us know!</p>
                         <p className="text-sm">We've noted you'll be about {lateTime} minutes late. See you soon.</p>
+                        <Button size="lg" variant="outline" className="w-full mt-4" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2" /> I've Arrived</Button>
                     </div>
                 ) : null}
             </CardContent>
