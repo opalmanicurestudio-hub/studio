@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   Square,
   Link as LinkIcon,
+  MapPin,
+  Car,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -133,20 +135,62 @@ export function AppointmentCard({
   const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
   const isCompact = scheduledDuration < 50;
 
+  // Check-in visual cues
+  const checkInIndicator = useMemo(() => {
+    if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
+    
+    switch (appointment.checkInStatus) {
+        case 'arrived':
+            return (
+                <Badge className="bg-green-500 text-white border-none text-[9px] font-black uppercase h-4 px-1 shadow-sm">
+                    <MapPin className="w-2 h-2 mr-0.5 fill-current" />
+                    Here
+                </Badge>
+            );
+        case 'running_late':
+            return (
+                <Badge className="bg-amber-500 text-white border-none text-[9px] font-black uppercase h-4 px-1 shadow-sm animate-pulse">
+                    <Clock className="w-2 h-2 mr-0.5" />
+                    +{appointment.lateTimeMinutes}m
+                </Badge>
+            );
+        case 'on_my_way':
+            return (
+                <Badge className="bg-blue-500 text-white border-none text-[9px] font-black uppercase h-4 px-1 shadow-sm">
+                    <Car className="w-2 h-2 mr-0.5" />
+                    Way
+                </Badge>
+            );
+        default:
+            return null;
+    }
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status]);
+
   return (
     <div style={style} className="flex flex-col h-full w-full">
       {hasPadBefore && <div style={{ height: `${(service.padBefore! / totalDuration) * 100}%` }} className="bg-muted/20 rounded-t-lg bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />}
       <div style={{ height: `${(service.duration / totalDuration) * 100}%` }} className="min-h-fit">
         <div 
-          className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer transition-all hover:shadow-md backdrop-blur-sm', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore && 'rounded-t-none', hasPadAfter && 'rounded-b-none', isRunningOver && 'bg-destructive/20 border-destructive animate-pulse')}
+          className={cn(
+            'p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer transition-all hover:shadow-md backdrop-blur-sm relative', 
+            statusDisplay[cardStatus]?.bgClassName, 
+            statusDisplay[cardStatus]?.className, 
+            hasPadBefore && 'rounded-t-none', 
+            hasPadAfter && 'rounded-b-none', 
+            isRunningOver && 'bg-destructive/20 border-destructive animate-pulse',
+            appointment.checkInStatus === 'arrived' && 'ring-2 ring-green-500/50 border-green-500/50'
+          )}
           onClick={() => onViewDetails(appointment)}
         >
           <div className="flex items-start justify-between min-w-0">
             <div className='flex-1 min-w-0'>
-              <p className="font-bold text-xs leading-tight truncate flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                {checkInIndicator}
                 {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
                 {client.activeMembershipId && <Award className="w-3 h-3 text-indigo-500" />}
                 {isBirthday && <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-3 w-3 text-pink-500" /></TooltipTrigger><TooltipContent>Birthday!</TooltipContent></Tooltip></TooltipProvider>}
+              </div>
+              <p className="font-bold text-xs leading-tight truncate">
                 {client.name}
               </p>
               <p className="text-[10px] text-muted-foreground truncate">{isCompact ? service.name : (addOnServices.length > 0 ? `${service.name} + ${addOnServices.length}` : service.name)}</p>
@@ -169,7 +213,7 @@ export function AppointmentCard({
             </DropdownMenu>
           </div>
           {appointment.status === 'servicing' && elapsedTime && <div className="flex-1 flex items-center justify-center"><p className="text-2xl font-black font-mono tracking-tighter">{elapsedTime}</p></div>}
-          <div className="flex items-end justify-between">
+          <div className="flex items-end justify-between mt-1">
             <p className="text-[10px] text-muted-foreground font-bold">{format(appointment.startTime, 'h:mm a')}</p>
             {appointment.status === 'ready_for_checkout' && <Button size="xs" className="h-6 px-2 bg-orange-500 text-white hover:bg-orange-600" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>Checkout</Button>}
           </div>

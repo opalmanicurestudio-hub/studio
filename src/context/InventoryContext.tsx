@@ -99,16 +99,28 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
   
+  // Public check-ins listener for bi-directional status updates
+  const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
+
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
-    return appointmentsFromDB.map(apt => ({
-      ...apt,
-      startTime: safeDate(apt.startTime),
-      endTime: safeDate(apt.endTime),
-      actualStartTime: apt.actualStartTime ? safeDate(apt.actualStartTime) : undefined,
-      actualEndTime: apt.actualEndTime ? safeDate(apt.actualEndTime) : undefined,
-    }));
-  }, [appointmentsFromDB]);
+    const checkInMap = new Map((checkIns || []).map(ci => [ci.checkInToken, ci]));
+    return appointmentsFromDB.map(apt => {
+      const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
+      return {
+        ...apt,
+        startTime: safeDate(apt.startTime),
+        endTime: safeDate(apt.endTime),
+        actualStartTime: apt.actualStartTime ? safeDate(apt.actualStartTime) : undefined,
+        actualEndTime: apt.actualEndTime ? safeDate(apt.actualEndTime) : undefined,
+        // Prioritize check-in status from the public token record
+        checkInStatus: ci?.checkInStatus || apt.checkInStatus || 'pending',
+        lateTimeMinutes: ci?.lateTimeMinutes ?? apt.lateTimeMinutes ?? 0,
+        // Some statuses like 'servicing' or 'completed' might be updated in the check-in record by POS but should sync to main appointment
+        status: (ci?.status && apt.status === 'confirmed') ? ci.status : apt.status
+      };
+    });
+  }, [appointmentsFromDB, checkIns]);
 
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
@@ -135,7 +147,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, [rawEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading;
   
   const value = {
     inventory: inventory || [],

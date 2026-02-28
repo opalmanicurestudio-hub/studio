@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -25,6 +24,8 @@ import {
   Coffee,
   Play,
   Wallet,
+  MapPin,
+  Car,
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -841,7 +842,27 @@ const StaffDashboardView = () => {
             <CardContent>
                 {nextAppointment && (
                     <div className="mb-4 p-3 border-2 border-primary bg-primary/5 rounded-lg space-y-3">
-                         <Badge>Up Next</Badge>
+                         <div className="flex items-center justify-between">
+                            <Badge>Up Next</Badge>
+                            {nextAppointment.checkInStatus === 'arrived' && (
+                                <Badge className="bg-green-500 hover:bg-green-600 border-none uppercase font-black text-[9px] h-5">
+                                    <MapPin className="w-3 h-3 mr-1" />
+                                    Arrived
+                                </Badge>
+                            )}
+                            {nextAppointment.checkInStatus === 'running_late' && (
+                                <Badge className="bg-amber-500 hover:bg-amber-600 border-none uppercase font-black text-[9px] h-5 animate-pulse">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    +{nextAppointment.lateTimeMinutes}m Late
+                                </Badge>
+                            )}
+                            {nextAppointment.checkInStatus === 'on_my_way' && (
+                                <Badge className="bg-blue-500 hover:bg-blue-600 border-none uppercase font-black text-[9px] h-5">
+                                    <Car className="w-3 h-3 mr-1" />
+                                    On Way
+                                </Badge>
+                            )}
+                         </div>
                         <div className="flex items-center gap-4">
                             <Avatar className="h-12 w-12"><AvatarImage src={nextAppointment.client?.avatarUrl || undefined} /><AvatarFallback>{getInitials(nextAppointment.client?.name)}</AvatarFallback></Avatar>
                             <div>
@@ -867,23 +888,27 @@ const StaffDashboardView = () => {
                                     <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} />
                                     <AvatarFallback>{getInitials(apt.client?.name)}</AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1">
-                                <p className="font-medium">{apt.client?.name}</p>
-                                <p className="text-sm text-muted-foreground">{apt.service?.name}</p>
+                                <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <p className="font-medium truncate">{apt.client?.name}</p>
+                                    {apt.checkInStatus === 'arrived' && <div className="w-2 h-2 rounded-full bg-green-500" title="Arrived" />}
+                                    {apt.checkInStatus === 'running_late' && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title={`Late (+${apt.lateTimeMinutes}m)`} />}
                                 </div>
-                                <div className="text-right">
+                                <p className="text-sm text-muted-foreground truncate">{apt.service?.name}</p>
+                                </div>
+                                <div className="text-right shrink-0">
                                     <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
-                                    {apt.isWalkIn && <Badge variant="secondary">Walk-in</Badge>}
+                                    {apt.isWalkIn && <Badge variant="secondary" className="text-[9px] uppercase font-black">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (
-                                    <Button size="sm" onClick={() => handleStartService(apt.id)}>
+                                    <Button size="sm" onClick={() => handleStartService(apt.id)} className="shrink-0">
                                         <Play className="w-4 h-4 mr-2" />
                                         Start
                                     </Button>
                                 ) : apt.status === 'servicing' ? (
-                                    <Button size="sm" variant="outline" disabled>In Service</Button>
+                                    <Button size="sm" variant="outline" disabled className="shrink-0">In Service</Button>
                                 ) : (
-                                    <Button variant="ghost" size="icon" asChild>
+                                    <Button variant="ghost" size="icon" asChild className="shrink-0">
                                         <Link href="/planner">
                                             <MoreHorizontal className="h-4 w-4" />
                                         </Link>

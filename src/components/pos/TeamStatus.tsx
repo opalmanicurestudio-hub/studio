@@ -7,9 +7,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds } from 'date-fns';
+import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds, isSameDay, startOfDay } from 'date-fns';
 import { Reorder } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
@@ -21,7 +21,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import { Label } from '../ui/label';
 
 interface TeamStatusProps {
-  staff: (Staff & { stats?: any })[] | null;
+  staff: (Staff & { stats?: any, availability?: { status: string } })[] | null;
   onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void;
   appointments: Appointment[] | null;
   services: Service[] | null;
@@ -38,16 +38,18 @@ const StaffMemberCard = ({
     onMoveDown, 
     isFirst, 
     isLast, 
-    assignmentMode 
+    assignmentMode,
+    nextAppointment
 }: { 
-    member: Staff, 
+    member: Staff & { availability?: { status: string } }, 
     isNextUp: boolean, 
     turnOrder: number | null, 
     onMoveUp: (id: string) => void,
     onMoveDown: (id: string) => void,
     isFirst: boolean,
     isLast: boolean,
-    assignmentMode: 'fair_play' | 'ordered_list'
+    assignmentMode: 'fair_play' | 'ordered_list',
+    nextAppointment?: Appointment | null
 }) => {
     
     const getStatus = () => {
@@ -58,6 +60,20 @@ const StaffMemberCard = ({
     };
 
     const status = getStatus();
+
+    const checkInBadge = useMemo(() => {
+        if (!nextAppointment) return null;
+        switch (nextAppointment.checkInStatus) {
+            case 'arrived':
+                return <Badge className="bg-green-500 border-none text-[8px] h-4 px-1 uppercase font-black"><MapPin className="w-2 h-2 mr-0.5" /> Here</Badge>;
+            case 'running_late':
+                return <Badge className="bg-amber-500 border-none text-[8px] h-4 px-1 uppercase font-black animate-pulse"><Clock className="w-2 h-2 mr-0.5" /> +{nextAppointment.lateTimeMinutes}m</Badge>;
+            case 'on_my_way':
+                return <Badge className="bg-blue-500 border-none text-[8px] h-4 px-1 uppercase font-black"><Car className="w-2 h-2 mr-0.5" /> Way</Badge>;
+            default:
+                return null;
+        }
+    }, [nextAppointment]);
 
     return (
         <Card className={cn(
@@ -71,17 +87,18 @@ const StaffMemberCard = ({
                         {turnOrder}
                     </div>
                 )}
-                <Avatar className="w-12 h-12 border">
+                <Avatar className="w-12 h-12 border shadow-inner">
                     <AvatarImage src={member.avatarUrl} alt={member.name} className="object-cover" />
                     <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                    <p className="font-bold truncate">{member.name}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="font-bold truncate">{member.name}</p>
+                        {checkInBadge}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline" className={cn(status.className, "text-[10px] h-5 uppercase tracking-wider")}>{status.text}</Badge>
-                        {member.active && !member.onBreak && member.status === 'idle' && (
-                            <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                        )}
+                        <p className="text-[10px] text-muted-foreground font-medium truncate">{member.availability?.status}</p>
                     </div>
                 </div>
                 {assignmentMode === 'ordered_list' && member.active && (
@@ -96,7 +113,7 @@ const StaffMemberCard = ({
                 )}
             </CardContent>
             {isNextUp && assignmentMode === 'ordered_list' && (
-                <Badge className="absolute -top-2 right-4 bg-primary text-primary-foreground font-black uppercase text-[9px] tracking-widest px-2">Next Up</Badge>
+                <Badge className="absolute -top-2 right-4 bg-primary text-primary-foreground font-black uppercase text-[9px] tracking-widest px-2 shadow-sm">Next Up</Badge>
             )}
         </Card>
     );
@@ -157,16 +174,31 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const enrichedStaff = useMemo(() => {
         if (!staff) return [];
         return staff.map(member => {
-            let availability = { status: member.active ? 'Idle' : 'Off Duty' };
-            if (member.status === 'busy' && member.active && !member.onBreak) {
+            let availabilityStatus = member.active ? 'Idle' : 'Off Duty';
+            let nextApt = null;
+
+            if (member.active && !member.onBreak) {
                 const now = new Date();
-                const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
-                if (currentAppointment) {
-                    const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
-                    availability = { status: minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining} min` };
+                const todayStart = startOfDay(now);
+                
+                if (member.status === 'busy') {
+                    const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
+                    if (currentAppointment) {
+                        const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
+                        availabilityStatus = minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining} min`;
+                    }
                 }
+
+                // Find next upcoming confirmed appointment for this staff member today
+                nextApt = appointments?.find(apt => 
+                    apt.staffId === member.id && 
+                    apt.status === 'confirmed' && 
+                    isSameDay(new Date(apt.startTime), todayStart) &&
+                    new Date(apt.startTime) > now
+                );
             }
-            return { ...member, availability };
+
+            return { ...member, availability: { status: availabilityStatus }, nextApt };
         });
     }, [staff, appointments]);
     
@@ -235,6 +267,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                                     isFirst={index === 0}
                                     isLast={index === activeStaff.length - 1}
                                     assignmentMode={assignmentMode}
+                                    nextAppointment={member.nextApt}
                                 />
                             ))}
                             {activeStaff.length === 0 && (
