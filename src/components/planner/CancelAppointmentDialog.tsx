@@ -17,11 +17,24 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
-import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator, ShieldCheck } from 'lucide-react';
+import { 
+  DollarSign, 
+  AlertTriangle, 
+  CreditCard, 
+  Landmark, 
+  Loader, 
+  Clock, 
+  Ban, 
+  Info, 
+  TrendingDown, 
+  Calculator, 
+  ShieldCheck 
+} from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -50,7 +63,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mock card info - in production this comes from Stripe/Square
+  // Mock card info - in production this comes from a secure customer vault
   const cardOnFile = { brand: 'Visa', last4: '4242' };
 
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
@@ -98,7 +111,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md h-[90vh] md:h-auto max-h-[90vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh]">
         <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -106,9 +119,9 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <ScrollArea className="flex-1 min-h-0">
             <div className="px-6 py-4 space-y-6">
-                <Card className="bg-muted/30 border-2 overflow-hidden">
+                <Card className="bg-muted/30 border-2 overflow-hidden shadow-sm">
                   <CardHeader className="p-4 pb-2">
                       <div className="flex items-center justify-between">
                           <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
@@ -131,34 +144,36 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 </Card>
 
                 <div className="space-y-3">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reason</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reason for Cancellation</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
                     <label htmlFor="r1" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                       <RadioGroupItem value="client_request" id="r1" />
                       <div className="flex-1">
                           <p className="font-semibold text-sm">Client Request</p>
-                          {isLateCancellation && <p className="text-[10px] text-amber-600 font-bold uppercase">Late Notice</p>}
+                          {isLateCancellation && <p className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter">Late Notice Violation</p>}
                       </div>
                     </label>
                     <label htmlFor="r2" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                       <RadioGroupItem value="no-show" id="r2" />
                       <div className="flex flex-col">
                           <span className="font-semibold text-sm">No-Show</span>
-                          <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">100% Penalty</span>
+                          <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">Maximum Penalty applied</span>
                       </div>
                     </label>
                     <label htmlFor="r3" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                       <RadioGroupItem value="other" id="r3" />
-                      <span className="font-semibold text-sm">Other</span>
+                      <span className="font-semibold text-sm">Other Reason</span>
                     </label>
                   </RadioGroup>
                   {reason === 'other' && (
-                    <Textarea 
-                      placeholder="Reason details..." 
-                      value={customReason} 
-                      onChange={(e) => setCustomReason(e.target.value)}
-                      className="mt-2"
-                    />
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                        <Textarea 
+                        placeholder="Please specify details..." 
+                        value={customReason} 
+                        onChange={(e) => setCustomReason(e.target.value)}
+                        className="mt-2"
+                        />
+                    </motion.div>
                   )}
                 </div>
 
@@ -166,8 +181,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   <div className="space-y-4 pt-4 border-t pb-4">
                     <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
                       <div className="space-y-0.5">
-                        <Label className="text-base font-black">Enforce Fee</Label>
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold">Policy Protection</p>
+                        <Label className="text-base font-black">Enforce Policy Fee</Label>
+                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight">Recover fixed costs for this time</p>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                           <span className="text-xl font-black text-destructive">${feeAmount.toFixed(2)}</span>
@@ -196,14 +211,14 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </div>
                 )}
             </div>
-        </div>
+        </ScrollArea>
 
-        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Back</Button>
+        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0 pb-safe">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 flex-1">Back</Button>
           <Button 
             variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
             onClick={handleConfirm} 
-            className="font-bold min-w-[140px]"
+            className="font-bold h-12 flex-[2]"
             disabled={isSubmitting}
           >
             {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee && feeAmount > 0 ? 'Collect & Cancel' : 'Confirm Cancel')}

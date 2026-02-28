@@ -409,7 +409,7 @@ export default function SettingsPage() {
                     {activeScheduleProfile && (
                         <div>
                             {orderedDays.map((day) => (
-                                <DayScheduleRow 
+                                <DayHoursRow 
                                     key={day} 
                                     day={day} 
                                     dayData={activeScheduleProfile.week[day]} 
