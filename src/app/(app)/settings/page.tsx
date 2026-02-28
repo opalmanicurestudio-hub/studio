@@ -303,10 +303,10 @@ export default function SettingsPage() {
   }
   
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex h-full w-full flex-col overflow-hidden">
       <AppHeader title="Business Settings" />
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-        <div className="max-w-4xl mx-auto space-y-8 pb-20">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto space-y-8 p-4 md:p-8 pb-20">
           <div>
             <h1 className="text-3xl font-bold">Business Settings</h1>
             <p className="text-muted-foreground mt-1">
@@ -409,7 +409,7 @@ export default function SettingsPage() {
                     {activeScheduleProfile && (
                         <div>
                             {orderedDays.map((day) => (
-                                <DayHoursRow 
+                                <DayScheduleRow 
                                     key={day} 
                                     day={day} 
                                     dayData={activeScheduleProfile.week[day]} 

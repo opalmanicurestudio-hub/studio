@@ -16,7 +16,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
 import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator, ShieldCheck } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -99,15 +98,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2 border-b bg-muted/10">
+      <DialogContent className="sm:max-w-md h-[90vh] md:h-auto max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
             Confirming cancellation for {appointment.clientName}.
           </DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0">
             <div className="px-6 py-4 space-y-6">
                 <Card className="bg-muted/30 border-2 overflow-hidden">
                   <CardHeader className="p-4 pb-2">
@@ -164,7 +163,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 </div>
 
                 {(isLateCancellation || reason === 'no-show') && (
-                  <div className="space-y-4 pt-4 border-t">
+                  <div className="space-y-4 pt-4 border-t pb-4">
                     <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
                       <div className="space-y-0.5">
                         <Label className="text-base font-black">Enforce Fee</Label>
@@ -197,9 +196,9 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </div>
                 )}
             </div>
-        </ScrollArea>
+        </div>
 
-        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background">
+        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Back</Button>
           <Button 
             variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
