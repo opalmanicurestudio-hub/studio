@@ -16,7 +16,7 @@ import {
   Cake,
   AlertTriangle,
   Square,
-  LinkIcon,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -122,7 +122,7 @@ export function AppointmentCard({
   const statusDisplay: Record<string, { text: string; className: string; bgClassName: string }> = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
     servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10' },
-    completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-100' },
+    completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
     ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300', bgClassName: 'bg-orange-500/10' },
@@ -135,10 +135,10 @@ export function AppointmentCard({
 
   return (
     <div style={style} className="flex flex-col h-full w-full">
-      {hasPadBefore && <div style={{ height: `${(service.padBefore! / totalDuration) * 100}%` }} className="bg-muted/30 rounded-t-lg bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />}
+      {hasPadBefore && <div style={{ height: `${(service.padBefore! / totalDuration) * 100}%` }} className="bg-muted/20 rounded-t-lg bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />}
       <div style={{ height: `${(service.duration / totalDuration) * 100}%` }} className="min-h-fit">
         <div 
-          className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer transition-all hover:shadow-md', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore && 'rounded-t-none', hasPadAfter && 'rounded-b-none', isRunningOver && 'bg-destructive/20 border-destructive animate-pulse')}
+          className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer transition-all hover:shadow-md backdrop-blur-sm', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore && 'rounded-t-none', hasPadAfter && 'rounded-b-none', isRunningOver && 'bg-destructive/20 border-destructive animate-pulse')}
           onClick={() => onViewDetails(appointment)}
         >
           <div className="flex items-start justify-between min-w-0">
@@ -175,7 +175,7 @@ export function AppointmentCard({
           </div>
         </div>
       </div>
-      {hasPadAfter && <div style={{ height: `${(service.padAfter! / totalDuration) * 100}%` }} className="bg-muted/30 rounded-b-lg bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />}
+      {hasPadAfter && <div style={{ height: `${(service.padAfter! / totalDuration) * 100}%` }} className="bg-muted/20 rounded-b-lg bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />}
     </div>
   );
 }
