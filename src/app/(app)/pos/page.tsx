@@ -272,7 +272,7 @@ export default function POSPage() {
             
             const apt = appointments.find(a => a.id === id);
             if (apt?.checkInToken) {
-                updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), updateData);
+                updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...updateData, tenantId });
             }
 
             // Notify staff of manual update
@@ -296,6 +296,71 @@ export default function POSPage() {
         }
         
         toast({ title: "Status Updated", description: `Client status changed to ${newStatus.replace('_', ' ')}.` });
+    };
+
+    const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
+        if (!firestore || !tenantId || !services) return;
+        
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
+        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+        
+        const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+        const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+  
+        const appointmentId = `apt-walkin-${walkIn.id}`;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        const now = new Date();
+  
+        const appointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { id: string, startTime: string, endTime: string } = {
+            id: appointmentId,
+            tenantId: tenantId,
+            clientId: walkIn.clientId || walkIn.id,
+            clientName: walkIn.customerName,
+            serviceId: walkIn.serviceIds[0],
+            staffId: staffId,
+            status: 'confirmed',
+            source: 'walk-in',
+            isWalkIn: true,
+            startTime: now.toISOString(),
+            endTime: addMinutes(now, duration).toISOString(),
+        };
+        setDocumentNonBlocking(appointmentRef, appointmentData, {});
+          
+        toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
+    };
+
+    const handleAssignNext = () => {
+        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded" }); return; }
+    
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+        
+        if (idleStaff.length === 0) {
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          return;
+        }
+        
+        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+        
+        if (waitingClients.length === 0) {
+          toast({ title: 'No Clients Waiting' });
+          return;
+        }
+    
+        for (const client of waitingClients) {
+            for (const staffMember of (assignmentMode === 'ordered_list' ? idleStaff.sort((a,b) => (a.turnOrder || 0) - (b.turnOrder || 0)) : idleStaff)) {
+                const allRequiredSkills = [...new Set(services?.filter(s => client.serviceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                const canPerform = allRequiredSkills.every(skill => (staffMember.skillSet || []).includes(skill));
+    
+                if (canPerform) {
+                    handleAssignStaff(client, staffMember.id);
+                    toast({ title: 'Assigned!', description: `${client.customerName} assigned to ${staffMember.name}.` });
+                    return;
+                }
+            }
+        }
+    
+        toast({ variant: 'destructive', title: 'No Suitable Match', description: "No available qualified staff member found." });
     };
 
     useEffect(() => {
@@ -409,7 +474,6 @@ export default function POSPage() {
         const now = new Date();
         const nowISO = now.toISOString();
 
-        // Track local product states to handle multiple impacts on same SKU in one checkout
         const productStates = new Map<string, any>();
         const getProductState = (id: string) => {
             if (productStates.has(id)) return productStates.get(id);
@@ -421,7 +485,6 @@ export default function POSPage() {
         };
 
         try {
-            // 1. Process Appointments
             for (const id of Array.from(selectedAppointmentIds)) {
                 const data = readyForCheckoutAppointments.find(a => a.id === id);
                 if (!data) continue;
@@ -430,7 +493,6 @@ export default function POSPage() {
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 const shortTicketId = appointment.id.slice(-6).toUpperCase();
                 
-                // Inventory Logic: Professional Products from Formula
                 if (appointment.checkoutState?.formula) {
                     for (const formulaItem of appointment.checkoutState.formula) {
                         const pState = getProductState(formulaItem.id);
@@ -441,7 +503,6 @@ export default function POSPage() {
                             const usesPerContainer = pState.estimatedUses || 1;
                             let currentUses = (pState.partialContainerUses || 0) - qty;
                             while (currentUses < 0 && pState.totalStock > 0) {
-                                // FIFO Batch Reduction
                                 const sorted = pState.batches.sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
                                 for (const b of sorted) { if (b.stock > 0) { b.stock -= 1; break; } }
                                 pState.totalStock -= 1;
@@ -524,11 +585,9 @@ export default function POSPage() {
                 });
             }
 
-            // 2. Process Retail
             for (const item of retailItems) {
                 const pState = getProductState(item.id);
                 if (pState && item.type === 'product') {
-                    // FIFO Deduction
                     const sorted = pState.batches.sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
                     let remaining = item.quantity;
                     for (const b of sorted) {
@@ -565,7 +624,6 @@ export default function POSPage() {
                 });
             }
 
-            // Write all modified product states back
             productStates.forEach((state, id) => {
                 const productRef = doc(firestore, 'tenants', tenantId, 'inventory', id);
                 batch.update(productRef, {
@@ -576,7 +634,6 @@ export default function POSPage() {
                 });
             });
 
-            // 3. Process Tips
             if (tipAmount > 0) {
                 const tipTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                 batch.set(tipTxnRef, {
@@ -594,7 +651,6 @@ export default function POSPage() {
                 });
             }
 
-            // 4. Update Discounts
             appliedDiscountCodes.forEach(code => {
                 const d = discounts.find(disc => disc.code === code);
                 if (d) {
@@ -766,13 +822,13 @@ export default function POSPage() {
                                         onSelectAppointment={handleSelectAppointment}
                                         services={services} 
                                         staff={staff} 
-                                        onAssignStaff={() => {}}
-                                        onAssignNext={() => {}}
+                                        onAssignStaff={handleAssignStaff}
+                                        onAssignNext={handleAssignNext}
                                         onCancel={() => {}}
                                         onStartService={handleStartService}
                                         orderedWaitingQueue={[]}
                                         onReorder={() => {}}
-                                        assignmentMode="ordered_list"
+                                        assignmentMode={assignmentMode}
                                         onPrintTicket={() => {}}
                                         onSkip={() => {}}
                                         onReturnToQueue={() => {}}
