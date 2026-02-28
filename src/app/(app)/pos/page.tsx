@@ -10,13 +10,13 @@ import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format, isSameMonth, differenceInDays, isSameDay } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, isSameDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
@@ -33,11 +33,24 @@ import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
-import { InServiceAppointmentCard } from '@/components/pos/InServiceAppointmentCard';
-import { SelectProviderDialog } from '@/components/pos/SelectProviderDialog';
 import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+
+const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      <div className={cn("p-2 rounded-lg", iconBgColor)}>
+        {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+      </div>
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{value}</div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </CardContent>
+  </Card>
+);
 
 export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
@@ -841,6 +854,33 @@ export default function POSPage() {
                 }
                 
                 toast({ title: "Customer Skipped", description: "Marked as no-show." });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleCancelWalkIn = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        
+        setConfirmation({
+            isOpen: true,
+            title: 'Cancel Walk-in?',
+            description: 'This will remove the client from the queue. This action cannot be undone.',
+            onConfirm: async () => {
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                const walkIn = walkIns?.find(w => w.id === walkInId);
+                
+                const batch = writeBatch(firestore);
+                batch.update(walkInRef, { status: 'cancelled' });
+
+                if (walkIn && walkIn.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
+                }
+
+                await batch.commit();
+                toast({ title: "Walk-in Cancelled" });
                 setConfirmation(null);
             }
         });
