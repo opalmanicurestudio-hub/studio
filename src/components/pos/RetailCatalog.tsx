@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -9,7 +8,7 @@ import { type InventoryItem, type Service, type Membership, type Package } from 
 import { MenuItemCard } from './MenuItemCard';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { Search } from 'lucide-react';
+import { Search, QrCode } from 'lucide-react';
 import {
   Carousel,
   CarouselContent,
@@ -26,9 +25,10 @@ interface RetailCatalogProps {
   memberships: Membership[];
   packages: Package[];
   onAddToCart: (item: InventoryItem | Service | Membership | Package) => void;
+  onScanClick: () => void;
 }
 
-export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, services, memberships, packages, onAddToCart }) => {
+export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, services, memberships, packages, onAddToCart, onScanClick }) => {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -63,14 +63,19 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
 
   return (
     <div className="space-y-4">
-        <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-                placeholder="Search services and products..."
-                className="pl-9"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="flex gap-2">
+            <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Search services and products..."
+                    className="pl-9 h-11"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <Button variant="outline" size="icon" className="h-11 w-11 shrink-0" onClick={onScanClick}>
+                <QrCode className="h-5 w-5" />
+            </Button>
         </div>
         
         <Carousel

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -784,6 +785,7 @@ export default function POSPage() {
                                 memberships={memberships || []} 
                                 packages={packages || []} 
                                 onAddToCart={handleAddToCart} 
+                                onScanClick={() => setIsScannerOpen(true)}
                             />
                         </div>
                     </main>
