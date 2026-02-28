@@ -545,6 +545,59 @@ export default function POSPage() {
         });
     };
 
+    // Calculate totals for the current sale
+    const { subtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
+        // 1. Service Subtotal from selected appointments
+        const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
+            const data = readyForCheckoutAppointments.find(a => a.id === id);
+            if (!data) return acc;
+            const servicePrice = redeemedOffer?.id === data.service.id ? 0 : getServicePrice(data.service, data.staff);
+            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
+            return acc + servicePrice + addOnsPrice;
+        }, 0);
+
+        // 2. Retail Subtotal from cart items
+        const retailTotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        
+        const currentSubtotal = servicesTotal + retailTotal;
+
+        // 3. Manual Discounts (Applied promo codes)
+        let manualDiscount = 0;
+        appliedDiscountCodes.forEach(code => {
+            const d = discounts.find(disc => disc.code === code);
+            if (d) {
+                if (d.type === 'percentage') {
+                    manualDiscount += currentSubtotal * (d.value / 100);
+                } else {
+                    manualDiscount += d.value;
+                }
+            }
+        });
+
+        // 4. Membership Retail Discount
+        let memDiscount = 0;
+        if (selectedClientId) {
+            const client = clients.find(c => c.id === selectedClientId);
+            const membership = client?.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
+            if (membership?.retailDiscount && retailTotal > 0) {
+                memDiscount = retailTotal * (membership.retailDiscount / 100);
+            }
+        }
+
+        const totalDisc = manualDiscount + memDiscount;
+        const subtotalAfterDisc = Math.max(0, currentSubtotal - totalDisc);
+        const taxAmount = subtotalAfterDisc * 0.07; // Static 7% tax for MVP
+        const grandTotal = subtotalAfterDisc + taxAmount + tipAmount;
+
+        return {
+            subtotal: currentSubtotal,
+            discount: manualDiscount,
+            membershipDiscount: memDiscount,
+            tax: taxAmount,
+            total: grandTotal
+        };
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedDiscountCodes, discounts, selectedClientId, clients, memberships, tipAmount, redeemedOffer]);
+
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
         if (!selectedClientId && Array.from(selectedAppointmentIds).length > 0) {
