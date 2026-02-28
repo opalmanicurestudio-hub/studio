@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -11,7 +10,7 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { 
@@ -24,25 +23,16 @@ import {
   Edit, 
   PlusCircle, 
   MoreHorizontal, 
-  Globe, 
   Check, 
   Link as LinkIcon, 
-  Calendar as CalendarIcon, 
-  Loader, 
-  X, 
-  User, 
   FileText, 
   Trash2, 
-  Award, 
-  Percent, 
-  ShieldAlert, 
-  Ban, 
-  Info, 
   Users, 
-  Sparkles, 
-  Landmark, 
-  Calculator, 
-  TrendingDown 
+  Info,
+  Ban,
+  ShieldAlert,
+  Calculator,
+  Loader
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -54,25 +44,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
-import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -129,12 +107,10 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { firestore, user } = useFirebase();
+  const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
-  const tenantId = selectedTenant?.id;
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
-  const [tenantToDelete, setTenantToDelete] = useState<Tenant | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
   
   const [isScheduleEditing, setIsScheduleEditing] = useState(false);
@@ -184,29 +160,6 @@ export default function SettingsPage() {
     );
   }, []);
 
-  const handleTimeOffChange = useCallback((field: string, value: number) => {
-    setScheduleProfiles((prev: any[]) =>
-      prev.map(p =>
-        p.isActive ? {
-          ...p,
-          timeOff: { ...p.timeOff, [field]: value }
-        } : p
-      )
-    );
-  }, []);
-
-  const handleBookingIntervalChange = useCallback((value: string) => {
-    const interval = parseInt(value, 10);
-    setScheduleProfiles((prev: any[]) =>
-      prev.map(p =>
-        p.isActive ? {
-          ...p,
-          bookingSlotInterval: interval
-        } : p
-      )
-    );
-  }, []);
-
   const handleScheduleEdit = () => {
     setBackupScheduleProfiles(JSON.parse(JSON.stringify(scheduleProfiles)));
     setIsScheduleEditing(true);
@@ -235,8 +188,6 @@ export default function SettingsPage() {
     }
   };
 
-  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
-  
   const handlePoliciesEdit = () => {
     setBackupTenantData(tenantData);
     setIsPoliciesEditing(true);
@@ -249,6 +200,7 @@ export default function SettingsPage() {
 
   const handlePoliciesSave = async () => {
     if (!selectedTenant || !firestore) return;
+    const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
     const dataToUpdate: Partial<Tenant> = {};
     policiesFields.forEach(field => {
       dataToUpdate[field] = tenantData[field] as any;
@@ -260,6 +212,55 @@ export default function SettingsPage() {
       setIsPoliciesEditing(false);
     } catch (error) {
       console.error("Save error:", error);
+      toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  };
+
+  const handleQueueEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsQueueEditing(true);
+  };
+
+  const handleQueueCancel = () => {
+    setTenantData(backupTenantData);
+    setIsQueueEditing(false);
+  };
+
+  const handleQueueSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    try {
+      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+      updateDocumentNonBlocking(tenantRef, { queueSkipTimeMinutes: tenantData.queueSkipTimeMinutes });
+      toast({ title: 'Queue Settings Saved!' });
+      setIsQueueEditing(false);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  };
+
+  const handleSmsEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsSmsEditing(true);
+  };
+
+  const handleSmsCancel = () => {
+    setTenantData(backupTenantData);
+    setIsSmsEditing(false);
+  };
+
+  const handleSmsSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    const smsFields: (keyof Tenant)[] = ['twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
+    const dataToUpdate: Partial<Tenant> = {};
+    smsFields.forEach(field => {
+      dataToUpdate[field] = tenantData[field] as any;
+    });
+    try {
+      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+      updateDocumentNonBlocking(tenantRef, dataToUpdate);
+      toast({ title: 'SMS Settings Saved!' });
+      setIsSmsEditing(false);
+    } catch (error) {
       toast({ variant: 'destructive', title: 'Save Failed' });
     }
   };
@@ -283,11 +284,11 @@ export default function SettingsPage() {
   const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
-    { value: "profile", label: "Profile", icon: <Building /> },
-    { value: "hours", label: "Hours", icon: <Clock /> },
-    { value: "policies", label: "Policies", icon: <FileText /> },
-    { value: "queue", label: "Queue", icon: <ListChecks /> },
-    { value: "messaging", label: "Messaging", icon: <MessageSquare /> },
+    { value: "profile", label: "Profile", icon: <Building className="w-4 h-4" /> },
+    { value: "hours", label: "Hours", icon: <Clock className="w-4 h-4" /> },
+    { value: "policies", label: "Policies", icon: <FileText className="w-4 h-4" /> },
+    { value: "queue", label: "Queue", icon: <ListChecks className="w-4 h-4" /> },
+    { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
   ];
 
   if (isLoading) {
@@ -295,7 +296,7 @@ export default function SettingsPage() {
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Settings" />
         <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-            <Loader className="w-8 h-8 animate-spin" />
+            <Loader className="h-8 w-8 animate-spin" />
         </main>
       </div>
     );
@@ -323,7 +324,7 @@ export default function SettingsPage() {
                   {tabs.map(tab => (
                     <SelectItem key={tab.value} value={tab.value}>
                         <div className="flex items-center gap-2">
-                           {React.cloneElement(tab.icon as React.ReactElement, { className: "w-4 h-4" })}
+                           {tab.icon}
                            <span>{tab.label}</span>
                         </div>
                     </SelectItem>
@@ -336,7 +337,7 @@ export default function SettingsPage() {
                     <TabsList>
                         {tabs.map(tab => (
                         <TabsTrigger key={tab.value} value={tab.value}>
-                            {React.cloneElement(tab.icon as React.ReactElement, { className: "w-4 h-4 mr-2" })}
+                            {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2" })}
                             {tab.label}
                         </TabsTrigger>
                         ))}
@@ -532,9 +533,19 @@ export default function SettingsPage() {
             <TabsContent value="queue" className="mt-6">
                 <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
+                            <CardDescription>Manage your smart walk-in queue logic.</CardDescription>
+                        </div>
                         <div className="flex items-center gap-2">
-                            {isQueueEditing ? (<><Button variant="outline" onClick={handleQueueCancel}>Cancel</Button><Button onClick={handleQueueSave}>Save</Button></>) : (<Button onClick={handleQueueEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
+                        {isQueueEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handleQueueCancel}>Cancel</Button>
+                                <Button onClick={handleQueueSave}>Save</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handleQueueEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                        )}
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -549,8 +560,20 @@ export default function SettingsPage() {
             <TabsContent value="messaging" className="mt-6">
                 <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging</CardTitle>
-                        <div className="flex items-center gap-2">{isSmsEditing ? (<><Button variant="outline" onClick={handleSmsCancel}>Cancel</Button><Button onClick={handleSmsSave}>Save</Button></>) : (<Button onClick={handleSmsEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}</div>
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging & Notifications</CardTitle>
+                            <CardDescription>Configure your Twilio settings for SMS updates.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                        {isSmsEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handleSmsCancel}>Cancel</Button>
+                                <Button onClick={handleSmsSave}>Save</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handleSmsEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                        )}
+                        </div>
                     </CardHeader>
                     <CardContent className="space-y-6">
                         <div className="space-y-2"><Label htmlFor="twilio-sid">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} /></div>
