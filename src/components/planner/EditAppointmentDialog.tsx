@@ -9,7 +9,6 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -18,7 +17,6 @@ import {
   SheetTitle,
   SheetDescription,
   SheetFooter,
-  SheetTrigger,
 } from '@/components/ui/sheet';
 import {
   AlertDialog,
@@ -96,7 +94,9 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
                 <Button
                     variant="outline"
                     className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
-                     onClick={() => setIsOpen(true)}
+                    onClick={() => setIsOpen(true)}
+                >
+                    {TriggerContent}
                 </Button>
                  <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom">
@@ -115,15 +115,19 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger
-                className={cn(
-                    buttonVariants({ variant: "outline" }),
-                    "w-full justify-start text-left font-normal h-12",
-                    !date && "text-muted-foreground"
-                )}
+                asChild
             >
-                {TriggerContent}
+                <Button
+                    variant="outline"
+                    className={cn(
+                        "w-full justify-start text-left font-normal h-12",
+                        !date && "text-muted-foreground"
+                    )}
+                >
+                    {TriggerContent}
+                </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
+            <PopoverContent className="w-auto p-0" align="start">
                 {CalendarComponent}
             </PopoverContent>
         </Popover>
@@ -248,7 +252,7 @@ const EditAppointmentForm = ({
         
         const originalTimeFormatted = format(appointment.startTime, 'HH:mm');
         if (!options.includes(originalTimeFormatted) && format(appointment.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')) {
-            options.unshift(originalTimeFormatted);
+            options.push(originalTimeFormatted);
             options.sort();
         }
 
@@ -578,13 +582,13 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left px-4">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetHeader className="text-left p-4 border-b">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
           <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4">
+          <SheetFooter className="px-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="edit-appointment-form" className="w-full">Save Changes</Button>
           </SheetFooter>
@@ -595,13 +599,15 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-         <DialogHeader>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+         <DialogHeader className="p-6 pb-4">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
+        <div className="flex-1 overflow-y-auto px-6">
+            {FormContent}
+        </div>
+        <DialogFooter className="p-6 pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" form="edit-appointment-form">Save Changes</Button>
         </DialogFooter>
