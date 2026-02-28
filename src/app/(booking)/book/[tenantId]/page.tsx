@@ -4,7 +4,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package } from '@/lib/data';
+import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package, PricingTier } from '@/lib/data';
 import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO, addMonths, format } from 'date-fns';
@@ -45,10 +45,11 @@ export default function BookingPage() {
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
   const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
   const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
+  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]);
   const allAppointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
   const allEventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+  const pricingTiersQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/pricingTiers`), [firestore, tenantId]);
   
   const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
@@ -57,6 +58,7 @@ export default function BookingPage() {
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
   const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
+  const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
   
   const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
   const packagesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/packages`), [firestore, tenantId]);
@@ -183,11 +185,11 @@ export default function BookingPage() {
   };
 
   const handleConfirmPurchase = async (formData: { clientName: string; clientEmail: string; clientPhone?: string }, item: Membership | Package, type: 'membership' | 'package') => {
-    // ... (logic remains similar, but ensure SignedConsents are supported if offering required them)
+    // Placeholder for future logic
   };
 
 
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading || membershipsLoading || packagesLoading;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading || membershipsLoading || packagesLoading || pricingTiersLoading;
 
   if (isLoading) {
       return (
@@ -267,6 +269,7 @@ export default function BookingPage() {
                 onOpenChange={setIsSheetOpen}
                 service={selectedService}
                 staff={staff || []}
+                pricingTiers={pricingTiers || []}
                 appointments={appointments || []}
                 events={events || []}
                 scheduleProfiles={scheduleProfiles || []}

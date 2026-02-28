@@ -55,6 +55,7 @@ import { useToast } from '@/hooks/use-toast';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { motion } from 'framer-motion';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -89,6 +90,7 @@ interface BookingSheetProps {
   onOpenChange: (open: boolean) => void;
   service: Service;
   staff: Staff[];
+  pricingTiers: PricingTier[];
   initialStaffId?: string;
   appointments: Appointment[];
   events: Event[];
@@ -131,6 +133,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   onOpenChange,
   service,
   staff,
+  pricingTiers,
   initialStaffId,
   appointments,
   events,
@@ -162,16 +165,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   // Determine which tiers are actually available for this service
   const availableTiersForService = useMemo(() => {
-    if (!service.serviceTiers || service.serviceTiers.length === 0) return [];
+    if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) return [];
     
     // We only care about tiers that have a staff member in them who can do this service
     const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
     
-    // Map service tiers to pricing tier info (names)
-    // In a real app we'd fetch names from pricingTiers collection
-    // Here we'll infer or assume the names are available in the context or data
-    return service.serviceTiers.filter(st => tiersWithStaff.has(st.tierId));
-  }, [service, qualifiedStaff]);
+    return service.serviceTiers
+        .filter(st => tiersWithStaff.has(st.tierId))
+        .map(st => ({
+            ...st,
+            name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier'
+        }));
+  }, [service, qualifiedStaff, pricingTiers]);
   
   const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -406,7 +411,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <Card className="overflow-hidden border-2">
                                 <CardContent className="p-4 flex gap-4 items-center">
                                     <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted"><Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" /></div>
-                                    <div className="flex-1 space-y-1">
+                                    <div className="flex-1 min-w-0">
                                         <p className="font-bold text-lg leading-tight">{service?.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
                                             <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/>{service?.duration} min</span>
@@ -442,7 +447,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                                 <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} className="flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer hover:bg-muted/50 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                                                     <div className="flex items-center gap-2">
                                                         <RadioGroupItem value={tier.tierId} id={`tier-${tier.tierId}`} />
-                                                        <span className="text-sm font-medium">Any Available {tier.tierId.charAt(0).toUpperCase() + tier.tierId.slice(1)}</span>
+                                                        <span className="text-sm font-medium">Any Available {tier.name}</span>
                                                     </div>
                                                     <span className="font-bold text-primary text-sm">${tier.price.toFixed(2)}</span>
                                                 </label>
@@ -514,7 +519,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <CardContent className="p-6 space-y-4">
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Provider</span> <span className="font-bold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
                                         {selectedStaffId === 'any' && selectedTierId !== 'any' && (
-                                            <div className="flex justify-between items-center"><span className="text-muted-foreground">Price Tier</span> <span className="font-bold capitalize text-primary">{selectedTierId}</span></div>
+                                            <div className="flex justify-between items-center"><span className="text-muted-foreground">Price Tier</span> <span className="font-bold capitalize text-primary">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span></div>
                                         )}
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Date</span> <span className="font-bold">{format(date, 'EEEE, MMM d, yyyy')}</span></div>
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Time</span> <span className="font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>

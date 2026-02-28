@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { doc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, PricingTier } from '@/lib/data';
 import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -47,8 +46,8 @@ export default function StaffDetailPage() {
   const { data: allServices, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
-  
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
+
   const allStaffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: staff, isLoading: allStaffLoading } = useCollection<Staff>(allStaffQuery);
 
@@ -72,8 +71,6 @@ export default function StaffDetailPage() {
       .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate);
   }, [staffMember, allServices]);
 
-  const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setIsSheetOpen(true);
@@ -82,10 +79,12 @@ export default function StaffDetailPage() {
   const handleConfirmBooking = async (
     formData: { clientName: string; clientEmail: string; clientPhone?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
     setBookingStep: (step: string) => void
   ) => {
     if (!firestore) return;
     setIsSubmitting(true);
+    const batch = writeBatch(firestore);
     try {
         const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
         const q = query(clientsRef, where("email", "==", formData.clientEmail.toLowerCase()));
@@ -106,16 +105,15 @@ export default function StaffDetailPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId }, {});
-            toast({ title: "Welcome!", description: "A new client profile has been created for you." });
+            batch.set(newClientRef, { ...newClient, id: clientId });
         } else {
             const existingClientDoc = querySnapshot.docs[0];
             clientId = existingClientDoc.id;
             clientName = existingClientDoc.data().name;
         }
 
-        const appointmentRef = collection(firestore, `tenants/${tenantId}/appointments`);
-        const newAppointmentId = nanoid();
+        const appointmentRef = doc(collection(firestore, `tenants/${tenantId}/appointments`));
+        const newAppointmentId = appointmentRef.id;
         const checkInToken = nanoid(16);
 
         const newAppointment = {
@@ -129,15 +127,24 @@ export default function StaffDetailPage() {
             checkInToken: checkInToken,
         };
 
-        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment, {});
+        batch.set(appointmentRef, newAppointment);
+        batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
 
-        const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-        await setDocumentNonBlocking(checkInDocRef, newAppointment, {});
+        // Save signed consent forms
+        signedForms.forEach(form => {
+            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
+            batch.set(consentDocRef, {
+                ...form,
+                id: consentDocRef.id,
+                clientId,
+                signedAt: new Date().toISOString(),
+            });
+        });
 
         // Notify staff member
         if (newAppointment.staffId) {
-            const notificationsRef = collection(firestore, 'tenants', tenantId, 'notifications');
-            addDocumentNonBlocking(notificationsRef, {
+            const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+            batch.set(notificationRef, {
                 userId: newAppointment.staffId,
                 type: 'new_appointment',
                 message: `New booking: ${formData.clientName} for ${selectedService?.name} on ${format(parseISO(newAppointment.startTime), 'MMM d @ h:mm a')}`,
@@ -147,6 +154,7 @@ export default function StaffDetailPage() {
             });
         }
         
+        await batch.commit();
         toast({
           title: 'Booking Confirmed!',
           description: `Your appointment is all set.`,
@@ -355,6 +363,7 @@ export default function StaffDetailPage() {
                 onOpenChange={setIsSheetOpen}
                 service={selectedService}
                 staff={staff}
+                pricingTiers={pricingTiers || []}
                 initialStaffId={staffId}
                 consentForms={consentForms || []}
                 tenant={tenant || null}
