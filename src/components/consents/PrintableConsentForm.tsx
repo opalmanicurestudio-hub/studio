@@ -4,6 +4,7 @@ import React from 'react';
 import { format, parseISO } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { type Client, type ConsentForm, type Tenant } from '@/lib/data';
+import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
 interface PrintableConsentFormProps {
