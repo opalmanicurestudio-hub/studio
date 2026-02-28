@@ -732,6 +732,71 @@ export default function POSPage() {
         }
     }
 
+    const handleReturnToQueue = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        const appointmentId = `apt-walkin-${walkInId}`;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+
+        const batch = writeBatch(firestore);
+        batch.update(walkInRef, { 
+            status: 'waiting', 
+            assignedStaffId: deleteField(),
+            notifiedTimestamp: deleteField() 
+        });
+        batch.delete(appointmentRef);
+
+        batch.commit().then(() => {
+            toast({ title: "Moved back to queue", description: "Assignment has been cleared." });
+        });
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        const updateData: any = { 
+            status: 'confirmed', 
+            actualStartTime: deleteField() 
+        };
+
+        updateDocumentNonBlocking(appointmentRef, updateData);
+
+        const appointment = appointments.find(a => a.id === appointmentId);
+        if (appointment?.checkInToken) {
+            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
+        }
+
+        if (appointment?.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+        }
+
+        toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        updateDocumentNonBlocking(appointmentRef, { 
+            status: 'servicing', 
+            actualEndTime: deleteField() 
+        });
+
+        const appointment = appointments.find(a => a.id === appointmentId);
+        if (appointment?.checkInToken) {
+            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
+        }
+
+        if (appointment?.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
+        }
+
+        toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+    };
+
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
@@ -787,7 +852,6 @@ export default function POSPage() {
                 <AppHeader />
                 <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                        {/* 1. Team & Assignment Section */}
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChange} 
@@ -798,7 +862,6 @@ export default function POSPage() {
                             onAssignmentModeChange={setAssignmentMode}
                         />
 
-                        {/* 2. Unified Flow Board: From Waitlist to Checkout */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
@@ -831,18 +894,19 @@ export default function POSPage() {
                                         assignmentMode={assignmentMode}
                                         onPrintTicket={() => {}}
                                         onSkip={() => {}}
-                                        onReturnToQueue={() => {}}
+                                        onReturnToQueue={handleReturnToQueue}
                                         groupSizes={new Map()}
                                         onToggleWaitForStaff={() => {}}
                                         onScanClick={() => setIsScannerOpen(true)}
                                         onFinishService={handleFinishService}
                                         onUpdateStatus={handleCheckInStatusUpdate}
+                                        onRevertToReady={handleRevertToReady}
+                                        onRevertToService={handleRevertToService}
                                     />
                                 </CardContent>
                             </Card>
                         </div>
 
-                        {/* 3. Retail & Menu Section */}
                         <div className="space-y-4">
                             <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
                                 <ShoppingCart className="w-6 h-6 text-primary" />

@@ -48,6 +48,8 @@ interface WalkInQueueProps {
     onScanClick: () => void;
     onFinishService: (apt: Appointment) => void;
     onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
+    onRevertToReady: (appointmentId: string) => void;
+    onRevertToService: (appointmentId: string) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -73,6 +75,8 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onScanClick,
     onFinishService,
     onUpdateStatus,
+    onRevertToReady,
+    onRevertToService,
 }) => {
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
@@ -216,7 +220,8 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         appointment={apt} 
                                         services={services} 
                                         staff={staff} 
-                                        onSendToCheckout={() => onFinishService(apt)} 
+                                        onSendToCheckout={() => onFinishService(apt)}
+                                        onRevertToReady={() => onRevertToReady(apt.id)}
                                     />
                                 ))
                             ) : (
@@ -250,6 +255,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         appointmentData={data}
                                         isSelected={selectedAppointmentIds.has(data.id)}
                                         onSelect={() => onSelectAppointment(data.id)}
+                                        onRevertToService={() => onRevertToService(data.id)}
                                     />
                                 ))
                             ) : (

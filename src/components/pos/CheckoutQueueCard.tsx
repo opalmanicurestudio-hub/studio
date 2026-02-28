@@ -8,9 +8,16 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { AlertTriangle, FlaskConical, TicketIcon } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { AlertTriangle, FlaskConical, TicketIcon, MoreHorizontal, Undo2 } from 'lucide-react';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface CheckoutQueueCardProps {
   appointmentData: {
@@ -23,9 +30,15 @@ interface CheckoutQueueCardProps {
   };
   isSelected: boolean;
   onSelect: () => void;
+  onRevertToService: () => void;
 }
 
-export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmentData, isSelected, onSelect }) => {
+export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ 
+    appointmentData, 
+    isSelected, 
+    onSelect,
+    onRevertToService
+}) => {
   const { appointment: apt, client, service, addOnServices, staff } = appointmentData;
   const checkoutState = apt.checkoutState;
 
@@ -62,8 +75,8 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
         <Label
             htmlFor={`apt-checkout-${apt.id}`}
             className={cn(
-                "block cursor-pointer rounded-lg border-2 bg-card text-card-foreground transition-all",
-                isSelected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/50"
+                "block cursor-pointer rounded-lg border-2 bg-card text-card-foreground transition-all relative",
+                isSelected ? "border-primary ring-2 ring-primary shadow-md" : "border-border hover:border-primary/50"
             )}
         >
             <CardContent className="p-4 space-y-3">
@@ -74,8 +87,8 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                         onCheckedChange={onSelect}
                         className="mt-1"
                     />
-                    <div className="flex-1 space-y-1">
-                        <div className="font-semibold flex items-center gap-2">
+                    <div className="flex-1 space-y-1 min-w-0">
+                        <div className="font-semibold flex items-center gap-2 truncate">
                             {client.name}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
@@ -98,16 +111,29 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({ appointmen
                             {ticketId}
                         </p>
                     </div>
-                    <div className="text-right">
-                         <Avatar className="w-8 h-8">
-                            <AvatarImage src={staff?.avatarUrl} />
+                    <div className="text-right flex flex-col items-end gap-2">
+                         <Avatar className="w-8 h-8 border shadow-sm">
+                            <AvatarImage src={staff?.avatarUrl} className="object-cover" />
                             <AvatarFallback>{staff?.name.charAt(0)}</AvatarFallback>
                         </Avatar>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2" onClick={e => e.preventDefault()}>
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={(e) => { e.preventDefault(); onRevertToService(); }}>
+                                    <Undo2 className="w-4 h-4 mr-2" />
+                                    Revert to In Service
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </div>
                  <div className="flex items-end justify-between pt-3 border-t">
-                    <p className="text-xs text-muted-foreground">{staff?.name}</p>
-                    <p className="text-xl font-bold text-primary">${totalPrice.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground truncate max-w-[150px]">{staff?.name}</p>
+                    <p className="text-xl font-black text-primary tracking-tighter">${totalPrice.toFixed(2)}</p>
                 </div>
             </CardContent>
         </Label>
