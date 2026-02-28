@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -67,6 +66,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 interface AppointmentDetailsSheetProps {
   open: boolean;
@@ -111,6 +111,9 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
   const { toast } = useToast();
+  
+  // Requirement: Receptionists (staff) should be able to perform overrides
+  const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -217,7 +220,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               </div>
             )}
 
-            {appointment.status === 'cancelled' && appointment.checkInStatus === 'auto_cancelled' && isOwnerOrAdmin && (
+            {appointment.status === 'cancelled' && appointment.checkInStatus === 'auto_cancelled' && canPerformAdminActions && (
                 <Alert className="bg-destructive/10 border-destructive/20 text-destructive mb-4">
                     <ShieldCheck className="h-4 w-4" />
                     <AlertTitle>Auto-Cancelled (Late)</AlertTitle>
@@ -244,7 +247,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                   </div>
                 </div>
               </div>
-              {isOwnerOrAdmin ? (
+              {isOwnerOrAdmin || role === 'staff' ? (
                 <div className="text-muted-foreground text-sm space-y-1.5 pt-2">
                   <div className="flex items-center gap-2"><Mail className="w-4 h-4" /> {client.email}</div>
                   <div className="flex items-center gap-2"><Phone className="w-4 h-4" /> {client.phone}</div>
@@ -279,7 +282,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
                     <DropdownMenuItem asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4"/>View Client Profile</Link></DropdownMenuItem>
-                    {isOwnerOrAdmin && (
+                    {canPerformAdminActions && (
                     <>
                         <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-4 w-4"/>Edit Details</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
@@ -291,14 +294,16 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><Printer className="mr-2 h-4 w-4"/>Print Ticket</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {isOwnerOrAdmin && (
+                    {canPerformAdminActions && (
                         <>
                             <DropdownMenuItem onClick={() => { onOpenChange(false); onCancel(appointment.id); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}>
                                 <XCircle className="mr-2 h-4 w-4" /> Cancel Appointment
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}>
-                                <Trash2 className="mr-2 h-4 w-4"/>Delete Permanently
-                            </DropdownMenuItem>
+                            {isOwnerOrAdmin && (
+                                <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}>
+                                    <Trash2 className="mr-2 h-4 w-4"/>Delete Permanently
+                                </DropdownMenuItem>
+                            )}
                         </>
                     )}
                 </DropdownMenuContent>
