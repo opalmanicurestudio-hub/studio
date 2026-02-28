@@ -55,7 +55,7 @@ import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
-const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
+const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
     const hour = Math.floor(i / 2);
     const minute = i % 2 === 0 ? '00' : '30';
@@ -304,9 +304,9 @@ export default function SettingsPage() {
   
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Settings" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="max-w-4xl mx-auto space-y-8">
+      <AppHeader title="Business Settings" />
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+        <div className="max-w-4xl mx-auto space-y-8 pb-20">
           <div>
             <h1 className="text-3xl font-bold">Business Settings</h1>
             <p className="text-muted-foreground mt-1">
@@ -409,7 +409,7 @@ export default function SettingsPage() {
                     {activeScheduleProfile && (
                         <div>
                             {orderedDays.map((day) => (
-                                <DayScheduleRow 
+                                <DayHoursRow 
                                     key={day} 
                                     day={day} 
                                     dayData={activeScheduleProfile.week[day]} 

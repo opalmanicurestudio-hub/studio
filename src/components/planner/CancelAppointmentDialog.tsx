@@ -17,12 +17,12 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
-import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator } from 'lucide-react';
+import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator, ShieldCheck } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { nanoid } from 'nanoid';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -97,15 +97,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2">
+        <DialogHeader className="p-6 pb-2 border-b bg-muted/10">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
             Confirming cancellation for {appointment.clientName}.
           </DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="flex-1 px-6">
-          <div className="space-y-6 py-4">
+        {/* SCROLLABLE BODY */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
             <Card className="bg-muted/30 border-2 overflow-hidden">
               <CardHeader className="p-4 pb-2">
                   <div className="flex items-center justify-between">
@@ -211,8 +211,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </div>
               </div>
             )}
-          </div>
-        </ScrollArea>
+        </div>
 
         <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Go Back</Button>
