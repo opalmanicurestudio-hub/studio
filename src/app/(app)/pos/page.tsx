@@ -228,6 +228,22 @@ export default function POSPage() {
         });
     }, []);
 
+    // Requirement: Auto-set selectedClientId based on selected appointments
+    useEffect(() => {
+        if (selectedAppointmentIds.size > 0 && !selectedClientId) {
+            const firstAptId = Array.from(selectedAppointmentIds)[0];
+            const aptData = readyForCheckoutAppointments.find(a => a.id === firstAptId);
+            if (aptData) {
+                setSelectedClientId(aptData.appointment.clientId);
+            }
+        } else if (selectedAppointmentIds.size === 0 && selectedClientId) {
+            // Only clear if no retail items in cart
+            if (retailItems.length === 0) {
+                setSelectedClientId(null);
+            }
+        }
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId, retailItems.length]);
+
     const handleAddToCart = useCallback((item: any) => {
         setRetailItems(prev => {
             const existing = prev.find(i => i.id === item.id);
@@ -704,7 +720,7 @@ export default function POSPage() {
                                 currentUses += usesPerContainer;
                             }
                             pState.partialContainerUses = currentUses;
-                        } else if (pState.costingMethod === 'size') {
+                        } else if (pState.costingMethod === 'size' ) {
                             const sizePerContainer = pState.size || 1;
                             let currentSize = (pState.partialContainerSize || 0) - qty;
                             while (currentSize < 0 && pState.totalStock > 0) {

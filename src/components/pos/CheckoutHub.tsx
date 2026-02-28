@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -162,6 +161,7 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter(c => c !== code));
     };
 
+    // Requirement: Recognizing and suggesting automated discounts
     const suggestedDiscounts = useMemo(() => {
         if (!selectedClient || !discounts) return [];
 
@@ -184,7 +184,8 @@ export const CheckoutHub = ({
             }
 
             if (trigger === 'loyalty' && d.automation?.appointmentThreshold) {
-                return completedCount > 0 && (completedCount % d.automation.appointmentThreshold === 0);
+                // If checking out now, it's visit # (completed + 1)
+                return (completedCount + 1) % d.automation.appointmentThreshold === 0;
             }
 
             if (trigger === 'new_client') {
@@ -228,7 +229,7 @@ export const CheckoutHub = ({
                 <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">Payer</Label>
                 <div className="flex gap-2 mt-1">
                     <Select
-                        value={isGroupCheckout ? selectedClientId || '' : selectedClientId || 'walk-in'}
+                        value={selectedClientId || 'walk-in'}
                         onValueChange={(value) => {
                             if (value === 'walk-in') {
                                 setSelectedClientId(null);
