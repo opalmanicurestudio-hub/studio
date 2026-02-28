@@ -43,6 +43,8 @@ import {
   isBefore,
   isToday,
   parseISO,
+  subWeeks,
+  addWeeks,
 } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { useForm, FormProvider } from 'react-hook-form';
@@ -105,11 +107,21 @@ interface BookingSheetProps {
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-    if (!timeStr) return d;
+
+    if (!timeStr) {
+      return d;
+    }
+
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
-    if (period === 'PM' && hours < 12) hours += 12;
-    if (period === 'AM' && hours === 12) hours = 0;
+
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
     d.setHours(hours, minutes);
     return d;
 }
@@ -269,6 +281,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     setCurrentStepIndex(currentStepIndex + 1);
   };
 
+  const handlePrevStep = () => {
+    if (currentStepIndex > 0) {
+      setCurrentStepIndex(currentStepIndex - 1);
+    }
+  };
+
   const handleStaffSelect = (staffId: string) => {
     if (initialStaffId) return;
     setSelectedStaffId(staffId); setCurrentStepIndex(1); setSelectedTime(null);
@@ -305,7 +323,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col border-l-0 sm:border-l">
+      <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col border-l-0 sm:border-l">
         <SheetHeader className="p-6 pb-4 bg-muted/30">
           <SheetTitle className="text-2xl font-bold">Book Appointment</SheetTitle>
           {currentStep !== 'confirmation' && <div className="pt-2"><Progress value={progress} className="h-1.5" /></div>}
