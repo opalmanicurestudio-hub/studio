@@ -3,10 +3,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
-import { type WalkIn, type Staff, type Service, type Appointment } from '@/lib/data';
+import { type WalkIn, type Staff, type Service, type Appointment, type Client } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';
-import { Sparkles, TrendingUp, Users, Clock, CheckCircle } from 'lucide-react';
+import { Sparkles, TrendingUp, Users, Clock, CheckCircle, Activity, QrCode, Play, ShoppingCart } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,11 +14,24 @@ import { Label } from '@/components/ui/label';
 import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
+import { InServiceAppointmentCard } from './InServiceAppointmentCard';
+import { CheckoutQueueCard } from './CheckoutQueueCard';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
     staff: Staff[] | null;
     services: Service[] | null;
+    appointments: Appointment[] | null;
+    readyForCheckoutAppointments: {
+        id: string;
+        appointment: Appointment;
+        client: Client;
+        service: Service;
+        addOnServices: Service[];
+        staff: Staff;
+    }[];
+    selectedAppointmentIds: Set<string>;
+    onSelectAppointment: (id: string) => void;
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
     onCancel: (walkInId: string) => void;
@@ -31,12 +44,18 @@ interface WalkInQueueProps {
     onReturnToQueue: (walkInId: string) => void;
     groupSizes: Map<string, number>;
     onToggleWaitForStaff: (walkInId: string, wait: boolean) => void;
+    onScanClick: () => void;
+    onFinishService: (apt: Appointment) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
     walkIns, 
     staff, 
     services, 
+    appointments,
+    readyForCheckoutAppointments,
+    selectedAppointmentIds,
+    onSelectAppointment,
     onAssignStaff,
     onAssignNext,
     onCancel,
@@ -49,12 +68,18 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onReturnToQueue,
     groupSizes,
     onToggleWaitForStaff,
+    onScanClick,
+    onFinishService,
 }) => {
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
     const notifiedQueue = useMemo(() => {
         return (walkIns || []).filter(w => w.status === 'notified');
     }, [walkIns]);
+
+    const inServiceQueue = useMemo(() => {
+        return (appointments || []).filter(apt => apt.status === 'servicing');
+    }, [appointments]);
 
     const handleOpenAssignDialog = (walkIn: WalkIn) => {
         setWalkInToAssign(walkIn);
@@ -75,27 +100,38 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         onReorder(newOrder);
     };
 
+    const LaneHeader = ({ icon: Icon, title, count, colorClass, action }: { icon: any, title: string, count: number, colorClass?: string, action?: React.ReactNode }) => (
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+            <div className="flex items-center gap-2">
+                <Icon className={cn("w-4 h-4", colorClass || "text-muted-foreground")} />
+                <h3 className="font-bold text-xs uppercase tracking-widest text-muted-foreground">{title}</h3>
+                <Badge variant="secondary" className={cn("font-bold text-[10px]", colorClass && "bg-primary/10 text-primary")}>{count}</Badge>
+            </div>
+            {action}
+        </div>
+    );
+
     return (
-        <div className="space-y-6">
-            {/* Waiting Lane */}
-            <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-muted-foreground" />
-                        <h3 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Waiting List</h3>
-                        <Badge variant="secondary" className="font-bold">{orderedWaitingQueue.length}</Badge>
-                    </div>
-                    <Button size="sm" variant="ghost" onClick={onAssignNext} className="h-8 text-xs text-primary font-black hover:text-primary hover:bg-primary/5">
-                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                        AUTO-ASSIGN
-                    </Button>
-                </div>
-                {orderedWaitingQueue.length > 0 ? (
-                    <ScrollArea className="w-full">
-                        <Reorder.Group axis="x" values={orderedWaitingQueue} onReorder={onReorder} className="flex space-x-4 pb-4">
-                            {orderedWaitingQueue.map(walkIn => (
-                                <Reorder.Item key={walkIn.id} value={walkIn} className="w-72 shrink-0">
+        <div className="flex flex-col">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 divide-y md:divide-y-0 md:divide-x border-b">
+                {/* 1. Waiting Lane */}
+                <div className="flex flex-col min-h-[300px]">
+                    <LaneHeader 
+                        icon={Users} 
+                        title="Waitlist" 
+                        count={orderedWaitingQueue.length} 
+                        action={
+                            <Button size="sm" variant="ghost" onClick={onAssignNext} className="h-7 text-[10px] font-black hover:text-primary">
+                                AUTO
+                            </Button>
+                        }
+                    />
+                    <ScrollArea className="flex-1">
+                        <div className="p-4 space-y-3">
+                            {orderedWaitingQueue.length > 0 ? (
+                                orderedWaitingQueue.map(walkIn => (
                                     <WaitingCustomerCard 
+                                        key={walkIn.id}
                                         walkIn={walkIn} 
                                         services={services} 
                                         staffList={staff}
@@ -105,33 +141,25 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         onPrintTicket={onPrintTicket}
                                         groupSize={groupSizes.get(walkIn.groupId) || 1}
                                     />
-                                </Reorder.Item>
-                            ))}
-                        </Reorder.Group>
-                        <ScrollBar orientation="horizontal" />
+                                ))
+                            ) : (
+                                <div className="text-center py-12 border-2 border-dashed rounded-xl opacity-40">
+                                    <p className="text-xs font-medium">Waitlist clear</p>
+                                </div>
+                            )}
+                        </div>
                     </ScrollArea>
-                ) : (
-                    <div className="text-center py-8 border-2 border-dashed rounded-xl bg-muted/20">
-                        <p className="text-sm text-muted-foreground">The waitlist is clear.</p>
-                    </div>
-                )}
-            </div>
-
-            <Separator className="border-dashed" />
-
-            {/* Notified Lane */}
-            <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <h3 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Ready to Start</h3>
-                    <Badge variant="secondary" className="font-bold bg-green-500/10 text-green-700">{notifiedQueue.length}</Badge>
                 </div>
-                {notifiedQueue.length > 0 ? (
-                    <ScrollArea className="w-full">
-                        <div className="flex space-x-4 pb-4">
-                            {notifiedQueue.map(walkIn => (
-                                <div key={walkIn.id} className="w-72 shrink-0">
+
+                {/* 2. Notified Lane */}
+                <div className="flex flex-col min-h-[300px] bg-primary/[0.02]">
+                    <LaneHeader icon={CheckCircle} title="Ready" count={notifiedQueue.length} colorClass="text-green-500" />
+                    <ScrollArea className="flex-1">
+                        <div className="p-4 space-y-3">
+                            {notifiedQueue.length > 0 ? (
+                                notifiedQueue.map(walkIn => (
                                     <NotifiedCustomerCard 
+                                        key={walkIn.id} 
                                         walkIn={walkIn} 
                                         services={services} 
                                         staff={staff}
@@ -140,16 +168,72 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         onCancel={onCancel}
                                         onReturnToQueue={onReturnToQueue}
                                     />
+                                ))
+                            ) : (
+                                <div className="text-center py-12 border-2 border-dashed rounded-xl opacity-40">
+                                    <p className="text-xs font-medium">No one ready</p>
                                 </div>
-                            ))}
+                            )}
                         </div>
-                        <ScrollBar orientation="horizontal" />
                     </ScrollArea>
-                ) : (
-                    <div className="text-center py-8 border-2 border-dashed rounded-xl bg-muted/20">
-                        <p className="text-sm text-muted-foreground">No clients waiting at the station.</p>
-                    </div>
-                )}
+                </div>
+
+                {/* 3. In Service Lane */}
+                <div className="flex flex-col min-h-[300px]">
+                    <LaneHeader icon={Clock} title="In Service" count={inServiceQueue.length} colorClass="text-blue-500" />
+                    <ScrollArea className="flex-1">
+                        <div className="p-4 space-y-3">
+                            {inServiceQueue.length > 0 ? (
+                                inServiceQueue.map(apt => (
+                                    <InServiceAppointmentCard 
+                                        key={apt.id} 
+                                        appointment={apt} 
+                                        services={services} 
+                                        staff={staff} 
+                                        onSendToCheckout={() => onFinishService(apt)} 
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-12 border-2 border-dashed rounded-xl opacity-40">
+                                    <p className="text-xs font-medium">Lanes free</p>
+                                </div>
+                            )}
+                        </div>
+                    </ScrollArea>
+                </div>
+
+                {/* 4. Checkout Lane */}
+                <div className="flex flex-col min-h-[300px] bg-orange-500/[0.02]">
+                    <LaneHeader 
+                        icon={ShoppingCart} 
+                        title="Checkout" 
+                        count={readyForCheckoutAppointments.length} 
+                        colorClass="text-orange-500"
+                        action={
+                            <Button size="sm" variant="ghost" onClick={onScanClick} className="h-7 text-[10px] font-black hover:text-orange-600">
+                                <QrCode className="w-3 h-3 mr-1" /> SCAN
+                            </Button>
+                        }
+                    />
+                    <ScrollArea className="flex-1">
+                        <div className="p-4 space-y-3">
+                            {readyForCheckoutAppointments.length > 0 ? (
+                                readyForCheckoutAppointments.map(data => (
+                                    <CheckoutQueueCard
+                                        key={data.id}
+                                        appointmentData={data}
+                                        isSelected={selectedAppointmentIds.has(data.id)}
+                                        onSelect={() => onSelectAppointment(data.id)}
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-12 border-2 border-dashed rounded-xl opacity-40">
+                                    <p className="text-xs font-medium">Queue empty</p>
+                                </div>
+                            )}
+                        </div>
+                    </ScrollArea>
+                </div>
             </div>
 
             <AssignStaffDialog
