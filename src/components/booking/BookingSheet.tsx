@@ -23,7 +23,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -141,6 +141,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   onConfirm,
 }) => {
   const [selectedStaffId, setSelectedStaffId] = useState(initialStaffId || 'any');
+  const [selectedTierId, setSelectedTierId] = useState<string>('any');
   const [date, setDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
@@ -158,6 +159,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (!service?.requiredSkills || service.requiredSkills.length === 0) return staff;
     return staff.filter(s => service.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
   }, [service, staff]);
+
+  // Determine which tiers are actually available for this service
+  const availableTiersForService = useMemo(() => {
+    if (!service.serviceTiers || service.serviceTiers.length === 0) return [];
+    
+    // We only care about tiers that have a staff member in them who can do this service
+    const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
+    
+    // Map service tiers to pricing tier info (names)
+    // In a real app we'd fetch names from pricingTiers collection
+    // Here we'll infer or assume the names are available in the context or data
+    return service.serviceTiers.filter(st => tiersWithStaff.has(st.tierId));
+  }, [service, qualifiedStaff]);
   
   const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -167,7 +181,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (!service || !date || !publicScheduleProfile || !staff || !services) return [];
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
-    const staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
+    
+    let staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
+    
+    // If 'Any Available' is selected but a specific tier is preferred
+    if (selectedStaffId === 'any' && selectedTierId !== 'any') {
+        staffMembersToCheck = staffMembersToCheck.filter(s => s.pricingTierId === selectedTierId);
+    }
+
     const options: Set<string> = new Set();
     
     staffMembersToCheck.forEach(staffMember => {
@@ -209,26 +230,35 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         }
     });
     return Array.from(options).sort();
-}, [date, selectedStaffId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services]);
+}, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services]);
 
     const requiredForms = useMemo(() => {
         if (!service || !consentForms) return [];
         return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
     }, [service, consentForms]);
     
-    const { price, priceRange } = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null };
+    const { price, priceRange, activeTier } = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null, activeTier: null };
+        
+        // If a specific staff is selected
         if (selectedStaffId && selectedStaffId !== 'any') {
           const staffMember = staff.find(s => s.id === selectedStaffId);
           const tierPricing = service.serviceTiers.find(t => t.tierId === staffMember?.pricingTierId);
-          if (tierPricing) return { price: tierPricing.price, priceRange: null };
+          if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
         }
+
+        // If 'Any Available' is selected but a specific tier is preferred
+        if (selectedStaffId === 'any' && selectedTierId !== 'any') {
+            const tierPricing = service.serviceTiers.find(t => t.tierId === selectedTierId);
+            if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
+        }
+
         const prices = service.serviceTiers.map(t => t.price);
         const minPrice = Math.min(...prices);
         const maxPrice = Math.max(...prices);
-        if (minPrice === maxPrice) return { price: minPrice, priceRange: null };
-        return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
-      }, [service, selectedStaffId, staff]);
+        if (minPrice === maxPrice) return { price: minPrice, priceRange: null, activeTier: null };
+        return { price: minPrice, priceRange: { min: minPrice, max: maxPrice }, activeTier: null };
+      }, [service, selectedStaffId, selectedTierId, staff]);
 
     const depositAmount = useMemo(() => {
         if (!service || service.depositType === 'none') return 0;
@@ -258,7 +288,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (open) {
         if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
         else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
-        setSelectedTime(null); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false); setBookedStaffId(null);
+        setSelectedTime(null); setSelectedTierId('any'); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false); setBookedStaffId(null);
     }
   }, [open, initialStaffId, methods]);
 
@@ -290,7 +320,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handleStaffSelect = (staffId: string) => {
     if (initialStaffId) return;
-    setSelectedStaffId(staffId); setCurrentStepIndex(1); setSelectedTime(null);
+    setSelectedStaffId(staffId);
+    if (staffId !== 'any') {
+        setCurrentStepIndex(1);
+        setSelectedTime(null);
+    }
   };
   
   const handleConfirmBooking = (data: BookingFormData) => {
@@ -304,6 +338,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
       const available = qualifiedStaff.filter(s => {
+        if (selectedTierId !== 'any' && s.pricingTierId !== selectedTierId) return false;
         const day = format(startDateTime, 'eeee').toLowerCase();
         const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
         if (!sched?.enabled) return false;
@@ -383,12 +418,39 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         </div>
                         
                         {currentStep === 'staff' && (
-                           <div className="space-y-4">
+                           <div className="space-y-6">
                                 <h3 className="text-lg font-bold flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> Choose Your Provider</h3>
                                 <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 gap-4">
                                     <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} disabled={!!initialStaffId} />
                                     {qualifiedStaff.map(s => <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} />)}
                                 </RadioGroup>
+
+                                {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
+                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t">
+                                        <div className="space-y-1">
+                                            <h4 className="font-bold text-sm">Price Tier Preference</h4>
+                                            <p className="text-xs text-muted-foreground">Select a skill level to view accurate pricing and availability.</p>
+                                        </div>
+                                        <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="space-y-2">
+                                            <label htmlFor="tier-any" className="flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer hover:bg-muted/50 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                                                <div className="flex items-center gap-2">
+                                                    <RadioGroupItem value="any" id="tier-any" />
+                                                    <span className="text-sm font-medium">First Available (Any Price)</span>
+                                                </div>
+                                            </label>
+                                            {availableTiersForService.map(tier => (
+                                                <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} className="flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer hover:bg-muted/50 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                                                    <div className="flex items-center gap-2">
+                                                        <RadioGroupItem value={tier.tierId} id={`tier-${tier.tierId}`} />
+                                                        <span className="text-sm font-medium">Any Available {tier.tierId.charAt(0).toUpperCase() + tier.tierId.slice(1)}</span>
+                                                    </div>
+                                                    <span className="font-bold text-primary text-sm">${tier.price.toFixed(2)}</span>
+                                                </label>
+                                            ))}
+                                        </RadioGroup>
+                                        <Button className="w-full h-12 mt-4" onClick={() => setCurrentStepIndex(1)}>View Available Times</Button>
+                                    </motion.div>
+                                )}
                             </div>
                         )}
 
@@ -451,6 +513,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 <Card className="bg-primary/5 border-primary/20 overflow-hidden">
                                     <CardContent className="p-6 space-y-4">
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Provider</span> <span className="font-bold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
+                                        {selectedStaffId === 'any' && selectedTierId !== 'any' && (
+                                            <div className="flex justify-between items-center"><span className="text-muted-foreground">Price Tier</span> <span className="font-bold capitalize text-primary">{selectedTierId}</span></div>
+                                        )}
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Date</span> <span className="font-bold">{format(date, 'EEEE, MMM d, yyyy')}</span></div>
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Time</span> <span className="font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>
                                         <Separator className="bg-primary/10" />
