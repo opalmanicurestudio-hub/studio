@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
-import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown } from 'lucide-react';
+import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { differenceInHours, differenceInMinutes } from 'date-fns';
@@ -50,17 +50,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
 
-  const financialImpact = useMemo(() => {
-    if (!service || !tenant?.tmhr) return null;
-    const duration = service.duration || 60;
-    const hours = duration / 60;
-    const overheadLoss = hours * tenant.tmhr;
-    return {
-        overheadLoss,
-        potentialRevenue: service.price,
-    };
-  }, [service, tenant?.tmhr]);
-
   const isLateCancellation = useMemo(() => {
     if (!appointment || !tenant?.cancellationWindowHours) return false;
     const startTime = appointment.startTime instanceof Date ? appointment.startTime : new Date(appointment.startTime);
@@ -68,10 +57,24 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     return hoursUntil < tenant.cancellationWindowHours;
   }, [appointment, tenant]);
 
+  const dynamicFees = useMemo(() => {
+    if (!service || !tenant?.tmhr) return { overheadRecovery: 0, noShowPenalty: 0, duration: 0 };
+    
+    const duration = service.duration || 60;
+    const overheadRecovery = (duration / 60) * (tenant.tmhr || 50);
+    const noShowPenalty = service.price || 0;
+
+    return {
+        overheadRecovery,
+        noShowPenalty,
+        duration
+    };
+  }, [service, tenant?.tmhr]);
+
   const feeAmount = useMemo(() => {
-    if (reason === 'no-show') return tenant?.noShowFee || 0;
-    return isLateCancellation ? (tenant?.cancellationFee || 0) : 0;
-  }, [reason, isLateCancellation, tenant]);
+    if (reason === 'no-show') return dynamicFees.noShowPenalty;
+    return isLateCancellation ? dynamicFees.overheadRecovery : 0;
+  }, [reason, isLateCancellation, dynamicFees]);
 
   const handleConfirm = async () => {
     setIsSubmitting(true);
@@ -98,40 +101,44 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 py-4">
-          {/* Financial Impact Breakdown */}
-          {financialImpact && (
-            <div className="p-4 rounded-xl border-2 bg-muted/30 space-y-3">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-widest">
-                    <TrendingDown className="w-3 h-3" />
-                    Business Impact Analysis
+          
+          <Card className="bg-muted/30 border-2 overflow-hidden">
+            <CardHeader className="p-4 pb-2">
+                <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                        <TrendingDown className="w-3 h-3" />
+                        Specific Business Impact
+                    </p>
+                    <Badge variant="outline" className="font-mono text-[9px] uppercase">{dynamicFees.duration}m Slot</Badge>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase">Overhead Loss</p>
-                        <p className="text-lg font-black text-destructive">${financialImpact.overheadLoss.toFixed(2)}</p>
-                        <p className="text-[9px] text-muted-foreground leading-tight">Fixed costs for this {service?.duration}m slot</p>
-                    </div>
-                    <div className="text-right border-l pl-4">
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase">Revenue Gap</p>
-                        <p className="text-lg font-black text-destructive">${financialImpact.potentialRevenue.toFixed(2)}</p>
-                        <p className="text-[9px] text-muted-foreground leading-tight">Total lost sales opportunity</p>
-                    </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 space-y-3">
+                <div className="flex justify-between items-baseline border-b border-dashed pb-2">
+                    <span className="text-xs text-muted-foreground">Reserved Time Overhead ({dynamicFees.duration}m @ ${tenant?.tmhr?.toFixed(2)}/hr)</span>
+                    <span className="font-bold text-sm text-destructive">${dynamicFees.overheadRecovery.toFixed(2)}</span>
                 </div>
-            </div>
-          )}
+                <div className="flex justify-between items-baseline">
+                    <span className="text-xs text-muted-foreground">Lost Revenue Opportunity (100% of price)</span>
+                    <span className="font-bold text-sm text-destructive">${dynamicFees.noShowPenalty.toFixed(2)}</span>
+                </div>
+            </CardContent>
+          </Card>
 
           <div className="space-y-3">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reason for Cancellation</Label>
             <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
               <label htmlFor="r1" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <RadioGroupItem value="client_request" id="r1" />
-                <span className="font-semibold text-sm">Client Request</span>
+                <div className="flex-1">
+                    <p className="font-semibold text-sm">Client Request</p>
+                    {isLateCancellation && <p className="text-[10px] text-amber-600 font-bold uppercase">Late: {tenant?.cancellationWindowHours}h window</p>}
+                </div>
               </label>
               <label htmlFor="r2" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                 <RadioGroupItem value="no-show" id="r2" />
                 <div className="flex flex-col">
                     <span className="font-semibold text-sm">No-Show</span>
-                    {tenant?.noShowFee && <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">${tenant.noShowFee.toFixed(2)} penalty applies</span>}
+                    <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">Full revenue recovery applies</span>
                 </div>
               </label>
               <label htmlFor="r3" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
@@ -151,38 +158,41 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
           {(isLateCancellation || reason === 'no-show') ? (
             <div className="space-y-4 pt-4 border-t">
-              <Alert className="bg-destructive/10 text-destructive border-destructive/20 shadow-sm border-2">
-                <Clock className="h-4 w-4" />
-                <AlertTitle className="text-xs font-black uppercase tracking-tight">Policy Violation Detected</AlertTitle>
+              <Alert className="bg-destructive/5 text-destructive border-destructive/20 shadow-sm border-2">
+                <Calculator className="h-4 w-4" />
+                <AlertTitle className="text-xs font-black uppercase tracking-tight">Fee Breakdown</AlertTitle>
                 <AlertDescription className="text-xs space-y-2 mt-1">
                     {reason === 'no-show' 
-                        ? `A no-show penalty of $${(tenant?.noShowFee || 0).toFixed(2)} is standard for this business.`
-                        : `This cancellation is within the ${tenant?.cancellationWindowHours}-hour window. A fee of $${(tenant?.cancellationFee || 0).toFixed(2)} is applicable.`
+                        ? `Penalty set to 100% of the service price to cover total loss of time and profit.`
+                        : `Fee set to recover ${dynamicFees.duration} minutes of fixed business overhead (TMHR).`
                     }
                 </AlertDescription>
               </Alert>
 
-              <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background">
+              <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
                 <div className="space-y-0.5">
-                  <Label className="text-base font-bold">Apply Fee</Label>
-                  <p className="text-xs text-muted-foreground">Collect ${feeAmount.toFixed(2)} from client</p>
+                  <Label className="text-base font-black">Apply Calculated Fee</Label>
+                  <p className="text-xs text-muted-foreground">Calculated for this specific appointment</p>
                 </div>
-                <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
+                <div className="flex flex-col items-end gap-1">
+                    <span className="text-xl font-black text-destructive">${feeAmount.toFixed(2)}</span>
+                    <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
+                </div>
               </div>
               
               {chargeFee && (
                 <div className="space-y-3">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
                     <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-2">
-                        <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5" : "border-border")}>
+                        <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
                             <RadioGroupItem value="card_on_file" id="pay-card" className="sr-only" />
                             <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
-                            <span className="text-xs font-bold leading-tight">Charge Card<br/>on File</span>
+                            <span className="text-[10px] font-black leading-tight uppercase">Charge Card<br/>on File</span>
                         </label>
-                        <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5" : "border-border")}>
+                        <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
                             <RadioGroupItem value="add_to_balance" id="pay-balance" className="sr-only" />
                             <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
-                            <span className="text-xs font-bold leading-tight">Add to Client<br/>Balance</span>
+                            <span className="text-[10px] font-black leading-tight uppercase">Add to Client<br/>Balance</span>
                         </label>
                     </RadioGroup>
                 </div>
@@ -193,7 +203,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 <CheckCircle className="w-5 h-5 text-green-500" />
                 <div className="flex-1">
                     <p className="text-xs font-bold text-green-700">Outside Policy Window</p>
-                    <p className="text-[10px] text-green-600/80 leading-tight">No late cancellation fee is required for this appointment.</p>
+                    <p className="text-[10px] text-green-600/80 leading-tight">No overhead recovery fee is required for this early cancellation.</p>
                 </div>
             </div>
           )}
@@ -206,7 +216,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             className="font-bold min-w-[140px]"
             disabled={isSubmitting}
           >
-            {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee && feeAmount > 0 ? 'Confirm & Charge' : 'Confirm Cancellation')}
+            {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : (chargeFee && feeAmount > 0 ? 'Confirm & Collect' : 'Confirm Cancellation')}
           </Button>
         </DialogFooter>
       </DialogContent>

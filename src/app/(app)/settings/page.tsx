@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info, Users, Sparkles, Landmark, HelpCircle } from 'lucide-react';
+import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info, Users, Sparkles, Landmark, HelpCircle, Calculator, TrendingDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -370,19 +370,13 @@ export default function SettingsPage() {
 
     switch (type) {
         case 'cancellation':
-            if (window != null && fee != null) {
-                policy = `Cancellations made within ${window} hours of the scheduled appointment time will be subject to a fee of $${fee?.toFixed(2)}.`;
-            }
+            policy = `Appointments cancelled within ${window || 24} hours of the scheduled time are subject to an overhead recovery fee calculated based on the reserved duration.`;
             break;
         case 'noShow':
-            if (fee != null) {
-                policy = `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${fee?.toFixed(2)}.`;
-            }
+            policy = `Failure to show up for an appointment without prior notice will result in a penalty fee of 100% of the scheduled service price.`;
             break;
         case 'late':
-            if (grace != null) {
-                policy = `We offer a grace period of ${grace} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
-            }
+            policy = `We offer a ${grace || 15}-minute grace period. Beyond this, your appointment may be auto-cancelled to protect the schedules of other clients.`;
             break;
     }
     return policy;
@@ -496,9 +490,8 @@ export default function SettingsPage() {
                                                   </DropdownMenuItem>
                                               </DropdownMenuContent>
                                             </DropdownMenu>
-                                        </div>
-                                    </>
-                                )}
+                                        </>
+                                    )}
                             </div>
                         ))}
                         <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
@@ -644,46 +637,50 @@ export default function SettingsPage() {
 
                         <Separator />
 
-                        {/* Cancellations Section */}
+                        {/* Dynamic Cancellations Section */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Ban className="w-4 h-4" /> Cancellation Window & Fees
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <Ban className="w-4 h-4" /> Dynamic Cancellation Recovery
+                                </h3>
+                                <div className="bg-primary/10 px-3 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-black text-primary border border-primary/20">
+                                    <Calculator className="w-3 h-3" />
+                                    STRATEGY: RECOVER OVERHEAD
                                 </div>
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div className="flex items-center gap-1.5 cursor-help text-[10px] bg-primary/10 px-2 py-1 rounded-full text-primary">
-                                                <Landmark className="w-3 h-3" />
-                                                Financial Goal: Recover TMHR
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-[250px]">
-                                            <p>Your current TMHR is <strong>${selectedTenant?.tmhr?.toFixed(2)}</strong>. To recover fixed overhead for a 1-hour slot, your cancellation fee should be at least 50-75% of this rate.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </h3>
+                            </div>
+                            
+                            <Alert className="bg-primary/5 border-primary/20">
+                                <Info className="h-4 w-4 text-primary" />
+                                <AlertDescription className="text-xs">
+                                    Fees are calculated dynamically during cancellation based on the service duration and your current <strong>TMHR (${selectedTenant?.tmhr?.toFixed(2)})</strong>. This ensures you recover fixed costs like rent and utilities even for empty time slots.
+                                </AlertDescription>
+                            </Alert>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="cancellation-window">Policy Window (hours)</Label>
+                                    <Label htmlFor="cancellation-window">Notice Window (hours)</Label>
                                     <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
-                                    <p className="text-[10px] text-muted-foreground">The minimum notice required to avoid a late fee.</p>
+                                    <p className="text-[10px] text-muted-foreground uppercase font-black">Minimum notice required to avoid fees</p>
                                 </div>
                                 <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
-                                        {isPoliciesEditing && selectedTenant?.tmhr && (
-                                            <Button variant="link" size="xs" className="h-auto p-0 text-[10px] font-black uppercase text-primary" onClick={() => setTenantData(prev => ({...prev, cancellationFee: (selectedTenant.tmhr || 0) * 0.5}))}>
-                                                Set to 50% TMHR
-                                            </Button>
-                                        )}
+                                    <Label className="font-bold">Cancellation Fee Logic</Label>
+                                    <div className="p-3 rounded-lg border bg-muted/20 space-y-2">
+                                        <p className="text-xs">Fees are based on Reserved Duration × TMHR.</p>
+                                        <div className="flex gap-4 pt-1">
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">30m Svc</p>
+                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 0.5).toFixed(2)}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">60m Svc</p>
+                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 1.0).toFixed(2)}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">90m Svc</p>
+                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 1.5).toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="25.00" className="pl-8" disabled={!isPoliciesEditing}/>
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground">Standard fee for cancellations inside the window.</p>
                                 </div>
                             </div>
                             <div className="space-y-2">
@@ -705,24 +702,16 @@ export default function SettingsPage() {
                                 </div>
                                 <div className="flex items-center gap-1.5 text-[10px] bg-destructive/10 px-2 py-1 rounded-full text-destructive">
                                     <ShieldAlert className="w-3 h-3" />
-                                    Max Risk Protection
+                                    MAX RISK PROTECTION
                                 </div>
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="no-show-fee">No-Show Penalty Fee</Label>
-                                        {isPoliciesEditing && selectedTenant?.tmhr && (
-                                            <Button variant="link" size="xs" className="h-auto p-0 text-[10px] font-black uppercase text-destructive" onClick={() => setTenantData(prev => ({...prev, noShowFee: (selectedTenant.tmhr || 0) * 1.0}))}>
-                                                Set to 100% TMHR
-                                            </Button>
-                                        )}
+                                    <Label className="font-bold">No-Show Penalty</Label>
+                                    <div className="p-4 rounded-xl border-2 bg-destructive/5 border-destructive/10">
+                                        <p className="text-sm font-medium">Policy: 100% of Scheduled Service Price</p>
+                                        <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold">This recovers both overhead and target profit.</p>
                                     </div>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="no-show-fee" type="number" value={tenantData.noShowFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="50.00" className="pl-8" disabled={!isPoliciesEditing} />
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground">Total penalty for failing to arrive without notice.</p>
                                 </div>
                                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
                                     <div className="space-y-0.5">
