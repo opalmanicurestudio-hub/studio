@@ -52,6 +52,7 @@ import type { Client, Appointment, Service, CustomFormula, Incident, Membership,
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { PrintableConsentForm } from '@/components/consents/PrintableConsentForm';
 
 
 type ClientPhoto = {
@@ -1074,60 +1075,63 @@ export default function ClientDetailPage() {
         </Dialog>
         <Dialog open={!!viewingConsent} onOpenChange={() => setViewingConsent(null)}>
             <DialogContent className="max-w-2xl">
-                <DialogHeader>
+                <DialogHeader className="print:hidden">
                     <DialogTitle>{viewingConsent?.formTitle}</DialogTitle>
                     <DialogDescription>
                     Signed by {client.name} on {viewingConsent ? format(parseISO(viewingConsent.signedAt), 'PPP p') : ''}
                     </DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
-                <div className="py-4 space-y-4 pl-6">
+                <ScrollArea className="max-h-[60vh] -mr-6 pr-6 print:max-h-none print:mr-0 print:pr-0">
+                <div className="py-4 space-y-4 pl-6 print:pl-0 print:py-0">
                 {viewingConsent ? (
                     (() => {
                         const template = formTemplateForViewing;
-                        // Use template fields if available, otherwise try to map over formData keys
                         const fieldIds = template?.fields?.map(f => f.id) || Object.keys(viewingConsent.formData || {});
                         
-                        return fieldIds.map((id: string) => {
-                            const field = template?.fields?.find(f => f.id === id);
-                            const label = field?.label || id;
-                            const answer = viewingConsent.formData ? viewingConsent.formData[id] : undefined;
+                        return (
+                            <div className="space-y-6">
+                                {fieldIds.map((id: string) => {
+                                    const field = template?.fields?.find(f => f.id === id);
+                                    const label = field?.label || id;
+                                    const answer = viewingConsent.formData ? viewingConsent.formData[id] : undefined;
 
-                            if (field?.type === 'heading') {
-                                return <h3 key={id} className="text-lg font-bold pt-4 border-b pb-1">{label}</h3>
-                            }
-                            if (field?.type === 'paragraph') {
-                                return <p key={id} className="text-sm text-muted-foreground leading-relaxed">{label}</p>
-                            }
-                            
-                            return (
-                                <div key={id} className="space-y-1.5 pt-2">
-                                <Label className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{label}</Label>
-                                {field?.type === 'signature' && typeof answer === 'string' && answer.startsWith('data:image') ? (
-                                    <div className="p-4 border rounded-xl bg-muted/30 flex justify-center shadow-inner">
-                                        <div className="relative w-full max-w-[300px] aspect-[2/1]">
-                                            <Image src={answer} alt="Signature" fill className="object-contain" />
+                                    if (field?.type === 'heading') {
+                                        return <h3 key={id} className="text-lg font-bold pt-4 border-b pb-1">{label}</h3>
+                                    }
+                                    if (field?.type === 'paragraph') {
+                                        return <p key={id} className="text-sm text-muted-foreground leading-relaxed">{label}</p>
+                                    }
+                                    
+                                    return (
+                                        <div key={id} className="space-y-1.5 pt-2 break-inside-avoid">
+                                        <Label className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{label}</Label>
+                                        {field?.type === 'signature' && typeof answer === 'string' && answer.startsWith('data:image') ? (
+                                            <div className="p-4 border rounded-xl bg-muted/30 flex justify-center shadow-inner print:shadow-none print:bg-transparent print:border-black/20">
+                                                <div className="relative w-full max-w-[300px] aspect-[2/1]">
+                                                    <Image src={answer} alt="Signature" fill className="object-contain" />
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-3 bg-muted/50 rounded-lg border border-border/50 break-words min-h-[40px] flex items-center print:bg-transparent print:border-black/10">
+                                                {answer !== undefined ? (
+                                                    <p className="text-sm">
+                                                        {Array.isArray(answer) ? answer.join(', ') : String(answer)}
+                                                    </p>
+                                                ) : <span className="text-sm italic text-muted-foreground/50">No answer provided</span>}
+                                            </div>
+                                        )}
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="p-3 bg-muted/50 rounded-lg border border-border/50 break-words min-h-[40px] flex items-center">
-                                        {answer !== undefined ? (
-                                            <p className="text-sm">
-                                                {Array.isArray(answer) ? answer.join(', ') : String(answer)}
-                                            </p>
-                                        ) : <span className="text-sm italic text-muted-foreground/50">No answer provided</span>}
-                                    </div>
-                                )}
-                                </div>
-                            );
-                        });
+                                    );
+                                })}
+                            </div>
+                        );
                     })()
                 ) : (
                     <p>Loading form details...</p>
                 )}
                 </div>
                 </ScrollArea>
-                <DialogFooter className="border-t pt-4">
+                <DialogFooter className="border-t pt-4 print:hidden">
                     <Button variant="outline" onClick={() => window.print()} className="gap-2">
                         <Printer className="w-4 h-4" /> Print Record
                     </Button>
@@ -1135,6 +1139,19 @@ export default function ClientDetailPage() {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+
+        {/* Hidden Printable Consent Area */}
+        <div id="consent-print-area" className="hidden print:block">
+            {viewingConsent && client && (
+                <PrintableConsentForm 
+                    tenant={selectedTenant}
+                    client={client}
+                    consent={viewingConsent}
+                    formTemplate={formTemplateForViewing}
+                />
+            )}
+        </div>
+
         <AlertDialog open={!!feeToWaive} onOpenChange={() => setFeeToWaive(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
