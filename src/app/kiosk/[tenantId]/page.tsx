@@ -365,7 +365,7 @@ const MemberSetup = ({
 
             <Separator className="bg-slate-800" />
             <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
+                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
                     <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
@@ -568,6 +568,11 @@ export default function WalkInPage() {
 
   const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
 
+  // Filter staff to only include those currently clocked in for immediate walk-in assignments
+  const activeStaff = useMemo(() => {
+    return (staff || []).filter(s => s.active && !s.onBreak);
+  }, [staff]);
+
   if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader className="animate-spin text-primary" /></div>;
   if (isClosed) return <div className="h-screen flex items-center justify-center bg-slate-950 p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
 
@@ -589,7 +594,9 @@ export default function WalkInPage() {
                             partyMembers={partyMembers}
                             onUpdate={handleMemberUpdate}
                             memberSubStep={memberSubStep}
-                            services={services} staff={staff} pricingTiers={pricingTiers}
+                            services={services} 
+                            staff={activeStaff} 
+                            pricingTiers={pricingTiers || []}
                             consentForms={consentForms || []}
                             formAnswers={formAnswers[partyMembers[currentMemberIndex].id] || {}}
                             setFormAnswers={(a: any) => setFormAnswers(p => ({...p, [partyMembers[currentMemberIndex].id]: a}))}

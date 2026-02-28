@@ -225,7 +225,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             const potentialEnd = addMinutes(currentTime, service.duration + (service.padBefore || 0) + (service.padAfter || 0));
             if (potentialEnd > dayEndWithBusinessHours) break;
             const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
-            if (!isOverlapping) options.add(format(currentTime, 'HH:mm'));
+            
+            // REQUIREMENT: For same-day bookings, staff must be clocked in to show as available
+            const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
+
+            if (!isOverlapping && isStaffActiveForSameDay) {
+                options.add(format(currentTime, 'HH:mm'));
+            }
             currentTime = addMinutes(currentTime, bookingInterval);
         }
     });
@@ -337,6 +343,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (finalStaffId === 'any') {
       const available = qualifiedStaff.filter(s => {
         if (selectedTierId !== 'any' && s.pricingTierId !== selectedTierId) return false;
+        
+        // REQUIREMENT: For Same-Day "Any Available", staff must be clocked in
+        if (isToday(startDateTime) && !s.active) return false;
+
         const day = format(startDateTime, 'eeee').toLowerCase();
         const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
         if (!sched?.enabled) return false;

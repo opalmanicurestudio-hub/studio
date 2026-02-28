@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -56,6 +54,7 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
         }
     };
 
+    // REQUIREMENT: Staff must be clocked in (active) to be available for assignment
     const availableStaff = staff?.filter(s => s.active && !s.onBreak && s.status === 'idle') || [];
     const preferredStaff = staff?.find(s => s.id === walkIn.preferredStaffId);
 
@@ -68,8 +67,11 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
                 </DialogHeader>
                 <div className="py-4 space-y-4">
                     {preferredStaff && (
-                        <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
-                            <Label htmlFor="wait-for-preferred" className="font-medium">Wait for {preferredStaff.name.split(' ')[0]}?</Label>
+                        <div className={cn("flex items-center justify-between rounded-lg border p-3", preferredStaff.active ? "bg-primary/5 border-primary/20" : "bg-muted/50 border-dashed opacity-60")}>
+                            <div className="space-y-0.5">
+                                <Label htmlFor="wait-for-preferred" className="font-bold">Wait for {preferredStaff.name.split(' ')[0]}?</Label>
+                                {!preferredStaff.active && <p className="text-[10px] text-destructive uppercase font-black">Not Clocked In</p>}
+                            </div>
                             <Switch
                                 id="wait-for-preferred"
                                 checked={walkIn.waitForPreferredStaff}
@@ -80,31 +82,34 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
                     <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId}>
                         <div className="space-y-2">
                         {availableStaff.length > 0 ? availableStaff.map(member => (
-                            <Label key={member.id} htmlFor={`staff-assign-${member.id}`} className={cn("flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted has-[:checked]:border-primary", {
-                                "bg-primary/5 border-primary": member.id === walkIn.preferredStaffId
+                            <Label key={member.id} htmlFor={`staff-assign-${member.id}`} className={cn("flex items-center gap-4 p-3 border-2 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5", {
+                                "border-primary/20 shadow-sm": member.id === walkIn.preferredStaffId
                             })}>
                                 <RadioGroupItem value={member.id} id={`staff-assign-${member.id}`} />
-                                <Avatar className="w-10 h-10">
-                                    <AvatarImage src={member.avatarUrl} />
+                                <Avatar className="w-10 h-10 border shadow-sm">
+                                    <AvatarImage src={member.avatarUrl} className="object-cover" />
                                     <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                    <span className="font-semibold">{member.name}</span>
-                                    {member.id === walkIn.preferredStaffId && <p className="text-xs text-primary">Client's Preference</p>}
+                                    <p className="font-bold">{member.name}</p>
+                                    {member.id === walkIn.preferredStaffId && <p className="text-[10px] font-black uppercase text-primary tracking-widest">Client Preference</p>}
                                 </div>
                                 {member.id === walkIn.preferredStaffId && !walkIn.waitForPreferredStaff && (
-                                     <Badge variant="destructive">Not Waiting</Badge>
+                                     <Badge variant="destructive" className="h-5 text-[9px] uppercase">Not Waiting</Badge>
                                 )}
                             </Label>
                         )) : (
-                            <div className="p-4 text-center text-sm text-muted-foreground">No staff available.</div>
+                            <div className="p-8 text-center text-sm text-muted-foreground border-2 border-dashed rounded-xl">
+                                <Users className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                <p>No available providers currently clocked in.</p>
+                            </div>
                         )}
                         </div>
                     </RadioGroup>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleAssign} disabled={!selectedStaffId}>Assign & Notify</Button>
+                    <Button onClick={handleAssign} disabled={!selectedStaffId} className="font-bold h-11 px-8">Assign & Notify</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
