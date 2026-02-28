@@ -97,8 +97,6 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
                     variant="outline"
                     className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
                      onClick={() => setIsOpen(true)}
-                >
-                    {TriggerContent}
                 </Button>
                  <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom">
@@ -168,6 +166,9 @@ const EditAppointmentForm = ({
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     
     const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
+    const [isOverlapping, setIsOverlapping] = useState(false);
+    const [clashingItem, setClashingItem] = useState<any | null>(null);
+    const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
@@ -231,7 +232,6 @@ const EditAppointmentForm = ({
             const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
 
             const isOverlapping = combinedBusyIntervals.some(interval => {
-                // If it's an appointment, only check if it's the same staff
                 if ('staffId' in interval && interval.staffId !== appointment.staffId) return false;
                 
                 return areIntervalsOverlapping(
@@ -255,6 +255,58 @@ const EditAppointmentForm = ({
         return options;
     }, [date, selectedService, appointments, events, services, appointment.id, appointment.startTime, appointment.staffId]);
 
+    useEffect(() => {
+        if (!selectedService || !date || !startTime || !services || !appointments) {
+            setIsOverlapping(false);
+            setClashingItem(null);
+            return;
+        }
+
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
+        
+        const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+        const endDateTime = addMinutes(startDateTime, totalDuration);
+
+        const newInterval = { start: startDateTime, end: endDateTime };
+
+        const clashApt = appointments.find(apt => {
+            if (apt.id === appointment.id) return false;
+            if (appointment.staffId && apt.staffId !== appointment.staffId) return false;
+            
+            return areIntervalsOverlapping(newInterval, { 
+                start: apt.startTime, 
+                end: apt.endTime 
+            }, { inclusive: false });
+        });
+
+        if (clashApt) {
+            setIsOverlapping(true);
+            const svc = services.find(s => s.id === clashApt.serviceId);
+            setClashingItem({ type: 'appointment', details: `'${svc?.name || 'Service'}' for ${clashApt.clientName || 'Client'}`, time: `${format(clashApt.startTime, 'h:mm a')} - ${format(clashApt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        const clashEvt = events.find(evt => {
+            if (evt.type !== 'blocked') return false;
+            if (evt.staffId && evt.staffId !== 'all' && appointment.staffId && evt.staffId !== appointment.staffId) return false;
+            
+            return areIntervalsOverlapping(newInterval, { 
+                start: evt.startTime, 
+                end: evt.endTime 
+            }, { inclusive: false });
+        });
+
+        if (clashEvt) {
+            setIsOverlapping(true);
+            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        setIsOverlapping(false);
+        setClashingItem(null);
+    }, [date, startTime, selectedService, appointments, services, appointment, events]);
+
     const handleSubmit = () => {
         if (!selectedClientId || !selectedService || !date || !startTime) return;
 
@@ -263,8 +315,8 @@ const EditAppointmentForm = ({
 
         const endDateTime = new Date(startDateTime.getTime() + (selectedService.duration * 60000));
 
-        const allServices = [selectedService, ...selectedAddOns];
-        const allRequiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
+        const allServicesInApt = [selectedService, ...selectedAddOns];
+        const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
 
         const updatedAppointment: Appointment = {
             ...appointment,
@@ -275,14 +327,19 @@ const EditAppointmentForm = ({
             addOnIds: selectedAddOns.map(s => s.id),
             requiredResourceIds: allRequiredResourceIds,
         };
-        onConfirm(updatedAppointment);
+        
+        if (isOverlapping) {
+            setShowConfirmation(true);
+        } else {
+            onConfirm(updatedAppointment);
+        }
     }
     
     const handleAddProduct = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => ({
         id: p.id,
         name: p.name,
-        quantity: 1, // Default quantity
+        quantity: 1, 
         unit: p.unit || 'unit',
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
@@ -442,6 +499,21 @@ const EditAppointmentForm = ({
                                     </Select>
                                 </div>
                             </div>
+                            {isOverlapping && (
+                                <Alert variant="destructive" className="mt-2">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Potential Double Booking</AlertTitle>
+                                    <AlertDescription className="space-y-1">
+                                        <p>This new time slot overlaps with an existing item.</p>
+                                        {clashingItem && (
+                                            <div className="pt-1 mt-1 border-t border-destructive/20">
+                                                <p className="font-bold">Clashes with: {clashingItem.details}</p>
+                                                <p className="text-xs opacity-80">{clashingItem.time}</p>
+                                            </div>
+                                        )}
+                                    </AlertDescription>
+                                </Alert>
+                            )}
                         </div>
 
                         <div className="space-y-4">
@@ -465,6 +537,27 @@ const EditAppointmentForm = ({
                 allAddOns={services.filter(s => s.type === 'addon')}
                 initialSelected={selectedAddOns}
             />
+            <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This new time slot overlaps with {clashingItem?.details || 'an existing item'}. Are you sure you want to proceed?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onConfirm({
+                            ...appointment,
+                            clientId: selectedClientId,
+                            serviceId: selectedServiceId,
+                            startTime: setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])),
+                            endTime: addMinutes(setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])), selectedService?.duration || 0),
+                            addOnIds: selectedAddOns.map(s => s.id),
+                        })}>Save Anyway</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     )
 }

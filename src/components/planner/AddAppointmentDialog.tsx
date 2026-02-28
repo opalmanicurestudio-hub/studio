@@ -177,6 +177,7 @@ const AddAppointmentForm = ({
 
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isOverlapping, setIsOverlapping] = useState(false);
+    const [clashingItem, setClashingItem] = useState<any | null>(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
 
     const clientId = watch('clientId');
@@ -272,7 +273,7 @@ const AddAppointmentForm = ({
             const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
             const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
             if (intervalsToSkip > 0) {
-                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
+                earliestBookableTime = addMinutes(dayStartWithBusinessHours, earliestBookableTime.getMinutes() + (intervalsToSkip * bookingInterval));
             }
         }
         
@@ -307,6 +308,7 @@ const AddAppointmentForm = ({
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
             setIsOverlapping(false);
+            setClashingItem(null);
             return;
         }
 
@@ -318,22 +320,42 @@ const AddAppointmentForm = ({
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        const hasOverlap = appointments.some(apt => {
+        const clashApt = appointments.find(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            // FILTER: Only check overlap for the same staff member
             if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
             
-            const service = services.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
             return areIntervalsOverlapping(newInterval, { 
                 start: apt.startTime, 
                 end: apt.endTime 
             }, { inclusive: false });
         });
 
-        setIsOverlapping(hasOverlap);
-    }, [date, startTime, selectedService, appointments, services, appointmentToRebook, staffId]);
+        if (clashApt) {
+            setIsOverlapping(true);
+            const svc = services.find(s => s.id === clashApt.serviceId);
+            setClashingItem({ type: 'appointment', details: `'${svc?.name || 'Service'}' for ${clashApt.clientName || 'Client'}`, time: `${format(clashApt.startTime, 'h:mm a')} - ${format(clashApt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        const clashEvt = events.find(evt => {
+            if (evt.type !== 'blocked') return false;
+            if (evt.staffId && evt.staffId !== 'all' && staffId !== 'any' && evt.staffId !== staffId) return false;
+            
+            return areIntervalsOverlapping(newInterval, { 
+                start: evt.startTime, 
+                end: evt.endTime 
+            }, { inclusive: false });
+        });
+
+        if (clashEvt) {
+            setIsOverlapping(true);
+            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        setIsOverlapping(false);
+        setClashingItem(null);
+    }, [date, startTime, selectedService, appointments, services, appointmentToRebook, staffId, events]);
 
     const confirmAndSubmit = (data: any) => {
         if (!data.clientId || !data.serviceId || !data.date || !data.startTime || !services) return;
@@ -487,7 +509,21 @@ const AddAppointmentForm = ({
                                 {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</div>)}
                             </div>
                         </div>
-                        {isOverlapping && (<Alert variant="destructive" className="mt-2"><AlertTriangle className="h-4 w-4" /><AlertTitle>Potential Double Booking</AlertTitle><AlertDescription>This time slot overlaps with an existing appointment.</AlertDescription></Alert>)}
+                        {isOverlapping && (
+                            <Alert variant="destructive" className="mt-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Potential Double Booking</AlertTitle>
+                                <AlertDescription className="space-y-1">
+                                    <p>This time slot overlaps with an existing item.</p>
+                                    {clashingItem && (
+                                        <div className="pt-1 mt-1 border-t border-destructive/20">
+                                            <p className="font-bold">Clashes with: {clashingItem.details}</p>
+                                            <p className="text-xs opacity-80">{clashingItem.time}</p>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )}
                     </div>
                      <div className="space-y-4">
                         <Controller
@@ -554,7 +590,12 @@ const AddAppointmentForm = ({
             />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>Confirm Double Booking</AlertDialogTitle><AlertDialogDescription>This time slot overlaps with an existing appointment. Are you sure you want to proceed?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This time slot overlaps with {clashingItem?.details || 'an existing item'}. Are you sure you want to proceed?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleSubmit(confirmAndSubmit)}>Book Anyway</AlertDialogAction></AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

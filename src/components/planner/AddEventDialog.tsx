@@ -124,6 +124,7 @@ const AddEventForm = ({
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
     const [isOverlapping, setIsOverlapping] = useState(false);
+    const [clashingItem, setClashingItem] = useState<any | null>(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
@@ -153,6 +154,7 @@ const AddEventForm = ({
     useEffect(() => {
         if (!date || !startTime || !duration) {
             setIsOverlapping(false);
+            setClashingItem(null);
             return;
         }
 
@@ -162,14 +164,12 @@ const AddEventForm = ({
 
         if (startDateTime >= endDateTime) {
             setIsOverlapping(false);
+            setClashingItem(null);
             return;
         }
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        // FILTER: Only check overlaps for the specific staff member selected
-        // If staffId is 'all', check across all staff
-        // If staffId is empty (no one selected), check for global events
         const relevantAppointments = (appointments || []).filter(apt => 
             !staffId || staffId === 'all' || apt.staffId === staffId
         );
@@ -177,14 +177,30 @@ const AddEventForm = ({
             !staffId || staffId === 'all' || evt.staffId === staffId || !evt.staffId || evt.staffId === 'all'
         );
 
-        const allCalendarItems = [...relevantAppointments, ...relevantEvents];
-
-        const hasOverlap = allCalendarItems.some(item => {
+        const clashApt = relevantAppointments.find(item => {
             const itemInterval = { start: item.startTime, end: item.endTime };
             return areIntervalsOverlapping(newInterval, itemInterval, { inclusive: false });
         });
 
-        setIsOverlapping(hasOverlap);
+        if (clashApt) {
+            setIsOverlapping(true);
+            setClashingItem({ type: 'appointment', details: `'Service' for ${clashApt.clientName || 'Client'}`, time: `${format(clashApt.startTime, 'h:mm a')} - ${format(clashApt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        const clashEvt = relevantEvents.find(item => {
+            const itemInterval = { start: item.startTime, end: item.endTime };
+            return areIntervalsOverlapping(newInterval, itemInterval, { inclusive: false });
+        });
+
+        if (clashEvt) {
+            setIsOverlapping(true);
+            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
+            return;
+        }
+
+        setIsOverlapping(false);
+        setClashingItem(null);
     }, [date, startTime, duration, appointments, events, staffId]);
 
     const handleAddChecklistItem = () => {
@@ -227,7 +243,7 @@ const AddEventForm = ({
     }
     
     const handleSaveAttempt = () => {
-        if (!title.trim()) return; // Basic validation
+        if (!title.trim()) return; 
         if (isOverlapping && type === 'blocked') {
             setShowConfirmation(true);
         } else {
@@ -356,8 +372,14 @@ const AddEventForm = ({
                             <Alert variant="destructive" className="mt-2">
                                 <AlertTriangle className="h-4 w-4" />
                                 <AlertTitle>Potential Double Booking</AlertTitle>
-                                <AlertDescription>
-                                    This event overlaps with an existing item on your calendar.
+                                <AlertDescription className="space-y-1">
+                                    <p>This event overlaps with an existing item on your calendar.</p>
+                                    {clashingItem && (
+                                        <div className="pt-1 mt-1 border-t border-destructive/20">
+                                            <p className="font-bold">Clashes with: {clashingItem.details}</p>
+                                            <p className="text-xs opacity-80">{clashingItem.time}</p>
+                                        </div>
+                                    )}
                                 </AlertDescription>
                             </Alert>
                         )}
@@ -403,7 +425,7 @@ const AddEventForm = ({
                     <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This event overlaps with an existing item on your calendar. Are you sure you want to schedule it anyway?
+                        This event overlaps with {clashingItem?.details || 'an existing item'} on your calendar. Are you sure you want to schedule it anyway?
                     </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
