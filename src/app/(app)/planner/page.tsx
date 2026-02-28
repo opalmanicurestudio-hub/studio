@@ -20,6 +20,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -60,6 +61,7 @@ import { type Client, type Service } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { Textarea } from '@/components/ui/textarea';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 
 
 function PlannerPageContent() {
@@ -113,6 +115,7 @@ function PlannerPageContent() {
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
   const [isPickingListOpen, setIsPickingListOpen] = useState(false);
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
@@ -165,7 +168,7 @@ function PlannerPageContent() {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
-    map.forEach(items => items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    map.forEach(items => items.sort((a,b) => a.startTime.getTime() - a.startTime.getTime()));
     return map;
   }, [currentDate, appointments, events, staff, resources, activeView]);
 
@@ -231,7 +234,53 @@ function PlannerPageContent() {
   };
 
   const handleCancelAppointment = (id: string) => {
-    handleUpdateStatus(id, 'cancelled');
+    const apt = appointments.find(a => a.id === id);
+    if (apt) {
+        setSelectedAppointment(apt);
+        setIsCancelDialogOpen(true);
+    }
+  };
+
+  const handleConfirmCancellation = async (data: { reason: string; chargeFee: boolean; feeAmount: number }) => {
+    if (!selectedAppointment || !firestore || !tenantId) return;
+
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
+
+    const batch = writeBatch(firestore);
+
+    // 1. Update Appointment
+    batch.update(appointmentRef, {
+        status: 'cancelled',
+        cancellationReason: data.reason,
+        cancellationFeeApplied: data.feeAmount,
+    });
+
+    // 2. If charging fee, update client profile
+    if (data.chargeFee && data.feeAmount > 0) {
+        const feeId = nanoid();
+        const feeEntry = {
+            feeId,
+            appointmentId: selectedAppointment.id,
+            appointmentDate: selectedAppointment.startTime.toISOString(),
+            feeAmount: data.feeAmount,
+            reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
+        };
+        batch.update(clientRef, {
+            unpaidFees: arrayUnion(feeEntry),
+            outstandingBalance: increment(data.feeAmount)
+        });
+    }
+
+    try {
+        await batch.commit();
+        toast({ title: "Appointment Cancelled" });
+        setIsCancelDialogOpen(false);
+        setIsDetailsOpen(false);
+    } catch (e) {
+        console.error(e);
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to cancel appointment.' });
+    }
   };
 
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
@@ -373,6 +422,36 @@ function PlannerPageContent() {
     setIsDetailsOpen(false);
   };
 
+  const handleWaiveFee = async (id: string) => {
+    if (!firestore || !tenantId) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+    const apt = appointments.find(a => a.id === id);
+    if (!apt || !apt.clientId) return;
+
+    const clientRef = doc(firestore, 'tenants', tenantId, 'clients', apt.clientId);
+    const client = clients?.find(c => c.id === apt.clientId);
+    if (!client) return;
+
+    const feeAmount = apt.cancellationFeeApplied || 0;
+    const newUnpaidFees = (client.unpaidFees || []).filter(f => f.appointmentId !== id);
+    const newBalance = (client.outstandingBalance || 0) - feeAmount;
+
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, { cancellationFeeWaived: true });
+    batch.update(clientRef, {
+        unpaidFees: newUnpaidFees,
+        outstandingBalance: Math.max(0, newBalance)
+    });
+
+    try {
+        await batch.commit();
+        toast({ title: "Fee Waived", description: "The cancellation fee has been absorbed." });
+    } catch (e) {
+        console.error(e);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not waive fee.' });
+    }
+  };
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -471,6 +550,7 @@ function PlannerPageContent() {
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
         onPrintTicket={setTicketToPrint}
         onOverride={() => setIsOverrideOpen(true)}
+        onWaiveFee={handleWaiveFee}
       />
 
       <OverrideCancellationDialog 
@@ -479,6 +559,16 @@ function PlannerPageContent() {
         staff={allStaff || []}
         onConfirm={handleOverrideConfirm}
       />
+
+      {selectedAppointment && (
+        <CancelAppointmentDialog
+            open={isCancelDialogOpen}
+            onOpenChange={setIsCancelDialogOpen}
+            appointment={selectedAppointment}
+            tenant={selectedTenant}
+            onConfirm={handleConfirmCancellation}
+        />
+      )}
 
       <TechnicianReviewDialog 
         open={isTechnicianReviewOpen}
@@ -499,7 +589,7 @@ function PlannerPageContent() {
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           <DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader>
-          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div>
+          <div className="p-4 relative"><div id="qr-reader-planner" className="w-full aspect-square rounded-md bg-muted" /><div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0_0,0.5)]" /></div></div>
           <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>

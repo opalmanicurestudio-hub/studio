@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -551,13 +552,13 @@ export default function ClientDetailPage() {
     const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, feeToWaive.appointmentId);
     
     const newUnpaidFees = (client.unpaidFees || []).filter((f: any) => f.feeId !== feeToWaive.feeId);
-    const newBalance = newUnpaidFees.reduce((acc: number, fee: any) => acc + fee.feeAmount, 0);
+    const newBalance = (client.outstandingBalance || 0) - feeToWaive.feeAmount;
 
     const batch = writeBatch(firestore);
     
     batch.update(clientRef, {
         unpaidFees: newUnpaidFees,
-        outstandingBalance: newBalance
+        outstandingBalance: Math.max(0, newBalance)
     });
     
     batch.update(appointmentRef, {

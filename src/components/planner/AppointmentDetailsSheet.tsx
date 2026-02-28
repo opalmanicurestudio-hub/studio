@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -37,6 +38,7 @@ import {
   PlusCircle,
   XCircle,
   ShieldCheck,
+  Ban,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -86,6 +88,7 @@ interface AppointmentDetailsSheetProps {
   onBookNewForClient: (clientId: string) => void;
   onPrintTicket: (data: any) => void;
   onOverride: () => void;
+  onWaiveFee: (id: string) => void;
 }
 
 export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = ({
@@ -106,13 +109,13 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   onBookNewForClient,
   onPrintTicket,
   onOverride,
+  onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
   const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
   const { toast } = useToast();
   
-  // Requirement: Receptionists (staff) should be able to perform overrides
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -220,15 +223,31 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               </div>
             )}
 
-            {appointment.status === 'cancelled' && appointment.checkInStatus === 'auto_cancelled' && canPerformAdminActions && (
-                <Alert className="bg-destructive/10 border-destructive/20 text-destructive mb-4">
-                    <ShieldCheck className="h-4 w-4" />
-                    <AlertTitle>Auto-Cancelled (Late)</AlertTitle>
+            {appointment.status === 'cancelled' && (
+                <Alert className={cn(appointment.checkInStatus === 'auto_cancelled' ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-muted")}>
+                    {appointment.checkInStatus === 'auto_cancelled' ? <ShieldCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                    <AlertTitle>{appointment.checkInStatus === 'auto_cancelled' ? 'Auto-Cancelled (Late)' : 'Manual Cancellation'}</AlertTitle>
                     <AlertDescription className="space-y-3">
-                        <p className="text-xs">This appointment was automatically cancelled because the client was past the grace period.</p>
-                        <Button variant="outline" size="sm" onClick={onOverride} className="w-full h-9 font-bold bg-white text-destructive border-destructive hover:bg-destructive hover:text-white transition-all">
-                            Override & Restore
-                        </Button>
+                        <p className="text-xs">Reason: {appointment.cancellationReason?.replace('_', ' ') || 'None provided.'}</p>
+                        {appointment.cancellationFeeApplied && !appointment.cancellationFeeWaived && (
+                            <div className="p-3 bg-background rounded-lg border flex justify-between items-center">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase text-muted-foreground">Cancellation Fee</p>
+                                    <p className="font-bold text-base text-destructive">${appointment.cancellationFeeApplied.toFixed(2)}</p>
+                                </div>
+                                {canPerformAdminActions && (
+                                    <Button variant="outline" size="sm" onClick={() => onWaiveFee(appointment.id)} className="h-8">Waive Fee</Button>
+                                )}
+                            </div>
+                        )}
+                        {appointment.cancellationFeeWaived && (
+                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">Fee Absorbed</Badge>
+                        )}
+                        {appointment.checkInStatus === 'auto_cancelled' && canPerformAdminActions && (
+                            <Button variant="outline" size="sm" onClick={onOverride} className="w-full h-9 font-bold bg-white text-destructive border-destructive hover:bg-destructive hover:text-white transition-all">
+                                Override & Restore
+                            </Button>
+                        )}
                     </AlertDescription>
                 </Alert>
             )}
