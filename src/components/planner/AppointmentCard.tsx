@@ -16,6 +16,7 @@ import {
   Cake,
   AlertTriangle,
   Square,
+  LinkIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { type Appointment, type Client, type Service, Resource, type Transaction } from '@/lib/data';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -65,6 +67,7 @@ export function AppointmentCard({
   onFinishService,
 }: AppointmentCardProps) {
   const { services } = useInventory();
+  const { toast } = useToast();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
 
@@ -94,6 +97,24 @@ export function AppointmentCard({
     const aptDate = typeof appointment.startTime === 'string' ? parseISO(appointment.startTime) : appointment.startTime;
     return format(aptDate, 'MM-dd') === format(parseISO(client.birthday), 'MM-dd');
   }, [client?.birthday, appointment.startTime]);
+
+  const handleCopyCheckInLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (appointment.checkInToken) {
+      const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+      navigator.clipboard.writeText(link);
+      toast({
+        title: "Link Copied",
+        description: "The check-in link has been copied to your clipboard.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "No Token Found",
+        description: "This appointment does not have a check-in token.",
+      });
+    }
+  };
 
   const addOnServices = (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter(Boolean);
   const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
@@ -140,6 +161,7 @@ export function AppointmentCard({
                     <DropdownMenuItem onClick={() => onCompleteClick(appointment)}><CheckCircle className="mr-2 h-4 w-4" /> Checkout</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onReschedule(appointment)} disabled={appointment.status === 'completed'}><Calendar className="mr-2 h-4 w-4" /> Reschedule</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCopyCheckInLink}><LinkIcon className="mr-2 h-4 w-4" /> Copy Check-in Link</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onViewDetails(appointment)}><FileText className="mr-2 h-4 w-4" /> View Details</DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>

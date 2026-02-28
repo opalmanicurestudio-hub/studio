@@ -30,7 +30,7 @@ import {
   Play,
   Square,
   Repeat,
-  Link as LinkIcon,
+  LinkIcon,
   Building,
   HardHat,
   MapPin,
@@ -63,6 +63,7 @@ import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface AppointmentDetailsSheetProps {
   open: boolean;
@@ -102,6 +103,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const isMobile = useIsMobile();
   const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
+  const { toast } = useToast();
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -127,6 +129,17 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     }
     return () => { if (timer) clearInterval(timer); };
   }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
+
+  const handleCopyCheckInLink = () => {
+    if (appointment?.checkInToken) {
+      const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+      navigator.clipboard.writeText(link);
+      toast({
+        title: "Link Copied",
+        description: "The check-in link has been copied to your clipboard.",
+      });
+    }
+  };
 
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
@@ -169,7 +182,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet border-l-0 sm:border-l open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
         <SheetHeader className="p-6 pb-0">
           <SheetTitle>Appointment Details</SheetTitle>
@@ -233,29 +246,34 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               </div>
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full justify-start h-11">
-                  <MoreHorizontal className="mr-2 h-4 w-4" /> Actions
+            <div className="grid grid-cols-1 gap-2">
+                <Button variant="outline" className="w-full justify-start h-11" onClick={handleCopyCheckInLink}>
+                    <LinkIcon className="mr-2 h-4 w-4" /> Copy Check-in Link
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                <DropdownMenuItem asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4"/>View Client Profile</Link></DropdownMenuItem>
-                {isOwnerOrAdmin && (
-                  <>
-                    <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-4 w-4"/>Edit Details</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onRebook(appointment), 150); }}><Repeat className="mr-2 h-4 w-4"/>Rebook Service</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onBookNewForClient(client.id), 150); }}><PlusCircle className="mr-2 h-4 w-4"/>Book New</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><Printer className="mr-2 h-4 w-4"/>Print Ticket</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {isOwnerOrAdmin && <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}><Trash2 className="mr-2 h-4 w-4"/>Delete Appointment</DropdownMenuItem>}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start h-11">
+                    <MoreHorizontal className="mr-2 h-4 w-4" /> More Actions
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    <DropdownMenuItem asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4"/>View Client Profile</Link></DropdownMenuItem>
+                    {isOwnerOrAdmin && (
+                    <>
+                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-4 w-4"/>Edit Details</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
+                    </>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onRebook(appointment), 150); }}><Repeat className="mr-2 h-4 w-4"/>Rebook Service</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onBookNewForClient(client.id), 150); }}><PlusCircle className="mr-2 h-4 w-4"/>Book New</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><Printer className="mr-2 h-4 w-4"/>Print Ticket</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {isOwnerOrAdmin && <DropdownMenuItem className="text-destructive" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}><Trash2 className="mr-2 h-4 w-4"/>Delete Appointment</DropdownMenuItem>}
+                </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
 
             <Separator />
 
