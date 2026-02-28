@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -14,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 import { cn } from '@/lib/utils';
+import { Separator } from '@/components/ui/separator';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
