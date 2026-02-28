@@ -34,7 +34,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -111,7 +111,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh]">
+      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh] h-full sm:h-auto">
         <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -119,7 +119,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="flex-1 min-h-0">
+        {/* Fixed: Replaced ScrollArea with a native scrollable div for better mobile reliability */}
+        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
             <div className="px-6 py-4 space-y-6">
                 <Card className="bg-muted/30 border-2 overflow-hidden shadow-sm">
                   <CardHeader className="p-4 pb-2">
@@ -133,7 +134,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </CardHeader>
                   <CardContent className="p-4 pt-0 space-y-3">
                       <div className="flex justify-between items-baseline border-b border-dashed pb-2">
-                          <span className="text-xs text-muted-foreground">Reserved Overhead (${tenant?.tmhr?.toFixed(2)}/hr)</span>
+                          <span className="text-xs text-muted-foreground">Reserved Overhead (${tenant?.tmhr?.toFixed(2) || '0.00'}/hr)</span>
                           <span className="font-bold text-sm text-destructive">${dynamicFees.overheadRecovery.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between items-baseline">
@@ -177,41 +178,48 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   )}
                 </div>
 
-                {(isLateCancellation || reason === 'no-show') && (
-                  <div className="space-y-4 pt-4 border-t pb-4">
-                    <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
-                      <div className="space-y-0.5">
-                        <Label className="text-base font-black">Enforce Policy Fee</Label>
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight">Recover fixed costs for this time</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                          <span className="text-xl font-black text-destructive">${feeAmount.toFixed(2)}</span>
-                          <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
-                      </div>
-                    </div>
-                    
-                    {chargeFee && (
-                      <div className="space-y-3">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
-                          <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-2">
-                              <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
-                                  <RadioGroupItem value="card_on_file" id="pay-card" className="sr-only" />
-                                  <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
-                                  <span className="text-[10px] font-black leading-tight uppercase">Card on File</span>
-                                  <span className="text-[9px] text-muted-foreground mt-1">{cardOnFile.brand} •••• {cardOnFile.last4}</span>
-                              </label>
-                              <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
-                                  <RadioGroupItem value="add_to_balance" id="pay-balance" className="sr-only" />
-                                  <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
-                                  <span className="text-[10px] font-black leading-tight uppercase">Add to Client<br/>Balance</span>
-                              </label>
-                          </RadioGroup>
-                      </div>
+                <AnimatePresence>
+                    {(isLateCancellation || reason === 'no-show') && (
+                    <motion.div 
+                        initial={{ opacity: 0, height: 0 }} 
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-4 pt-4 border-t pb-4"
+                    >
+                        <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background shadow-inner">
+                        <div className="space-y-0.5">
+                            <Label className="text-base font-black">Enforce Policy Fee</Label>
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight">Recover fixed costs for this time</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                            <span className="text-xl font-black text-destructive">${feeAmount.toFixed(2)}</span>
+                            <Switch checked={chargeFee} onCheckedChange={setChargeFee} />
+                        </div>
+                        </div>
+                        
+                        {chargeFee && (
+                        <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
+                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-2">
+                                <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
+                                    <RadioGroupItem value="card_on_file" id="pay-card" className="sr-only" />
+                                    <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
+                                    <span className="text-[10px] font-black leading-tight uppercase">Card on File</span>
+                                    <span className="text-[9px] text-muted-foreground mt-1">{cardOnFile.brand} •••• {cardOnFile.last4}</span>
+                                </label>
+                                <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
+                                    <RadioGroupItem value="add_to_balance" id="pay-balance" className="sr-only" />
+                                    <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
+                                    <span className="text-[10px] font-black leading-tight uppercase">Add to Client<br/>Balance</span>
+                                </label>
+                            </RadioGroup>
+                        </div>
+                        )}
+                    </motion.div>
                     )}
-                  </div>
-                )}
+                </AnimatePresence>
             </div>
-        </ScrollArea>
+        </div>
 
         <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0 pb-safe">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 flex-1">Back</Button>
