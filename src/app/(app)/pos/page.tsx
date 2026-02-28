@@ -993,15 +993,29 @@ export default function POSPage() {
                         />
 
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
-                                    <Activity className="w-6 h-6 text-primary" />
-                                    Studio Pulse
-                                </h2>
-                                <div className="flex items-center gap-2">
-                                    <Badge variant="outline" className="bg-background">{walkIns?.filter(w => w.status === 'waiting').length} Waiting</Badge>
-                                    <Badge variant="outline" className="bg-background">{todayAppointments.filter(a => a.status === 'servicing').length} In Service</Badge>
-                                    <Badge variant="outline" className="bg-background">{readyForCheckoutAppointments.length} Checkout</Badge>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-primary/10 rounded-xl">
+                                        <Activity className="w-6 h-6 text-primary" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl md:text-2xl font-black tracking-tight leading-none">Studio</h2>
+                                        <h2 className="text-xl md:text-2xl font-black tracking-tight leading-none">Pulse</h2>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+                                    <div className="flex flex-col items-center justify-center min-w-[80px] px-4 py-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-inner">
+                                        <span className="text-lg font-black leading-tight text-white">{walkIns?.filter(w => w.status === 'waiting').length}</span>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Waiting</span>
+                                    </div>
+                                    <div className="flex flex-col items-center justify-center min-w-[80px] px-4 py-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-inner">
+                                        <span className="text-lg font-black leading-tight text-white">{todayAppointments.filter(a => a.status === 'servicing').length}</span>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">In Service</span>
+                                    </div>
+                                    <div className="flex flex-col items-center justify-center min-w-[80px] px-4 py-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-inner">
+                                        <span className="text-lg font-black leading-tight text-white">{readyForCheckoutAppointments.length}</span>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Checkout</span>
+                                    </div>
                                 </div>
                             </div>
                             
