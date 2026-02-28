@@ -23,7 +23,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -55,7 +55,7 @@ import { useToast } from '@/hooks/use-toast';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -163,13 +163,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return staff.filter(s => service.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
   }, [service, staff]);
 
-  // Determine which tiers are actually available for this service
   const availableTiersForService = useMemo(() => {
     if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) return [];
-    
-    // We only care about tiers that have a staff member in them who can do this service
     const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
-    
     return service.serviceTiers
         .filter(st => tiersWithStaff.has(st.tierId))
         .map(st => ({
@@ -189,7 +185,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     
     let staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
     
-    // If 'Any Available' is selected but a specific tier is preferred
     if (selectedStaffId === 'any' && selectedTierId !== 'any') {
         staffMembersToCheck = staffMembersToCheck.filter(s => s.pricingTierId === selectedTierId);
     }
@@ -245,14 +240,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const { price, priceRange, activeTier } = useMemo(() => {
         if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null, activeTier: null };
         
-        // If a specific staff is selected
         if (selectedStaffId && selectedStaffId !== 'any') {
           const staffMember = staff.find(s => s.id === selectedStaffId);
           const tierPricing = service.serviceTiers.find(t => t.tierId === staffMember?.pricingTierId);
           if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
         }
 
-        // If 'Any Available' is selected but a specific tier is preferred
         if (selectedStaffId === 'any' && selectedTierId !== 'any') {
             const tierPricing = service.serviceTiers.find(t => t.tierId === selectedTierId);
             if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
@@ -384,21 +377,43 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <p className="text-muted-foreground">Your appointment for <strong>{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
                         </div>
                         
-                        {bookedStaff && (
-                            <Card className="max-w-xs mx-auto border-2">
-                                <CardContent className="p-4 flex flex-col items-center gap-3">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Professional</p>
-                                    <Avatar className="w-20 h-20 border-4 border-background shadow-lg">
-                                        <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
-                                        <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="text-center">
-                                        <p className="font-bold text-lg">{bookedStaff.name}</p>
-                                        <p className="text-xs text-muted-foreground">{bookedStaff.specialties?.slice(0, 2).join(', ')}</p>
+                        <div className="space-y-4 max-w-xs mx-auto">
+                            {bookedStaff && (
+                                <Card className="border-2 overflow-hidden shadow-sm">
+                                    <CardContent className="p-4 flex flex-col items-center gap-3">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Professional</p>
+                                        <Avatar className="w-20 h-20 border-4 border-background shadow-lg">
+                                            <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
+                                            <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="text-center">
+                                            <p className="font-bold text-lg">{bookedStaff.name}</p>
+                                            <p className="text-xs text-muted-foreground">{bookedStaff.specialties?.slice(0, 2).join(', ')}</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            <Card className="border-2 bg-muted/30 text-left overflow-hidden shadow-sm">
+                                <CardContent className="p-4 space-y-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center">Appointment Details</p>
+                                    <div className="flex items-start gap-3">
+                                        <Calendar className="w-4 h-4 mt-0.5 text-primary" />
+                                        <div className="text-sm">
+                                            <p className="font-bold">{format(date, 'EEEE, MMMM d, yyyy')}</p>
+                                            <p className="text-muted-foreground">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3 border-t pt-3">
+                                        <MapPin className="w-4 h-4 mt-0.5 text-primary" />
+                                        <div className="text-sm">
+                                            <p className="font-bold">{tenant?.name || 'Our Studio'}</p>
+                                            <p className="text-xs text-muted-foreground">123 Beauty Lane, Suite 100</p>
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
-                        )}
+                        </div>
 
                         <div className="flex flex-col gap-2 pt-4">
                             <Button className="w-full h-12 text-lg font-bold" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
@@ -515,7 +530,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         {currentStep === 'summary' && (
                              <div className="space-y-4">
                                 <h3 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-primary" /> Review & Confirm</h3>
-                                <Card className="bg-primary/5 border-primary/20 overflow-hidden">
+                                <Card className="bg-primary/5 border-primary/20 overflow-hidden shadow-sm border-2">
                                     <CardContent className="p-6 space-y-4">
                                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Provider</span> <span className="font-bold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
                                         {selectedStaffId === 'any' && selectedTierId !== 'any' && (
