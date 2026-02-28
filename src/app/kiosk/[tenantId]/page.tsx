@@ -365,7 +365,7 @@ const MemberSetup = ({
 
             <Separator className="bg-slate-800" />
             <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
                     <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
