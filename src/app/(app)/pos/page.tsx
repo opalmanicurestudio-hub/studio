@@ -489,6 +489,12 @@ export default function POSPage() {
             cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
         });
 
+        // CRITICAL: Update public check-in token record
+        if (appointmentToCancel.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointmentToCancel.checkInToken);
+            batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason });
+        }
+
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
                 const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -910,8 +916,8 @@ export default function POSPage() {
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
-          if (aptData) clientIds.add(aptData.appointment.clientId);
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          if (apt) clientIds.add(apt.appointment.clientId);
         });
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);

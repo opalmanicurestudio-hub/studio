@@ -262,6 +262,12 @@ function PlannerPageContent() {
         cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
     });
 
+    // CRITICAL: Update public check-in token record
+    if (selectedAppointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
+        batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason });
+    }
+
     // 2. Handle Fee Collection
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
