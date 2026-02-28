@@ -145,6 +145,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [formAnswers, setFormAnswers] = useState<Record<string, Record<string, any>>>({});
   const [isDepositPaid, setIsDepositPaid] = useState(false);
+  const [bookedStaffId, setBookedStaffId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const methods = useForm<BookingFormData>({
@@ -257,7 +258,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (open) {
         if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
         else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
-        setSelectedTime(null); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false);
+        setSelectedTime(null); setDate(new Date()); methods.reset(); setFormAnswers({}); setIsDepositPaid(false); setBookedStaffId(null);
     }
   }, [open, initialStaffId, methods]);
 
@@ -317,9 +318,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       } else { toast({ variant: 'destructive', title: 'No staff available' }); return; }
     }
 
+    setBookedStaffId(finalStaffId);
     const signedForms = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
     onConfirm(clientData, { serviceId: service.id, staffId: finalStaffId, startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(), status: 'confirmed', isWalkIn: false }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
+
+  const bookedStaff = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -331,13 +335,34 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
                 {currentStep === 'confirmation' ? (
-                    <div className="text-center py-12 space-y-4">
+                    <div className="text-center py-12 space-y-6">
                         <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto">
                             <CheckCircle className="w-10 h-10 text-green-500" />
                         </div>
-                        <h2 className="text-3xl font-bold">You're All Set!</h2>
-                        <p className="text-muted-foreground">Your appointment for <strong>{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
-                        <Button className="mt-4" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+                        <div className="space-y-2">
+                            <h2 className="text-3xl font-bold">You're All Set!</h2>
+                            <p className="text-muted-foreground">Your appointment for <strong>{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
+                        </div>
+                        
+                        {bookedStaff && (
+                            <Card className="max-w-xs mx-auto border-2">
+                                <CardContent className="p-4 flex flex-col items-center gap-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Professional</p>
+                                    <Avatar className="w-20 h-20 border-4 border-background shadow-lg">
+                                        <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
+                                        <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="text-center">
+                                        <p className="font-bold text-lg">{bookedStaff.name}</p>
+                                        <p className="text-xs text-muted-foreground">{bookedStaff.specialties?.slice(0, 2).join(', ')}</p>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        <div className="flex flex-col gap-2 pt-4">
+                            <Button className="w-full h-12 text-lg font-bold" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+                        </div>
                     </div>
                 ) : (
                     <>

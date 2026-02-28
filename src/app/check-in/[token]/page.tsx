@@ -5,10 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon, User as UserIcon } from 'lucide-react';
 import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays, getDay, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { type Appointment, type Client, type Service, type Event, type Tenant } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Event, type Tenant, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -139,6 +139,12 @@ export default function CheckInPage() {
         return doc(firestore, `tenants/${tenantId}/services`, appointmentData.serviceId);
     }, [firestore, tenantId, appointmentData?.serviceId]);
     const { data: service, isLoading: serviceLoading } = useDoc<Service>(serviceDocRef);
+
+    const staffDocRef = useMemoFirebase(() => {
+        if (!firestore || !tenantId || !appointmentData?.staffId) return null;
+        return doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId);
+    }, [firestore, tenantId, appointmentData?.staffId]);
+    const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
     const allAppointmentsQuery = useMemoFirebase(() => {
         if (!firestore || !tenantId) return null;
@@ -314,7 +320,7 @@ export default function CheckInPage() {
         setRescheduleStep('confirmed');
     };
     
-    const isLoading = appointmentLoading || clientLoading || serviceLoading || allAppointmentsLoading || scheduleProfilesLoading || tenantLoading;
+    const isLoading = appointmentLoading || clientLoading || serviceLoading || allAppointmentsLoading || scheduleProfilesLoading || tenantLoading || staffLoading;
 
     if (isLoading) {
         return (
@@ -482,6 +488,20 @@ export default function CheckInPage() {
                              <p className="text-sm text-muted-foreground">{format(appointment.startTime, 'EEEE, MMMM d')} at {format(appointment.startTime, 'h:mm a')}</p>
                         </div>
                     </div>
+                    {assignedStaff && (
+                        <div className="pt-3 border-t">
+                            <div className="flex items-center gap-3">
+                                <Avatar className="h-8 w-8">
+                                    <AvatarImage src={assignedStaff.avatarUrl} />
+                                    <AvatarFallback>{assignedStaff.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div className="text-xs">
+                                    <p className="font-bold text-muted-foreground uppercase tracking-widest text-[9px]">Your Professional</p>
+                                    <p className="font-semibold">{assignedStaff.name}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div className="text-sm text-muted-foreground space-y-2 pt-3 border-t">
                         <div className="flex items-center gap-2"><Clock className="w-4 h-4"/> Duration: {service.duration} minutes</div>
                         <div className="flex items-center gap-2"><MapPin className="w-4 h-4"/> {tenant.name}</div>
