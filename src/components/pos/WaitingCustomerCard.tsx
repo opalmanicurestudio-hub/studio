@@ -1,125 +1,214 @@
-
-
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { type WalkIn, type Service, Staff } from '@/lib/data';
-import { formatDistanceToNow, parseISO } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare } from 'lucide-react';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
+import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
+import { formatDistanceToNow, parseISO, format } from 'date-fns';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { cn } from '@/lib/utils';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 interface WaitingCustomerCardProps {
-    walkIn: WalkIn;
+    item: (WalkIn | Appointment) & { type: 'walk-in' | 'appointment' };
     services: Service[] | null;
     staffList: Staff[] | null;
     onAssign: () => void;
-    onCancel: (walkInId: string) => void;
-    onMoveToFront: (walkInId: string) => void;
-    onPrintTicket: (walkInId: string) => void;
-    groupSize: number;
+    onCancel: (id: string) => void;
+    onMoveToFront?: (id: string) => void;
+    onPrintTicket: (id: string) => void;
+    groupSize?: number;
+    onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
 }
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ walkIn, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize }) => {
-    const primaryServices = services?.filter(s => walkIn.serviceIds.includes(s.id));
-    const waitTime = formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true });
-    const preferredStaff = staffList?.find(s => s.id === walkIn.preferredStaffId);
+const statusOptions = [
+    { value: 'pending', label: 'Pending', icon: Clock, color: 'text-slate-400' },
+    { value: 'on_my_way', label: 'On Way', icon: Car, color: 'text-blue-500' },
+    { value: 'arrived', label: 'Arrived', icon: MapPin, color: 'text-green-500' },
+    { value: 'running_late', label: 'Late', icon: AlertTriangle, color: 'text-amber-500' },
+];
+
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus }) => {
+    const isWalkIn = item.type === 'walk-in';
+    const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
+    const serviceIds = isWalkIn ? (item as WalkIn).serviceIds : [(item as Appointment).serviceId];
+    const checkInTime = isWalkIn ? (item as WalkIn).checkInTime : (item as Appointment).startTime;
+    const checkInStatus = (item as any).checkInStatus || 'pending';
+    const lateTimeMinutes = (item as any).lateTimeMinutes || 0;
     
-    const isGroup = groupSize > 1;
+    const primaryServices = services?.filter(s => serviceIds.includes(s.id));
+    const waitTime = isWalkIn ? formatDistanceToNow(parseISO(checkInTime), { addSuffix: true }) : format(new Date(checkInTime), 'h:mm a');
+    
+    const preferredStaffId = isWalkIn ? (item as WalkIn).preferredStaffId : (item as Appointment).staffId;
+    const preferredStaff = staffList?.find(s => s.id === preferredStaffId);
+    
+    const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
+    const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
+
+    const activeStatus = statusOptions.find(s => s.value === checkInStatus) || statusOptions[0];
+
+    const handleLateConfirm = () => {
+        onUpdateStatus(item.id, isWalkIn, 'running_late', parseInt(tempLateMinutes) || 0);
+        setIsLateEntryOpen(false);
+    };
 
     return (
-        <Card>
-            <CardContent className="p-4 flex items-start gap-1">
-                <div className="cursor-grab text-muted-foreground p-2 -ml-2 mt-5">
-                    <GripVertical className="w-5 h-5" />
-                </div>
-                <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className="font-semibold flex items-center gap-2">
-                                <User className="w-4 h-4"/>
-                                {walkIn.customerName}
-                            </p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="w-4 h-4"/>Waiting {waitTime}</p>
-                            {isGroup && (
-                                <Badge variant="secondary" className="mt-1">
-                                    <Users className="w-3 h-3 mr-1" />
-                                    {walkIn.groupName}
-                                </Badge>
-                            )}
-                        </div>
-                        <div className="text-right">
-                            {primaryServices?.map(s => <p key={s.id} className="text-sm">{s.name}</p>)}
-                            <p className="text-xs text-muted-foreground">{walkIn.estimatedDuration} min total</p>
-                        </div>
-                    </div>
-                     {preferredStaff && (
-                        <div className="text-xs mt-2 space-y-1">
-                            <div className="flex items-center gap-2">
-                                <Badge variant="outline">Prefers: {preferredStaff.name}</Badge>
-                                {walkIn.waitForPreferredStaff && <Badge variant="secondary">Waiting</Badge>}
+        <Card className={cn(
+            "transition-all border-2",
+            checkInStatus === 'arrived' ? "border-green-500/20 bg-green-500/[0.02]" : 
+            checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.02]" : "border-border"
+        )}>
+            <CardContent className="p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                            <div className="min-w-0">
+                                <p className="font-bold truncate flex items-center gap-2">
+                                    {!isWalkIn && <Clock className="w-3 h-3 text-primary shrink-0" />}
+                                    {customerName}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5 font-bold uppercase tracking-wider">
+                                    <Clock className="w-3 h-3"/>
+                                    {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
+                                </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                                {primaryServices?.map(s => <p key={s.id} className="text-[11px] font-bold leading-tight">{s.name}</p>)}
+                                <p className="text-[10px] text-muted-foreground">{isWalkIn ? (item as WalkIn).estimatedDuration : differenceInMinutes(parseISO((item as Appointment).endTime), parseISO((item as Appointment).startTime))} min</p>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-dashed">
+                    <div className="flex gap-1.5">
+                        {statusOptions.map((status) => {
+                            const Icon = status.icon;
+                            const isActive = checkInStatus === status.value;
+                            return (
+                                <TooltipProvider key={status.value}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant={isActive ? 'default' : 'outline'}
+                                                size="icon"
+                                                className={cn(
+                                                    "h-8 w-8 rounded-full",
+                                                    isActive ? "" : "text-muted-foreground border-muted"
+                                                )}
+                                                onClick={() => {
+                                                    if (status.value === 'running_late') {
+                                                        setIsLateEntryOpen(true);
+                                                    } else {
+                                                        onUpdateStatus(item.id, isWalkIn, status.value);
+                                                    }
+                                                }}
+                                            >
+                                                <Icon className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>{status.label}</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            );
+                        })}
+                    </div>
+                    {checkInStatus === 'running_late' && (
+                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-black animate-pulse">
+                            +{lateTimeMinutes} MIN
+                        </Badge>
                     )}
-                    {walkIn.notes && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className="text-xs mt-2 text-muted-foreground flex items-start gap-2 pt-2 border-t border-dashed">
-                                        <MessageSquare className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                                        <p className="truncate">{walkIn.notes}</p>
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p className="max-w-xs">{walkIn.notes}</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                    {checkInStatus === 'arrived' && (
+                        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 text-[10px] font-black uppercase">
+                            Here
+                        </Badge>
                     )}
                 </div>
-            </CardContent>
-            <CardFooter className="p-2 border-t">
-                <TooltipProvider>
-                    <div className="flex justify-around w-full">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => onMoveToFront(walkIn.id)}>
-                                    <TrendingUp className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Move to Front</p></TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={onAssign}>
-                                    <UserPlus className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Assign Staff</p></TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => onPrintTicket(walkIn.id)}>
-                                    <Printer className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Print Ticket</p></TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onCancel(walkIn.id)}>
-                                    <Trash2 className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Cancel Walk-in</p></TooltipContent>
-                        </Tooltip>
+
+                {(preferredStaff || (item as any).notes) && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                        {preferredStaff && (
+                            <Badge variant="secondary" className="text-[9px] h-5 bg-primary/5 text-primary border-primary/10">
+                                <Users className="w-2.5 h-2.5 mr-1" />
+                                Pref: {preferredStaff.name.split(' ')[0]}
+                            </Badge>
+                        )}
+                        {(item as any).notes && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Badge variant="outline" className="text-[9px] h-5 cursor-help">
+                                            <MessageSquare className="w-2.5 h-2.5 mr-1" />
+                                            Notes
+                                        </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p className="max-w-xs">{(item as any).notes}</p></TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
                     </div>
-                </TooltipProvider>
+                )}
+            </CardContent>
+            <CardFooter className="p-2 border-t bg-muted/30">
+                <div className="flex justify-around w-full">
+                    {isWalkIn && onMoveToFront && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onMoveToFront(item.id)}>
+                            <TrendingUp className="w-4 h-4" />
+                        </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onAssign}>
+                        <UserPlus className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onPrintTicket(item.id)}>
+                        <Printer className="w-4 h-4" />
+                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4"/></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => onCancel(item.id)} className="text-destructive">
+                                <Trash2 className="w-4 h-4 mr-2" /> Cancel Walk-in
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </CardFooter>
+
+            <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
+                <DialogContent className="sm:max-w-[300px]">
+                    <DialogHeader>
+                        <DialogTitle>Minutes Late</DialogTitle>
+                        <DialogDescription>Enter how many minutes the client will be delayed.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="late-mins" className="sr-only">Minutes</Label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {['5', '10', '15', '20'].map(m => (
+                                <Button key={m} variant={tempLateMinutes === m ? 'default' : 'outline'} size="sm" onClick={() => setTempLateMinutes(m)}>
+                                    {m}
+                                </Button>
+                            ))}
+                        </div>
+                        <Input 
+                            id="late-mins" 
+                            type="number" 
+                            placeholder="Custom..." 
+                            className="mt-4 text-center font-bold text-lg h-12"
+                            value={tempLateMinutes}
+                            onChange={(e) => setTempLateMinutes(e.target.value)}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button className="w-full h-12 text-lg font-black" onClick={handleLateConfirm}>Update Status</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Card>
     );
 };

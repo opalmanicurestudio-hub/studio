@@ -16,7 +16,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteFiel
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format, isSameMonth, differenceInDays } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format, isSameMonth, differenceInDays, isSameDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
@@ -159,9 +159,14 @@ export default function POSPage() {
 
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
 
+    const todayAppointments = useMemo(() => {
+        const today = startOfDay(new Date());
+        return appointments.filter(apt => isSameDay(new Date(apt.startTime), today));
+    }, [appointments]);
+
     const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff) return [];
-        return appointments
+        if (!todayAppointments || !clients || !services || !staff) return [];
+        return todayAppointments
             .filter(apt => apt.status === 'ready_for_checkout')
             .map(apt => {
                 const client = clients.find(c => c.id === apt.clientId);
@@ -177,7 +182,7 @@ export default function POSPage() {
                     staff: staffMember 
                 };
             }).filter((a): a is { id: string, appointment: Appointment, client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
-    }, [appointments, clients, services, staff]);
+    }, [todayAppointments, clients, services, staff]);
 
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
@@ -241,6 +246,57 @@ export default function POSPage() {
           } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
       }
     }, [appointments, inventory, handleSelectAppointment, handleAddToCart, toast]);
+
+    const handleCheckInStatusUpdate = (id: string, isWalkIn: boolean, newStatus: string, lateMinutes?: number) => {
+        if (!firestore || !tenantId) return;
+        
+        const updateData: any = { checkInStatus: newStatus, lateTimeMinutes: lateMinutes || 0 };
+        
+        if (newStatus === 'auto_cancelled') {
+            updateData.status = 'cancelled';
+            updateData.cancellationReason = 'late';
+        }
+
+        if (isWalkIn) {
+            const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', id);
+            updateDocumentNonBlocking(walkInRef, updateData);
+            
+            const walkIn = walkIns?.find(w => w.id === id);
+            if (walkIn?.assignedStaffId) {
+                const aptId = `apt-walkin-${id}`;
+                updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', aptId), updateData);
+            }
+        } else {
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+            updateDocumentNonBlocking(appointmentRef, updateData);
+            
+            const apt = appointments.find(a => a.id === id);
+            if (apt?.checkInToken) {
+                updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), updateData);
+            }
+
+            // Notify staff of manual update
+            if (apt?.staffId) {
+                const statusLabels = {
+                    on_my_way: 'is on their way',
+                    arrived: 'has arrived',
+                    running_late: `is running ${lateMinutes || 0} minutes late`,
+                    auto_cancelled: 'appointment was cancelled due to lateness'
+                };
+                const label = (statusLabels as any)[newStatus] || 'updated status';
+                addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/notifications`), {
+                    userId: apt.staffId,
+                    type: 'client_movement',
+                    message: `${apt.clientName || 'Client'} ${label} (Updated by Front Desk).`,
+                    link: '/planner',
+                    createdAt: new Date().toISOString(),
+                    read: false,
+                });
+            }
+        }
+        
+        toast({ title: "Status Updated", description: `Client status changed to ${newStatus.replace('_', ' ')}.` });
+    };
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -679,7 +735,7 @@ export default function POSPage() {
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
                             onStatusChange={handleStatusChange} 
-                            appointments={appointments} 
+                            appointments={todayAppointments} 
                             services={services} 
                             onReorder={handleStaffReorder}
                             assignmentMode={assignmentMode}
@@ -695,7 +751,7 @@ export default function POSPage() {
                                 </h2>
                                 <div className="flex items-center gap-2">
                                     <Badge variant="outline" className="bg-background">{walkIns?.filter(w => w.status === 'waiting').length} Waiting</Badge>
-                                    <Badge variant="outline" className="bg-background">{appointments.filter(a => a.status === 'servicing').length} In Service</Badge>
+                                    <Badge variant="outline" className="bg-background">{todayAppointments.filter(a => a.status === 'servicing').length} In Service</Badge>
                                     <Badge variant="outline" className="bg-background">{readyForCheckoutAppointments.length} Checkout</Badge>
                                 </div>
                             </div>
@@ -704,7 +760,7 @@ export default function POSPage() {
                                 <CardContent className="p-0">
                                     <WalkInQueue 
                                         walkIns={walkIns} 
-                                        appointments={appointments} 
+                                        appointments={todayAppointments} 
                                         readyForCheckoutAppointments={readyForCheckoutAppointments}
                                         selectedAppointmentIds={selectedAppointmentIds}
                                         onSelectAppointment={handleSelectAppointment}
@@ -724,6 +780,7 @@ export default function POSPage() {
                                         onToggleWaitForStaff={() => {}}
                                         onScanClick={() => setIsScannerOpen(true)}
                                         onFinishService={handleFinishService}
+                                        onUpdateStatus={handleCheckInStatusUpdate}
                                     />
                                 </CardContent>
                             </Card>
@@ -783,6 +840,7 @@ export default function POSPage() {
                 onStartService={handleStartService} 
                 onFinishService={handleFinishService} 
                 onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
+                onCancel={(id) => handleCheckInStatusUpdate(id, false, 'auto_cancelled')}
                 resources={[]}
             />
 

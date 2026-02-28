@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
 import { CheckoutQueueCard } from './CheckoutQueueCard';
+import { startOfDay, endOfDay, isSameDay } from 'date-fns';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -46,6 +47,7 @@ interface WalkInQueueProps {
     onToggleWaitForStaff: (walkInId: string, wait: boolean) => void;
     onScanClick: () => void;
     onFinishService: (apt: Appointment) => void;
+    onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -70,8 +72,26 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onToggleWaitForStaff,
     onScanClick,
     onFinishService,
+    onUpdateStatus,
 }) => {
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
+
+    const today = startOfDay(new Date());
+
+    const unifiedWaitlist = useMemo(() => {
+        const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => ({ ...w, type: 'walk-in' as const }));
+        const apts = (appointments || []).filter(a => 
+            !a.isWalkIn && 
+            isSameDay(new Date(a.startTime), today) && 
+            (a.status === 'confirmed' || a.status === 'deposit_pending')
+        ).map(a => ({ ...a, type: 'appointment' as const }));
+
+        return [...wins, ...apts].sort((a, b) => {
+            const timeA = a.type === 'walk-in' ? (a.queueOrder || new Date(a.checkInTime).getTime()) : new Date(a.startTime).getTime();
+            const timeB = b.type === 'walk-in' ? (b.queueOrder || new Date(b.checkInTime).getTime()) : new Date(b.startTime).getTime();
+            return timeA - timeB;
+        });
+    }, [walkIns, appointments, today]);
 
     const notifiedQueue = useMemo(() => {
         return (walkIns || []).filter(w => w.status === 'notified');
@@ -81,8 +101,13 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         return (appointments || []).filter(apt => apt.status === 'servicing');
     }, [appointments]);
 
-    const handleOpenAssignDialog = (walkIn: WalkIn) => {
-        setWalkInToAssign(walkIn);
+    const handleOpenAssignDialog = (item: any) => {
+        if (item.type === 'walk-in') {
+            setWalkInToAssign(item);
+        } else {
+            // For appointments, assign logic might differ or we just start them
+            onStartService(item.id);
+        }
     };
     
     const handleAssignConfirm = (walkInId: string, staffId: string) => {
@@ -93,10 +118,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         setWalkInToAssign(null);
     }
 
-    const handleMoveToFront = (walkInId: string) => {
-        const item = orderedWaitingQueue.find(w => w.id === walkInId);
+    const handleMoveToFront = (id: string) => {
+        const item = orderedWaitingQueue.find(w => w.id === id);
         if (!item) return;
-        const newOrder = [item, ...orderedWaitingQueue.filter(w => w.id !== walkInId)];
+        const newOrder = [item, ...orderedWaitingQueue.filter(w => w.id !== id)];
         onReorder(newOrder);
     };
 
@@ -114,12 +139,12 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     return (
         <div className="flex flex-col">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 divide-y md:divide-y-0 md:divide-x border-b">
-                {/* 1. Waiting Lane */}
+                {/* 1. Waitlist Lane */}
                 <div className="flex flex-col min-h-[300px]">
                     <LaneHeader 
                         icon={Users} 
-                        title="Waitlist" 
-                        count={orderedWaitingQueue.length} 
+                        title="Arrivals" 
+                        count={unifiedWaitlist.length} 
                         action={
                             <Button size="sm" variant="ghost" onClick={onAssignNext} className="h-7 text-[10px] font-black hover:text-primary">
                                 AUTO
@@ -128,18 +153,19 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     />
                     <ScrollArea className="flex-1">
                         <div className="p-4 space-y-3">
-                            {orderedWaitingQueue.length > 0 ? (
-                                orderedWaitingQueue.map(walkIn => (
+                            {unifiedWaitlist.length > 0 ? (
+                                unifiedWaitlist.map(item => (
                                     <WaitingCustomerCard 
-                                        key={walkIn.id}
-                                        walkIn={walkIn} 
+                                        key={item.id}
+                                        item={item} 
                                         services={services} 
                                         staffList={staff}
-                                        onAssign={() => handleOpenAssignDialog(walkIn)} 
+                                        onAssign={() => handleOpenAssignDialog(item)} 
                                         onCancel={onCancel}
-                                        onMoveToFront={handleMoveToFront}
+                                        onMoveToFront={item.type === 'walk-in' ? handleMoveToFront : undefined}
                                         onPrintTicket={onPrintTicket}
-                                        groupSize={groupSizes.get(walkIn.groupId) || 1}
+                                        groupSize={item.type === 'walk-in' ? (groupSizes.get(item.groupId) || 1) : 1}
+                                        onUpdateStatus={onUpdateStatus}
                                     />
                                 ))
                             ) : (
