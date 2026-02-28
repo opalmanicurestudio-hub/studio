@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -14,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail, Trash2, KeyRound } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -309,6 +308,9 @@ export default function StaffPage() {
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
   const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
+  const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
+  const [authPin, setAuthPin] = useState('');
+  const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
 
   const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -405,7 +407,7 @@ export default function StaffPage() {
             } else if (log.type === 'clock_out' && clockInTime) {
                 let sessionEnd = logTime;
                 if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-                totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
                 clockInTime = null;
             } else if (log.type === 'break_end' && log.durationMinutes) {
                 totalBreakMinutes += log.durationMinutes;
@@ -413,7 +415,7 @@ export default function StaffPage() {
         }
         if(clockInTime) {
             const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
+            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
         }
 
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
@@ -484,26 +486,21 @@ export default function StaffPage() {
   const handleAddStaff = async (data: AddStaffFormData) => {
     if (!firestore || !tenantId || !user) return;
 
-    // Use a unique name for the temporary app
     const tempAppName = `temp-signup-app-${nanoid()}`;
     let tempApp: FirebaseApp | undefined;
 
     try {
-      // Initialize a temporary secondary Firebase app
       tempApp = initializeApp(firebaseConfig, tempAppName);
       const tempAuth = getAuth(tempApp);
 
-      // Create the user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(tempAuth, data.email, data.password);
       const newAuthUser = userCredential.user;
       
       const staffId = newAuthUser.uid;
-
-      // Prepare the staff data for Firestore, excluding passwords
       const { password, confirmPassword, ...staffDataForDb } = data;
 
       const fullStaffObject: Staff = {
-        ...(staffDataForDb as Omit<AddStaffFormData, 'password' | 'confirmPassword'>), // Cast to ensure type safety
+        ...(staffDataForDb as Omit<AddStaffFormData, 'password' | 'confirmPassword'>),
         id: staffId,
         tenantId: tenantId,
         avatarUrl: data.avatarUrl || '',
@@ -516,11 +513,11 @@ export default function StaffPage() {
         payStructure: data.payStructure || 'commission',
         commissionRate: data.commissionRate || 0,
         hourlyRate: data.hourlyRate,
+        pin: data.pin,
       };
 
       const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
 
-      // Create documents in a batch
       const batch = writeBatch(firestore);
       const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
       const staffDirectoryRef = doc(firestore, 'staffDirectory', staffId);
@@ -544,16 +541,9 @@ export default function StaffPage() {
       if (error.code === 'auth/email-already-in-use') {
         description = 'This email is already in use by another account.';
       }
-      toast({
-        variant: 'destructive',
-        title: 'Failed to Add Staff',
-        description,
-      });
+      toast({ variant: 'destructive', title: 'Failed to Add Staff', description });
     } finally {
-      // Clean up the temporary app instance
-      if (tempApp) {
-        await deleteApp(tempApp);
-      }
+      if (tempApp) await deleteApp(tempApp);
     }
   };
 
@@ -578,15 +568,9 @@ export default function StaffPage() {
       let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
 
       switch (action) {
-          case 'clock_in':
-              staffUpdate = { active: true };
-              break;
-          case 'clock_out':
-              staffUpdate = { active: false, onBreak: false, status: 'idle' };
-              break;
-          case 'break_start':
-              staffUpdate = { onBreak: true, breakStartTime: now };
-              break;
+          case 'clock_in': staffUpdate = { active: true }; break;
+          case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+          case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
           case 'break_end':
               if(staffMember.breakStartTime) {
                   const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
@@ -600,46 +584,33 @@ export default function StaffPage() {
       updateDocumentNonBlocking(staffDocRef, staffUpdate);
   };
   
-  const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-      const staffMember = staff?.find(s => s.id === staffId);
-      if (!staffMember) return;
-
-      const titles = {
-          clock_in: 'Confirm Clock In',
-          clock_out: 'Confirm Clock Out',
-          break_start: 'Confirm Start Break',
-          break_end: 'Confirm End Break',
-      };
-       const descriptions = {
-          clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
-          clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
-          break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
-          break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
-      };
-      
-      setConfirmation({
-          isOpen: true,
-          title: titles[action],
-          description: descriptions[action],
-          onConfirm: () => {
-              handleStatusChange(staffId, action);
-              setConfirmation(null);
-          }
-      });
+  const handleStatusChangeWithAuth = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+      setPendingStatusAction({ staffId, action });
+      setIsPinAuthOpen(true);
   }
+
+  const handleVerifyPin = () => {
+    if (!pendingStatusAction || !staff) return;
+    const targetStaff = staff.find(s => s.id === pendingStatusAction.staffId);
+    
+    if (targetStaff && targetStaff.pin === authPin) {
+        handleStatusChange(pendingStatusAction.staffId, pendingStatusAction.action);
+        setIsPinAuthOpen(false);
+        setAuthPin('');
+        setPendingStatusAction(null);
+        toast({ title: "Authorized", description: "Status updated successfully." });
+    } else {
+        toast({ variant: "destructive", title: "Invalid PIN", description: "The PIN entered is incorrect." });
+    }
+  };
 
   const handleSaveTiers = (tiersToSave: PricingTier[]) => {
     if (!firestore || !tenantId) return;
-
     const batch = writeBatch(firestore);
-    
-    // Process additions/updates
     tiersToSave.forEach(tier => {
         const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tier.id);
         batch.set(tierRef, tier);
     });
-    
-    // Process deletions
     const tiersToSaveIds = new Set(tiersToSave.map(t => t.id));
     const originalTiers = pricingTiers || [];
     originalTiers.forEach(originalTier => {
@@ -648,15 +619,7 @@ export default function StaffPage() {
             batch.delete(tierRef);
         }
     });
-
-    batch.commit()
-        .then(() => {
-            toast({ title: 'Pricing Tiers Saved!' });
-        })
-        .catch((error) => {
-            console.error("Error saving tiers:", error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' });
-        });
+    batch.commit().then(() => { toast({ title: 'Pricing Tiers Saved!' }); }).catch((error) => { console.error("Error saving tiers:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' }); });
   };
   
   const handleDeleteTier = (tierId: string) => {
@@ -693,7 +656,7 @@ export default function StaffPage() {
                     >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {dateRange?.from ? (
-                        dateRange.to ? (
+                        date.to ? (
                             <>
                             {format(dateRange.from, "LLL dd, yyyy")} -{" "}
                             {format(dateRange.to, "LLL dd, yyyy")}
@@ -732,7 +695,7 @@ export default function StaffPage() {
                 {(staff || []).length > 0 ? (
                     <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
                         {staffWithStats.map((member) => (
-                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} pricingTiers={pricingTiers || []} />
+                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} />
                         ))}
                     </div>
                     ) : (
@@ -754,6 +717,7 @@ export default function StaffPage() {
         services={services || []}
         consentForms={consentForms || []}
         pricingTiers={pricingTiers || []}
+        existingStaff={staff || []}
       />
       <EditStaffDialog 
         open={isEditStaffOpen} 
@@ -763,6 +727,7 @@ export default function StaffPage() {
         services={services || []}
         consentForms={consentForms || []}
         pricingTiers={pricingTiers || []}
+        existingStaff={staff || []}
       />
        <StaffDetailsSheet
         open={isDetailsSheetOpen}
@@ -776,21 +741,37 @@ export default function StaffPage() {
         consentForms={consentForms || []}
       />
       
-      {confirmation && (
-          <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
-                    <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-      )}
+      <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <KeyRound className="w-5 h-5 text-primary" />
+                    Authorize Action
+                </DialogTitle>
+                <DialogDescription>
+                    Enter your unique 4-digit PIN to verify this status change.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="py-6 flex flex-col items-center space-y-4">
+                <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Verification PIN</Label>
+                <div className="relative w-48">
+                    <Input 
+                        type="password" 
+                        maxLength={4} 
+                        className="text-center text-3xl font-black h-16 tracking-[0.5em] bg-muted/50 border-2" 
+                        value={authPin} 
+                        onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
+                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && handleVerifyPin()}
+                    />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsPinAuthOpen(false)}>Cancel</Button>
+                <Button onClick={handleVerifyPin} disabled={authPin.length < 4}>Verify & Confirm</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-

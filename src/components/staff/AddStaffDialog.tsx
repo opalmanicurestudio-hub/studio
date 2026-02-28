@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -41,7 +40,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin as PinIcon, Youtube, Clock, KeyRound } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -92,6 +91,7 @@ const addStaffSchema = z.object({
       licenseExpiry: z.date().optional(),
       documentUrl: z.string().optional(),
   }).optional(),
+  pin: z.string().length(4, "PIN must be exactly 4 digits."),
 }).superRefine(({ confirmPassword, password }, ctx) => {
     if (confirmPassword !== password) {
         ctx.addIssue({
@@ -136,6 +136,7 @@ interface AddStaffDialogProps {
   services: Service[];
   consentForms: ConsentForm[];
   pricingTiers: PricingTier[];
+  existingStaff: Staff[];
 }
 
 const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[] }) => {
@@ -153,9 +154,6 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
     const assignedForms = useMemo(() => {
         return consentForms.filter(f => assignedFormIds.includes(f.id));
     }, [assignedFormIds, consentForms]);
-
-    const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    
 
     return (
         <>
@@ -187,6 +185,23 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                                 <div className="space-y-2"><Label htmlFor="password">Password</Label><Input id="password" type="password" {...register('password')} />{errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}</div>
                                 <div className="space-y-2"><Label htmlFor="confirmPassword">Confirm Password</Label><Input id="confirmPassword" type="password" {...register('confirmPassword')} />{errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>}</div>
                             </div>
+                            
+                            <div className="p-4 bg-primary/5 rounded-xl border-2 border-primary/10 mt-4 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <KeyRound className="w-5 h-5 text-primary" />
+                                    <Label className="text-sm font-black uppercase tracking-widest text-primary">Security PIN</Label>
+                                </div>
+                                <div className="space-y-1">
+                                    <Input 
+                                        {...register('pin')} 
+                                        className="text-center text-3xl h-14 font-black tracking-[0.5em] bg-background border-primary/20" 
+                                        maxLength={4}
+                                        readOnly
+                                    />
+                                    <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tighter">This PIN is required for clocking in/out and overrides.</p>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
@@ -216,7 +231,7 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                                         <Input id="tiktokUrl" placeholder="https://tiktok.com/..." {...register('tiktokUrl')} className="pl-9" />
                                     </div>
                                     <div className="relative">
-                                        <Pin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <PinIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input id="pinterestUrl" placeholder="https://pinterest.com/..." {...register('pinterestUrl')} className="pl-9" />
                                     </div>
                                     <div className="relative">
@@ -406,6 +421,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   services,
   consentForms,
   pricingTiers,
+  existingStaff,
 }) => {
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
@@ -420,14 +436,26 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       retailCommissionRate: 10,
       services: [],
       assignedFormIds: [],
+      pin: '',
     },
   });
 
-  const { handleSubmit, reset } = methods;
+  const { handleSubmit, reset, setValue } = methods;
   const isMobile = useIsMobile();
   
+  const generateUniquePin = (staffList: Staff[]) => {
+    let pin = '';
+    let isUnique = false;
+    while (!isUnique) {
+        pin = Math.floor(1000 + Math.random() * 9000).toString();
+        isUnique = !staffList.some(s => s.pin === pin);
+    }
+    return pin;
+  };
+
   useEffect(() => {
     if (open) {
+      const newPin = generateUniquePin(existingStaff || []);
       reset({
         name: '',
         email: '',
@@ -441,9 +469,10 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         retailCommissionRate: 10,
         services: [],
         assignedFormIds: [],
+        pin: newPin,
       });
     }
-  }, [open, reset, pricingTiers]);
+  }, [open, reset, pricingTiers, existingStaff]);
   
   const DialogComponent = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
@@ -472,6 +501,3 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     </DialogComponent>
   );
 };
-
-
-    

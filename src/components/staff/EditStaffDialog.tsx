@@ -40,7 +40,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin as PinIcon, Youtube, Clock, KeyRound, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -65,7 +65,7 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
   });
 
   return (
-    <div className="flex items-center gap-4 p-2">
+    <div className="flex items-center gap-4 p-2 border-b last:border-b-0">
       <div className="flex items-center gap-3 w-32">
         <Switch
           id={`switch-${day}`}
@@ -148,6 +148,7 @@ const editStaffSchema = z.object({
       licenseExpiry: z.date().optional(),
       documentUrl: z.string().optional(),
   }).optional(),
+  pin: z.string().length(4, "PIN must be exactly 4 digits."),
 }).superRefine((data, ctx) => {
     if (data.payStructure === 'commission') {
         if (data.commissionRate === undefined || data.commissionRate === null) {
@@ -185,9 +186,10 @@ interface EditStaffDialogProps {
   services: Service[];
   consentForms: ConsentForm[];
   pricingTiers: PricingTier[];
+  existingStaff: Staff[];
 }
 
-const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSendPasswordReset }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[], staffMember: Staff, onSendPasswordReset: () => void }) => {
+const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSendPasswordReset, onRegeneratePin }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[], staffMember: Staff, onSendPasswordReset: () => void, onRegeneratePin: () => void }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
@@ -262,13 +264,36 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                                 <Label>Account Actions</Label>
                                 <div className="p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                                     <p className="text-sm text-muted-foreground">
-                                        Send an email to <strong>{staffMember.email}</strong> allowing them to set or reset their password.
+                                        Send reset link to <strong>{staffMember.email}</strong>.
                                     </p>
                                     <Button type="button" variant="outline" onClick={onSendPasswordReset} className="w-full sm:w-auto flex-shrink-0">
                                         Send Password Reset
                                     </Button>
                                 </div>
                             </div>
+
+                            <div className="p-4 bg-primary/5 rounded-xl border-2 border-primary/10 mt-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <KeyRound className="w-5 h-5 text-primary" />
+                                        <Label className="text-sm font-black uppercase tracking-widest text-primary">Security PIN</Label>
+                                    </div>
+                                    <Button variant="ghost" size="sm" onClick={onRegeneratePin} className="h-7 text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary hover:bg-primary/10">
+                                        <RefreshCw className="w-3 h-3 mr-1.5" />
+                                        Reset PIN
+                                    </Button>
+                                </div>
+                                <div className="space-y-1">
+                                    <Input 
+                                        {...register('pin')} 
+                                        className="text-center text-3xl h-14 font-black tracking-[0.5em] bg-background border-primary/20" 
+                                        maxLength={4}
+                                        readOnly
+                                    />
+                                    <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tighter">This PIN is required for clocking in/out and overrides.</p>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
@@ -298,7 +323,7 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                                         <Input id="tiktokUrl" placeholder="https://tiktok.com/..." {...register('tiktokUrl')} className="pl-9" />
                                     </div>
                                     <div className="relative">
-                                        <Pin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <PinIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input id="pinterestUrl" placeholder="https://pinterest.com/..." {...register('pinterestUrl')} className="pl-9" />
                                     </div>
                                     <div className="relative">
@@ -315,16 +340,18 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                     </AccordionItem>
                     <AccordionItem value="item-availability" className="border rounded-lg">
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Clock className="w-5 h-5 text-primary"/>Availability</div></AccordionTrigger>
-                        <AccordionContent className="p-4">
-                            {availability?.week && orderedDays.map(day => (
-                                <DayScheduleRow 
-                                    key={day}
-                                    day={day}
-                                    dayData={availability.week[day]}
-                                    onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
-                                    isEditing={true}
-                                />
-                            ))}
+                        <AccordionContent className="p-4 pt-0">
+                            <div className="divide-y border rounded-lg overflow-hidden">
+                                {availability?.week && orderedDays.map(day => (
+                                    <DayScheduleRow 
+                                        key={day}
+                                        day={day}
+                                        dayData={availability.week[day]}
+                                        onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
+                                        isEditing={true}
+                                    />
+                                ))}
+                            </div>
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-services" className="border rounded-lg">
@@ -451,7 +478,7 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                                     {documents.map(doc => (
                                         <div key={doc.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                             <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline">{doc.name}</a>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveDocument(doc.id)}><Trash2 className="w-4 w-4"/></Button>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveDocument(doc.id)}><Trash2 className="w-4 h-4"/></Button>
                                         </div>
                                     ))}
                                     {documents.length === 0 && <p className="text-xs text-center text-muted-foreground p-3 border rounded-md">No documents uploaded.</p>}
@@ -519,12 +546,13 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
   services,
   consentForms,
   pricingTiers,
+  existingStaff,
 }) => {
   const methods = useForm<EditStaffFormData>({
     resolver: zodResolver(editStaffSchema),
   });
   const { toast } = useToast();
-  const { handleSubmit, reset } = methods;
+  const { handleSubmit, reset, setValue } = methods;
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -560,6 +588,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             },
             documents: staffMember.documents || [],
             assignedFormIds: staffMember.assignedFormIds || [],
+            pin: staffMember.pin || '',
         });
     }
   }, [staffMember, reset]);
@@ -590,6 +619,23 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
         });
     }
   };
+
+  const handleRegeneratePin = () => {
+    let pin = '';
+    let isUnique = false;
+    const staffList = existingStaff || [];
+    
+    while (!isUnique) {
+        pin = Math.floor(1000 + Math.random() * 9000).toString();
+        isUnique = !staffList.some(s => s.id !== staffMember?.id && s.pin === pin);
+    }
+    
+    setValue('pin', pin, { shouldDirty: true });
+    toast({
+        title: "PIN Regenerated",
+        description: "The staff member's security PIN has been updated. Be sure to save changes."
+    });
+  }
 
 
   const handleSave = (data: EditStaffFormData) => {
@@ -623,7 +669,8 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
         portfolioUrl: formatUrl(data.portfolioUrl),
         compliance: data.compliance?.licenseExpiry 
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
-            : undefined
+            : undefined,
+        pin: data.pin,
     };
 
     // Sanitize the object to remove undefined values
@@ -668,6 +715,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
                             pricingTiers={pricingTiers} 
                             staffMember={staffMember}
                             onSendPasswordReset={handleSendPasswordReset}
+                            onRegeneratePin={handleRegeneratePin}
                         />
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
@@ -680,6 +728,3 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     </DialogComponent>
   );
 };
-
-
-    

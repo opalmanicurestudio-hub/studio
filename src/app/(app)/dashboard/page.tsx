@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -26,6 +27,7 @@ import {
   Wallet,
   MapPin,
   Car,
+  KeyRound,
 } from 'lucide-react';
 import {
   ChartContainer,
@@ -60,6 +62,8 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 const barChartConfig = {
   profit: {
@@ -101,7 +105,6 @@ const OwnerDashboard = () => {
   const [dateRange, setDateRange] = useState<{todayStart: Date, todayEnd: Date, weekStart: Date} | null>(null);
 
   useEffect(() => {
-    // This code now runs only on the client, after the initial render.
     const now = new Date();
     setDateRange({
         todayStart: startOfDay(now),
@@ -110,7 +113,6 @@ const OwnerDashboard = () => {
     });
   }, []);
 
-  // Queries for today's data
   const todayTransactionsQuery = useMemoFirebase(() => {
     if (!firestore || !user || !dateRange || !tenantId) return null;
     return query(
@@ -129,7 +131,6 @@ const OwnerDashboard = () => {
     );
   }, [firestore, user, dateRange, tenantId]);
   
-  // Query for the last 7 days of transactions for the chart
   const weeklyTransactionsQuery = useMemoFirebase(() => {
     if (!firestore || !user || !dateRange || !tenantId) return null;
     return query(
@@ -155,7 +156,7 @@ const OwnerDashboard = () => {
       .filter(t => t.type === 'expense')
       .reduce((acc, t) => acc + t.amount, 0);
 
-    const yesterdayRevenue = 812; // Mock data for percentage change, can be fetched if needed
+    const yesterdayRevenue = 812; 
     const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
 
     return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
@@ -196,17 +197,12 @@ const OwnerDashboard = () => {
     let newClientCount = 0;
     const clientsWithAppointmentsThisWeek = new Set<string>();
 
-    // Get all clients who had an appointment this week
     allAppointments
       .filter(apt => new Date(apt.startTime) >= startOfWeekDate)
       .forEach(apt => clientsWithAppointmentsThisWeek.add(apt.clientId));
 
     clientsWithAppointmentsThisWeek.forEach(clientId => {
-      // Find all appointments for this client
       const clientAppointments = allAppointments.filter(apt => apt.clientId === clientId);
-      
-      // If they only have one appointment ever, and it's this week, they are new.
-      // A more robust check might look at their all-time appointment history.
       if (clientAppointments.length === 1 && new Date(clientAppointments[0].startTime) >= startOfWeekDate) {
         newClientCount++;
       }
@@ -514,6 +510,10 @@ const StaffDashboardView = () => {
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
     const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
     
+    const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
+    const [authPin, setAuthPin] = useState('');
+    const [pendingAction, setPendingAction] = useState<'clock_in' | 'clock_out' | 'break_start' | 'break_end' | null>(null);
+
     const staffMember = useMemo(() => {
         if (!user || !staff) return null;
         return staff.find(s => s.id === user.uid);
@@ -522,13 +522,12 @@ const StaffDashboardView = () => {
     const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
         const now = new Date();
         if (staffMember?.payStructure === 'commission' && staffMember.payoutFrequency === 'bi-weekly') {
-            const epoch = new Date('2024-01-07T00:00:00.000Z'); // A known Sunday
+            const epoch = new Date('2024-01-07T00:00:00.000Z'); 
             const diffDays = differenceInDays(now, epoch);
             const periodIndex = Math.floor(diffDays / 14);
             const start = addDays(epoch, periodIndex * 14);
             return { start: startOfDay(start), end: endOfDay(addDays(start, 13)), periodName: 'Pay Period' };
         }
-        // Default to weekly
         return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfDay(now), periodName: 'This Week' };
     }, [staffMember]);
 
@@ -575,10 +574,7 @@ const StaffDashboardView = () => {
           });
       }
 
-      toast({
-          title: "Service Started",
-          description: `Service for ${appointment.clientName} has started.`
-      });
+      toast({ title: "Service Started" });
     };
 
     const upcomingAppointments = useMemo(() => {
@@ -601,45 +597,59 @@ const StaffDashboardView = () => {
 
     const nextAppointment = upcomingAppointments?.find(apt => apt.status === 'confirmed');
 
-    const handleStatusChange = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        if (!staffMember?.id || !selectedTenant?.id || !firestore) return;
-    
-        const activityLogsRef = collection(firestore, 'tenants', selectedTenant.id, 'activityLogs');
-        const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
-        const now = new Date().toISOString();
-    
-        let staffUpdate: Partial<Staff> = {};
-        let logEntry: Omit<ActivityLog, 'id'> = { staffId: staffMember.id, type: action, timestamp: now };
-    
-        switch (action) {
-            case 'clock_in': staffUpdate = { active: true }; break;
-            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-            case 'break_end':
-                if (staffMember.breakStartTime) {
-                    const duration = differenceInMinutes(new Date(now), new Date(staffMember.breakStartTime));
-                    logEntry.durationMinutes = duration;
-                }
-                staffUpdate = { onBreak: false, breakStartTime: undefined };
-                break;
+    const handleStatusChangeInitiate = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        setPendingAction(action);
+        setIsPinAuthOpen(true);
+    };
+
+    const handleVerifyPin = () => {
+        if (!staffMember || !pendingAction || !firestore || !selectedTenant) return;
+
+        if (staffMember.pin === authPin) {
+            const activityLogsRef = collection(firestore, 'tenants', selectedTenant.id, 'activityLogs');
+            const staffDocRef = doc(firestore, 'tenants', selectedTenant.id, 'staff', staffMember.id);
+            const now = new Date().toISOString();
+        
+            let staffUpdate: Partial<Staff> = {};
+            let logEntry: Omit<ActivityLog, 'id'> = { staffId: staffMember.id, type: pendingAction, timestamp: now };
+        
+            switch (pendingAction) {
+                case 'clock_in': staffUpdate = { active: true }; break;
+                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+                case 'break_end':
+                    if (staffMember.breakStartTime) {
+                        const duration = differenceInMinutes(new Date(now), new Date(staffMember.breakStartTime));
+                        logEntry.durationMinutes = duration;
+                    }
+                    staffUpdate = { onBreak: false, breakStartTime: undefined };
+                    break;
+            }
+        
+            addDocumentNonBlocking(activityLogsRef, logEntry);
+            updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            
+            setIsPinAuthOpen(false);
+            setAuthPin('');
+            setPendingAction(null);
+            toast({ title: "Status Updated" });
+        } else {
+            toast({ variant: 'destructive', title: "Invalid PIN" });
         }
-    
-        addDocumentNonBlocking(activityLogsRef, logEntry);
-        updateDocumentNonBlocking(staffDocRef, staffUpdate);
     };
 
     const renderActionButtons = () => {
         if (!staffMember) return null;
         if (!staffMember.active) {
-          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChange('clock_in')}>Clock In</Button>;
+          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChangeInitiate('clock_in')}>Clock In</Button>;
         }
         if (staffMember.onBreak) {
-          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChange('break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>;
+          return <Button size="lg" className="w-full h-12" onClick={() => handleStatusChangeInitiate('break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>;
         }
         return (
           <div className="grid grid-cols-2 gap-4">
-            <Button size="lg" variant="outline" onClick={() => handleStatusChange('break_start')}>Start Break</Button>
-            <Button size="lg" variant="destructive" onClick={() => handleStatusChange('clock_out')}>Clock Out</Button>
+            <Button size="lg" variant="outline" onClick={() => handleStatusChangeInitiate('break_start')}>Start Break</Button>
+            <Button size="lg" variant="destructive" onClick={() => handleStatusChangeInitiate('clock_out')}>Clock Out</Button>
           </div>
         );
       };
@@ -682,7 +692,7 @@ const StaffDashboardView = () => {
         let earnings = 0;
          if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } // Not calculating hourly for today to keep it simpler.
+        } 
 
         const retailSales = transactionsToday
             .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -935,6 +945,36 @@ const StaffDashboardView = () => {
                 consentForms={[]}
             />
         )}
+
+        <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <KeyRound className="w-5 h-5 text-primary" />
+                        Authorize Status Change
+                    </DialogTitle>
+                    <DialogDescription>Enter your unique 4-digit PIN to confirm.</DialogDescription>
+                </DialogHeader>
+                <div className="py-6 flex flex-col items-center space-y-4">
+                    <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Verification PIN</Label>
+                    <div className="relative w-48">
+                        <Input 
+                            type="password" 
+                            maxLength={4} 
+                            className="text-center text-3xl font-black h-16 tracking-[0.5em] bg-muted/50 border-2" 
+                            value={authPin} 
+                            onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
+                            autoFocus
+                            onKeyDown={(e) => e.key === 'Enter' && handleVerifyPin()}
+                        />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsPinAuthOpen(false)}>Cancel</Button>
+                    <Button onClick={handleVerifyPin} disabled={authPin.length < 4}>Verify & Confirm</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       </div>
     );
 };

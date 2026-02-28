@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -22,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -83,6 +84,10 @@ export default function POSPage() {
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
 
+    const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
+    const [authPin, setAuthPin] = useState('');
+    const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
+
     // Turn Rotation State
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
@@ -108,33 +113,47 @@ export default function POSPage() {
         });
     };
 
-    const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        if (!firestore || !tenantId || !staff) return;
+    const handleStatusChangeInitiate = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        setPendingStatusAction({ staffId, action });
+        setIsPinAuthOpen(true);
+    };
+
+    const handleVerifyPin = () => {
+        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
         
-        const member = staff.find(s => s.id === staffId);
-        if (!member) return;
+        const targetStaff = staff.find(s => s.id === pendingStatusAction.staffId);
+        
+        if (targetStaff && targetStaff.pin === authPin) {
+            const { staffId, action } = pendingStatusAction;
+            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+            const now = new Date().toISOString();
 
-        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        const now = new Date().toISOString();
+            let staffUpdate: Partial<Staff> = {};
+            let logEntry: any = { staffId, type: action, timestamp: now };
 
-        let staffUpdate: Partial<Staff> = {};
-        let logEntry: any = { staffId, type: action, timestamp: now };
-
-        switch (action) {
-            case 'clock_in': staffUpdate = { active: true }; break;
-            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-            case 'break_end':
-                if (member.breakStartTime) {
-                    const duration = differenceInMinutes(new Date(now), new Date(member.breakStartTime));
-                    logEntry.durationMinutes = duration;
-                }
-                staffUpdate = { onBreak: false, breakStartTime: undefined };
-                break;
+            switch (action) {
+                case 'clock_in': staffUpdate = { active: true }; break;
+                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+                case 'break_end':
+                    if (targetStaff.breakStartTime) {
+                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
+                        logEntry.durationMinutes = duration;
+                    }
+                    staffUpdate = { onBreak: false, breakStartTime: undefined };
+                    break;
+            }
+            addDocumentNonBlocking(activityLogsRef, logEntry);
+            updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            
+            setIsPinAuthOpen(false);
+            setAuthPin('');
+            setPendingStatusAction(null);
+            toast({ title: "Authorized", description: "Status updated successfully." });
+        } else {
+            toast({ variant: "destructive", title: "Invalid PIN" });
         }
-        addDocumentNonBlocking(activityLogsRef, logEntry);
-        updateDocumentNonBlocking(staffDocRef, staffUpdate);
     };
 
     const enrichedOrderedStaff = useMemo(() => {
@@ -289,7 +308,6 @@ export default function POSPage() {
                 updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...updateData, tenantId });
             }
 
-            // Notify staff of manual update
             if (apt?.staffId) {
                 const statusLabels = {
                     on_my_way: 'is on their way',
@@ -377,104 +395,155 @@ export default function POSPage() {
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "No available qualified staff member found." });
     };
 
-    useEffect(() => {
-        let html5QrCode: Html5Qrcode | undefined;
-        if (isScannerOpen) {
-          setTimeout(() => {
-            const el = document.getElementById('qr-reader-pos');
-            if (el) {
-                html5QrCode = new Html5Qrcode('qr-reader-pos');
-                html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (txt) => { html5QrCode?.stop(); handleScan(txt); setIsScannerOpen(false); }, () => {})
-                  .catch(() => { toast({ variant: 'destructive', title: 'Camera Error' }); setIsScannerOpen(false); });
-            }
-          }, 300);
-        }
-        return () => { if (html5QrCode?.isScanning) html5QrCode.stop(); };
-    }, [isScannerOpen, handleScan, toast]);
+    const handleCancelWalkIn = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        
+        setConfirmation({
+            isOpen: true,
+            title: 'Cancel Walk-in?',
+            description: 'This will remove the client from the queue. This action cannot be undone.',
+            onConfirm: async () => {
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                const walkIn = walkIns?.find(w => w.id === walkInId);
+                
+                const batch = writeBatch(firestore);
+                batch.update(walkInRef, { status: 'cancelled' });
 
-    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
-
-    const subtotal = useMemo(() => {
-        const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
-            const aptData = readyForCheckoutAppointments.find(a => a.id === id);
-            if (!aptData) return acc;
-            
-            const servicePrice = redeemedOffer?.id === aptData.service.id ? 0 : getServicePrice(aptData.service, aptData.staff);
-            const addOnsPrice = aptData.addOnServices.reduce((s, a) => s + getServicePrice(a, aptData.staff), 0);
-            
-            return acc + servicePrice + addOnsPrice;
-        }, 0);
-        const retailTotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-        return servicesTotal + retailTotal;
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, redeemedOffer]);
-
-    const { totalDiscountValue, membershipDiscountValue } = useMemo(() => {
-        let disc = 0;
-        let memDisc = 0;
-
-        if (selectedClientId) {
-            const client = clients.find(c => c.id === selectedClientId);
-            if (client?.activeMembershipId && redeemedOffer?.type === 'retail_discount') {
-                const membership = memberships.find(m => m.id === client.activeMembershipId);
-                const retailTotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-                if (membership?.retailDiscount && retailTotal > 0) {
-                    memDisc = retailTotal * (membership.retailDiscount / 100);
+                if (walkIn && walkIn.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkIn.id}`;
+                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
                 }
-            }
-        }
 
-        appliedDiscountCodes.forEach(code => {
-            const d = discounts.find(disc => disc.code === code);
-            if (!d) return;
-
-            let basis = 0;
-            if (!d.applicableServiceIds || d.applicableServiceIds.length === 0) {
-                basis = subtotal;
-            } else {
-                const eligibleServicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
-                    const data = readyForCheckoutAppointments.find(a => a.id === id);
-                    if (!data) return acc;
-                    let sTotal = 0;
-                    if (d.applicableServiceIds?.includes(data.appointment.serviceId)) {
-                        sTotal += redeemedOffer?.id === data.service.id ? 0 : getServicePrice(data.service, data.staff);
-                    }
-                    data.addOnServices.forEach(addOn => {
-                        if (d.applicableServiceIds?.includes(addOn.id)) {
-                            sTotal += getServicePrice(addOn, data.staff);
-                        }
-                    });
-                    return acc + sTotal;
-                }, 0);
-                
-                const eligibleRetailTotal = retailItems.filter(item => d.applicableServiceIds?.includes(item.id))
-                    .reduce((acc, item) => acc + (item.price * item.quantity), 0);
-                
-                basis = eligibleServicesTotal + eligibleRetailTotal;
-            }
-
-            if (d.type === 'percentage') {
-                disc += basis * (d.value / 100);
-            } else {
-                disc += d.value;
+                await batch.commit();
+                toast({ title: "Walk-in Cancelled" });
+                setConfirmation(null);
             }
         });
+    };
 
-        return { totalDiscountValue: disc, membershipDiscountValue: memDisc };
-    }, [appliedDiscountCodes, discounts, subtotal, selectedAppointmentIds, readyForCheckoutAppointments, retailItems, selectedClientId, clients, memberships, redeemedOffer]);
-
-    const subtotalAfterDiscounts = Math.max(0, subtotal - (totalDiscountValue + membershipDiscountValue));
-    const tax = subtotalAfterDiscounts * 0.07;
-    const total = subtotalAfterDiscounts + tax + tipAmount;
-
-    useEffect(() => {
-        if (selectedAppointmentIds.size > 0 && !selectedClientId) {
-            const firstAptId = Array.from(selectedAppointmentIds)[0];
-            const aptData = readyForCheckoutAppointments.find(a => a.id === firstAptId);
-            if (aptData) {
-                setSelectedClientId(aptData.appointment.clientId);
-            }
+    const handleStartService = (id: string) => {
+        if (!firestore || !tenantId) return;
+        const now = new Date().toISOString();
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
+        const apt = appointments?.find(a => a.id === id);
+        if (apt?.checkInToken) {
+            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
         }
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
+    }
+
+    const handleReturnToQueue = (walkInId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Return to Arrivals Waitlist?',
+            description: `This will remove ${walkIn?.customerName}'s staff assignment and move them back to the waitlist.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                const appointmentId = `apt-walkin-${walkInId}`;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+
+                const batch = writeBatch(firestore);
+                batch.update(walkInRef, { 
+                    status: 'waiting', 
+                    assignedStaffId: deleteField(),
+                    notifiedTimestamp: deleteField() 
+                });
+                batch.delete(appointmentRef);
+
+                batch.commit().then(() => {
+                    toast({ title: "Moved back to waitlist", description: "Staff assignment has been cleared." });
+                });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        const appointment = appointments.find(a => a.id === appointmentId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Stop Service & Revert to Ready?',
+            description: `This will stop the active timer for ${appointment?.clientName} and move them back to the Ready lane.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                
+                const updateData: any = { 
+                    status: 'confirmed', 
+                    actualStartTime: deleteField() 
+                };
+
+                updateDocumentNonBlocking(appointmentRef, updateData);
+
+                if (appointment?.checkInToken) {
+                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
+                }
+
+                if (appointment?.isWalkIn) {
+                    const walkInId = appointmentId.replace('apt-walkin-', '');
+                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+                }
+
+                toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        const appointment = appointments.find(a => a.id === appointmentId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Revert to In Service?',
+            description: `This will move ${appointment?.clientName} back from Checkout into the In Service lane.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                
+                updateDocumentNonBlocking(appointmentRef, { 
+                    status: 'servicing', 
+                    actualEndTime: deleteField() 
+                });
+
+                if (appointment?.checkInToken) {
+                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
+                }
+
+                if (appointment?.isWalkIn) {
+                    const walkInId = appointmentId.replace('apt-walkin-', '');
+                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
+                }
+
+                toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleSkip = (walkInId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Skip Customer?',
+            description: `This will mark ${walkIn?.customerName} as skipped (No-Show). This impacts their reliability score.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                updateDocumentNonBlocking(walkInRef, { status: 'skipped' });
+                
+                if (walkIn?.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkInId}`;
+                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                    updateDocumentNonBlocking(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+                }
+                
+                toast({ title: "Customer Skipped", description: "Marked as no-show." });
+                setConfirmation(null);
+            }
+        });
+    };
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
@@ -551,7 +620,7 @@ export default function POSPage() {
                 batch.update(appointmentRef, { 
                     status: 'completed',
                     revenue: getServicePrice(service, provider),
-                    discountAmount: (totalDiscountValue + membershipDiscountValue) / (selectedAppointmentIds.size || 1),
+                    discountAmount: (discount + membershipDiscount) / (selectedAppointmentIds.size || 1),
                     appliedDiscountCode: appliedDiscountCodes.join(', ')
                 });
 
@@ -686,7 +755,7 @@ export default function POSPage() {
                     ...retailItems.map(i => ({ name: i.name, quantity: i.quantity, price: i.price }))
                 ],
                 subtotal,
-                discount: totalDiscountValue + membershipDiscountValue,
+                discount: discount + membershipDiscount,
                 tax,
                 tip: tipAmount,
                 total,
@@ -736,156 +805,6 @@ export default function POSPage() {
         toast({ title: "Service Finished", description: "Client sent to checkout queue." });
     };
 
-    const handleStartService = (id: string) => {
-        if (!firestore || !tenantId) return;
-        const now = new Date().toISOString();
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
-        const apt = appointments?.find(a => a.id === id);
-        if (apt?.checkInToken) {
-            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
-        }
-    }
-
-    const handleReturnToQueue = (walkInId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Return to Arrivals Waitlist?',
-            description: `This will remove ${walkIn?.customerName}'s staff assignment and move them back to the waitlist.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                const appointmentId = `apt-walkin-${walkInId}`;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { 
-                    status: 'waiting', 
-                    assignedStaffId: deleteField(),
-                    notifiedTimestamp: deleteField() 
-                });
-                batch.delete(appointmentRef);
-
-                batch.commit().then(() => {
-                    toast({ title: "Moved back to waitlist", description: "Staff assignment has been cleared." });
-                });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleRevertToReady = (appointmentId: string) => {
-        const appointment = appointments.find(a => a.id === appointmentId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Stop Service & Revert to Ready?',
-            description: `This will stop the active timer for ${appointment?.clientName} and move them back to the Ready lane.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                
-                const updateData: any = { 
-                    status: 'confirmed', 
-                    actualStartTime: deleteField() 
-                };
-
-                updateDocumentNonBlocking(appointmentRef, updateData);
-
-                if (appointment?.checkInToken) {
-                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
-                }
-
-                if (appointment?.isWalkIn) {
-                    const walkInId = appointmentId.replace('apt-walkin-', '');
-                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
-                }
-
-                toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleRevertToService = (appointmentId: string) => {
-        const appointment = appointments.find(a => a.id === appointmentId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Revert to In Service?',
-            description: `This will move ${appointment?.clientName} back from Checkout into the In Service lane.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                
-                updateDocumentNonBlocking(appointmentRef, { 
-                    status: 'servicing', 
-                    actualEndTime: deleteField() 
-                });
-
-                if (appointment?.checkInToken) {
-                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
-                }
-
-                if (appointment?.isWalkIn) {
-                    const walkInId = appointmentId.replace('apt-walkin-', '');
-                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
-                }
-
-                toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleSkip = (walkInId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Skip Customer?',
-            description: `This will mark ${walkIn?.customerName} as skipped (No-Show). This impacts their reliability score.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                updateDocumentNonBlocking(walkInRef, { status: 'skipped' });
-                
-                if (walkIn?.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkInId}`;
-                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                    updateDocumentNonBlocking(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
-                }
-                
-                toast({ title: "Customer Skipped", description: "Marked as no-show." });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleCancelWalkIn = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        
-        setConfirmation({
-            isOpen: true,
-            title: 'Cancel Walk-in?',
-            description: 'This will remove the client from the queue. This action cannot be undone.',
-            onConfirm: async () => {
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                const walkIn = walkIns?.find(w => w.id === walkInId);
-                
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { status: 'cancelled' });
-
-                if (walkIn && walkIn.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkIn.id}`;
-                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
-                }
-
-                await batch.commit();
-                toast({ title: "Walk-in Cancelled" });
-                setConfirmation(null);
-            }
-        });
-    };
-
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
@@ -915,8 +834,8 @@ export default function POSPage() {
         onCheckout: handleCheckout,
         appliedDiscountCodes,
         setAppliedDiscountCodes,
-        discount: totalDiscountValue,
-        membershipDiscount: membershipDiscountValue,
+        discount,
+        membershipDiscount,
         isSubmitting,
         paymentTab,
         setPaymentTab,
@@ -943,7 +862,7 @@ export default function POSPage() {
                     <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
                         <TeamStatus 
                             staff={enrichedOrderedStaff} 
-                            onStatusChange={handleStatusChange} 
+                            onStatusChange={handleStatusChangeInitiate} 
                             appointments={todayAppointments} 
                             services={services} 
                             onReorder={handleStaffReorder}
@@ -1051,6 +970,7 @@ export default function POSPage() {
                 onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
                 onCancel={(id) => handleCheckInStatusUpdate(id, false, 'auto_cancelled')}
                 resources={[]}
+                onOverride={() => {}}
             />
 
             {appointmentToReview && (
@@ -1102,6 +1022,36 @@ export default function POSPage() {
                     </AlertDialogContent>
                 </AlertDialog>
             )}
+
+            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <KeyRound className="w-5 h-5 text-primary" />
+                            Authorize Status Change
+                        </DialogTitle>
+                        <DialogDescription>Enter your unique 4-digit PIN to confirm.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-6 flex flex-col items-center space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Verification PIN</Label>
+                        <div className="relative w-48">
+                            <Input 
+                                type="password" 
+                                maxLength={4} 
+                                className="text-center text-3xl font-black h-16 tracking-[0.5em] bg-muted/50 border-2" 
+                                value={authPin} 
+                                onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
+                                autoFocus
+                                onKeyDown={(e) => e.key === 'Enter' && handleVerifyPin()}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPinAuthOpen(false)}>Cancel</Button>
+                        <Button onClick={handleVerifyPin} disabled={authPin.length < 4}>Verify & Confirm</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
