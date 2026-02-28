@@ -208,7 +208,8 @@ const EditAppointmentForm = ({
             const padAfter = service?.padAfter || 0;
             return {
                 start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter)
+                end: addMinutes(apt.endTime, padAfter),
+                staffId: apt.staffId
             }
         });
 
@@ -229,13 +230,16 @@ const EditAppointmentForm = ({
             const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
             const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
 
-            const isOverlapping = combinedBusyIntervals.some(interval =>
-                areIntervalsOverlapping(
+            const isOverlapping = combinedBusyIntervals.some(interval => {
+                // If it's an appointment, only check if it's the same staff
+                if ('staffId' in interval && interval.staffId !== appointment.staffId) return false;
+                
+                return areIntervalsOverlapping(
                     { start: potentialStartTime, end: potentialEndTime },
                     { start: interval.start, end: interval.end },
                     { inclusive: false }
-                )
-            );
+                );
+            });
 
             if (!isOverlapping) {
                 options.push(format(potentialStartTime, 'HH:mm'));

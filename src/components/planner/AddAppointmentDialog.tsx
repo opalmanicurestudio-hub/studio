@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -238,7 +237,8 @@ const AddAppointmentForm = ({
           .filter(apt => {
             if (!isSameDay(apt.startTime, date)) return false;
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            if (staffId !== 'any' && apt.staffId !== staffId) return false;
+            // FILTER: Only check appointments for the same staff member
+            if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
             return true;
           })
           .forEach(apt => {
@@ -255,6 +255,7 @@ const AddAppointmentForm = ({
           .filter(evt => {
             if (!isSameDay(evt.startTime, date)) return false;
             if (evt.type !== 'blocked') return false;
+            // FILTER: Only check events for the same staff member or "all"
             return !evt.staffId || evt.staffId === 'all' || (staffId !== 'any' && evt.staffId === staffId);
           })
           .forEach(evt => {
@@ -319,6 +320,9 @@ const AddAppointmentForm = ({
 
         const hasOverlap = appointments.some(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
+            // FILTER: Only check overlap for the same staff member
+            if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
+            
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
             const padAfter = service?.padAfter || 0;
@@ -329,7 +333,7 @@ const AddAppointmentForm = ({
         });
 
         setIsOverlapping(hasOverlap);
-    }, [date, startTime, selectedService, appointments, services, appointmentToRebook]);
+    }, [date, startTime, selectedService, appointments, services, appointmentToRebook, staffId]);
 
     const confirmAndSubmit = (data: any) => {
         if (!data.clientId || !data.serviceId || !data.date || !data.startTime || !services) return;

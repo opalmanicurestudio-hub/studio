@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -147,7 +146,7 @@ const AddEventForm = ({
     useEffect(() => {
         if (allDay) {
             setStartTime('00:00');
-            setDuration(24 * 60 -1);
+            setDuration(24 * 60 - 1);
         }
     }, [allDay]);
 
@@ -168,7 +167,17 @@ const AddEventForm = ({
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        const allCalendarItems = [...(appointments || []), ...(events || [])];
+        // FILTER: Only check overlaps for the specific staff member selected
+        // If staffId is 'all', check across all staff
+        // If staffId is empty (no one selected), check for global events
+        const relevantAppointments = (appointments || []).filter(apt => 
+            !staffId || staffId === 'all' || apt.staffId === staffId
+        );
+        const relevantEvents = (events || []).filter(evt => 
+            !staffId || staffId === 'all' || evt.staffId === staffId || !evt.staffId || evt.staffId === 'all'
+        );
+
+        const allCalendarItems = [...relevantAppointments, ...relevantEvents];
 
         const hasOverlap = allCalendarItems.some(item => {
             const itemInterval = { start: item.startTime, end: item.endTime };
@@ -176,7 +185,7 @@ const AddEventForm = ({
         });
 
         setIsOverlapping(hasOverlap);
-    }, [date, startTime, duration, appointments, events]);
+    }, [date, startTime, duration, appointments, events, staffId]);
 
     const handleAddChecklistItem = () => {
         if (newChecklistItem.trim()) {
@@ -242,21 +251,21 @@ const AddEventForm = ({
                             <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
                                 <div>
                                     <RadioGroupItem value="business" id="business-add" className="peer sr-only" />
-                                    <Label htmlFor="business-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <Label htmlFor="business-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">
                                         <Briefcase className="w-5 h-5 mb-2"/>
                                         Business
                                     </Label>
                                 </div>
                                 <div>
                                     <RadioGroupItem value="personal" id="personal-add" className="peer sr-only" />
-                                    <Label htmlFor="personal-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <Label htmlFor="personal-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">
                                         <User className="w-5 h-5 mb-2"/>
                                         Personal
                                     </Label>
                                 </div>
                                 <div>
                                     <RadioGroupItem value="blocked" id="blocked-add" className="peer sr-only" />
-                                    <Label htmlFor="blocked-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <Label htmlFor="blocked-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">
                                         <Lock className="w-5 h-5 mb-2"/>
                                         Blocked
                                     </Label>
