@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -29,7 +28,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -431,31 +430,34 @@ export default function POSPage() {
       const nowISO = new Date().toISOString();
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
       
-      updateDocumentNonBlocking(appointmentRef, {
+      const batch = writeBatch(firestore);
+      batch.update(appointmentRef, {
           status: 'servicing',
           actualStartTime: nowISO
       });
 
       if (appointment.checkInToken) {
           const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-          updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+          batch.update(checkInRef, { status: 'servicing' });
       }
       
       if (appointment.staffId) {
           const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-          updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+          batch.update(staffDocRef, { status: 'busy' });
       }
       
       if(appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-          updateDocumentNonBlocking(walkInRef, {
+          batch.update(walkInRef, {
               status: 'servicing',
               serviceStartTime: nowISO,
           });
       }
 
-      toast({ title: "Service Started" });
+      batch.commit().then(() => {
+          toast({ title: "Service Started" });
+      });
     };
 
     const handleReturnToQueue = (walkInId: string) => {

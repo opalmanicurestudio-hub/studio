@@ -177,15 +177,20 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             let availabilityStatus = member.active ? 'Idle' : 'Off Duty';
             let nextApt = null;
 
+            // INFER STATUS: If the staff has a 'servicing' appointment, they are BUSY.
+            const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
+            const isCurrentlyBusy = !!currentAppointment || member.status === 'busy';
+
             if (member.active && !member.onBreak) {
                 const now = new Date();
                 const todayStart = startOfDay(now);
                 
-                if (member.status === 'busy') {
-                    const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
+                if (isCurrentlyBusy) {
                     if (currentAppointment) {
                         const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
                         availabilityStatus = minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining} min`;
+                    } else {
+                        availabilityStatus = "Busy";
                     }
                 }
 
@@ -198,7 +203,12 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 );
             }
 
-            return { ...member, availability: { status: availabilityStatus }, nextApt };
+            return { 
+                ...member, 
+                status: member.active && !member.onBreak && isCurrentlyBusy ? 'busy' : member.status,
+                availability: { status: availabilityStatus }, 
+                nextApt 
+            };
         });
     }, [staff, appointments]);
     
