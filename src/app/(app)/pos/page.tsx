@@ -98,6 +98,11 @@ export default function POSPage() {
         }
     }, [staff]);
 
+    const selectedClient = useMemo(() => {
+        if (!clients || !selectedClientId) return null;
+        return clients.find(c => c.id === selectedClientId);
+    }, [clients, selectedClientId]);
+
     const handleStaffReorder = (newOrder: Staff[]) => {
         setOrderedStaff(newOrder);
         if (!firestore || !tenantId) return;
