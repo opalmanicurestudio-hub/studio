@@ -62,6 +62,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [customReason, setCustomReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Mock card data
   const cardOnFile = { brand: 'Visa', last4: '4242' };
 
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
@@ -109,7 +110,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md flex flex-col p-0 overflow-hidden max-h-[90dvh]">
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col max-h-[90dvh]">
         <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -117,8 +118,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="px-6 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto min-h-0 bg-background">
+            <div className="px-6 py-4 space-y-6 pb-8">
                 <Card className="bg-muted/30 border-2 overflow-hidden shadow-sm">
                   <CardHeader className="p-4 pb-2">
                       <div className="flex items-center justify-between">
@@ -144,22 +145,37 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 <div className="space-y-3">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reason for Cancellation</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
-                    <label htmlFor="r1" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                      <RadioGroupItem value="client_request" id="r1" />
+                    <label 
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted",
+                            reason === 'client_request' ? "border-primary bg-primary/5 shadow-md" : "border-border"
+                        )}
+                    >
+                      <RadioGroupItem value="client_request" />
                       <div className="flex-1">
                           <p className="font-semibold text-sm">Client Request</p>
                           {isLateCancellation && <p className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter">Late Notice Violation</p>}
                       </div>
                     </label>
-                    <label htmlFor="r2" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                      <RadioGroupItem value="no-show" id="r2" />
+                    <label 
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted",
+                            reason === 'no-show' ? "border-primary bg-primary/5 shadow-md" : "border-border"
+                        )}
+                    >
+                      <RadioGroupItem value="no-show" />
                       <div className="flex flex-col">
                           <span className="font-semibold text-sm">No-Show</span>
                           <span className="text-[10px] text-destructive font-black uppercase tracking-tighter">Maximum Penalty applied</span>
                       </div>
                     </label>
-                    <label htmlFor="r3" className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                      <RadioGroupItem value="other" id="r3" />
+                    <label 
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted",
+                            reason === 'other' ? "border-primary bg-primary/5 shadow-md" : "border-border"
+                        )}
+                    >
+                      <RadioGroupItem value="other" />
                       <span className="font-semibold text-sm">Other Reason</span>
                     </label>
                   </RadioGroup>
@@ -191,14 +207,14 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
                             <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} className="grid grid-cols-2 gap-2">
-                                <label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
-                                    <RadioGroupItem value="card_on_file" id="pay-card" className="sr-only" />
+                                <label className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
+                                    <RadioGroupItem value="card_on_file" className="sr-only" />
                                     <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
                                     <span className="text-[10px] font-black leading-tight uppercase">Card on File</span>
                                     <span className="text-[9px] text-muted-foreground mt-1">{cardOnFile.brand} •••• {cardOnFile.last4}</span>
                                 </label>
-                                <label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
-                                    <RadioGroupItem value="add_to_balance" id="pay-balance" className="sr-only" />
+                                <label className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center", paymentMethod === 'add_to_balance' ? "border-primary bg-primary/5 shadow-md" : "border-border")}>
+                                    <RadioGroupItem value="add_to_balance" className="sr-only" />
                                     <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
                                     <span className="text-[10px] font-black leading-tight uppercase">Add to Client<br/>Balance</span>
                                 </label>
@@ -210,7 +226,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             </div>
         </div>
 
-        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0">
+        <DialogFooter className="p-6 pt-4 border-t sm:justify-between gap-2 bg-background shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 flex-1">Back</Button>
           <Button 
             variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
