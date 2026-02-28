@@ -78,7 +78,7 @@ const StaffMemberCard = ({
     return (
         <Card className={cn(
             "relative transition-all",
-            isNextUp && assignmentMode === 'ordered_list' && "border-primary ring-2 ring-primary shadow-lg scale-[1.02]",
+            isNextUp && "border-primary ring-2 ring-primary shadow-lg scale-[1.02]",
             !member.active && "opacity-60 grayscale-[0.5]"
         )}>
             <CardContent className="p-3 flex items-center gap-4">
@@ -112,7 +112,7 @@ const StaffMemberCard = ({
                     </div>
                 )}
             </CardContent>
-            {isNextUp && assignmentMode === 'ordered_list' && (
+            {isNextUp && (
                 <Badge className="absolute -top-2 right-4 bg-primary text-primary-foreground font-black uppercase text-[9px] tracking-widest px-2 shadow-sm">Next Up</Badge>
             )}
         </Card>
@@ -177,7 +177,6 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             let availabilityStatus = member.active ? 'Idle' : 'Off Duty';
             let nextApt = null;
 
-            // INFER STATUS: If the staff has a 'servicing' appointment, they are BUSY.
             const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
             const isCurrentlyBusy = !!currentAppointment || member.status === 'busy';
 
@@ -194,7 +193,6 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                     }
                 }
 
-                // Find next upcoming confirmed appointment for this staff member today
                 nextApt = appointments?.find(apt => 
                     apt.staffId === member.id && 
                     apt.status === 'confirmed' && 
@@ -216,12 +214,17 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const offDutyStaff = useMemo(() => enrichedStaff.filter(s => !s.active), [enrichedStaff]);
 
     const nextUpStaffId = useMemo(() => {
+        const candidates = activeStaff.filter(s => !s.onBreak && s.status === 'idle');
+        if (candidates.length === 0) return null;
+
         if (assignmentMode === 'fair_play') {
-            const idleStaff = activeStaff.filter(s => !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-            return idleStaff && idleStaff.length > 0 ? idleStaff[0].id : null;
+            // Sort candidates by idle time (earliest last served first)
+            const sorted = [...candidates].sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+            return sorted[0].id;
         } else {
-            const firstIdle = activeStaff.find(s => !s.onBreak && s.status === 'idle');
-            return firstIdle ? firstIdle.id : null;
+            // Respect the fixed rotation order (turnOrder)
+            const sorted = [...candidates].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+            return sorted[0].id;
         }
     }, [activeStaff, assignmentMode]);
 

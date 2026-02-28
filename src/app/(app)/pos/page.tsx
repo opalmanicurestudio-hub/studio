@@ -228,7 +228,6 @@ export default function POSPage() {
         });
     }, []);
 
-    // Requirement: Auto-set selectedClientId based on selected appointments
     useEffect(() => {
         if (selectedAppointmentIds.size > 0 && !selectedClientId) {
             const firstAptId = Array.from(selectedAppointmentIds)[0];
@@ -237,7 +236,6 @@ export default function POSPage() {
                 setSelectedClientId(aptData.appointment.clientId);
             }
         } else if (selectedAppointmentIds.size === 0 && selectedClientId) {
-            // Only clear if no retail items in cart
             if (retailItems.length === 0) {
                 setSelectedClientId(null);
             }
@@ -380,30 +378,50 @@ export default function POSPage() {
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded" }); return; }
     
-        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
-        
-        if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
-          return;
-        }
-        
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
         const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
         
         if (waitingClients.length === 0) {
           toast({ title: 'No Clients Waiting' });
           return;
         }
-    
-        for (const client of waitingClients) {
-            for (const staffMember of (assignmentMode === 'ordered_list' ? idleStaff.sort((a,b) => (a.turnOrder || 0) - (b.turnOrder || 0)) : idleStaff)) {
-                const allRequiredSkills = [...new Set(services?.filter(s => client.serviceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-                const canPerform = allRequiredSkills.every(skill => (staffMember.skillSet || []).includes(skill));
-    
-                if (canPerform) {
-                    handleAssignStaff(client, staffMember.id);
-                    toast({ title: 'Assigned!', description: `${client.customerName} assigned to ${staffMember.name}.` });
+
+        if (idleStaff.length === 0) {
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          return;
+        }
+
+        if (assignmentMode === 'fair_play') {
+            // Sort by idle time (earliest last served first)
+            const sortedStaff = [...idleStaff].sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+            
+            for (const staffMember of sortedStaff) {
+                const firstQualifiedClient = waitingClients.find(client => {
+                    const allRequiredSkills = [...new Set(services?.filter(s => client.serviceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                    return allRequiredSkills.every(skill => (staffMember.skillSet || []).includes(skill));
+                });
+
+                if (firstQualifiedClient) {
+                    handleAssignStaff(firstQualifiedClient, staffMember.id);
+                    toast({ title: 'Fair Play Assignment', description: `${firstQualifiedClient.customerName} assigned to ${staffMember.name} (Idle longest).` });
                     return;
                 }
+            }
+        } else {
+            // Ordered List (Wheel Rotation)
+            // Prioritize the first client in queue
+            const client = waitingClients[0];
+            const sortedStaff = [...idleStaff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+
+            const staffMember = sortedStaff.find(s => {
+                const allRequiredSkills = [...new Set(services?.filter(s => client.serviceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                return allRequiredSkills.every(skill => (s.skillSet || []).includes(skill));
+            });
+
+            if (staffMember) {
+                handleAssignStaff(client, staffMember.id);
+                toast({ title: 'Wheel Assignment', description: `${client.customerName} assigned to ${staffMember.name} (Next in rotation).` });
+                return;
             }
         }
     
@@ -622,7 +640,6 @@ export default function POSPage() {
 
     // Calculate totals for the current sale
     const { subtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
-        // 1. Service Subtotal from selected appointments
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
             if (!data) return acc;
@@ -631,12 +648,9 @@ export default function POSPage() {
             return acc + servicePrice + addOnsPrice;
         }, 0);
 
-        // 2. Retail Subtotal from cart items
         const retailTotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        
         const currentSubtotal = servicesTotal + retailTotal;
 
-        // 3. Manual Discounts (Applied promo codes)
         let manualDiscount = 0;
         appliedDiscountCodes.forEach(code => {
             const d = discounts.find(disc => disc.code === code);
@@ -649,7 +663,6 @@ export default function POSPage() {
             }
         });
 
-        // 4. Membership Retail Discount
         let memDiscount = 0;
         if (selectedClientId) {
             const client = clients.find(c => c.id === selectedClientId);
@@ -661,7 +674,7 @@ export default function POSPage() {
 
         const totalDisc = manualDiscount + memDiscount;
         const subtotalAfterDisc = Math.max(0, currentSubtotal - totalDisc);
-        const taxAmount = subtotalAfterDisc * 0.07; // Static 7% tax for MVP
+        const taxAmount = subtotalAfterDisc * 0.07;
         const grandTotal = subtotalAfterDisc + taxAmount + tipAmount;
 
         return {
