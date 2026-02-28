@@ -86,13 +86,13 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                     <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
                             <div className="min-w-0">
-                                <p className="font-bold truncate flex items-center gap-2">
+                                <p className="font-bold truncate flex items-center gap-2 text-sm">
                                     {!isWalkIn && <Clock className="w-3 h-3 text-primary shrink-0" />}
                                     {customerName}
                                 </p>
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5 font-bold uppercase tracking-wider">
                                     <Clock className="w-3 h-3"/>
-                                    {isWalkIn ? `Waiting ${waitTime}` : `Scheduled ${waitTime}`}
+                                    {isWalkIn ? `Waiting ${waitTime}` : `SCHEDULED ${waitTime}`}
                                 </p>
                             </div>
                             <div className="text-right shrink-0">
@@ -154,12 +154,23 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                 </div>
 
                 {(preferredStaff || (item as any).notes) && (
-                    <div className="flex flex-wrap gap-2 pt-1">
+                    <div className="flex flex-wrap gap-2 pt-1 items-center">
                         {preferredStaff && (
-                            <Badge variant="secondary" className="text-[9px] h-5 bg-primary/5 text-primary border-primary/10">
-                                <Users className="w-2.5 h-2.5 mr-1" />
-                                Pref: {preferredStaff.name.split(' ')[0]}
-                            </Badge>
+                            <div className={cn(
+                                "flex items-center gap-2 p-1.5 rounded-lg border shadow-sm",
+                                isWalkIn ? "bg-primary/5 border-primary/10" : "bg-indigo-500/5 border-indigo-500/20"
+                            )}>
+                                <Avatar className="h-5 w-5 border border-background shadow-inner">
+                                    <AvatarImage src={preferredStaff.avatarUrl} className="object-cover" />
+                                    <AvatarFallback className="text-[8px] bg-muted">{preferredStaff.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <span className={cn(
+                                    "text-[9px] font-black uppercase tracking-tight",
+                                    isWalkIn ? "text-primary" : "text-indigo-700 dark:text-indigo-400"
+                                )}>
+                                    {isWalkIn ? `Pref: ${preferredStaff.name.split(' ')[0]}` : `With: ${preferredStaff.name}`}
+                                </span>
+                            </div>
                         )}
                         {(item as any).notes && (
                             <TooltipProvider>
