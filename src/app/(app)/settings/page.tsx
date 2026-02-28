@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -27,17 +27,12 @@ import {
   Globe, 
   Check, 
   Link as LinkIcon, 
-  Calendar, 
+  Calendar as CalendarIcon, 
   Loader, 
-  FilePen, 
   X, 
   User, 
-  Briefcase, 
-  ListIcon, 
-  PercentIcon, 
   FileText, 
   Trash2, 
-  ChevronDown, 
   Award, 
   Percent, 
   ShieldAlert, 
@@ -46,7 +41,6 @@ import {
   Users, 
   Sparkles, 
   Landmark, 
-  HelpCircle, 
   Calculator, 
   TrendingDown 
 } from 'lucide-react';
@@ -60,14 +54,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
-import { type Tenant, type PricingTier } from '@/lib/data';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
+import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import {
@@ -81,7 +74,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -134,98 +127,25 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
   );
 };
 
-
 export default function SettingsPage() {
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
-  const isMobile = useIsMobile();
   const tenantId = selectedTenant?.id;
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
   const [tenantToDelete, setTenantToDelete] = useState<Tenant | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
   
-  const handleUpdateBusinessName = async (tenantId: string, newName: string) => {
-    if (!firestore || !newName.trim()) {
-        toast({ variant: 'destructive', title: "Name cannot be empty" });
-        return;
-    }
-
-    const tenantRef = doc(firestore, 'tenants', tenantId);
-    try {
-      updateDocumentNonBlocking(tenantRef, { name: newName.trim() });
-      toast({ title: "Business Name Updated" });
-      setEditingTenantId(null);
-    } catch (error) {
-      console.error("Error updating business name:", error);
-      toast({ variant: 'destructive', title: "Update Failed" });
-    }
-  };
-  
-    const handleDeleteTenantClick = (tenant: Tenant) => {
-        if (tenants.length <= 1) {
-            toast({
-                variant: "destructive",
-                title: "Cannot Delete",
-                description: "You cannot delete your only business location.",
-            });
-            return;
-        }
-        if (tenant.id === selectedTenant?.id) {
-            toast({
-                variant: "destructive",
-                title: "Cannot Delete Active Location",
-                description: "Please switch to a different location before deleting this one.",
-            });
-            return;
-        }
-        setTenantToDelete(tenant);
-    };
-
-    const confirmDeleteTenant = async () => {
-        if (!tenantToDelete || !firestore) return;
-
-        const tenantRef = doc(firestore, 'tenants', tenantToDelete.id);
-        await deleteDocumentNonBlocking(tenantRef);
-        
-        toast({
-            title: "Location Deleted",
-            description: `"${tenantToDelete.name}" has been successfully deleted.`
-        });
-
-        setTenantToDelete(null);
-    };
-
-  const handleCreateNewLocation = () => {
-    if (!firestore || !user) return;
-    const newTenantId = nanoid();
-    const newTenantData: Omit<Tenant, 'id'> = {
-      name: `New Business #${(tenants?.length || 0) + 1}`,
-      userId: user.uid,
-      subscriptionStatus: "active",
-      subscriptionTier: "pro",
-    };
-    const newTenantRef = doc(firestore, 'tenants', newTenantId);
-    setDocumentNonBlocking(newTenantRef, { ...newTenantData, id: newTenantId }, {});
-    toast({
-      title: 'New Location Created!',
-      description: 'You can switch to it from the header dropdown.',
-    });
-  };
-
-  // Editing states for each card
   const [isScheduleEditing, setIsScheduleEditing] = useState(false);
   const [isPoliciesEditing, setIsPoliciesEditing] = useState(false);
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
 
-  // Data states
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('profile');
 
-  // Backup states for cancellation
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
 
@@ -246,43 +166,6 @@ export default function SettingsPage() {
       setScheduleProfiles(initialScheduleProfiles);
     }
   }, [initialScheduleProfiles]);
-  
-  useEffect(() => {
-      if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
-
-      if (initialScheduleProfiles && initialScheduleProfiles.length === 0) {
-          const defaultProfileId = nanoid();
-          const defaultProfile = {
-              id: defaultProfileId,
-              name: 'Default Schedule',
-              isActive: true,
-              isPublic: true,
-              bookingSlotInterval: 15,
-              week: {
-                  sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-                  monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                  tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                  wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                  thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                  friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                  saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-              },
-              timeOff: {
-                  vacationDays: 10,
-                  holidays: 8,
-              }
-          };
-          const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
-          setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-      } else if (initialScheduleProfiles && initialScheduleProfiles.length > 0) {
-          const hasActiveProfile = initialScheduleProfiles.some(p => p.isActive);
-          if (!hasActiveProfile) {
-              const firstProfile = initialScheduleProfiles[0];
-              const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
-              updateDocumentNonBlocking(profileDocRef, { isActive: true });
-          }
-      }
-  }, [scheduleProfilesLoading, initialScheduleProfiles, firestore, user, tenantId]);
 
   const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const activeScheduleProfile = useMemo(() => scheduleProfiles.find(p => p.isActive), [scheduleProfiles]);
@@ -299,7 +182,7 @@ export default function SettingsPage() {
         } : p
       )
     );
-  }, [setScheduleProfiles]);
+  }, []);
 
   const handleTimeOffChange = useCallback((field: string, value: number) => {
     setScheduleProfiles((prev: any[]) =>
@@ -310,7 +193,7 @@ export default function SettingsPage() {
         } : p
       )
     );
-  }, [setScheduleProfiles]);
+  }, []);
 
   const handleBookingIntervalChange = useCallback((value: string) => {
     const interval = parseInt(value, 10);
@@ -322,9 +205,8 @@ export default function SettingsPage() {
         } : p
       )
     );
-  }, [setScheduleProfiles]);
+  }, []);
 
-  // --- Handlers for Schedule Card ---
   const handleScheduleEdit = () => {
     setBackupScheduleProfiles(JSON.parse(JSON.stringify(scheduleProfiles)));
     setIsScheduleEditing(true);
@@ -353,71 +235,52 @@ export default function SettingsPage() {
     }
   };
 
-  const createGenericHandlers = (
-    isEditing: boolean,
-    setIsEditing: React.Dispatch<React.SetStateAction<boolean>>,
-    data: Partial<Tenant>,
-    setData: React.Dispatch<React.SetStateAction<Partial<Tenant>>>,
-    backupData: Partial<Tenant>,
-    setBackupData: React.Dispatch<React.SetStateAction<Partial<Tenant>>>,
-    fieldsToSave: (keyof Tenant)[]
-  ) => {
-    const handleEdit = () => {
-      setBackupData(data);
-      setIsEditing(true);
-    };
-    const handleCancel = () => {
-      setData(backupData);
-      setIsEditing(false);
-    };
-    const handleSave = async () => {
-      if (!selectedTenant || !firestore) return;
-      const dataToUpdate: Partial<Tenant> = {};
-      fieldsToSave.forEach(field => {
-        dataToUpdate[field] = data[field] as any;
-      });
-      try {
-        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
-        updateDocumentNonBlocking(tenantRef, dataToUpdate);
-        toast({ title: 'Settings Saved!' });
-        setIsEditing(false);
-      } catch (error) {
-        console.error("Save error:", error);
-        toast({ variant: 'destructive', title: 'Save Failed' });
-      }
-    };
-    return { handleEdit, handleCancel, handleSave };
+  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
+  
+  const handlePoliciesEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsPoliciesEditing(true);
   };
 
-  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
-  const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
-  const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
+  const handlePoliciesCancel = () => {
+    setTenantData(backupTenantData);
+    setIsPoliciesEditing(false);
+  };
 
-  const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
-  const { handleEdit: handleQueueEdit, handleCancel: handleQueueCancel, handleSave: handleQueueSave } = createGenericHandlers(isQueueEditing, setIsQueueEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, queueFields);
-  const { handleEdit: handleSmsEdit, handleCancel: handleSmsCancel, handleSave: handleSmsSave } = createGenericHandlers(isSmsEditing, setIsSmsEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, smsFields);
-  
+  const handlePoliciesSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    const dataToUpdate: Partial<Tenant> = {};
+    policiesFields.forEach(field => {
+      dataToUpdate[field] = tenantData[field] as any;
+    });
+    try {
+      const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+      updateDocumentNonBlocking(tenantRef, dataToUpdate);
+      toast({ title: 'Policies Saved!' });
+      setIsPoliciesEditing(false);
+    } catch (error) {
+      console.error("Save error:", error);
+      toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  };
+
   const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
-    let policy = '';
-    const fee = type === 'cancellation' ? tenantData.cancellationFee : tenantData.noShowFee;
-    const window = tenantData.cancellationWindowHours;
-    const grace = tenantData.lateArrivalGracePeriod;
+    const grace = tenantData.lateArrivalGracePeriod || 15;
+    const window = tenantData.cancellationWindowHours || 24;
+    const tmhr = selectedTenant?.tmhr || 50;
 
     switch (type) {
         case 'cancellation':
-            policy = `Appointments cancelled within ${window || 24} hours of the scheduled time are subject to an overhead recovery fee calculated based on the reserved duration.`;
-            break;
+            return `Appointments cancelled within ${window} hours of the scheduled time are subject to an overhead recovery fee calculated based on the reserved duration ($${tmhr.toFixed(2)}/hr).`;
         case 'noShow':
-            policy = `Failure to show up for an appointment without prior notice will result in a penalty fee of 100% of the scheduled service price.`;
-            break;
+            return `Failure to show up for an appointment without prior notice will result in a penalty fee of 100% of the scheduled service price.`;
         case 'late':
-            policy = `We offer a ${grace || 15}-minute grace period. Beyond this, your appointment may be auto-cancelled to protect the schedules of other clients.`;
-            break;
+            return `We offer a ${grace}-minute grace period. Beyond this, your appointment may be auto-cancelled to protect the schedules of other clients.`;
+        default: return '';
     }
-    return policy;
   };
 
-  const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading));
+  const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building /> },
@@ -481,6 +344,7 @@ export default function SettingsPage() {
                     <ScrollBar orientation="horizontal" />
                 </ScrollArea>
              </div>
+
             <TabsContent value="profile" className="mt-6">
                 <Card>
                     <CardHeader>
@@ -495,14 +359,11 @@ export default function SettingsPage() {
                                         <Input
                                             value={tempTenantName}
                                             onChange={(e) => setTempTenantName(e.target.value)}
-                                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateBusinessName(tenant.id, tempTenantName)}
+                                            onKeyDown={(e) => e.key === 'Enter' && setEditingTenantId(null)}
                                             autoFocus
                                         />
-                                        <Button size="icon" className="h-9 w-9" onClick={() => handleUpdateBusinessName(tenant.id, tempTenantName)}>
+                                        <Button size="icon" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
                                             <Check className="h-4 w-4" />
-                                        </Button>
-                                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
-                                            <X className="h-4 w-4" />
                                         </Button>
                                     </div>
                                 ) : (
@@ -510,27 +371,14 @@ export default function SettingsPage() {
                                         <p className="font-medium">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
                                             {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                            <DropdownMenu>
-                                              <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreHorizontal className="w-4 h-4" />
-                                                </Button>
-                                              </DropdownMenuTrigger>
-                                              <DropdownMenuContent align="end">
-                                                  <DropdownMenuItem onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
-                                                    <Edit className="w-4 h-4 mr-2" /> Rename
-                                                  </DropdownMenuItem>
-                                                  <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTenantClick(tenant)} disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}>
-                                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                                  </DropdownMenuItem>
-                                              </DropdownMenuContent>
-                                            </DropdownMenu>
+                                            <Button variant="ghost" size="icon" onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
+                                                <Edit className="w-4 h-4" />
+                                            </Button>
                                         </div>
                                     </>
                                 )}
                             </div>
                         ))}
-                        <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -541,81 +389,36 @@ export default function SettingsPage() {
                         <div>
                             <CardTitle className="flex items-center gap-2">
                                 <Clock className="w-5 h-5 text-primary" />
-                                Business Hours &amp; Availability
+                                Business Hours
                             </CardTitle>
-                            <CardDescription>
-                                Set your schedules for financial calculations and public booking pages.
-                            </CardDescription>
+                            <CardDescription>Set your standard availability.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        <div className="flex items-center gap-2">
                         {isScheduleEditing ? (
                             <>
-                                <Button variant="outline" onClick={handleScheduleCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                                <Button onClick={handleScheduleSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                                <Button variant="outline" onClick={handleScheduleCancel}>Cancel</Button>
+                                <Button onClick={handleScheduleSave}>Save</Button>
                             </>
                         ) : (
-                            <Button onClick={handleScheduleEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                            <Button onClick={handleScheduleEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
                         )}
                         </div>
                     </CardHeader>
                     <CardContent className="p-0">
                     {activeScheduleProfile && (
                         <div>
-                            {orderedDays.map((day) => {
-                                const dayData = activeScheduleProfile.week[day];
-                                if (!dayData) return null;
-                                return (
-                                    <DayScheduleRow 
-                                        key={day} 
-                                        day={day} 
-                                        dayData={dayData} 
-                                        onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
-                                        isEditing={isScheduleEditing} 
-                                    />
-                                )
-                            })}
+                            {orderedDays.map((day) => (
+                                <DayScheduleRow 
+                                    key={day} 
+                                    day={day} 
+                                    dayData={activeScheduleProfile.week[day]} 
+                                    onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
+                                    isEditing={isScheduleEditing} 
+                                />
+                            ))}
                         </div>
                     )}
                     </CardContent>
-                    {activeScheduleProfile && (
-                        <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
-                            <div className="space-y-2">
-                                <Label>Vacation Days / Year</Label>
-                                <Input 
-                                    type="number" 
-                                    value={activeScheduleProfile.timeOff?.vacationDays || ''}
-                                    onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
-                                    disabled={!isScheduleEditing} 
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Statutory Holidays / Year</Label>
-                                <Input 
-                                    type="number" 
-                                    value={activeScheduleProfile.timeOff?.holidays || ''}
-                                    onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
-                                    disabled={!isScheduleEditing} 
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="slot-interval">Booking Slot Interval</Label>
-                                <Select
-                                    value={activeScheduleProfile.bookingSlotInterval?.toString() || '15'}
-                                    onValueChange={handleBookingIntervalChange}
-                                    disabled={!isScheduleEditing}
-                                >
-                                    <SelectTrigger id="slot-interval">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="15">Every 15 minutes</SelectItem>
-                                        <SelectItem value="30">Every 30 minutes</SelectItem>
-                                        <SelectItem value="60">On the hour</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </CardFooter>
-                    )}
                 </Card>
             </TabsContent>
 
@@ -628,22 +431,21 @@ export default function SettingsPage() {
                             Business Policies
                             </CardTitle>
                             <CardDescription>
-                            Define rules for cancellations, no-shows, and late arrivals.
+                            Define rules for cancellations and late arrivals.
                             </CardDescription>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        <div className="flex items-center gap-2">
                         {isPoliciesEditing ? (
                             <>
-                                <Button variant="outline" onClick={handlePoliciesCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                                <Button onClick={handlePoliciesSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Policies</Button>
+                                <Button variant="outline" onClick={handlePoliciesCancel}>Cancel</Button>
+                                <Button onClick={handlePoliciesSave}>Save</Button>
                             </>
                         ) : (
-                            <Button onClick={handlePoliciesEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Policies</Button>
+                            <Button onClick={handlePoliciesEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
                         )}
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-8">
-                        {/* Lateness Section */}
                         <div className="space-y-4">
                             <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
                                 <Clock className="w-4 h-4" /> Lateness & Grace Periods
@@ -652,28 +454,16 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     <Label htmlFor="late-grace-period">Arrival Grace Period (minutes)</Label>
                                     <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
-                                    <p className="text-[10px] text-muted-foreground">The buffer time before an appointment is considered "Late".</p>
                                 </div>
                                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
-                                    <div className="space-y-0.5">
-                                        <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
-                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger cancellation after grace period</p>
-                                    </div>
+                                    <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
                                     <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="late-arrival-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Late Arrival Policy Text</Label>
-                                <div className="relative">
-                                    <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
                                 </div>
                             </div>
                         </div>
 
                         <Separator />
 
-                        {/* Dynamic Cancellations Section */}
                         <div className="space-y-4">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
@@ -696,87 +486,55 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     <Label htmlFor="cancellation-window">Notice Window (hours)</Label>
                                     <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
-                                    <p className="text-[10px] text-muted-foreground uppercase font-black">Minimum notice required to avoid fees</p>
                                 </div>
                                 <div className="space-y-2">
                                     <Label className="font-bold">Cancellation Fee Logic</Label>
-                                    <div className="p-3 rounded-lg border bg-muted/20 space-y-2">
-                                        <p className="text-xs">Fees are based on Reserved Duration × TMHR.</p>
-                                        <div className="flex gap-4 pt-1">
-                                            <div className="space-y-1">
-                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">30m Svc</p>
-                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 0.5).toFixed(2)}</p>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">60m Svc</p>
-                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 1.0).toFixed(2)}</p>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">90m Svc</p>
-                                                <p className="font-bold text-sm text-destructive">${((selectedTenant?.tmhr || 50) * 1.5).toFixed(2)}</p>
-                                            </div>
-                                        </div>
+                                    <div className="p-3 rounded-lg border bg-muted/20 text-xs">
+                                        Fees are based on Reserved Duration × TMHR (${(selectedTenant?.tmhr || 50).toFixed(2)}/hr).
                                     </div>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="cancellation-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Cancellation Policy Text</Label>
                                 <div className="relative">
-                                    <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
+                                    <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
+                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Regenerate</Button>}
                                 </div>
                             </div>
                         </div>
 
                         <Separator />
 
-                        {/* No-Shows Section */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Users className="w-4 h-4" /> No-Show Enforcement
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[10px] bg-destructive/10 px-2 py-1 rounded-full text-destructive">
-                                    <ShieldAlert className="w-3 h-3" />
-                                    MAX RISK PROTECTION
-                                </div>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <Users className="w-4 h-4" /> No-Show Enforcement
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <Label className="font-bold">No-Show Penalty</Label>
                                     <div className="p-4 rounded-xl border-2 bg-destructive/5 border-destructive/10">
                                         <p className="text-sm font-medium">Policy: 100% of Scheduled Service Price</p>
-                                        <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold">This recovers both overhead and target profit.</p>
                                     </div>
-                                </div>
-                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
-                                    <div className="space-y-0.5">
-                                        <Label htmlFor="discount-stacking" className="font-bold flex items-center gap-2"><Percent className="w-4 h-4" /> Allow Discount Stacking</Label>
-                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Allow multiple codes per sale</p>
-                                    </div>
-                                    <Switch id="discount-stacking" checked={tenantData.allowDiscountStacking} onCheckedChange={(checked) => setTenantData(prev => ({...prev, allowDiscountStacking: checked}))} disabled={!isPoliciesEditing} />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="no-show-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">No-Show Policy Text</Label>
                                 <div className="relative">
-                                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px] uppercase font-black" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button"><Sparkles className="w-3 h-3 mr-1" /> Regenerate</Button>}
+                                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
+                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Regenerate</Button>}
                                 </div>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
             </TabsContent>
-            
+
             <TabsContent value="queue" className="mt-6">
-                 <Card>
+                <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                            {isQueueEditing ? (<><Button variant="outline" onClick={handleQueueCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleQueueSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleQueueEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
+                        <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
+                        <div className="flex items-center gap-2">
+                            {isQueueEditing ? (<><Button variant="outline" onClick={handleQueueCancel}>Cancel</Button><Button onClick={handleQueueSave}>Save</Button></>) : (<Button onClick={handleQueueEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -791,40 +549,19 @@ export default function SettingsPage() {
             <TabsContent value="messaging" className="mt-6">
                 <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging &amp; Notifications</CardTitle>
-                            <CardDescription>Configure your third-party messaging providers and templates.</CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">{isSmsEditing ? (<><Button variant="outline" onClick={handleSmsCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleSmsSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleSmsEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}</div>
+                        <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging</CardTitle>
+                        <div className="flex items-center gap-2">{isSmsEditing ? (<><Button variant="outline" onClick={handleSmsCancel}>Cancel</Button><Button onClick={handleSmsSave}>Save</Button></>) : (<Button onClick={handleSmsEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}</div>
                     </CardHeader>
                     <CardContent className="space-y-6">
                         <div className="space-y-2"><Label htmlFor="twilio-sid">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} /></div>
-                        <div className="space-y-2"><Label htmlFor="twilio-token">Twilio Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••••••••••••••" disabled={!isSmsEditing}/></div>
+                        <div className="space-y-2"><Label htmlFor="twilio-token">Twilio Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing}/></div>
                         <div className="space-y-2"><Label htmlFor="twilio-phone">Twilio Phone Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing}/></div>
-                        <div className="space-y-2 pt-4 border-t"><Label htmlFor="sms-message">Walk-in Notification Message</Label><Textarea id="sms-message" value={tenantData.smsNotificationMessage || ''} onChange={(e) => setTenantData(prev => ({...prev, smsNotificationMessage: e.target.value}))} placeholder="Enter your SMS message..." rows={4} disabled={!isSmsEditing}/><p className="text-xs text-muted-foreground">Use placeholders like "{'{clientName}'}" and "{'{businessName}'}".</p></div>
                     </CardContent>
                 </Card>
             </TabsContent>
           </Tabs>
         </div>
       </main>
-
-        <AlertDialog open={!!tenantToDelete} onOpenChange={() => setTenantToDelete(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete the business location &quot;{tenantToDelete?.name}&quot; and all its associated data (services, clients, appointments, etc.). This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteTenant} className={buttonVariants({ variant: "destructive" })}>
-                        Yes, Delete
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
     </div>
   );
 }
