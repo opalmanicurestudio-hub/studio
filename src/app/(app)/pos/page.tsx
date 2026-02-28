@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState, getServicePrice } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState, getServicePrice, type Discount, type Membership, type Package } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -79,7 +80,6 @@ export default function POSPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
-    const [serviceToSelectProvider, setServiceToSelectProvider] = useState<Service | null>(null);
     
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
@@ -130,17 +130,6 @@ export default function POSPage() {
         });
     }, []);
 
-    // Auto-select client as payee when appointments are selected
-    useEffect(() => {
-        if (selectedAppointmentIds.size > 0 && !selectedClientId) {
-            const firstAptId = Array.from(selectedAppointmentIds)[0];
-            const aptData = readyForCheckoutAppointments.find(a => a.id === firstAptId);
-            if (aptData) {
-                setSelectedClientId(aptData.appointment.clientId);
-            }
-        }
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
-
     const handleScan = useCallback((data: string) => {
       const raw = data.trim();
       const id = raw.split('/').pop();
@@ -180,6 +169,9 @@ export default function POSPage() {
         return () => { if (html5QrCode?.isScanning) html5QrCode.stop(); };
     }, [isScannerOpen, handleScan, toast]);
 
+    // Financial calculations
+    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
     const subtotal = useMemo(() => {
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const aptData = readyForCheckoutAppointments.find(a => a.id === id);
@@ -194,7 +186,241 @@ export default function POSPage() {
         return servicesTotal + retailTotal;
     }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, redeemedOffer]);
 
-    const total = subtotal + (subtotal * 0.07) + tipAmount;
+    const { totalDiscountValue, membershipDiscountValue } = useMemo(() => {
+        let disc = 0;
+        let memDisc = 0;
+
+        // 1. Membership Retail Discount
+        if (selectedClientId) {
+            const client = clients.find(c => c.id === selectedClientId);
+            if (client?.activeMembershipId && redeemedOffer?.type === 'retail_discount') {
+                const membership = memberships.find(m => m.id === client.activeMembershipId);
+                const retailTotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                if (membership?.retailDiscount && retailTotal > 0) {
+                    memDisc = retailTotal * (membership.retailDiscount / 100);
+                }
+            }
+        }
+
+        // 2. Applied Discount Codes
+        appliedDiscountCodes.forEach(code => {
+            const d = discounts.find(disc => disc.code === code);
+            if (!d) return;
+
+            let basis = 0;
+            if (!d.applicableServiceIds || d.applicableServiceIds.length === 0) {
+                basis = subtotal;
+            } else {
+                const eligibleServicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
+                    const data = readyForCheckoutAppointments.find(a => a.id === id);
+                    if (!data) return acc;
+                    let sTotal = 0;
+                    if (d.applicableServiceIds?.includes(data.appointment.serviceId)) {
+                        sTotal += redeemedOffer?.id === data.appointment.serviceId ? 0 : getServicePrice(data.service, data.staff);
+                    }
+                    (data.appointment.addOnIds || []).forEach(addOnId => {
+                        if (d.applicableServiceIds?.includes(addOnId)) {
+                            const addOn = services.find(s => s.id === addOnId);
+                            if (addOn) sTotal += getServicePrice(addOn, data.staff);
+                        }
+                    });
+                    return acc + sTotal;
+                }, 0);
+                
+                const eligibleRetailTotal = retailItems.filter(item => d.applicableServiceIds?.includes(item.id))
+                    .reduce((acc, item) => acc + (item.price * item.quantity), 0);
+                
+                basis = eligibleServicesTotal + eligibleRetailTotal;
+            }
+
+            if (d.type === 'percentage') {
+                disc += basis * (d.value / 100);
+            } else {
+                disc += d.value;
+            }
+        });
+
+        return { totalDiscountValue: disc, membershipDiscountValue: memDisc };
+    }, [appliedDiscountCodes, discounts, subtotal, selectedAppointmentIds, readyForCheckoutAppointments, retailItems, selectedClientId, clients, memberships, redeemedOffer, services]);
+
+    const subtotalAfterDiscounts = Math.max(0, subtotal - (totalDiscountValue + membershipDiscountValue));
+    const tax = subtotalAfterDiscounts * 0.07;
+    const total = subtotalAfterDiscounts + tax + tipAmount;
+
+    // Auto-select client as payee when appointments are selected
+    useEffect(() => {
+        if (selectedAppointmentIds.size > 0 && !selectedClientId) {
+            const firstAptId = Array.from(selectedAppointmentIds)[0];
+            const aptData = readyForCheckoutAppointments.find(a => a.id === firstAptId);
+            if (aptData) {
+                setSelectedClientId(aptData.appointment.clientId);
+            }
+        }
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
+
+    const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
+        if (!selectedClientId && !isGroupCheckout && Array.from(selectedAppointmentIds).length === 0 && retailItems.length > 0) {
+            // Walk-in retail checkout is fine without client ID
+        } else if (!selectedClientId) {
+            toast({ variant: 'destructive', title: 'Payer Required', description: 'Please select a client or walk-in customer.' });
+            return;
+        }
+
+        setIsSubmitting(true);
+        const batch = writeBatch(firestore!);
+        const now = new Date();
+        const nowISO = now.toISOString();
+
+        try {
+            // 1. Process Appointments
+            for (const id of Array.from(selectedAppointmentIds)) {
+                const data = readyForCheckoutAppointments.find(a => a.id === id);
+                if (!data) continue;
+
+                const { appointment, service, staff: provider, client: aptClient } = data;
+                const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', appointment.id);
+                
+                batch.update(appointmentRef, { 
+                    status: 'completed',
+                    inventoryProcessed: true,
+                    discountAmount: (totalDiscountValue + membershipDiscountValue) / (selectedAppointmentIds.size || 1),
+                    appliedDiscountCode: appliedDiscountCodes.join(', ')
+                });
+
+                if (appointment.checkInToken) {
+                    batch.update(doc(firestore!, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed' });
+                }
+
+                const staffRef = doc(firestore!, 'tenants', tenantId!, 'staff', provider.id);
+                batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
+
+                const servicePrice = redeemedOffer?.id === service.id ? 0 : getServicePrice(service, provider);
+                const serviceTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                batch.set(serviceTxnRef, {
+                    date: nowISO,
+                    description: `Service: ${service.name}`,
+                    clientOrVendor: selectedClient?.name || 'Walk-in',
+                    clientId: selectedClientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Service Revenue',
+                    amount: servicePrice,
+                    paymentMethod: paymentDetails.paymentMethod,
+                    hasReceipt: true,
+                    staffId: provider.id,
+                    appointmentId: appointment.id,
+                });
+
+                data.addOnServices.forEach(addon => {
+                    const addonPrice = getServicePrice(addon, provider);
+                    const addonTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                    batch.set(addonTxnRef, {
+                        date: nowISO,
+                        description: `Add-on: ${addon.name}`,
+                        clientOrVendor: selectedClient?.name || 'Walk-in',
+                        clientId: selectedClientId,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Service Revenue',
+                        amount: addonPrice,
+                        paymentMethod: paymentDetails.paymentMethod,
+                        hasReceipt: true,
+                        staffId: provider.id,
+                        appointmentId: appointment.id,
+                    });
+                });
+            }
+
+            // 2. Process Retail
+            for (const item of retailItems) {
+                if (item.type === 'product') {
+                    const productRef = doc(firestore!, 'tenants', tenantId!, 'inventory', item.id);
+                    batch.update(productRef, { totalStock: increment(-item.quantity) });
+                }
+                
+                const retailTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                batch.set(retailTxnRef, {
+                    date: nowISO,
+                    description: `Retail: ${item.quantity}x ${item.name}`,
+                    clientOrVendor: selectedClient?.name || 'Walk-in',
+                    clientId: selectedClientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Retail',
+                    amount: item.price * item.quantity,
+                    paymentMethod: paymentDetails.paymentMethod,
+                    hasReceipt: true,
+                });
+            }
+
+            // 3. Process Tips
+            if (tipAmount > 0) {
+                const tipTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                batch.set(tipTxnRef, {
+                    date: nowISO,
+                    description: 'Gratuity',
+                    clientOrVendor: selectedClient?.name || 'Walk-in',
+                    clientId: selectedClientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Tips',
+                    amount: tipAmount,
+                    paymentMethod: paymentDetails.paymentMethod,
+                    hasReceipt: true,
+                    staffId: readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.staff?.id,
+                });
+            }
+
+            // 4. Update Discounts
+            appliedDiscountCodes.forEach(code => {
+                const d = discounts.find(disc => disc.code === code);
+                if (d) {
+                    batch.update(doc(firestore!, 'tenants', tenantId!, 'discounts', d.id), { usageCount: increment(1) });
+                }
+            });
+
+            await batch.commit();
+            
+            setReceiptToPrint({
+                business: { name: selectedTenant?.name || 'ClarityFlow', phone: selectedTenant?.twilioPhoneNumber || '' },
+                clientName: selectedClient?.name || 'Walk-in Customer',
+                date: now,
+                items: [
+                    ...readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).flatMap(a => [
+                        { name: a.service.name, quantity: 1, price: redeemedOffer?.id === a.service.id ? 0 : getServicePrice(a.service, a.staff) },
+                        ...a.addOnServices.map(addon => ({ name: addon.name, quantity: 1, price: getServicePrice(addon, a.staff) }))
+                    ]),
+                    ...retailItems.map(i => ({ name: i.name, quantity: i.quantity, price: i.price }))
+                ],
+                subtotal,
+                discount: totalDiscountValue + membershipDiscountValue,
+                tax,
+                tip: tipAmount,
+                total,
+                payment: {
+                    method: paymentDetails.paymentMethod,
+                    amountTendered: paymentDetails.amountTendered || total,
+                    changeDue: (paymentDetails.amountTendered || total) - total
+                }
+            });
+            setIsReceiptDialogOpen(true);
+            
+            // Reset
+            setRetailItems([]);
+            setSelectedAppointmentIds(new Set());
+            setSelectedClientId(null);
+            setTipAmount(0);
+            setAppliedDiscountCodes([]);
+            setRedeemedOffer(null);
+            toast({ title: 'Sale Complete!' });
+
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: 'Checkout Failed' });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     const handleFinishService = (apt: Appointment) => {
         setAppointmentToReview(apt);
@@ -204,33 +430,24 @@ export default function POSPage() {
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
         if (!firestore || !tenantId) return;
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
         updateDocumentNonBlocking(appointmentRef, {
             status: 'ready_for_checkout',
             checkoutState,
             actualEndTime: new Date().toISOString(),
         });
-        
         const appointment = appointments?.find(a => a.id === appointmentId);
         if (appointment?.checkInToken) {
-            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-            updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'ready_for_checkout' });
         }
-
-        toast({
-            title: "Service Finished",
-            description: "The appointment has been sent to the front desk for checkout."
-        });
         setIsTechnicianReviewOpen(false);
         setIsDetailsOpen(false);
+        toast({ title: "Service Finished", description: "Client sent to checkout queue." });
     };
 
     const handleStartService = (id: string) => {
         if (!firestore || !tenantId) return;
         const now = new Date().toISOString();
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
-        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: now });
-        
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
         const apt = appointments?.find(a => a.id === id);
         if (apt?.checkInToken) {
             updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
@@ -241,9 +458,7 @@ export default function POSPage() {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
           const aptData = readyForCheckoutAppointments.find(a => a.id === aptId);
-          if (aptData) {
-            clientIds.add(aptData.appointment.clientId);
-          }
+          if (aptData) clientIds.add(aptData.appointment.clientId);
         });
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
@@ -261,15 +476,15 @@ export default function POSPage() {
         onAddClientClick: () => setIsAddClientOpen(true),
         onScanClick: () => setIsScannerOpen(true),
         subtotal,
-        tax: subtotal * 0.07,
+        tax,
         total,
         tipAmount,
         setTipAmount,
-        onCheckout: () => setIsReceiptDialogOpen(true),
+        onCheckout: handleCheckout,
         appliedDiscountCodes,
         setAppliedDiscountCodes,
-        discount: 0,
-        membershipDiscount: 0,
+        discount: totalDiscountValue,
+        membershipDiscount: membershipDiscountValue,
         isSubmitting,
         paymentTab,
         setPaymentTab,
@@ -379,6 +594,16 @@ export default function POSPage() {
               </DialogContent>
             </Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={(d) => { if (!firestore || !selectedTenant) return; const newClient = { ...d, id: nanoid(), lifetimeValue: 0, lastAppointment: new Date().toISOString(), status: 'active' as const }; setDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'clients', newClient.id), newClient, {}); toast({ title: "Client Added" }); }} />
+            
+            {receiptToPrint && (
+                <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+                    <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
+                        <DialogHeader><DialogTitle>Receipt</DialogTitle></DialogHeader>
+                        <PrintReceipt data={receiptToPrint} />
+                        <DialogFooter><Button onClick={() => window.print()}>Print</Button></DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
         </>
     );
 }
