@@ -27,7 +27,7 @@ interface WaitingCustomerCardProps {
     services: Service[] | null;
     staffList: Staff[] | null;
     onAssign: () => void;
-    onCancel: (id: string) => void;
+    onCancel: (id: string, isWalkIn: boolean) => void;
     onMoveToFront?: (id: string) => void;
     onPrintTicket: (id: string) => void;
     groupSize?: number;
@@ -225,8 +225,8 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                                 <TooltipContent><p>More Actions</p></TooltipContent>
                             </Tooltip>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => onCancel(item.id)} className="text-destructive">
-                                    <Trash2 className="w-4 h-4 mr-2" /> Cancel Walk-in
+                                <DropdownMenuItem onClick={() => onCancel(item.id, isWalkIn)} className="text-destructive">
+                                    <Trash2 className="w-4 h-4 mr-2" /> Cancel {isWalkIn ? 'Walk-in' : 'Appointment'}
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>

@@ -35,7 +35,7 @@ interface WalkInQueueProps {
     onSelectAppointment: (id: string) => void;
     onAssignStaff: (walkIn: WalkIn, staffId: string) => void;
     onAssignNext: () => void;
-    onCancel: (walkInId: string) => void;
+    onCancel: (id: string, isWalkIn: boolean) => void;
     onStartService: (appointmentId: string) => void;
     orderedWaitingQueue: WalkIn[];
     onReorder: (newOrder: WalkIn[]) => void;
@@ -195,7 +195,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         staff={staff}
                                         onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)}
                                         onSkip={onSkip}
-                                        onCancel={onCancel}
+                                        onCancel={(id) => onCancel(id, true)}
                                         onReturnToQueue={onReturnToQueue}
                                     />
                                 ))

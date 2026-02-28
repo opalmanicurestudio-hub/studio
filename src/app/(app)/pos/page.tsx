@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -36,6 +36,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -82,6 +83,8 @@ export default function POSPage() {
     
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
+    const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+    const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
 
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
     const [authPin, setAuthPin] = useState('');
@@ -433,217 +436,108 @@ export default function POSPage() {
         toast({ variant: 'destructive', title: 'No Suitable Match', description: "No available qualified staff member found." });
     };
 
-    const handleCancelWalkIn = (walkInId: string) => {
+    const handleCancelArrival = (id: string, isWalkIn: boolean) => {
         if (!firestore || !tenantId) return;
         
-        setConfirmation({
-            isOpen: true,
-            title: 'Cancel Walk-in?',
-            description: 'This will remove the client from the queue. This action cannot be undone.',
-            onConfirm: async () => {
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                const walkIn = walkIns?.find(w => w.id === walkInId);
-                
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { status: 'cancelled' });
-
-                if (walkIn && walkIn.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkIn.id}`;
-                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
-                }
-
-                await batch.commit();
-                toast({ title: "Walk-in Cancelled" });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleStartService = (appointmentId: string) => {
-      if (!firestore || !selectedTenant?.id || !appointments) return;
-      const tenantId = selectedTenant.id;
-      const appointment = appointments.find(a => a.id === appointmentId);
-      if (!appointment) return;
-
-      const nowISO = new Date().toISOString();
-      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-      
-      const batch = writeBatch(firestore);
-      batch.update(appointmentRef, {
-          status: 'servicing',
-          actualStartTime: nowISO
-      });
-
-      if (appointment.checkInToken) {
-          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-          batch.update(checkInRef, { status: 'servicing' });
-      }
-      
-      if (appointment.staffId) {
-          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-          batch.update(staffDocRef, { status: 'busy' });
-      }
-      
-      if(appointment.isWalkIn) {
-          const walkInId = appointment.id.replace('apt-walkin-', '');
-          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-          batch.update(walkInRef, {
-              status: 'servicing',
-              serviceStartTime: nowISO,
-          });
-      }
-
-      batch.commit().then(() => {
-          toast({ title: "Service Started" });
-      });
-    };
-
-    const handleReturnToQueue = (walkInId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Return to Arrivals Waitlist?',
-            description: `This will remove ${walkIn?.customerName}'s staff assignment and move them back to the waitlist.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                const appointmentId = `apt-walkin-${walkInId}`;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { 
-                    status: 'waiting', 
-                    assignedStaffId: deleteField(),
-                    notifiedTimestamp: deleteField() 
-                });
-                batch.delete(appointmentRef);
-
-                if (walkIn?.assignedStaffId) {
-                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
-                    batch.update(staffDocRef, { status: 'idle' });
-                }
-
-                batch.commit().then(() => {
-                    toast({ title: "Moved back to waitlist", description: "Staff assignment has been cleared." });
-                });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleRevertToReady = (appointmentId: string) => {
-        const appointment = appointments.find(a => a.id === appointmentId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Stop Service & Revert to Ready?',
-            description: `This will stop the active timer for ${appointment?.clientName} and move them back to the Ready lane.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                
-                const updateData: any = { 
-                    status: 'confirmed', 
-                    actualStartTime: deleteField() 
-                };
-
-                const batch = writeBatch(firestore);
-                batch.update(appointmentRef, updateData);
-
-                if (appointment?.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-                    batch.update(checkInRef, { status: 'confirmed' });
-                }
-
-                if (appointment?.staffId) {
-                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-                    batch.update(staffDocRef, { status: 'idle' });
-                }
-
-                if (appointment?.isWalkIn) {
-                    const walkInId = appointmentId.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                    batch.update(walkInRef, { status: 'notified', serviceStartTime: deleteField() });
-                }
-
-                batch.commit().then(() => {
-                    toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
-                });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleRevertToService = (appointmentId: string) => {
-        const appointment = appointments.find(a => a.id === appointmentId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Revert to In Service?',
-            description: `This will move ${appointment?.clientName} back from Checkout into the In Service lane.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                
-                const batch = writeBatch(firestore);
-                batch.update(appointmentRef, { 
-                    status: 'servicing', 
-                    actualEndTime: deleteField() 
-                });
-
-                if (appointment?.checkInToken) {
-                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-                    batch.update(checkInRef, { status: 'servicing' });
-                }
-
-                if (appointment?.staffId) {
-                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-                    batch.update(staffDocRef, { status: 'busy' });
-                }
-
-                if (appointment?.isWalkIn) {
-                    const walkInId = appointmentId.replace('apt-walkin-', '');
-                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                    batch.update(walkInRef, { status: 'servicing', serviceEndTime: deleteField() });
-                }
-
-                batch.commit().then(() => {
-                    toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
-                });
-                setConfirmation(null);
-            }
-        });
-    };
-
-    const handleSkip = (walkInId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        setConfirmation({
-            isOpen: true,
-            title: 'Skip Customer?',
-            description: `This will mark ${walkIn?.customerName} as skipped (No-Show). This impacts their reliability score.`,
-            onConfirm: () => {
-                if (!firestore || !tenantId) return;
-                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                const batch = writeBatch(firestore);
-                batch.update(walkInRef, { status: 'skipped' });
-                
-                if (walkIn?.assignedStaffId) {
-                    const appointmentId = `apt-walkin-${walkInId}`;
-                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+        if (isWalkIn) {
+            setConfirmation({
+                isOpen: true,
+                title: 'Cancel Walk-in?',
+                description: 'This will remove the client from the queue. This action cannot be undone.',
+                onConfirm: async () => {
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', id);
+                    const walkIn = walkIns?.find(w => w.id === id);
                     
-                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
-                    batch.update(staffDocRef, { status: 'idle' });
+                    const batch = writeBatch(firestore);
+                    batch.update(walkInRef, { status: 'cancelled' });
+
+                    if (walkIn && walkIn.assignedStaffId) {
+                        const appointmentId = `apt-walkin-${walkIn.id}`;
+                        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                        batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'client_request' });
+                    }
+
+                    await batch.commit();
+                    toast({ title: "Walk-in Cancelled" });
+                    setConfirmation(null);
                 }
-                
-                batch.commit().then(() => {
-                    toast({ title: "Customer Skipped", description: "Marked as no-show." });
-                });
-                setConfirmation(null);
+            });
+        } else {
+            const apt = appointments.find(a => a.id === id);
+            if (apt) {
+                setAppointmentToCancel(apt);
+                setIsCancelDialogOpen(true);
             }
-        });
+        }
     };
 
-    // Calculate totals for the current sale
+    const handleConfirmCancellation = async (data: { 
+        reason: string; 
+        chargeFee: boolean; 
+        feeAmount: number;
+        paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
+    }) => {
+        if (!appointmentToCancel || !firestore || !tenantId) return;
+
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentToCancel.id);
+        const clientRef = doc(firestore, 'tenants', tenantId, 'clients', appointmentToCancel.clientId);
+
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        // 1. Update Appointment
+        batch.update(appointmentRef, {
+            status: 'cancelled',
+            cancellationReason: data.reason,
+            cancellationFeeApplied: data.feeAmount,
+            cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
+        });
+
+        // 2. Handle Fee Collection
+        if (data.chargeFee && data.feeAmount > 0) {
+            if (data.paymentMethod === 'card_on_file') {
+                const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(transactionRef, {
+                    date: now,
+                    description: `Cancellation Fee: ${appointmentToCancel.clientName} (#${appointmentToCancel.id.slice(-6).toUpperCase()})`,
+                    clientOrVendor: appointmentToCancel.clientName || 'Client',
+                    clientId: appointmentToCancel.clientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Cancellation Fee',
+                    amount: data.feeAmount,
+                    paymentMethod: 'Card on File',
+                    hasReceipt: false,
+                    appointmentId: appointmentToCancel.id,
+                });
+                toast({ title: "Card Charged Successfully" });
+            } else if (data.paymentMethod === 'add_to_balance') {
+                const feeId = nanoid();
+                const feeEntry = {
+                    feeId,
+                    appointmentId: appointmentToCancel.id,
+                    appointmentDate: appointmentToCancel.startTime instanceof Date ? appointmentToCancel.startTime.toISOString() : appointmentToCancel.startTime,
+                    feeAmount: data.feeAmount,
+                    reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
+                };
+                batch.update(clientRef, {
+                    unpaidFees: arrayUnion(feeEntry),
+                    outstandingBalance: increment(data.feeAmount)
+                });
+                toast({ title: "Fee Added to Balance" });
+            }
+        }
+
+        try {
+            await batch.commit();
+            setIsCancelDialogOpen(false);
+            setAppointmentToCancel(null);
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to process cancellation.' });
+        }
+    };
+
     const { subtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
@@ -1083,21 +977,21 @@ export default function POSPage() {
                                         staff={staff} 
                                         onAssignStaff={handleAssignStaff}
                                         onAssignNext={handleAssignNext}
-                                        onCancel={handleCancelWalkIn}
+                                        onCancel={handleCancelArrival}
                                         onStartService={handleStartService}
                                         orderedWaitingQueue={[]}
                                         onReorder={() => {}}
                                         assignmentMode={assignmentMode}
                                         onPrintTicket={() => {}}
-                                        onSkip={handleSkip}
-                                        onReturnToQueue={handleReturnToQueue}
+                                        onSkip={(id) => handleCheckInStatusUpdate(id, true, 'skipped')}
+                                        onReturnToQueue={(id) => handleCheckInStatusUpdate(id, true, 'waiting')}
                                         groupSizes={new Map()}
                                         onToggleWaitForStaff={() => {}}
                                         onScanClick={() => setIsScannerOpen(true)}
                                         onFinishService={handleFinishService}
                                         onUpdateStatus={handleCheckInStatusUpdate}
-                                        onRevertToReady={handleRevertToReady}
-                                        onRevertToService={handleRevertToService}
+                                        onRevertToReady={(id) => handleCheckInStatusUpdate(id, false, 'pending')}
+                                        onRevertToService={(id) => handleCheckInStatusUpdate(id, false, 'servicing')}
                                     />
                                 </CardContent>
                             </Card>
@@ -1156,9 +1050,10 @@ export default function POSPage() {
                 onStartService={handleStartService} 
                 onFinishService={handleFinishService} 
                 onEdit={() => {}} onDelete={() => {}} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}}
-                onCancel={(id) => handleCheckInStatusUpdate(id, false, 'auto_cancelled')}
+                onCancel={(id) => handleCancelArrival(id, false)}
                 resources={[]}
                 onOverride={() => {}}
+                onWaiveFee={() => {}}
             />
 
             {appointmentToReview && (
@@ -1209,6 +1104,16 @@ export default function POSPage() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+            )}
+
+            {appointmentToCancel && (
+                <CancelAppointmentDialog
+                    open={isCancelDialogOpen}
+                    onOpenChange={setIsCancelDialogOpen}
+                    appointment={appointmentToCancel}
+                    tenant={selectedTenant}
+                    onConfirm={handleConfirmCancellation}
+                />
             )}
 
             <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
