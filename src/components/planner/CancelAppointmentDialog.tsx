@@ -14,11 +14,13 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
 import { DollarSign, AlertTriangle, CreditCard, Landmark, Loader, Clock, Ban, Info, TrendingDown, Calculator } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
-import { differenceInHours, differenceInMinutes } from 'date-fns';
+import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 
 interface CancelAppointmentDialogProps {
