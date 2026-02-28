@@ -735,7 +735,7 @@ export default function SettingsPage() {
                             <CardDescription>Configure your third-party messaging providers and templates.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">{isSmsEditing ? (<><Button variant="outline" onClick={handleSmsCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleSmsSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleSmsEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}</div>
-                    </Header>
+                    </CardHeader>
                     <CardContent className="space-y-6">
                         <div className="space-y-2"><Label htmlFor="twilio-sid">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} /></div>
                         <div className="space-y-2"><Label htmlFor="twilio-token">Twilio Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••••••••••••••" disabled={!isSmsEditing}/></div>
