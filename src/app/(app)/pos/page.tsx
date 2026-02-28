@@ -65,6 +65,7 @@ export default function POSPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
+    const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -733,68 +734,116 @@ export default function POSPage() {
     }
 
     const handleReturnToQueue = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-        const appointmentId = `apt-walkin-${walkInId}`;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Return to Arrivals Waitlist?',
+            description: `This will remove ${walkIn?.customerName}'s staff assignment and move them back to the waitlist.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                const appointmentId = `apt-walkin-${walkInId}`;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
 
-        const batch = writeBatch(firestore);
-        batch.update(walkInRef, { 
-            status: 'waiting', 
-            assignedStaffId: deleteField(),
-            notifiedTimestamp: deleteField() 
-        });
-        batch.delete(appointmentRef);
+                const batch = writeBatch(firestore);
+                batch.update(walkInRef, { 
+                    status: 'waiting', 
+                    assignedStaffId: deleteField(),
+                    notifiedTimestamp: deleteField() 
+                });
+                batch.delete(appointmentRef);
 
-        batch.commit().then(() => {
-            toast({ title: "Moved back to queue", description: "Assignment has been cleared." });
+                batch.commit().then(() => {
+                    toast({ title: "Moved back to waitlist", description: "Staff assignment has been cleared." });
+                });
+                setConfirmation(null);
+            }
         });
     };
 
     const handleRevertToReady = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
-        const updateData: any = { 
-            status: 'confirmed', 
-            actualStartTime: deleteField() 
-        };
-
-        updateDocumentNonBlocking(appointmentRef, updateData);
-
         const appointment = appointments.find(a => a.id === appointmentId);
-        if (appointment?.checkInToken) {
-            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
-        }
+        setConfirmation({
+            isOpen: true,
+            title: 'Stop Service & Revert to Ready?',
+            description: `This will stop the active timer for ${appointment?.clientName} and move them back to the Ready lane.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                
+                const updateData: any = { 
+                    status: 'confirmed', 
+                    actualStartTime: deleteField() 
+                };
 
-        if (appointment?.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
-        }
+                updateDocumentNonBlocking(appointmentRef, updateData);
 
-        toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+                if (appointment?.checkInToken) {
+                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
+                }
+
+                if (appointment?.isWalkIn) {
+                    const walkInId = appointmentId.replace('apt-walkin-', '');
+                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+                }
+
+                toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+                setConfirmation(null);
+            }
+        });
     };
 
     const handleRevertToService = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
-        updateDocumentNonBlocking(appointmentRef, { 
-            status: 'servicing', 
-            actualEndTime: deleteField() 
-        });
-
         const appointment = appointments.find(a => a.id === appointmentId);
-        if (appointment?.checkInToken) {
-            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
-        }
+        setConfirmation({
+            isOpen: true,
+            title: 'Revert to In Service?',
+            description: `This will move ${appointment?.clientName} back from Checkout into the In Service lane.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                
+                updateDocumentNonBlocking(appointmentRef, { 
+                    status: 'servicing', 
+                    actualEndTime: deleteField() 
+                });
 
-        if (appointment?.isWalkIn) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
-        }
+                if (appointment?.checkInToken) {
+                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
+                }
 
-        toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+                if (appointment?.isWalkIn) {
+                    const walkInId = appointmentId.replace('apt-walkin-', '');
+                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
+                }
+
+                toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleSkip = (walkInId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        setConfirmation({
+            isOpen: true,
+            title: 'Skip Customer?',
+            description: `This will mark ${walkIn?.customerName} as skipped (No-Show). This impacts their reliability score.`,
+            onConfirm: () => {
+                if (!firestore || !tenantId) return;
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                updateDocumentNonBlocking(walkInRef, { status: 'skipped' });
+                
+                if (walkIn?.assignedStaffId) {
+                    const appointmentId = `apt-walkin-${walkInId}`;
+                    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+                    updateDocumentNonBlocking(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+                }
+                
+                toast({ title: "Customer Skipped", description: "Marked as no-show." });
+                setConfirmation(null);
+            }
+        });
     };
 
     const payerOptions = useMemo(() => {
@@ -887,13 +936,13 @@ export default function POSPage() {
                                         staff={staff} 
                                         onAssignStaff={handleAssignStaff}
                                         onAssignNext={handleAssignNext}
-                                        onCancel={() => {}}
+                                        onCancel={handleCancelWalkIn}
                                         onStartService={handleStartService}
                                         orderedWaitingQueue={[]}
                                         onReorder={() => {}}
                                         assignmentMode={assignmentMode}
                                         onPrintTicket={() => {}}
-                                        onSkip={() => {}}
+                                        onSkip={handleSkip}
                                         onReturnToQueue={handleReturnToQueue}
                                         groupSizes={new Map()}
                                         onToggleWaitForStaff={() => {}}
@@ -997,6 +1046,21 @@ export default function POSPage() {
                         <DialogFooter><Button onClick={() => window.print()}>Print</Button></DialogFooter>
                     </DialogContent>
                 </Dialog>
+            )}
+
+            {confirmation && (
+                <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
+                            <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={confirmation.onConfirm}>Confirm Action</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             )}
         </>
     );
