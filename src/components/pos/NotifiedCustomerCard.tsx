@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, SkipForward, Play, XCircle, MoreHorizontal, Users } from 'lucide-react';
+import { User, Clock, CheckCircle, SkipForward, Play, XCircle, MoreHorizontal, Users, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
