@@ -53,7 +53,7 @@ import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, writeBatch } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -550,31 +550,63 @@ const StaffDashboardView = () => {
       const nowISO = new Date().toISOString();
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
       
-      updateDocumentNonBlocking(appointmentRef, {
+      const batch = writeBatch(firestore);
+      batch.update(appointmentRef, {
           status: 'servicing',
           actualStartTime: nowISO
       });
 
       if (appointment.checkInToken) {
           const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-          updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+          batch.update(checkInRef, { status: 'servicing' });
       }
       
       if (appointment.staffId) {
           const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-          updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+          batch.update(staffDocRef, { status: 'busy' });
       }
       
       if(appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-          updateDocumentNonBlocking(walkInRef, {
+          batch.update(walkInRef, {
               status: 'servicing',
               serviceStartTime: nowISO,
           });
       }
 
-      toast({ title: "Service Started" });
+      batch.commit().then(() => {
+          toast({ title: "Service Started" });
+      });
+    };
+
+    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+        if (!firestore || !selectedTenant?.id) return;
+        const tenantId = selectedTenant.id;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        const batch = writeBatch(firestore);
+        batch.update(appointmentRef, {
+            status: 'ready_for_checkout',
+            checkoutState,
+            actualEndTime: new Date().toISOString(),
+        });
+        
+        const appointment = appointments?.find(a => a.id === appointmentId);
+        if (appointment?.checkInToken) {
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+            batch.update(checkInRef, { status: 'ready_for_checkout' });
+        }
+
+        if (appointment?.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+            batch.update(staffDocRef, { status: 'idle' });
+        }
+
+        batch.commit().then(() => {
+            toast({ title: "Service Finished", description: "Client sent to front desk." });
+            setIsDetailsSheetOpen(false);
+        });
     };
 
     const upcomingAppointments = useMemo(() => {

@@ -422,15 +422,41 @@ export default function POSPage() {
         });
     };
 
-    const handleStartService = (id: string) => {
-        if (!firestore || !tenantId) return;
-        const now = new Date().toISOString();
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
-        const apt = appointments?.find(a => a.id === id);
-        if (apt?.checkInToken) {
-            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
-        }
-    }
+    const handleStartService = (appointmentId: string) => {
+      if (!firestore || !selectedTenant?.id || !appointments) return;
+      const tenantId = selectedTenant.id;
+      const appointment = appointments.find(a => a.id === appointmentId);
+      if (!appointment) return;
+
+      const nowISO = new Date().toISOString();
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+      
+      updateDocumentNonBlocking(appointmentRef, {
+          status: 'servicing',
+          actualStartTime: nowISO
+      });
+
+      if (appointment.checkInToken) {
+          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+          updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+      }
+      
+      if (appointment.staffId) {
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+          updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+      }
+      
+      if(appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+          updateDocumentNonBlocking(walkInRef, {
+              status: 'servicing',
+              serviceStartTime: nowISO,
+          });
+      }
+
+      toast({ title: "Service Started" });
+    };
 
     const handleReturnToQueue = (walkInId: string) => {
         const walkIn = walkIns?.find(w => w.id === walkInId);
@@ -451,6 +477,11 @@ export default function POSPage() {
                     notifiedTimestamp: deleteField() 
                 });
                 batch.delete(appointmentRef);
+
+                if (walkIn?.assignedStaffId) {
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
+                    batch.update(staffDocRef, { status: 'idle' });
+                }
 
                 batch.commit().then(() => {
                     toast({ title: "Moved back to waitlist", description: "Staff assignment has been cleared." });
@@ -475,18 +506,28 @@ export default function POSPage() {
                     actualStartTime: deleteField() 
                 };
 
-                updateDocumentNonBlocking(appointmentRef, updateData);
+                const batch = writeBatch(firestore);
+                batch.update(appointmentRef, updateData);
 
                 if (appointment?.checkInToken) {
-                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'confirmed' });
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+                    batch.update(checkInRef, { status: 'confirmed' });
+                }
+
+                if (appointment?.staffId) {
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+                    batch.update(staffDocRef, { status: 'idle' });
                 }
 
                 if (appointment?.isWalkIn) {
                     const walkInId = appointmentId.replace('apt-walkin-', '');
-                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                    batch.update(walkInRef, { status: 'notified', serviceStartTime: deleteField() });
                 }
 
-                toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+                batch.commit().then(() => {
+                    toast({ title: "Service Reverted", description: "Appointment moved back to Ready lane." });
+                });
                 setConfirmation(null);
             }
         });
@@ -502,21 +543,31 @@ export default function POSPage() {
                 if (!firestore || !tenantId) return;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
                 
-                updateDocumentNonBlocking(appointmentRef, { 
+                const batch = writeBatch(firestore);
+                batch.update(appointmentRef, { 
                     status: 'servicing', 
                     actualEndTime: deleteField() 
                 });
 
                 if (appointment?.checkInToken) {
-                    updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
+                    const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+                    batch.update(checkInRef, { status: 'servicing' });
+                }
+
+                if (appointment?.staffId) {
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+                    batch.update(staffDocRef, { status: 'busy' });
                 }
 
                 if (appointment?.isWalkIn) {
                     const walkInId = appointmentId.replace('apt-walkin-', '');
-                    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
+                    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+                    batch.update(walkInRef, { status: 'servicing', serviceEndTime: deleteField() });
                 }
 
-                toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+                batch.commit().then(() => {
+                    toast({ title: "Status Reverted", description: "Appointment moved back to In Service." });
+                });
                 setConfirmation(null);
             }
         });
@@ -531,15 +582,21 @@ export default function POSPage() {
             onConfirm: () => {
                 if (!firestore || !tenantId) return;
                 const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-                updateDocumentNonBlocking(walkInRef, { status: 'skipped' });
+                const batch = writeBatch(firestore);
+                batch.update(walkInRef, { status: 'skipped' });
                 
                 if (walkIn?.assignedStaffId) {
                     const appointmentId = `apt-walkin-${walkInId}`;
                     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-                    updateDocumentNonBlocking(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+                    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: 'no-show' });
+                    
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
+                    batch.update(staffDocRef, { status: 'idle' });
                 }
                 
-                toast({ title: "Customer Skipped", description: "Marked as no-show." });
+                batch.commit().then(() => {
+                    toast({ title: "Customer Skipped", description: "Marked as no-show." });
+                });
                 setConfirmation(null);
             }
         });
@@ -844,18 +901,28 @@ export default function POSPage() {
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
         if (!firestore || !tenantId) return;
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, {
+        
+        const batch = writeBatch(firestore);
+        batch.update(appointmentRef, {
             status: 'ready_for_checkout',
             checkoutState,
             actualEndTime: new Date().toISOString(),
         });
         const appointment = appointments?.find(a => a.id === appointmentId);
         if (appointment?.checkInToken) {
-            updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'ready_for_checkout' });
+            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+            batch.update(checkInRef, { status: 'ready_for_checkout' });
         }
-        setIsTechnicianReviewOpen(false);
-        setIsDetailsOpen(false);
-        toast({ title: "Service Finished", description: "Client sent to checkout queue." });
+        if (appointment?.staffId) {
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+            batch.update(staffDocRef, { status: 'idle' });
+        }
+        
+        batch.commit().then(() => {
+            setIsTechnicianReviewOpen(false);
+            setIsDetailsOpen(false);
+            toast({ title: "Service Finished", description: "Client sent to checkout queue." });
+        });
     };
 
     const payerOptions = useMemo(() => {

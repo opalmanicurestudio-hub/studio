@@ -165,9 +165,6 @@ function PlannerPageContent() {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
-    events?.filter(e => isSameDay(e.startTime, currentDate)).forEach(e => {
-        if (activeView === 'staff') { if (e.staffId && map.has(e.staffId)) map.get(e.staffId)!.push({ ...e, itemType: 'event' } as any); }
-    });
     map.forEach(items => items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     return map;
   }, [currentDate, appointments, events, staff, resources, activeView]);
@@ -241,7 +238,8 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     
-    updateDocumentNonBlocking(appointmentRef, {
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, {
         status: 'ready_for_checkout',
         checkoutState,
         actualEndTime: new Date().toISOString(),
@@ -250,15 +248,22 @@ function PlannerPageContent() {
     const appointment = appointments?.find(a => a.id === appointmentId);
     if (appointment?.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+        batch.update(checkInRef, { status: 'ready_for_checkout' });
     }
 
-    toast({
-        title: "Service Finished",
-        description: "The appointment has been sent to the front desk for checkout."
+    if (appointment?.staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+        batch.update(staffDocRef, { status: 'idle' });
+    }
+
+    batch.commit().then(() => {
+        toast({
+            title: "Service Finished",
+            description: "The appointment has been sent to the front desk for checkout."
+        });
+        setIsTechnicianReviewOpen(false);
+        setIsDetailsOpen(false);
     });
-    setIsTechnicianReviewOpen(false);
-    setIsDetailsOpen(false);
   };
 
   const handleAddAppointment = async (data: any) => {
@@ -281,12 +286,22 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const now = new Date().toISOString();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
-    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: now });
+    
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, { status: 'servicing', actualStartTime: now });
     
     const apt = appointments?.find(a => a.id === id);
     if (apt?.checkInToken) {
-        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'servicing' });
+        const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+        batch.update(checkInRef, { status: 'servicing' });
     }
+
+    if (apt?.staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', apt.staffId);
+        batch.update(staffDocRef, { status: 'busy' });
+    }
+
+    batch.commit();
   };
 
   const handleAddEvent = (data: any) => {
