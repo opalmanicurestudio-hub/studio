@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -34,10 +35,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
-    if (reason.toLowerCase().includes('appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    if (reason.toLowerCase().includes('shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
-    if (reason.toLowerCase().includes('manual use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    if (reason.toLowerCase().includes('retail sale')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    const r = reason.toLowerCase();
+    if (r.includes('appointment') || r.includes('service')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (r.includes('shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    if (r.includes('manual use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (r.includes('retail sale')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     return <RefreshCw className="h-4 w-4 text-gray-500" />;
 }
 
@@ -143,12 +145,13 @@ export default function ProductDetailPage() {
         }
         
         let displayReason = correction.reason;
-        if (correction.reason.startsWith('Appointment #')) {
+        // Old style ID lookup fallback
+        if (correction.reason.startsWith('Appointment #') && !correction.reason.includes(' for ')) {
             const parts = correction.reason.split(' by ');
-            const appointmentId = parts[0].replace('Appointment #', '');
+            const shortId = parts[0].replace('Appointment #', '').toUpperCase();
             const staffName = parts[1] || 'Unknown Staff';
             
-            const appointment = appointments.find(apt => apt.id === appointmentId);
+            const appointment = appointments.find(apt => apt.id.toUpperCase().endsWith(shortId));
             const clientName = appointment ? (clients.find(c => c.id === appointment.clientId)?.name) : 'Unknown Client';
             displayReason = `Service for ${clientName} by ${staffName}`;
         }

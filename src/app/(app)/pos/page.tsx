@@ -289,6 +289,7 @@ export default function POSPage() {
 
                 const { appointment, service, staff: provider, client: aptClient } = data;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+                const shortTicketId = appointment.id.slice(-6).toUpperCase();
                 
                 // Inventory Logic: Professional Products from Formula
                 if (appointment.checkoutState?.formula) {
@@ -328,7 +329,7 @@ export default function POSPage() {
                             date: nowISO,
                             change: -qty,
                             unit: pState.costingMethod === 'uses' ? (pState.useUnit || 'uses') : (pState.unit || 'units'),
-                            reason: `Appointment #${appointment.id.slice(-6).toUpperCase()} by ${provider.name}`
+                            reason: `Service: ${service.name} (#${shortTicketId}) for ${aptClient.name} by ${provider.name}`
                         });
                     }
                 }
@@ -406,7 +407,7 @@ export default function POSPage() {
                         date: nowISO,
                         change: -item.quantity,
                         unit: 'units',
-                        reason: 'Retail Sale'
+                        reason: `Retail Sale: ${item.name} to ${selectedClient?.name || 'Walk-in'}`
                     });
                 }
                 
