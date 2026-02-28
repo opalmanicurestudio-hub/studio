@@ -3,12 +3,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, QrCode, BookOpen, TicketIcon, User as UserIcon, Scissors } from 'lucide-react';
-import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays, getDay, parse } from 'date-fns';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors } from 'lucide-react';
+import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { type Appointment, type Client, type Service, type Event, type Tenant, type Staff } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -16,11 +16,6 @@ import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking,
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -111,6 +106,28 @@ const CancelledView = ({ tenantId }: { tenantId?: string }) => (
     </Card>
 );
 
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (!timeStr) {
+      return d;
+    }
+
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
+    d.setHours(hours, minutes);
+    return d;
+}
+
 export default function CheckInPage() {
     const params = useParams();
     const router = useRouter();
@@ -197,9 +214,9 @@ export default function CheckInPage() {
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
-    const handlePreviousWeek = () => setDate(prev => subWeeks(prev, 1));
-    const handleNextWeek = () => setDate(prev => addWeeks(prev, 1));
-    const handleDateSelect = (day: Date) => setDate(day);
+    const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
+    const handleDateSelect = (day: Date) => setRescheduleDate(day);
 
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !allAppointments || !publicScheduleProfile) return [];
@@ -209,16 +226,8 @@ export default function CheckInPage() {
         const businessDayHours = publicScheduleProfile.week[dayName];
         if (!businessDayHours || !businessDayHours.enabled) return [];
         
-        const openTimeParts = businessDayHours.start.match(/(\d+):(\d+) (AM|PM)/);
-        const closeTimeParts = businessDayHours.end.match(/(\d+):(\d+) (AM|PM)/);
-
-        if (!openTimeParts || !closeTimeParts) return [];
-
-        let openHour = parseInt(openTimeParts[1]); if (openTimeParts[3] === 'PM' && openHour < 12) openHour += 12; if (openTimeParts[3] === 'AM' && openHour === 12) openHour = 0;
-        let closeHour = parseInt(closeTimeParts[1]); if (closeTimeParts[3] === 'PM' && closeHour < 12) closeHour += 12; if (closeTimeParts[3] === 'AM' && closeHour === 12) closeHour = 0;
-
-        const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), openHour), parseInt(openTimeParts[2]));
-        const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), closeHour), parseInt(closeTimeParts[2]));
+        const dayStartWithBusinessHours = timeStringToDate(businessDayHours.start, rescheduleDate);
+        const dayEndWithBusinessHours = timeStringToDate(businessDayHours.end, rescheduleDate);
         
         const busyIntervals = allAppointments.filter(apt => apt.id !== appointment?.id && isSameDay(apt.startTime, rescheduleDate)).map(apt => ({ start: apt.startTime, end: apt.endTime }));
 
@@ -432,9 +441,9 @@ export default function CheckInPage() {
                                 <div className="flex justify-between items-center mb-2">
                                     <h3 className="font-semibold text-foreground">Select Date</h3>
                                     <div className="flex items-center gap-1 text-sm">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handlePreviousWeek}><ChevronLeft className="w-4 h-4"/></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRescheduleDate(prev => subWeeks(prev, 1))}><ChevronLeft className="w-4 h-4"/></Button>
                                         <span className="font-medium">{format(rescheduleDate, 'MMMM yyyy')}</span>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNextWeek}><ChevronRight className="w-4 h-4"/></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRescheduleDate(prev => addWeeks(prev, 1))}><ChevronRight className="w-4 h-4"/></Button>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-7 gap-2">
@@ -581,30 +590,55 @@ export default function CheckInPage() {
                 ) : currentStatus === 'pending' ? (
                     <div className="flex flex-col gap-3">
                         <div className="grid grid-cols-2 gap-3">
-                            <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline" className="h-14">Running Late?</Button>
-                            <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')} className="h-14">
-                                <Car className="mr-2" /> On My Way
+                            <Button 
+                                size="lg" 
+                                onClick={() => setShowLateOptions(true)} 
+                                variant="outline" 
+                                className="h-14 font-semibold"
+                            >
+                                <Clock className="mr-2 h-4 w-4" />
+                                Running Late?
+                            </Button>
+                            <Button 
+                                size="lg" 
+                                onClick={() => handleUpdateStatus('on_my_way')} 
+                                className="h-14 font-semibold"
+                            >
+                                <Car className="mr-2 h-4 w-4" /> 
+                                On My Way
                             </Button>
                         </div>
-                        <Button size="lg" variant="secondary" onClick={() => handleUpdateStatus('arrived')} className="h-14">
-                            <Check className="mr-2" /> I'm Here / Arrived
+                        <Button 
+                            size="lg" 
+                            variant="secondary" 
+                            onClick={() => handleUpdateStatus('arrived')} 
+                            className="h-14 font-semibold"
+                        >
+                            <Check className="mr-2 h-4 w-4" /> 
+                            I Have Arrived
                         </Button>
                     </div>
                 ) : currentStatus === 'on_my_way' ? (
                     <div className="space-y-4">
                         <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center"><p className="font-semibold">Great! We'll see you soon.</p></div>
-                        <Button size="lg" className="w-full" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2" /> I've Arrived</Button>
+                        <Button size="lg" className="w-full h-14 font-semibold" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2 h-4 w-4" /> I Have Arrived</Button>
                     </div>
                 ) : currentStatus === 'arrived' ? (
                     <div className="p-4 bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-lg text-center">
-                        <p className="font-semibold">You're checked in!</p>
-                        <p className="text-sm">Please have a seat, we'll be with you shortly.</p>
+                        <p className="font-semibold text-lg flex items-center justify-center gap-2">
+                            <CheckCircle className="h-5 w-5" />
+                            You're checked in!
+                        </p>
+                        <p className="text-sm mt-1">Please have a seat, we'll be with you shortly.</p>
                     </div>
                 ) : currentStatus === 'running_late' ? (
                     <div className="p-4 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 rounded-lg text-center">
-                        <p className="font-semibold">Thank you for letting us know!</p>
-                        <p className="text-sm">We've noted you'll be about {lateTime} minutes late. See you soon.</p>
-                        <Button size="lg" variant="outline" className="w-full mt-4" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2" /> I've Arrived</Button>
+                        <p className="font-semibold text-lg flex items-center justify-center gap-2">
+                            <Clock className="h-5 w-5" />
+                            Thanks for the heads up!
+                        </p>
+                        <p className="text-sm mt-1">We've noted you'll be about {lateTime} minutes late. See you soon.</p>
+                        <Button size="lg" variant="outline" className="w-full mt-4 h-14 font-semibold" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2 h-4 w-4" /> I Have Arrived</Button>
                     </div>
                 ) : null}
             </CardContent>
