@@ -841,6 +841,45 @@ export default function POSPage() {
         }
     };
 
+    const handleStartService = (appointmentId: string) => {
+      if (!firestore || !selectedTenant?.id || !appointments) return;
+      const tenantId = selectedTenant.id;
+      const appointment = appointments.find(a => a.id === appointmentId);
+      if (!appointment) return;
+
+      const nowISO = new Date().toISOString();
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+      
+      const batch = writeBatch(firestore);
+      batch.update(appointmentRef, {
+          status: 'servicing',
+          actualStartTime: nowISO
+      });
+
+      if (appointment.checkInToken) {
+          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+          batch.update(checkInRef, { status: 'servicing' });
+      }
+      
+      if (appointment.staffId) {
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+          batch.update(staffDocRef, { status: 'busy' });
+      }
+      
+      if(appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
+          batch.update(walkInRef, {
+              status: 'servicing',
+              serviceStartTime: nowISO,
+          });
+      }
+
+      batch.commit().then(() => {
+          toast({ title: "Service Started" });
+      });
+    };
+
     const handleFinishService = (apt: Appointment) => {
         setAppointmentToReview(apt);
         setIsTechnicianReviewOpen(true);
