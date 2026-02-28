@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -10,10 +11,45 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award, Percent, ShieldAlert, Ban, Info, Users, Sparkles, Landmark, HelpCircle, Calculator, TrendingDown } from 'lucide-react';
+import { 
+  DollarSign, 
+  Save, 
+  ListChecks, 
+  MessageSquare, 
+  Clock, 
+  Building, 
+  Edit, 
+  PlusCircle, 
+  MoreHorizontal, 
+  Globe, 
+  Check, 
+  Link as LinkIcon, 
+  Calendar, 
+  Loader, 
+  FilePen, 
+  X, 
+  User, 
+  Briefcase, 
+  ListIcon, 
+  PercentIcon, 
+  FileText, 
+  Trash2, 
+  ChevronDown, 
+  Award, 
+  Percent, 
+  ShieldAlert, 
+  Ban, 
+  Info, 
+  Users, 
+  Sparkles, 
+  Landmark, 
+  HelpCircle, 
+  Calculator, 
+  TrendingDown 
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -43,11 +79,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { buttonVariants } from '@/components/ui/button';
+} from "@/components/ui/alert-dialog";
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
+import { cn } from '@/lib/utils';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -103,7 +138,7 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 export default function SettingsPage() {
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { tenants, selectedTenant, setSelectedTenant, isLoading: isTenantContextLoading } = useTenant();
+  const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
   const isMobile = useIsMobile();
   const tenantId = selectedTenant?.id;
 
@@ -380,7 +415,7 @@ export default function SettingsPage() {
             break;
     }
     return policy;
-  }
+  };
 
   const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading));
   
@@ -425,7 +460,7 @@ export default function SettingsPage() {
                   {tabs.map(tab => (
                     <SelectItem key={tab.value} value={tab.value}>
                         <div className="flex items-center gap-2">
-                           {React.cloneElement(tab.icon, { className: "w-4 h-4" })}
+                           {React.cloneElement(tab.icon as React.ReactElement, { className: "w-4 h-4" })}
                            <span>{tab.label}</span>
                         </div>
                     </SelectItem>
@@ -438,7 +473,7 @@ export default function SettingsPage() {
                     <TabsList>
                         {tabs.map(tab => (
                         <TabsTrigger key={tab.value} value={tab.value}>
-                            {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                            {React.cloneElement(tab.icon as React.ReactElement, { className: "w-4 h-4 mr-2" })}
                             {tab.label}
                         </TabsTrigger>
                         ))}
@@ -490,8 +525,9 @@ export default function SettingsPage() {
                                                   </DropdownMenuItem>
                                               </DropdownMenuContent>
                                             </DropdownMenu>
-                                        </>
-                                    )}
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         ))}
                         <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
