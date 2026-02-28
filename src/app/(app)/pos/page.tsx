@@ -17,7 +17,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteFiel
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, addMonths, subMonths, isAfter, format, isSameMonth, differenceInDays } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckoutQueue } from '@/components/pos/CheckoutQueue';
@@ -55,7 +55,8 @@ type EditableFormulaItem = { id: string; name: string; price: number; quantity: 
 
 export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
-    const { firestore, selectedTenant } = useTenant();
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
     const router = useRouter();
@@ -124,9 +125,24 @@ export default function POSPage() {
             if (existing) {
                 return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
             }
-            const price = 'interval' in item || 'sessions' in item ? item.price : ('price' in item ? item.price : item.msrp || 0);
-            const type = 'price' in item ? ('duration' in item ? 'service' : 'product') : 'product';
-            return [...prev, { id: item.id, name: item.name, quantity: 1, price, type: type as any, imageUrl: item.imageUrl, stock: item.totalStock }];
+            let price = 0;
+            let type: 'product' | 'service' | 'membership' | 'package' = 'product';
+            
+            if ('msrp' in item) {
+                price = item.msrp || item.costPerUnit || 0;
+                type = 'product';
+            } else if ('duration' in item) {
+                price = item.price || 0;
+                type = 'service';
+            } else if ('interval' in item) {
+                price = item.price || 0;
+                type = 'membership';
+            } else if ('sessions' in item) {
+                price = item.price || 0;
+                type = 'package';
+            }
+
+            return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
         });
     }, []);
 
@@ -152,7 +168,7 @@ export default function POSPage() {
               toast({ title: "Product Added" });
           } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
       }
-    }, [appointments, inventory, toast, handleSelectAppointment, handleAddToCart]);
+    }, [appointments, inventory, handleSelectAppointment, handleAddToCart, toast]);
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -177,7 +193,7 @@ export default function POSPage() {
             const aptData = readyForCheckoutAppointments.find(a => a.id === id);
             if (!aptData) return acc;
             
-            const servicePrice = redeemedOffer?.id === aptData.appointment.serviceId ? 0 : getServicePrice(aptData.service, aptData.staff);
+            const servicePrice = redeemedOffer?.id === aptData.service.id ? 0 : getServicePrice(aptData.service, aptData.staff);
             const addOnsPrice = aptData.addOnServices.reduce((s, a) => s + getServicePrice(a, aptData.staff), 0);
             
             return acc + servicePrice + addOnsPrice;
@@ -216,12 +232,11 @@ export default function POSPage() {
                     if (!data) return acc;
                     let sTotal = 0;
                     if (d.applicableServiceIds?.includes(data.appointment.serviceId)) {
-                        sTotal += redeemedOffer?.id === data.appointment.serviceId ? 0 : getServicePrice(data.service, data.staff);
+                        sTotal += redeemedOffer?.id === data.service.id ? 0 : getServicePrice(data.service, data.staff);
                     }
-                    (data.appointment.addOnIds || []).forEach(addOnId => {
-                        if (d.applicableServiceIds?.includes(addOnId)) {
-                            const addOn = services.find(s => s.id === addOnId);
-                            if (addOn) sTotal += getServicePrice(addOn, data.staff);
+                    data.addOnServices.forEach(addOn => {
+                        if (d.applicableServiceIds?.includes(addOn.id)) {
+                            sTotal += getServicePrice(addOn, data.staff);
                         }
                     });
                     return acc + sTotal;
@@ -241,7 +256,7 @@ export default function POSPage() {
         });
 
         return { totalDiscountValue: disc, membershipDiscountValue: memDisc };
-    }, [appliedDiscountCodes, discounts, subtotal, selectedAppointmentIds, readyForCheckoutAppointments, retailItems, selectedClientId, clients, memberships, redeemedOffer, services]);
+    }, [appliedDiscountCodes, discounts, subtotal, selectedAppointmentIds, readyForCheckoutAppointments, retailItems, selectedClientId, clients, memberships, redeemedOffer]);
 
     const subtotalAfterDiscounts = Math.max(0, subtotal - (totalDiscountValue + membershipDiscountValue));
     const tax = subtotalAfterDiscounts * 0.07;
@@ -259,15 +274,14 @@ export default function POSPage() {
     }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
-        if (!selectedClientId && !isGroupCheckout && Array.from(selectedAppointmentIds).length === 0 && retailItems.length > 0) {
-            // Walk-in retail checkout is fine without client ID
-        } else if (!selectedClientId) {
-            toast({ variant: 'destructive', title: 'Payer Required', description: 'Please select a client or walk-in customer.' });
+        if (!firestore || !tenantId) return;
+        if (!selectedClientId && Array.from(selectedAppointmentIds).length > 0) {
+            toast({ variant: 'destructive', title: 'Payer Required' });
             return;
         }
 
         setIsSubmitting(true);
-        const batch = writeBatch(firestore!);
+        const batch = writeBatch(firestore);
         const now = new Date();
         const nowISO = now.toISOString();
 
@@ -278,7 +292,7 @@ export default function POSPage() {
                 if (!data) continue;
 
                 const { appointment, service, staff: provider, client: aptClient } = data;
-                const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', appointment.id);
+                const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 
                 batch.update(appointmentRef, { 
                     status: 'completed',
@@ -288,14 +302,14 @@ export default function POSPage() {
                 });
 
                 if (appointment.checkInToken) {
-                    batch.update(doc(firestore!, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed' });
+                    batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed' });
                 }
 
-                const staffRef = doc(firestore!, 'tenants', tenantId!, 'staff', provider.id);
+                const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
                 batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
 
                 const servicePrice = redeemedOffer?.id === service.id ? 0 : getServicePrice(service, provider);
-                const serviceTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                const serviceTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                 batch.set(serviceTxnRef, {
                     date: nowISO,
                     description: `Service: ${service.name}`,
@@ -313,7 +327,7 @@ export default function POSPage() {
 
                 data.addOnServices.forEach(addon => {
                     const addonPrice = getServicePrice(addon, provider);
-                    const addonTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                    const addonTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                     batch.set(addonTxnRef, {
                         date: nowISO,
                         description: `Add-on: ${addon.name}`,
@@ -334,11 +348,11 @@ export default function POSPage() {
             // 2. Process Retail
             for (const item of retailItems) {
                 if (item.type === 'product') {
-                    const productRef = doc(firestore!, 'tenants', tenantId!, 'inventory', item.id);
+                    const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
                     batch.update(productRef, { totalStock: increment(-item.quantity) });
                 }
                 
-                const retailTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                const retailTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                 batch.set(retailTxnRef, {
                     date: nowISO,
                     description: `Retail: ${item.quantity}x ${item.name}`,
@@ -355,7 +369,7 @@ export default function POSPage() {
 
             // 3. Process Tips
             if (tipAmount > 0) {
-                const tipTxnRef = doc(collection(firestore!, 'tenants', tenantId!, 'transactions'));
+                const tipTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
                 batch.set(tipTxnRef, {
                     date: nowISO,
                     description: 'Gratuity',
@@ -375,7 +389,7 @@ export default function POSPage() {
             appliedDiscountCodes.forEach(code => {
                 const d = discounts.find(disc => disc.code === code);
                 if (d) {
-                    batch.update(doc(firestore!, 'tenants', tenantId!, 'discounts', d.id), { usageCount: increment(1) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'discounts', d.id), { usageCount: increment(1) });
                 }
             });
 
@@ -405,7 +419,6 @@ export default function POSPage() {
             });
             setIsReceiptDialogOpen(true);
             
-            // Reset
             setRetailItems([]);
             setSelectedAppointmentIds(new Set());
             setSelectedClientId(null);
