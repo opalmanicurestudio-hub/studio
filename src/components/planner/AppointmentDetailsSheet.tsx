@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -36,6 +37,7 @@ import {
   MapPin,
   PlusCircle,
   XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -83,6 +85,7 @@ interface AppointmentDetailsSheetProps {
   onRebook: (apt: Appointment) => void;
   onBookNewForClient: (clientId: string) => void;
   onPrintTicket: (data: any) => void;
+  onOverride: () => void;
 }
 
 export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = ({
@@ -102,6 +105,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   onRebook,
   onBookNewForClient,
   onPrintTicket,
+  onOverride,
 }) => {
   const isMobile = useIsMobile();
   const { inventory, services: allServices, resources, staff } = useInventory();
@@ -211,6 +215,19 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                   </div>
                 )}
               </div>
+            )}
+
+            {appointment.status === 'cancelled' && appointment.checkInStatus === 'auto_cancelled' && isOwnerOrAdmin && (
+                <Alert className="bg-destructive/10 border-destructive/20 text-destructive mb-4">
+                    <ShieldCheck className="h-4 w-4" />
+                    <AlertTitle>Auto-Cancelled (Late)</AlertTitle>
+                    <AlertDescription className="space-y-3">
+                        <p className="text-xs">This appointment was automatically cancelled because the client was past the grace period.</p>
+                        <Button variant="outline" size="sm" onClick={onOverride} className="w-full h-9 font-bold bg-white text-destructive border-destructive hover:bg-destructive hover:text-white transition-all">
+                            Override & Restore
+                        </Button>
+                    </AlertDescription>
+                </Alert>
             )}
 
             <div className="space-y-2">

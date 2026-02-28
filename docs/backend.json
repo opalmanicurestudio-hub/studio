@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "User": {
@@ -182,6 +183,7 @@
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
         "avatarUrl": { "type": "string", "format": "uri" },
+        "pin": { "type": "string", "description": "Unique 4-digit PIN for sensitive overrides." },
         "bio": { "type": "string", "description": "A short biography for the staff member's public profile." },
         "specialties": { "type": "array", "items": { "type": "string" }, "description": "A list of specialties or skills to highlight." },
         "portfolioImageUrls": { "type": "array", "items": { "type": "string", "format": "uri" }, "description": "A gallery of images showcasing the staff member's work." },
@@ -491,105 +493,29 @@
       "type": "object",
       "description": "Represents an appointment booked with a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "tenantId": {
-            "type": "string",
-            "description": "The ID of the tenant this appointment belongs to."
-        },
-        "clientId": {
-          "type": "string"
-        },
-        "serviceId": {
-          "type": "string"
-        },
-        "staffId": {
-          "type": "string",
-          "description": "The ID of the staff member performing the appointment."
-        },
-        "startTime": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "endTime": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "source": {
-          "type": "string",
-          "enum": ["online", "walk-in", "manual"],
-          "description": "The source of the appointment booking."
-        },
-        "isWalkIn": {
-            "type": "boolean",
-            "description": "True if the appointment was created from the walk-in queue."
-        },
-        "actualStartTime": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The actual start time of the service, logged when staff begins."
-        },
-        "actualEndTime": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The actual end time of the service, logged when staff finishes."
-        },
-        "clientName": {
-            "type": "string",
-            "description": "Denormalized name of the client."
-        },
-        "clientEmail": {
-            "type": "string",
-            "description": "Denormalized email of the client, primarily for walk-ins."
-        },
-        "clientPhone": {
-            "type": "string",
-            "description": "Denormalized phone of the client, primarily for walk-ins."
-        },
-        "checkInStatus": {
-            "type": "string",
-            "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"],
-            "description": "The arrival status of the client for their appointment."
-        },
-        "checkInToken": {
-            "type": "string",
-            "description": "A unique, secure token for the client's check-in link."
-        },
-        "lateTimeMinutes": {
-            "type": "number",
-            "description": "The number of minutes the client has indicated they will be late."
-        },
-        "automatedRescheduleOffered": {
-            "type": "boolean",
-            "description": "Indicates if an automated reschedule option has been offered to a late client."
-        },
-        "inventoryProcessed": {
-            "type": "boolean",
-            "description": "Indicates if inventory has been deducted for this appointment."
-        },
-        "requiredResourceIds": {
-            "type": "array",
-            "description": "A list of resource IDs required for this appointment.",
-            "items": { "type": "string" }
-        },
-        "recurrenceId": {
-            "type": "string",
-            "description": "A unique ID grouping a series of recurring appointments."
-        },
-        "cancellationReason": {
-            "type": "string",
-            "enum": ["late", "no-show", "client_request", "other"],
-            "description": "The reason for the cancellation."
-        },
-        "cancellationFeeApplied": {
-            "type": "number",
-            "description": "The amount of the cancellation fee that was applied, if any."
-        },
-        "cancellationFeeWaived": {
-            "type": "boolean",
-            "description": "True if an applied cancellation fee was waived by an admin."
-        }
+        "id": { "type": "string" },
+        "tenantId": { "type": "string", "description": "The ID of the tenant this appointment belongs to." },
+        "clientId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "staffId": { "type": "string", "description": "The ID of the staff member performing the appointment." },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["confirmed", "completed", "cancelled", "deposit_pending", "ready_for_checkout", "servicing"] },
+        "source": { "type": "string", "enum": ["online", "walk-in", "manual"] },
+        "isWalkIn": { "type": "boolean" },
+        "actualStartTime": { "type": "string", "format": "date-time" },
+        "actualEndTime": { "type": "string", "format": "date-time" },
+        "clientName": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "checkInStatus": { "type": "string", "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"] },
+        "checkInToken": { "type": "string" },
+        "lateTimeMinutes": { "type": "number" },
+        "cancellationReason": { "type": "string", "enum": ["late", "no-show", "client_request", "other"] },
+        "cancellationFeeApplied": { "type": "number" },
+        "cancellationFeeWaived": { "type": "boolean" },
+        "overrideReason": { "type": "string", "description": "The reason why an auto-cancellation was overridden." },
+        "overriddenBy": { "type": "string", "description": "The ID of the staff member who performed the override." }
       },
       "required": [
         "id",
@@ -598,6 +524,7 @@
         "serviceId",
         "startTime",
         "endTime",
+        "status",
         "source"
       ]
     },
@@ -764,7 +691,8 @@
             }
         },
         "timeOff": {
-            "object": {
+            "type": "object",
+            "properties": {
                 "vacationDays": { "type": "number" },
                 "holidays": { "type": "number" }
             }

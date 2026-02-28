@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -192,16 +191,31 @@ export default function ReportsPage() {
     totalGrossRevenue,
     totalCOGS,
     grossProfit,
+    totalAbsorbedCosts,
   } = useMemo(() => {
-    if (!performanceAndPayrollData) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0 };
+    if (!performanceAndPayrollData) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0 };
     const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
     const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
+    
+    // Absorbed costs calculation: waived fees + discounts
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    const waivedFees = appointments
+        .filter(apt => apt.cancellationFeeWaived && apt.cancellationFeeApplied && (!fromDate || apt.startTime >= fromDate) && (!toDate || apt.startTime <= toDate))
+        .reduce((acc, apt) => acc + (apt.cancellationFeeApplied || 0), 0);
+    
+    const discountsValue = transactions
+        .filter(t => t.type === 'expense' && t.category === 'Discounts' && (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate))
+        .reduce((acc, t) => acc + t.amount, 0);
+
     return {
       totalGrossRevenue: revenue,
       totalCOGS: cogs,
       grossProfit: revenue - cogs,
+      totalAbsorbedCosts: waivedFees + discountsValue,
     };
-  }, [performanceAndPayrollData]);
+  }, [performanceAndPayrollData, appointments, transactions, dateRange]);
   
   const salonWideStats = useMemo(() => {
     if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
@@ -468,11 +482,11 @@ export default function ReportsPage() {
                       <p className="text-xs text-muted-foreground">% of clocked-in time spent in-service.</p>
                   </CardContent>
               </Card>
-              <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><ShoppingCart className="w-4 h-4"/>Retail Attachment</CardTitle></CardHeader>
+              <Card className="bg-destructive/5 border-destructive/20 shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2 text-destructive"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div>
-                      <p className="text-xs text-muted-foreground">% of appointments with a retail sale.</p>
+                      <div className="text-2xl font-bold text-destructive">${totalAbsorbedCosts.toFixed(2)}</div>
+                      <p className="text-[10px] text-muted-foreground uppercase font-black">Waived Fees & Discounts</p>
                   </CardContent>
               </Card>
               <Card>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -267,6 +268,7 @@ export default function CheckInPage() {
         if (newStatus === 'auto_cancelled') {
              (updateData as any).status = 'cancelled';
              (updateData as any).cancellationReason = 'late';
+             (updateData as any).cancellationFeeApplied = tenant?.cancellationFee || 0;
         }
 
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
@@ -385,7 +387,7 @@ export default function CheckInPage() {
         return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={ticketId} />;
     }
     if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} />;
-    if (appointment.status === 'cancelled') return <CancelledView tenantId={tenant.id} />;
+    if (appointment.status === 'cancelled' && currentStatus !== 'auto_cancelled') return <CancelledView tenantId={tenant.id} />;
 
     const renderCancellationFlow = () => {
         switch (rescheduleStep) {

@@ -1,8 +1,9 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard, ShieldCheck } from 'lucide-react';
 import { type Event, type Staff, type Appointment, type AppointmentCheckoutState, type Resource, type Membership } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
@@ -58,6 +59,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { type Client, type Service } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { Textarea } from '@/components/ui/textarea';
+import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 
 
 function PlannerPageContent() {
@@ -110,11 +112,10 @@ function PlannerPageContent() {
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
   const [isPickingListOpen, setIsPickingListOpen] = useState(false);
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
-  const [eventToDeny, setEventToDeny] = useState<Event | null>(null);
-  const [denialReason, setDenialReason] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   
   const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
@@ -335,6 +336,28 @@ function PlannerPageContent() {
     setSelectedBill(null);
   };
 
+  const handleOverrideConfirm = async (staffId: string, reason: string) => {
+    if (!selectedAppointment || !firestore || !tenantId) return;
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    const checkInRef = selectedAppointment.checkInToken ? doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken) : null;
+
+    const updates = {
+        status: 'confirmed',
+        checkInStatus: 'pending',
+        overrideReason: reason,
+        overriddenBy: staffId,
+        cancellationFeeWaived: true,
+    };
+
+    updateDocumentNonBlocking(appointmentRef, updates);
+    if (checkInRef) updateDocumentNonBlocking(checkInRef, updates);
+
+    toast({ title: "Override Complete", description: "The appointment has been restored." });
+    setIsOverrideOpen(false);
+    setIsDetailsOpen(false);
+  };
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -432,6 +455,14 @@ function PlannerPageContent() {
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
         onPrintTicket={setTicketToPrint}
+        onOverride={() => setIsOverrideOpen(true)}
+      />
+
+      <OverrideCancellationDialog 
+        open={isOverrideOpen}
+        onOpenChange={setIsOverrideOpen}
+        staff={allStaff || []}
+        onConfirm={handleOverrideConfirm}
       />
 
       <TechnicianReviewDialog 
