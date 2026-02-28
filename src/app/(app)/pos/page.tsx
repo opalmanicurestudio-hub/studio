@@ -400,7 +400,6 @@ export default function POSPage() {
         }
 
         if (assignmentMode === 'fair_play') {
-            // Sort by idle time (earliest last served first)
             const sortedStaff = [...idleStaff].sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
             
             for (const staffMember of sortedStaff) {
@@ -416,8 +415,6 @@ export default function POSPage() {
                 }
             }
         } else {
-            // Ordered List (Wheel Rotation)
-            // Prioritize the first client in queue
             const client = waitingClients[0];
             const sortedStaff = [...idleStaff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
 
@@ -485,7 +482,6 @@ export default function POSPage() {
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
-        // 1. Update Appointment
         batch.update(appointmentRef, {
             status: 'cancelled',
             cancellationReason: data.reason,
@@ -493,7 +489,6 @@ export default function POSPage() {
             cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
         });
 
-        // 2. Handle Fee Collection
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
                 const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -516,7 +511,7 @@ export default function POSPage() {
                 const feeEntry = {
                     feeId,
                     appointmentId: appointmentToCancel.id,
-                    appointmentDate: appointmentToCancel.startTime instanceof Date ? appointmentToCancel.startTime.toISOString() : appointmentToCancel.startTime,
+                    appointmentDate: appointmentToCancel.startTime,
                     feeAmount: data.feeAmount,
                     reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
                 };
@@ -961,6 +956,32 @@ export default function POSPage() {
         showTitle: false,
     };
 
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', actualStartTime: deleteField() });
+        
+        const appointment = appointments?.find(a => a.id === appointmentId);
+        if (appointment?.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+        }
+        toast({ title: "Status Reverted" });
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualEndTime: deleteField() });
+        
+        const appointment = appointments?.find(a => a.id === appointmentId);
+        if (appointment?.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceEndTime: deleteField() });
+        }
+        toast({ title: "Status Reverted" });
+    };
+
     return (
         <>
             <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -1029,8 +1050,8 @@ export default function POSPage() {
                                         onScanClick={() => setIsScannerOpen(true)}
                                         onFinishService={handleFinishService}
                                         onUpdateStatus={handleCheckInStatusUpdate}
-                                        onRevertToReady={(id) => handleCheckInStatusUpdate(id, false, 'pending')}
-                                        onRevertToService={(id) => handleCheckInStatusUpdate(id, false, 'servicing')}
+                                        onRevertToReady={handleRevertToReady}
+                                        onRevertToService={handleRevertToService}
                                     />
                                 </CardContent>
                             </Card>

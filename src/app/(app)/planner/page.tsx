@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -36,7 +35,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter, useUser } from '@/firebase';
-import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch, addDoc } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch, addDoc, deleteField } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -164,11 +163,11 @@ function PlannerPageContent() {
     const map = new Map<string, (Appointment | Event)[]>();
     const cols = activeView === 'staff' ? staff : resources;
     (cols || []).forEach(c => map.set(c.id, []));
-    appointments?.filter(a => isSameDay(a.startTime, currentDate)).forEach(a => {
+    appointments?.filter(a => isSameDay(new Date(a.startTime), currentDate)).forEach(a => {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
-    map.forEach(items => items.sort((a,b) => a.startTime.getTime() - a.startTime.getTime()));
+    map.forEach(items => items.sort((a,b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime()));
     return map;
   }, [currentDate, appointments, events, staff, resources, activeView]);
 
@@ -266,7 +265,6 @@ function PlannerPageContent() {
     // 2. Handle Fee Collection
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
-            // Log as immediate transaction (Simulating successful stripe charge)
             const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(transactionRef, {
                 date: now,
@@ -281,14 +279,13 @@ function PlannerPageContent() {
                 hasReceipt: false,
                 appointmentId: selectedAppointment.id,
             });
-            toast({ title: "Card Charged Successfully", description: `$${data.feeAmount.toFixed(2)} collected from card on file.` });
+            toast({ title: "Card Charged Successfully" });
         } else if (data.paymentMethod === 'add_to_balance') {
-            // Add to client profile debt
             const feeId = nanoid();
             const feeEntry = {
                 feeId,
                 appointmentId: selectedAppointment.id,
-                appointmentDate: selectedAppointment.startTime.toISOString(),
+                appointmentDate: selectedAppointment.startTime,
                 feeAmount: data.feeAmount,
                 reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
             };
@@ -296,11 +293,8 @@ function PlannerPageContent() {
                 unpaidFees: arrayUnion(feeEntry),
                 outstandingBalance: increment(data.feeAmount)
             });
-            toast({ title: "Fee Added to Balance", description: `Client now owes $${data.feeAmount.toFixed(2)} for this cancellation.` });
+            toast({ title: "Fee Added to Balance" });
         }
-    } else if (data.paymentMethod === 'waived') {
-        batch.update(appointmentRef, { cancellationFeeWaived: true });
-        toast({ title: "Cancellation Waived", description: "The fee was absorbed as a service gesture." });
     }
 
     try {
