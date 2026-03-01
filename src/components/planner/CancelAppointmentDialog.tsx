@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -17,28 +16,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { type Appointment, type Tenant, type Service } from '@/lib/data';
 import { 
-  DollarSign, 
-  AlertTriangle, 
   CreditCard, 
   Landmark, 
   Loader, 
-  Clock, 
-  Ban, 
-  Info, 
   TrendingDown, 
-  Calculator, 
-  ShieldCheck,
-  CheckCircle2,
-  XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -76,7 +64,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     if (!appointment || !tenant?.cancellationWindowHours) return false;
     const startTime = appointment.startTime instanceof Date ? appointment.startTime : new Date(appointment.startTime);
     const hoursUntil = differenceInHours(startTime, new Date());
-    return hoursUntil < tenant.cancellationWindowHours;
+    return hoursUntil < (tenant.cancellationWindowHours || 24);
   }, [appointment, tenant]);
 
   const dynamicFees = useMemo(() => {
@@ -96,11 +84,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     if (chargeFee && feeAmount > 0 && paymentMethod === 'card_on_file') {
         setPaymentStatus('processing');
         await new Promise(r => setTimeout(r, 1500));
-        
-        if (Math.random() > 0.9) { // 10% chance of failure for simulation
-            setPaymentStatus('declined');
-            return;
-        }
         setPaymentStatus('success');
     }
     
@@ -116,12 +99,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   };
 
   return (
-    <Dialog open={open} onOpenChange={(val) => {
-        if (paymentStatus === 'idle' || paymentStatus === 'declined') {
-            onOpenChange(val);
-        }
-    }}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col h-fit max-h-[90dvh]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col max-h-[90dvh]">
         <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0 text-left">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -135,7 +114,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation Reason</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
                     <div 
-                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
+                            reason === 'client_request' && "border-primary bg-primary/5 shadow-sm"
+                        )}
                         onClick={() => setReason('client_request')}
                     >
                         <RadioGroupItem value="client_request" id="reason-client" />
@@ -145,7 +127,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         </Label>
                     </div>
                     <div 
-                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
+                            reason === 'no-show' && "border-primary bg-primary/5 shadow-sm"
+                        )}
                         onClick={() => setReason('no-show')}
                     >
                         <RadioGroupItem value="no-show" id="reason-noshow" />
@@ -155,7 +140,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         </Label>
                     </div>
                     <div 
-                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        className={cn(
+                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
+                            reason === 'other' && "border-primary bg-primary/5 shadow-sm"
+                        )}
                         onClick={() => setReason('other')}
                     >
                         <RadioGroupItem value="other" id="reason-other" />
@@ -234,19 +222,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         )}
                     </div>
                 )}
-
-                {paymentStatus === 'declined' && (
-                    <Alert variant="destructive" className="border-2 shadow-lg">
-                        <XCircle className="h-4 w-4" />
-                        <AlertTitle>Card Declined</AlertTitle>
-                        <AlertDescription className="space-y-3">
-                            <p className="text-xs">The charge for •••• {cardOnFile.last4} failed. Record as debt instead?</p>
-                            <Button size="sm" variant="outline" className="w-full h-8 font-bold bg-white text-destructive border-destructive" onClick={() => setPaymentMethod('add_to_balance')}>
-                                Switch to Client Balance
-                            </Button>
-                        </AlertDescription>
-                    </Alert>
-                )}
             </div>
         </div>
 
@@ -257,7 +232,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
                 onClick={handleAction} 
                 className="font-bold h-12"
-                disabled={paymentStatus === 'processing' || (paymentStatus === 'declined' && paymentMethod === 'card_on_file')}
+                disabled={paymentStatus === 'processing'}
             >
                 {paymentStatus === 'processing' ? (
                     <><Loader className="w-4 h-4 animate-spin mr-2" /> Charging...</>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -200,6 +199,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
   const { toast } = useToast();
+  
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
@@ -291,7 +291,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
             {appointment.isPotentialAlias && (
-                <div className="mb-6 p-4 rounded-xl border-4 border-destructive bg-destructive/10 text-destructive animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="mb-6 p-4 rounded-xl border-4 border-destructive bg-destructive/10 text-destructive">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-destructive rounded-full">
                             <Fingerprint className="w-6 h-6 text-white" />
@@ -305,7 +305,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                         <ShieldAlert className="h-4 w-4" />
                         <AlertTitle className="text-xs font-black uppercase">Verify Physical ID</AlertTitle>
                         <AlertDescription className="text-xs space-y-3">
-                            <p>This guest's name matches a restricted profile (Banned or Owed Balance) under a different email/phone.</p>
+                            <p>This guest's name matches a restricted profile (Banned or Owed Balance).</p>
                             <div className="flex gap-2">
                                 <Button variant="destructive" size="sm" className="h-8 font-black text-[10px] flex-1">Merge & Enforce</Button>
                                 <Button variant="outline" size="sm" className="h-8 font-bold text-[10px] flex-1">Not a Match</Button>

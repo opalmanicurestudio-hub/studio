@@ -100,13 +100,13 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
-        <h2 className="text-2xl md:text-4xl font-black tracking-tighter text-center mb-8 px-4 text-white uppercase">Who's joining us?</h2>
+        <h2 className="text-2xl md:text-6xl font-black tracking-tighter text-center mb-8 px-4 text-white uppercase">Who's joining us?</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-10">
             <div className="rounded-3xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('individual')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
                     <User className="w-12 h-12 md:w-16 md:h-16 mb-4 md:mb-6 text-primary group-hover:scale-110 transition-transform" />
-                    <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">Just Me</h3>
-                    <p className="text-slate-400 mt-2 text-xs md:text-base font-medium">Single guest arrival</p>
+                    <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">Solo Arrival</h3>
+                    <p className="text-slate-400 mt-2 text-xs md:text-base font-medium">Single guest check-in</p>
                 </div>
             </div>
              <div className="rounded-3xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('group')}>
@@ -276,7 +276,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
     );
 };
 
-const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; staff: Staff[]; pricingTiers: PricingTier[]; }) => {
+const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const handleServiceToggle = (serviceId: string) => { 
         onUpdate({ serviceIds: [serviceId] }); 
@@ -373,7 +373,7 @@ const MemberSetup = ({
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
-        services: { title: 'Select Treatment', icon: <Scissors className="w-4 h-4 md:w-5 md:h-5" /> },
+        services: { title: 'Treatment', icon: <Scissors className="w-4 h-4 md:w-5 md:h-5" /> },
         addons: { title: 'Add-ons', icon: <PlusCircle className="w-4 h-4 md:w-5 md:h-5" /> },
         consents: { title: 'Agreements', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
         staff: { title: 'Preferences', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
@@ -477,8 +477,8 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             <CheckCircle className="w-12 h-12 md:w-20 md:h-20 text-green-500" />
         </div>
         <div className="space-y-3">
-            <h2 className="text-3xl md:text-6xl font-black tracking-tighter text-white uppercase">You're in line!</h2>
-            <p className="text-slate-400 text-sm md:text-2xl font-medium">Keep an eye on your phone for a text alert.</p>
+            <h2 className="text-3xl md:text-6xl font-black tracking-tighter text-white uppercase">In line!</h2>
+            <p className="text-slate-400 text-sm md:text-2xl font-medium">Watch for our text notification.</p>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
@@ -487,7 +487,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
                     <CardContent className="p-5 md:p-8 flex justify-between items-center">
                         <div>
                             <p className="font-black text-white text-base md:text-2xl uppercase tracking-tighter">{ticket.name}</p>
-                            <p className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest mt-1">Queue Position: #{ticket.queuePosition}</p>
+                            <p className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest mt-1">Queue: #{ticket.queuePosition}</p>
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 rounded-xl h-10 w-10 md:h-14 md:w-14">
                             <Printer className="w-5 h-5 md:w-8 md:h-8" />
@@ -603,7 +603,7 @@ export default function WalkInPage() {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
     
-    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required', description: 'Mandatory for identity verification.' });
+    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required' });
     if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
 
     if (memberSubStep === 'details') {
@@ -613,20 +613,8 @@ export default function WalkInPage() {
         }
     }
 
-    if (memberSubStep === 'services' && member.serviceIds.length === 0) return toast({ variant: 'destructive', title: 'Select a Service' });
-    if (memberSubStep === 'consents') {
-        const service = services?.find(s => s.id === member.serviceIds[0]);
-        const reqFormIds = service?.requiredFormIds || [];
-        const answers = formAnswers[member.id] || {};
-        const allDone = reqFormIds.every(id => {
-            const f = consentForms?.find(cf => cf.id === id);
-            return f?.fields?.every(field => {
-                if (field.type === 'heading' || field.type === 'paragraph') return true;
-                return answers[id]?.[field.id] !== undefined;
-            });
-        });
-        if (!allDone) return toast({ variant: 'destructive', title: 'Forms Incomplete', description: 'Please sign all required forms.' });
-    }
+    if (memberSubStep === 'services' && member.serviceIds.length === 0) return toast({ variant: 'destructive', title: 'Select Treatment' });
+    
     setMemberSubStep(next);
   };
 
@@ -668,16 +656,7 @@ export default function WalkInPage() {
             let matchedClient = clients?.find(c => (member.email && c.email.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
             let clientId = matchedClient?.id;
 
-            // Identity Conflict Logic
-            let isPotentialAlias = false;
-            let matchedClientId = undefined;
-
             if (!clientId) {
-                const shadowMatch = clients?.find(c => c.name.toLowerCase() === member.name.toLowerCase() && (c.status === 'banned' || (c.outstandingBalance || 0) > 0));
-                if (shadowMatch) {
-                    isPotentialAlias = true;
-                    matchedClientId = shadowMatch.id;
-                }
                 clientId = nanoid();
                 batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { id: clientId, name: member.name, email: member.email || '', phone: member.phone || '', avatarUrl: `https://picsum.photos/seed/${clientId}/100`, lifetimeValue: 0, lastAppointment: now, status: 'active' });
             }
@@ -697,8 +676,6 @@ export default function WalkInPage() {
                 queueOrder: Date.now() + tickets.length,
                 waitForPreferredStaff: !!member.waitForPreferredStaff,
                 estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + (s.duration || 0), 0) || 0,
-                isPotentialAlias,
-                matchedClientId
             };
 
             if (isGroup) {
@@ -745,7 +722,7 @@ export default function WalkInPage() {
             {!entered ? (
                 <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group" onClick={() => setEntered(true)}>
                     <div className="inline-block p-6 md:p-8 bg-slate-900/50 rounded-full shadow-2xl mb-8 md:mb-12 border-2 border-slate-800 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-500"><ClarityFlowLogo className="!text-white w-12 h-12 md:w-24 md:h-24" /></div>
-                    <h1 className="text-3xl md:text-7xl lg:text-9xl font-black tracking-tighter text-white mb-6 uppercase">Welcome</h1>
+                    <h1 className="text-4xl md:text-7xl lg:text-9xl font-black tracking-tighter text-white mb-6 uppercase">Welcome</h1>
                     <p className="text-slate-500 text-sm md:text-3xl font-black tracking-[0.2em] uppercase animate-pulse">Tap to Check-in</p>
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 md:mt-20 flex justify-center">
                         <ArrowDown className="w-6 h-6 md:w-10 md:h-10 animate-bounce text-muted-foreground" />
