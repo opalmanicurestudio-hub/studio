@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -317,6 +318,7 @@ export const CheckoutHub = ({
                                                 const { service, client, staff } = data;
                                                 const itemPrice = getServicePrice(service, staff);
                                                 const isRedeemed = redeemedOffer?.id === service.id;
+                                                const additional = data.appointment.checkoutState?.additionalCharge || 0;
 
                                                 const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
                                                 const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
@@ -343,7 +345,14 @@ export const CheckoutHub = ({
                                                                 <div className="flex-1 min-w-0">
                                                                     <p className="font-bold text-xs md:text-sm truncate">{service.name}</p>
                                                                     {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
-                                                                    <p className={cn("text-xs md:text-sm font-black mt-1 font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>${itemPrice.toFixed(2)}</p>
+                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                        <p className={cn("text-xs md:text-sm font-black font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>${itemPrice.toFixed(2)}</p>
+                                                                        {additional > 0 && (
+                                                                            <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700 bg-amber-50">
+                                                                                +{additional.toFixed(2)} Usage Fees
+                                                                            </Badge>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                                 <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                                             </div>

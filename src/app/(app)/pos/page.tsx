@@ -610,7 +610,8 @@ function POSPageContent() {
             if (!data) return acc;
             const mainPrice = getServicePrice(data.service, data.staff);
             const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
-            return acc + mainPrice + addOnsPrice;
+            const extra = data.appointment.checkoutState?.additionalCharge || 0;
+            return acc + mainPrice + addOnsPrice + extra;
         }, 0);
 
         // 2. Retail/Manual Cart

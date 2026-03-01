@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -21,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -33,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import { useTenant } from '@/context/TenantContext';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -64,6 +66,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 }) => {
   const { appointment, client, service } = appointmentData;
   const { services: allServices, inventory } = useInventory();
+  const { selectedTenant } = useTenant();
+  const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
@@ -143,6 +147,31 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
   };
 
+  const extraTimeCharge = useMemo(() => {
+    if (!service) return 0;
+    const overage = actualDuration - service.duration;
+    if (overage > 0) {
+        return (overage / 60) * tmhr;
+    }
+    return 0;
+  }, [actualDuration, service, tmhr]);
+
+  const extraProductCost = useMemo(() => {
+    if (!service) return 0;
+    // Current formula cost
+    const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    // Standard formula cost
+    const standardCost = service.products?.reduce((acc, p) => {
+        const item = inventory.find(inv => inv.id === p.id);
+        const cpu = item?.costPerUnit || 0;
+        return acc + (p.quantityUsed * cpu);
+    }, 0) || 0;
+    
+    return Math.max(0, currentCost - standardCost);
+  }, [editableFormula, service, inventory]);
+
+  const totalAdditionalCharge = extraTimeCharge + extraProductCost;
+
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
 
@@ -186,7 +215,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         tipAmount: 0, 
         tipAllocations: {}, 
         retailItems: [],
-        additionalCharge: 0,
+        additionalCharge: totalAdditionalCharge,
     };
     onSendToFrontDesk(appointment.id, checkoutState);
   };
@@ -223,17 +252,23 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <CardHeader><CardTitle>Service Actuals</CardTitle></CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
-                          <Label htmlFor="actual-duration">Actual Duration (minutes)</Label>
+                          <Label htmlFor="actual-duration" className="flex items-center gap-2"><Clock className="w-4 h-4" /> Actual Duration (minutes)</Label>
                           <Input 
                               id="actual-duration"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
                           />
+                          {actualDuration > service.duration && (
+                              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex justify-between items-center">
+                                  <span className="text-xs font-bold text-amber-700">Extra Time Charge ({actualDuration - service.duration}m)</span>
+                                  <span className="font-bold text-amber-700">+${extraTimeCharge.toFixed(2)}</span>
+                              </div>
+                          )}
                         </div>
                         <Separator />
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h4 className="font-medium">Product Formula</h4>
+                            <h4 className="font-medium flex items-center gap-2"><Package className="w-4 h-4"/> Product Formula</h4>
                             {(client.customFormulas && client.customFormulas.length > 0) && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula} defaultValue="default">
@@ -272,6 +307,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             </div>
                             ))}
+                            {extraProductCost > 0 && (
+                                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex justify-between items-center">
+                                    <span className="text-xs font-bold text-amber-700">Extra Product Charge</span>
+                                    <span className="font-bold text-amber-700">+${extraProductCost.toFixed(2)}</span>
+                                </div>
+                            )}
                         </div>
                         <div className='flex gap-2'>
                             <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
