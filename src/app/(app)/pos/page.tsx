@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -136,9 +136,24 @@ function POSPageContent() {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
+            
+            // AUTOMATION: Auto-select payer based on selection
+            const selectedApts = Array.from(next).map(aptId => 
+                readyForCheckoutAppointments.find(a => a.id === aptId)
+            ).filter(Boolean);
+
+            if (selectedApts.length > 0) {
+                const clientIds = [...new Set(selectedApts.map(a => a?.appointment.clientId))];
+                if (clientIds.length === 1) {
+                    setSelectedClientId(clientIds[0]!);
+                }
+            } else if (retailItems.length === 0) {
+                setSelectedClientId(null);
+            }
+
             return next;
         });
-    }, []);
+    }, [readyForCheckoutAppointments, retailItems.length]);
 
     const handleApplyAdjustmentToggle = useCallback((id: string, apply: boolean) => {
         setAppliedAdjustments(prev => {
@@ -165,7 +180,7 @@ function POSPageContent() {
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
-        if (!selectedClientId && Array.from(selectedAppointmentIds).length > 0) {
+        if (!selectedClientId && (selectedAppointmentIds.size > 0 || retailItems.length > 0)) {
             toast({ variant: 'destructive', title: 'Payer Required' });
             return;
         }
@@ -292,6 +307,35 @@ function POSPageContent() {
             });
             setIsPrintDialogOpen(true);
         }
+    };
+
+    const handleSkip = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
+        toast({ title: "Guest Skipped" });
+    };
+
+    const handleReturnToQueue = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
+            status: 'waiting', 
+            notifiedTimestamp: deleteField(), 
+            assignedStaffId: deleteField() 
+        });
+
+        if (walkIn?.assignedStaffId) {
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
+                status: 'idle' 
+            });
+        }
+
+        const aptId = `apt-walkin-${walkInId}`;
+        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
+        
+        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
     };
 
     const handleRevertToReady = (appointmentId: string) => {
@@ -481,38 +525,37 @@ function POSPageContent() {
         toast({ variant: 'destructive', title: 'No Match', description: "Found available providers, but none have the required skills for the next clients in line." });
     };
 
-    const handleSkip = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
-        toast({ title: "Guest Skipped" });
-    };
-
-    const handleReturnToQueue = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        const batch = writeBatch(firestore);
-        
-        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
-            status: 'waiting', 
-            notifiedTimestamp: deleteField(), 
-            assignedStaffId: deleteField() 
-        });
-
-        if (walkIn?.assignedStaffId) {
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
-                status: 'idle' 
-            });
+    const handleVerifyPin = () => {
+        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
+        const targetStaff = staff.find(s => s.pin === authPin);
+        if (targetStaff && targetStaff.pin === authPin) {
+            const { staffId, action } = pendingStatusAction;
+            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+            const now = new Date().toISOString();
+            let staffUpdate: Partial<Staff> = {};
+            let logEntry: any = { staffId, type: action, timestamp: now };
+            switch (action) {
+                case 'clock_in': staffUpdate = { active: true }; break;
+                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+                case 'break_end':
+                    if (targetStaff.breakStartTime) {
+                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
+                        logEntry.durationMinutes = duration;
+                    }
+                    staffUpdate = { onBreak: false, breakStartTime: undefined };
+                    break;
+            }
+            addDocumentNonBlocking(activityLogsRef, logEntry);
+            updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            setIsPinAuthOpen(false);
+            setAuthPin('');
+            setPendingStatusAction(null);
+            toast({ title: "Authorized", description: "Status updated successfully." });
+        } else {
+            toast({ variant: "destructive", title: "Invalid PIN" });
         }
-
-        const aptId = `apt-walkin-${walkInId}`;
-        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
-        
-        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
-    };
-
-    const handleToggleWaitForStaff = (walkInId: string, wait: boolean) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { waitForPreferredStaff: wait });
     };
 
     const kpiData = useMemo(() => {
@@ -557,40 +600,43 @@ function POSPageContent() {
         };
     }, [walkIns, appointments, transactions, services]);
 
-    const handleVerifyPin = () => {
-        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
-        const targetStaff = staff.find(s => s.pin === authPin);
-        if (targetStaff && targetStaff.pin === authPin) {
-            const { staffId, action } = pendingStatusAction;
-            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-            const now = new Date().toISOString();
-            let staffUpdate: Partial<Staff> = {};
-            let logEntry: any = { staffId, type: action, timestamp: now };
-            switch (action) {
-                case 'clock_in': staffUpdate = { active: true }; break;
-                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-                case 'break_end':
-                    if (targetStaff.breakStartTime) {
-                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
-                        logEntry.durationMinutes = duration;
-                    }
-                    staffUpdate = { onBreak: false, breakStartTime: undefined };
-                    break;
-            }
-            addDocumentNonBlocking(activityLogsRef, logEntry);
-            updateDocumentNonBlocking(staffDocRef, staffUpdate);
-            setIsPinAuthOpen(false);
-            setAuthPin('');
-            setPendingStatusAction(null);
-            toast({ title: "Authorized", description: "Status updated successfully." });
-        } else {
-            toast({ variant: "destructive", title: "Invalid PIN" });
-        }
-    };
+    const { subtotal, tax, total } = useMemo(() => {
+        // 1. Appointments
+        const selectedApts = Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter(Boolean);
+        
+        const appointmentsSubtotal = selectedApts.reduce((acc, data) => {
+            if (!data) return acc;
+            const mainPrice = getServicePrice(data.service, data.staff);
+            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
+            return acc + mainPrice + addOnsPrice;
+        }, 0);
 
-    const handleStatusChangeWithConfirmation = () => {};
+        // 2. Retail/Manual Cart
+        const cartSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        // 3. Unpaid Fees (Adjustments)
+        const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, feeId) => {
+            const client = clients.find(c => c.id === selectedClientId);
+            const fee = client?.unpaidFees?.find(f => f.feeId === feeId);
+            return acc + (fee?.feeAmount || 0);
+        }, 0);
+
+        const s = appointmentsSubtotal + cartSubtotal + adjustmentsSubtotal;
+        
+        // Simple 7% tax for demo
+        const t_rate = 0.07;
+        const disc = 0; // Real logic would subtract promo/membership discounts here
+        const baseForTax = Math.max(0, s - disc);
+        const t = baseForTax * t_rate;
+        
+        return { 
+            subtotal: s, 
+            tax: t, 
+            total: baseForTax + t + tipAmount 
+        };
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -598,7 +644,7 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: 0, tax: 0, total: 0, tipAmount, setTipAmount, onCheckout: handleCheckout,
+        subtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
         appliedDiscountCodes, setAppliedDiscountCodes, discount: 0, membershipDiscount: 0,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
         adjustments: [],
@@ -611,21 +657,21 @@ function POSPageContent() {
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                    {/* KPI Cards for Desktop */}
-                    <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    {/* KPI Cards */}
+                    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
                         <KpiCard 
                             title="Avg. Wait Time" 
                             value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
                             icon={<Clock className="text-blue-500" />} 
                             iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
-                            description="Today's average wait for walk-ins." 
+                            description="Real-time check-in to service." 
                         />
                         <KpiCard 
                             title="Walk-in Conversion" 
                             value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
                             icon={<TrendingUp className="text-green-500"/>} 
                             iconBgColor="bg-green-100 dark:bg-green-900/50" 
-                            description="Walk-ins that resulted in a service." 
+                            description="Check-in to chair success rate." 
                         />
                         <KpiCard 
                             title="Today's Volume" 
@@ -639,57 +685,12 @@ function POSPageContent() {
                             value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
                             icon={<DollarSign className="text-amber-500"/>} 
                             iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
-                            description="Service revenue per active hour." 
+                            description="Revenue per active hour." 
                         />
                     </div>
 
-                    {/* KPI Cards for Mobile */}
-                    <div className="md:hidden">
-                        <ScrollArea>
-                            <div className="flex space-x-4 pb-4">
-                                <div className="w-60 shrink-0">
-                                    <KpiCard 
-                                        title="Avg. Wait Time" 
-                                        value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
-                                        icon={<Clock className="text-blue-500" />} 
-                                        iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
-                                        description="Today's average wait." 
-                                    />
-                                </div>
-                                <div className="w-60 shrink-0">
-                                    <KpiCard 
-                                        title="Walk-in Conversion" 
-                                        value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
-                                        icon={<TrendingUp className="text-green-500"/>} 
-                                        iconBgColor="bg-green-100 dark:bg-green-900/50" 
-                                        description="Check-in to service conversion." 
-                                    />
-                                </div>
-                                <div className="w-60 shrink-0">
-                                    <KpiCard 
-                                        title="Today's Volume" 
-                                        value={kpiData.totalWalkIns.toString()} 
-                                        icon={<Users className="text-purple-500"/>} 
-                                        iconBgColor="bg-purple-100 dark:bg-purple-900/50" 
-                                        description="Total check-ins today." 
-                                    />
-                                </div>
-                                <div className="w-60 shrink-0">
-                                    <KpiCard 
-                                        title="Revenue / Hour" 
-                                        value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
-                                        icon={<DollarSign className="text-amber-500"/>} 
-                                        iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
-                                        description="Revenue per service hour." 
-                                    />
-                                </div>
-                            </div>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    </div>
-
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={handleToggleWaitForStaff} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
@@ -697,7 +698,7 @@ function POSPageContent() {
             {isMobile && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger>
+                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${total.toFixed(2)})</Button></SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
                             <SheetHeader className="p-4 border-b">
                                 <SheetTitle>Current Sale</SheetTitle>
