@@ -45,7 +45,8 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
-import { RadioGroup, RadioGroupGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -53,7 +54,6 @@ import { FloatingActionButton } from '@/components/planner/FloatingActionButton'
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
-import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { type Client, type Service } from '@/lib/data';
@@ -70,7 +70,7 @@ function PlannerPageContent() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
-  const { user } = useUser();
+  const { user: currentUser } = useUser();
   const { selectedTenant, role } = useTenant();
   const { firestore } = useFirebase();
   const tenantId = selectedTenant?.id;
@@ -134,7 +134,7 @@ function PlannerPageContent() {
   const { data: resources } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
 
-  const staff = useMemo(() => (role === 'staff' && user) ? (allStaff || []).filter(s => s.id === user.uid) : (allStaff || []), [allStaff, role, user]);
+  const staff = useMemo(() => (role === 'staff' && currentUser) ? (allStaff || []).filter(s => s.id === currentUser.uid) : (allStaff || []), [allStaff, role, currentUser]);
   
   useEffect(() => { 
     if (activeView === 'staff' && staff?.length > 0 && !mobileSelectedColumnId) {
@@ -169,7 +169,57 @@ function PlannerPageContent() {
     });
     map.forEach(items => items.sort((a,b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime()));
     return map;
-  }, [currentDate, appointments, events, staff, resources, activeView]);
+  }, [currentDate, appointments, staff, resources, activeView]);
+
+  const kpis = useMemo(() => {
+    if (!transactions || !appointments || !services || !selectedTenant) {
+      return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
+    }
+
+    const start = startOfWeek(currentDate);
+    const end = endOfDay(addDays(start, 6));
+
+    const weeklyTransactions = transactions.filter(t => {
+      const d = new Date(t.date);
+      return d >= start && d <= end;
+    });
+
+    const revenue = weeklyTransactions
+      .filter(t => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail'))
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    const absorbed = weeklyTransactions
+      .filter(t => t.type === 'expense' && t.category === 'Discounts')
+      .reduce((acc, t) => acc + t.amount, 0);
+    
+    const waivedTotal = appointments
+        .filter(a => {
+            const d = new Date(a.startTime);
+            return d >= start && d <= end && a.cancellationFeeWaived;
+        })
+        .reduce((acc, a) => acc + (a.cancellationFeeApplied || 0), 0);
+
+    const projected = appointments
+      .filter(a => {
+        const d = new Date(a.startTime);
+        return d >= start && d <= end && (a.status === 'confirmed' || a.status === 'deposit_pending');
+      })
+      .reduce((acc, a) => {
+        const svc = services.find(s => s.id === a.serviceId);
+        return acc + (svc?.price || 0);
+      }, 0);
+
+    const monthlyOverhead = selectedTenant.tmhr ? selectedTenant.tmhr * 160 : 2000; 
+    const weeklyBreakEven = (monthlyOverhead / 30.44) * 7;
+
+    return {
+      weeklyRevenue: revenue,
+      projectedRevenue: projected,
+      weeklyBreakEven,
+      weeklyNetProfit: revenue - weeklyBreakEven,
+      absorbedCosts: absorbed + waivedTotal,
+    };
+  }, [transactions, appointments, services, currentDate, selectedTenant]);
 
   const handleUpdateStatus = (id: string, status: Appointment['status']) => {
     if (!firestore || !tenantId) return;
@@ -420,6 +470,44 @@ function PlannerPageContent() {
     }
   };
 
+  const handleLogPaymentConfirm = (paymentData: any) => {
+    if (!selectedBill || !firestore || !tenantId) return;
+    
+    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
+    const newAmountDue = selectedBill.amountDue - paymentData.amount;
+    const newStatus: any = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+    
+    updateDocumentNonBlocking(billInstanceRef, {
+        amountPaid: newAmountPaid,
+        amountDue: newAmountDue,
+        status: newStatus
+    });
+
+    const newTransaction: Omit<Transaction, 'id'> = {
+        date: paymentData.date.toISOString(),
+        description: `Payment for ${selectedBill.definition.name}`,
+        clientOrVendor: selectedBill.definition.name,
+        type: 'payment',
+        context: selectedBill.definition.context,
+        category: selectedBill.definition.category,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        hasReceipt: !!paymentData.receiptUrl,
+        receiptUrl: paymentData.receiptUrl,
+        relatedBillInstanceId: selectedBill.id,
+    };
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, newTransaction);
+    
+    toast({
+        title: "Payment Logged",
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+    });
+
+    setSelectedBill(null);
+  };
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -515,7 +603,7 @@ function PlannerPageContent() {
         onCancel={handleCancelAppointment}
         onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
-        onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(initialClient ? true : false); }}
+        onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
         onPrintTicket={() => {}}
         onOverride={() => setIsOverrideOpen(true)}
         onWaiveFee={handleWaiveFee}

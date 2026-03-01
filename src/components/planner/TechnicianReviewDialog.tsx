@@ -21,21 +21,30 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle, Loader } from 'lucide-react';
+import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { ScrollArea } from '../ui/scroll-area';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 import { cn } from '@/lib/utils';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { type ReceiptData } from './PrintReceipt';
+import { LogIncidentForm, incidentSchema, type IncidentFormData } from '../incidents/LogIncidentForm';
+import { FormProvider, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Badge } from '../ui/badge';
+import { nanoid } from 'nanoid';
+import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { Textarea } from '../ui/textarea';
-import { useUser } from '@/firebase';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -148,10 +157,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const removeProduct = (productId: string) => {
     setEditableFormula(prev => prev.filter(item => item.id !== productId));
   };
-  
-  const removeAddOn = (addOnId: string) => {
-    setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
-  };
 
   const totalAdditionalCharge = useMemo(() => {
     if (!service) return 0;
@@ -173,7 +178,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       })?.[1];
       if (!nextStaffId) return null;
       return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment]);
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment?.id]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
