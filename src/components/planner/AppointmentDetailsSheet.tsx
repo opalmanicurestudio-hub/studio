@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -86,7 +85,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, writeBatch, arrayUnion, increment, collection } from 'firebase/firestore';
+import { doc, writeBatch, arrayUnion, increment, collection, deleteField } from 'firebase/firestore';
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -319,6 +318,23 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     });
   };
 
+  const handleRemoveAddOn = (addOnId: string) => {
+    if (!appointment || !firestore || !tenantId) return;
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const newAddOns = (appointment.addOnIds || []).filter(id => id !== addOnId);
+    
+    const newOverrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
+    delete newOverrides[addOnId];
+
+    updateDocumentNonBlocking(appointmentRef, {
+        addOnIds: newAddOns,
+        'checkoutState.serviceStaffOverrides': newOverrides
+    });
+    
+    toast({ title: "Service Removed" });
+  };
+
   if (!appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
@@ -459,15 +475,26 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               )}
               <div className="text-muted-foreground text-sm pt-4 space-y-3">
                 <div>
-                  <p className='font-bold text-foreground text-base'>{service.name}</p>
+                  <div className="flex justify-between items-center mb-1">
+                    <p className='font-bold text-foreground text-base'>{service.name}</p>
+                    <p className="font-black text-primary">${getServicePrice(service, staff.find(s => s.id === appointment.staffId)).toFixed(2)}</p>
+                  </div>
                   {(appointment.addOnIds || []).map(id => {
                     const addon = allServices.find(s => s.id === id);
                     const providerId = appointment.checkoutState?.serviceStaffOverrides?.[id];
                     const provider = staff.find(s => s.id === providerId);
                     return addon ? (
-                        <div key={addon.id} className="flex justify-between items-center pl-4 py-1">
-                            <p className="text-sm text-muted-foreground/80 font-medium">+ {addon.name}</p>
-                            {provider && <Badge variant="outline" className="text-[9px] h-4 uppercase">{provider.name.split(' ')[0]}</Badge>}
+                        <div key={addon.id} className="flex justify-between items-center pl-4 py-1.5 bg-muted/20 rounded-lg mt-1 group">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <p className="text-xs text-muted-foreground font-medium truncate">+ {addon.name}</p>
+                                {provider && <Badge variant="outline" className="text-[8px] h-3.5 uppercase px-1">{provider.name.split(' ')[0]}</Badge>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(addon.id)}>
+                                    <Trash2 className="w-3 h-3" />
+                                </Button>
+                            </div>
                         </div>
                     ) : null;
                   })}

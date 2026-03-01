@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -50,6 +49,8 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
 import { useTenant } from '@/context/TenantContext';
+import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -205,8 +206,9 @@ export const CheckoutHub = ({
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const { appointments: allAppointments, staff } = useInventory();
-    const { role } = useTenant();
+    const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
+    const { firestore } = useFirebase();
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
@@ -225,6 +227,25 @@ export const CheckoutHub = ({
             setPendingWaiveAptId(null);
             toast({ title: "Fees Absorbed", description: `Authorization provided by ${authorizer.name}.` });
         }
+    };
+
+    const handleRemoveAddOn = async (appointmentId: string, addOnId: string) => {
+        if (!firestore || !selectedTenant) return;
+        
+        const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointmentId);
+        const data = appointmentsData.find(a => a.appointment.id === appointmentId);
+        if (!data) return;
+
+        const newAddOns = (data.appointment.addOnIds || []).filter(id => id !== addOnId);
+        const newOverrides = { ...(data.appointment.checkoutState?.serviceStaffOverrides || {}) };
+        delete newOverrides[addOnId];
+
+        updateDocumentNonBlocking(appointmentRef, {
+            addOnIds: newAddOns,
+            'checkoutState.serviceStaffOverrides': newOverrides
+        });
+        
+        toast({ title: "Service Removed" });
     };
 
     const selectedClient = useMemo(() => {
@@ -494,6 +515,29 @@ export const CheckoutHub = ({
                                                                 </div>
                                                             )}
 
+                                                            <div className="mt-2 space-y-1">
+                                                                {(data.appointment.addOnIds || []).map(addonId => {
+                                                                    const addon = services.find(s => s.id === addonId);
+                                                                    if (!addon) return null;
+                                                                    const providerId = data.appointment.checkoutState?.serviceStaffOverrides?.[addonId];
+                                                                    const provider = staff.find(s => s.id === providerId);
+                                                                    return (
+                                                                        <div key={addonId} className="flex justify-between items-center bg-muted/30 p-1.5 rounded-lg border border-border/50 group">
+                                                                            <div className="flex items-center gap-2 min-w-0">
+                                                                                <p className="text-[10px] font-bold text-muted-foreground truncate">+ {addon.name}</p>
+                                                                                {provider && <Badge variant="outline" className="text-[8px] h-3.5 px-1 uppercase">{provider.name.split(' ')[0]}</Badge>}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] font-black text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</span>
+                                                                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(data.id, addonId)}>
+                                                                                    <Trash2 className="w-3 h-3" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+
                                                             {hasPerk && !isRedeemed && (
                                                                 <Button variant="secondary" size="sm" className="w-full mt-2 text-[10px] md:text-[11px] font-bold uppercase" onClick={handleRedeem}>
                                                                     {hasMembershipPerk ? <><Award className="w-3 h-3 mr-1.5" />Redeem Perk ({effectiveUsageCount}/{membershipPerk.quantity})</> : <><Repeat className="w-3 h-3 mr-1.5" />Use Package Session</>}
@@ -676,7 +720,7 @@ export const CheckoutHub = ({
                                                         <span className="text-[11px] font-bold truncate">{member.name}</span>
                                                     </div>
                                                     <div className="relative w-20">
-                                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 h-3 text-muted-foreground" />
                                                         <Input 
                                                             type="number" 
                                                             value={allocation || ''} 

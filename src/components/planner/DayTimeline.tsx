@@ -1,4 +1,3 @@
-
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
@@ -12,7 +11,7 @@ import { type TicketData } from './PrintTicket';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock } from 'lucide-react';
+import { Building, HardHat, Lock, Users } from 'lucide-react';
 
 export const DayTimeline = ({ 
     date, 
@@ -101,15 +100,34 @@ export const DayTimeline = ({
     const positionedItemsByColumn = useMemo(() => {
         const map = new Map<string, any[]>();
         if (!itemsByColumn) return map;
-        for (const [columnId, items] of itemsByColumn.entries()) {
-            let layoutInfo = items.map(item => ({ ...item, layout: { cols: 0, col: 0 } }));
+        
+        // Extended logic: check for staff overrides to show in multiple columns
+        const allItemsOnDate = Array.from(itemsByColumn.values()).flat();
+        
+        for (const column of columns) {
+            const columnId = column.id;
+            
+            // Get primary assigned items
+            const primaryItems = itemsByColumn.get(columnId) || [];
+            
+            // Get secondary assigned items (handoffs/concurrent)
+            const secondaryItems = activeView === 'staff' ? allItemsOnDate.filter(item => {
+                if (item.staffId === columnId) return false; // Already in primary
+                const overrides = (item as Appointment).checkoutState?.serviceStaffOverrides || {};
+                return Object.values(overrides).includes(columnId);
+            }) : [];
+
+            const combinedItems = [...primaryItems, ...secondaryItems.map(item => ({ ...item, isSecondary: true }))];
+            
+            let layoutInfo = combinedItems.map(item => ({ ...item, layout: { cols: 0, col: 0 } }));
+            
             function positionCluster(cluster: any[]) {
                 cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                 const columns: any[][] = [];
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < columns.length; i++) {
-                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
+                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: a.startTime, end: a.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
                             columns[i].push(item); item.layout.col = i; placed = true; break;
                         }
                     }
@@ -117,6 +135,7 @@ export const DayTimeline = ({
                 }
                 cluster.forEach(item => item.layout.cols = columns.length);
             }
+
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
@@ -128,7 +147,7 @@ export const DayTimeline = ({
             map.set(columnId, layoutInfo.map(item => ({ ...item, layout: { width: `${100 / item.layout.cols}%`, left: `${(100 / item.layout.cols) * item.layout.col}%` } })));
         }
         return map;
-    }, [itemsByColumn]);
+    }, [itemsByColumn, columns, activeView]);
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
@@ -144,7 +163,7 @@ export const DayTimeline = ({
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
        
         return (
-            <div key={item.id} className="absolute pr-2 z-10" style={style}>
+            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-2 z-10", item.isSecondary && "opacity-80")} style={style}>
                 <AppointmentCard
                     appointment={item} client={client} service={service} style={{ height: '100%'}}
                     tmhr={tmhr} onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
