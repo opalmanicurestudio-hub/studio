@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -220,6 +219,11 @@ const OwnerDashboard = () => {
     return (returningClients / clients.length) * 100;
   }, [clients, allAppointments]);
 
+  const totalOutstandingDebt = useMemo(() => {
+      if (!clients) return 0;
+      return clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
+  }, [clients]);
+
   const revenueBreakdown = useMemo(() => {
     if (!allTransactions) return [];
     
@@ -315,14 +319,14 @@ const OwnerDashboard = () => {
              {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
           </CardContent>
         </Card>
-        <Card>
+        <Card className={cn(totalOutstandingDebt > 0 && "border-destructive/50 bg-destructive/[0.02]")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">New Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Outstanding Debt</CardTitle>
+            <Wallet className={cn("h-4 w-4", totalOutstandingDebt > 0 ? "text-destructive" : "text-muted-foreground")} />
           </CardHeader>
           <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-10 inline-block"/> : <div className="text-2xl font-bold">+{newClientsThisWeek}</div>}
-            <p className="text-xs text-muted-foreground">this week</p>
+            {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className={cn("text-2xl font-bold", totalOutstandingDebt > 0 && "text-destructive")}>${totalOutstandingDebt.toFixed(2)}</div>}
+            <p className="text-xs text-muted-foreground">Across all client profiles</p>
           </CardContent>
         </Card>
         <Card>

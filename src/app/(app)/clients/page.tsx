@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -15,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package, Loader } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package, Loader, Wallet } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +75,7 @@ export default function ClientsPage() {
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [lastSeenFilter, setLastSeenFilter] = useState('all');
+  const [owesBalanceOnly, setOwesBalanceOnly] = useState(false);
   const { toast } = useToast();
   
   const [showArchived, setShowArchived] = useState(false);
@@ -193,6 +192,10 @@ export default function ClientsPage() {
       return showArchived ? client.status === 'archived' : client.status !== 'archived';
     });
     
+    if (owesBalanceOnly) {
+        clientsToFilter = clientsToFilter.filter(c => (c.outstandingBalance || 0) > 0);
+    }
+
     if (lastSeenFilter !== 'all') {
       const days = parseInt(lastSeenFilter);
       const cutoffDate = subDays(new Date(), days);
@@ -218,7 +221,7 @@ export default function ClientsPage() {
     }
 
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
-  }, [clients, searchTerm, lastSeenFilter, showArchived]);
+  }, [clients, searchTerm, lastSeenFilter, showArchived, owesBalanceOnly]);
   
   const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
   const paginatedClients = useMemo(() => {
@@ -243,13 +246,14 @@ export default function ClientsPage() {
   };
 
   const handleExport = () => {
-    const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen'];
+    const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen', 'Outstanding Balance'];
     const clientData = filteredClients.map(client => [
       client.name,
       client.email,
       client.phone,
       (client.lifetimeValue || 0).toString(),
-      format(new Date(client.lastAppointment), 'yyyy-MM-dd')
+      format(new Date(client.lastAppointment), 'yyyy-MM-dd'),
+      (client.outstandingBalance || 0).toFixed(2)
     ]);
 
     const csvContent = [
@@ -281,6 +285,7 @@ export default function ClientsPage() {
                 serviceRevenue: 0,
                 retailRevenue: 0,
                 tipRevenue: 0,
+                totalPendingDebt: 0,
             };
         }
 
@@ -296,6 +301,7 @@ export default function ClientsPage() {
         );
 
         const totalRevenue = filteredClients.reduce((acc, c) => acc + (c.lifetimeValue || 0), 0);
+        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
 
         const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -308,6 +314,7 @@ export default function ClientsPage() {
             serviceRevenue,
             retailRevenue,
             tipRevenue,
+            totalPendingDebt,
         };
     }, [filteredClients, appointments, transactions]);
 
@@ -321,6 +328,10 @@ export default function ClientsPage() {
                  <div className="p-3 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
                     <div className="text-2xl font-bold">{stats.totalActiveClients}</div>
+                </div>
+                 <div className="p-3 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
+                    <div className="text-sm font-bold flex items-center gap-2 uppercase tracking-tighter"><Wallet className="w-4 h-4"/> Outstanding Balances</div>
+                    <div className="text-2xl font-black">${stats.totalPendingDebt.toFixed(2)}</div>
                 </div>
                  <div className="p-3 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
@@ -398,9 +409,15 @@ export default function ClientsPage() {
                                   <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
                               </div>
                           </div>
-                          <div className="flex items-center space-x-2 pt-4">
-                              <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                              <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                          <div className="flex items-center space-x-6 pt-4">
+                              <div className="flex items-center space-x-2">
+                                <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
+                                <Label htmlFor="owes-balance" className="flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5 text-destructive" /> Owes Balance Only</Label>
+                              </div>
                           </div>
                       </CardHeader>
                       <CardContent>
@@ -501,4 +518,3 @@ export default function ClientsPage() {
     </div>
   );
 }
-

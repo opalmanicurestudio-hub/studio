@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -8,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon } from 'lucide-react';
+import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon, ShieldCheck } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -46,6 +45,7 @@ export default function ReportsPage() {
     transactions,
     businessProfiles,
     lifestyleProfiles,
+    clients,
     isLoading
   } = useInventory();
 
@@ -192,30 +192,55 @@ export default function ReportsPage() {
     totalCOGS,
     grossProfit,
     totalAbsorbedCosts,
+    totalWaivedFees,
+    totalOutstandingDebt,
+    recoveryRate
   } = useMemo(() => {
-    if (!performanceAndPayrollData) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0 };
+    if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
     const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
     const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
     
-    // Absorbed costs calculation: waived fees + discounts
+    // Total Debt across entire client base
+    const outstandingDebt = clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
+
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    const waivedFees = appointments
-        .filter(apt => apt.cancellationFeeWaived && apt.cancellationFeeApplied && (!fromDate || apt.startTime >= fromDate) && (!toDate || apt.startTime <= toDate))
-        .reduce((acc, apt) => acc + (apt.cancellationFeeApplied || 0), 0);
+    // Fees waived in period
+    const waivedFeesInRange = clients.flatMap(c => c.waivedFees || []).filter(w => {
+        const d = parseISO(w.waivedAt);
+        return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+    });
+    const waivedTotal = waivedFeesInRange.reduce((acc, w) => acc + w.feeAmount, 0);
     
     const discountsValue = transactions
         .filter(t => t.type === 'expense' && t.category === 'Discounts' && (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate))
         .reduce((acc, t) => acc + t.amount, 0);
 
+    // Total fees generated (Charged) vs recovered (Collected)
+    const collectedFees = transactions
+        .filter(t => t.type === 'income' && t.category === 'Cancellation Fee' && (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate))
+        .reduce((acc, t) => acc + t.amount, 0);
+    
+    // "Charged" is whatever was collected + whatever is currently pending/unpaid
+    const pendingFeesInRange = clients.flatMap(c => c.unpaidFees || []).filter(f => {
+        const d = parseISO(f.appointmentDate);
+        return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+    }).reduce((acc, f) => acc + f.feeAmount, 0);
+
+    const totalFeesCharged = collectedFees + pendingFeesInRange;
+    const rate = totalFeesCharged > 0 ? (collectedFees / totalFeesCharged) * 100 : 0;
+
     return {
       totalGrossRevenue: revenue,
       totalCOGS: cogs,
       grossProfit: revenue - cogs,
-      totalAbsorbedCosts: waivedFees + discountsValue,
+      totalAbsorbedCosts: waivedTotal + discountsValue,
+      totalWaivedFees: waivedTotal,
+      totalOutstandingDebt: outstandingDebt,
+      recoveryRate: rate
     };
-  }, [performanceAndPayrollData, appointments, transactions, dateRange]);
+  }, [performanceAndPayrollData, appointments, transactions, dateRange, clients]);
   
   const salonWideStats = useMemo(() => {
     if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
@@ -245,8 +270,8 @@ export default function ReportsPage() {
     const retailTransactions = transactions.filter(t => t.category === 'Retail' && t.appointmentId);
     const appointmentsWithRetail = new Set(retailTransactions.map(t => t.appointmentId));
 
-    const totalInServiceMinutes = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalInServiceHours * 60), 0);
-    const totalMinutesWorked = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalHours * 60), 0);
+    const totalInServiceMinutes = performanceAndPayrollData.reduce((total, staff) => total + (staff.stats.totalInServiceHours * 60), 0);
+    const totalMinutesWorked = performanceAndPayrollData.reduce((total, staff) => total + (staff.stats.totalHours * 60), 0);
     
     const clientsInPeriod = new Set(completedAppointments.map(apt => apt.clientId));
     let rebookedClients = 0;
@@ -416,26 +441,6 @@ export default function ReportsPage() {
         ];
     }, [appointments]);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleExport = () => {
-    // CSV export logic would go here
-  };
-
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen w-full flex-col">
-        <AppHeader title="Reports & Analytics" />
-        <main className="flex flex-1 items-center justify-center">
-            <Loader className="h-8 w-8 animate-spin" />
-        </main>
-      </div>
-    )
-  }
-
   return (
     <>
       <div className="no-print flex min-h-screen w-full flex-col">
@@ -496,32 +501,56 @@ export default function ReportsPage() {
                       <p className="text-xs text-muted-foreground">% of appointments marked as cancelled.</p>
                   </CardContent>
               </Card>
-              <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue / Service Hr</CardTitle></CardHeader>
-                  <CardContent>
-                      <div className="text-2xl font-bold">${salonWideStats.revenuePerServiceHour.toFixed(2)}</div>
-                      <p className="text-xs text-muted-foreground">Revenue for every hour of active service.</p>
+          </div>
+
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+              <Card className="border-2 border-primary/20 bg-primary/5">
+                  <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-primary font-black"><Wallet className="w-5 h-5" /> Revenue Recovery Dashboard</CardTitle>
+                      <CardDescription>Metrics related to unpaid balances and recovery efforts.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-4">
+                      <div className="p-4 rounded-xl bg-background border shadow-sm">
+                          <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Unpaid Debt (Total)</p>
+                          <p className="text-2xl font-black text-destructive">${totalOutstandingDebt.toFixed(2)}</p>
+                      </div>
+                      <div className="p-4 rounded-xl bg-background border shadow-sm">
+                          <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Fee Recovery Rate</p>
+                          <p className="text-2xl font-black text-primary">{recoveryRate.toFixed(1)}%</p>
+                      </div>
+                      <div className="p-4 rounded-xl bg-background border shadow-sm col-span-2 flex justify-between items-center">
+                          <div>
+                              <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Absorbed (Waived Fees)</p>
+                              <p className="text-2xl font-black text-destructive/70">${totalWaivedFees.toFixed(2)}</p>
+                          </div>
+                          <ShieldCheck className="w-8 h-8 text-primary/20" />
+                      </div>
                   </CardContent>
               </Card>
+
               <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Repeat className="w-4 h-4"/>Rebooking Rate</CardTitle></CardHeader>
+                  <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Users className="w-5 h-5" /> Top Accounts Receivable</CardTitle>
+                      <CardDescription>Clients with the highest outstanding balances.</CardDescription>
+                  </CardHeader>
                   <CardContent>
-                      <div className="text-2xl font-bold">{salonWideStats.rebookingRate.toFixed(1)}%</div>
-                      <p className="text-xs text-muted-foreground">% of clients who booked a future appt.</p>
-                  </CardContent>
-              </Card>
-              <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Users className="w-4 h-4"/>Walk-in Conversion</CardTitle></CardHeader>
-                  <CardContent>
-                      <div className="text-2xl font-bold">{salonWideStats.walkInConversionRate.toFixed(1)}%</div>
-                      <p className="text-xs text-muted-foreground">% of walk-ins resulting in a service.</p>
-                  </CardContent>
-              </Card>
-              <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><UserPlus className="w-4 h-4"/>New Client Rate</CardTitle></CardHeader>
-                  <CardContent>
-                      <div className="text-2xl font-bold">{salonWideStats.newClientRate.toFixed(1)}%</div>
-                      <p className="text-xs text-muted-foreground">% of new clients this period.</p>
+                      <div className="space-y-3">
+                          {clients?.filter(c => (c.outstandingBalance || 0) > 0).sort((a,b) => (b.outstandingBalance || 0) - (a.outstandingBalance || 0)).slice(0, 5).map(client => (
+                              <div key={client.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                                  <div className="flex items-center gap-3">
+                                      <Avatar className="h-8 w-8">
+                                          <AvatarImage src={client.avatarUrl} />
+                                          <AvatarFallback>{client.name.substring(0,2)}</AvatarFallback>
+                                      </Avatar>
+                                      <span className="font-bold text-sm">{client.name}</span>
+                                  </div>
+                                  <Badge variant="destructive" className="font-mono font-black">${client.outstandingBalance?.toFixed(2)}</Badge>
+                              </div>
+                          ))}
+                          {(!clients || clients.filter(c => (c.outstandingBalance || 0) > 0).length === 0) && (
+                              <p className="text-center py-10 text-muted-foreground text-sm">No outstanding balances found!</p>
+                          )}
+                      </div>
                   </CardContent>
               </Card>
           </div>
