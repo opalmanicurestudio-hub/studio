@@ -36,6 +36,7 @@ export const DayTimeline = ({
     onFinishService,
     onBookNewForClient,
     onDeleteEvent,
+    onDeleteAppointment: onDeleteApt,
     onViewDetails,
     walkIns,
     clients,
@@ -189,19 +190,19 @@ export const DayTimeline = ({
                             {isMobile ? (
                                 <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
                                     <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
-                                        <SelectValue asChild>
-                                            <div className="flex items-center justify-center gap-2 h-full w-full">
-                                                {'avatarUrl' in column ? (
-                                                    <Avatar className="w-8 h-8">
-                                                        <AvatarImage src={(column as Staff).avatarUrl} />
-                                                        <AvatarFallback>{column.name.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                ) : (
-                                                    (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
-                                                )}
-                                                <div><p className="font-semibold text-base truncate">{column.name}</p></div>
-                                            </div>
-                                        </SelectValue>
+                                        <div className="flex items-center justify-center gap-2 h-full w-full">
+                                            {'avatarUrl' in column ? (
+                                                <Avatar className="w-8 h-8">
+                                                    <AvatarImage src={(column as Staff).avatarUrl} />
+                                                    <AvatarFallback>{column.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                            ) : (
+                                                (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
+                                            )}
+                                            <SelectValue>
+                                                <span className="font-semibold text-base truncate ml-2">{column.name}</span>
+                                            </SelectValue>
+                                        </div>
                                     </SelectTrigger>
                                     <SelectContent>
                                         {columns.map(c => (
