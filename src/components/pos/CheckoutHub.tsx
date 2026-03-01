@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -332,6 +333,17 @@ export const CheckoutHub = ({
         return Array.from(options).sort((a,b) => a - b).slice(0, 3);
     }, [total]);
 
+    const allInvolvedStaff = useMemo(() => {
+        const staffIds = new Set<string>();
+        appointmentsData.forEach(data => {
+            staffIds.add(data.staff.id);
+            if (data.appointment.checkoutState?.serviceStaffOverrides) {
+                Object.values(data.appointment.checkoutState.serviceStaffOverrides).forEach(id => staffIds.add(id));
+            }
+        });
+        return staff.filter(s => staffIds.has(s.id));
+    }, [appointmentsData, staff]);
+
     return (
         <div className="flex flex-col h-full max-h-full">
             {showTitle && (
@@ -641,28 +653,27 @@ export const CheckoutHub = ({
                             />
                         </div>
                     </div>
-                    {appointmentsData.length > 0 && (
+                    {allInvolvedStaff.length > 0 && (
                         <Accordion type="single" collapsible className="w-full">
                             <AccordionItem value="tip-allocation" className="border-none">
                                 <AccordionTrigger className="p-0 hover:no-underline py-1">
                                     <span className="text-[9px] font-black text-muted-foreground uppercase flex items-center gap-1.5">
                                         <Users className="w-3 h-3" />
-                                        Tip Allocation
+                                        Tip Allocation ({allInvolvedStaff.length} Staff)
                                     </span>
                                 </AccordionTrigger>
                                 <AccordionContent className="pt-2">
                                     <div className="space-y-3 p-3 rounded-xl border bg-muted/10">
-                                        {[...new Set(appointmentsData.map(a => a.staff.id))].map(staffId => {
-                                            const member = staff.find(s => s.id === staffId);
-                                            const allocation = tipAllocations[staffId] || 0;
+                                        {allInvolvedStaff.map(member => {
+                                            const allocation = tipAllocations[member.id] || 0;
                                             return (
-                                                <div key={staffId} className="flex items-center justify-between gap-3">
+                                                <div key={member.id} className="flex items-center justify-between gap-3">
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         <Avatar className="h-6 w-6 border shadow-sm">
-                                                            <AvatarImage src={member?.avatarUrl} />
-                                                            <AvatarFallback>{member?.name.charAt(0)}</AvatarFallback>
+                                                            <AvatarImage src={member.avatarUrl} />
+                                                            <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
                                                         </Avatar>
-                                                        <span className="text-[11px] font-bold truncate">{member?.name}</span>
+                                                        <span className="text-[11px] font-bold truncate">{member.name}</span>
                                                     </div>
                                                     <div className="relative w-20">
                                                         <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -671,7 +682,7 @@ export const CheckoutHub = ({
                                                             value={allocation || ''} 
                                                             onChange={(e) => {
                                                                 const val = parseFloat(e.target.value) || 0;
-                                                                // Note: Handle tip allocations through callback in parent if complex
+                                                                // Handle tip allocations through callback or local update logic if needed
                                                             }}
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />

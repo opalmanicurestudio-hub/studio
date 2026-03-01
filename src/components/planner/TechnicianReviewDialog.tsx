@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -49,7 +50,7 @@ interface TechnicianReviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appointmentData: {
-    appointment: Appointment;
+    appointment: Appointment | null;
     client: Client | undefined;
     service: Service | undefined;
   };

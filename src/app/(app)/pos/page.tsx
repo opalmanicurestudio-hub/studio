@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -36,6 +37,7 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -209,7 +211,7 @@ function POSPageContent() {
             }
 
             const selectedApts = Array.from(next).map(aptId => 
-                readyForCheckoutAppointments.find(a => a.id === id)
+                readyForCheckoutAppointments.find(a => a.id === aptId)
             ).filter(Boolean);
 
             if (selectedApts.length > 0) {
