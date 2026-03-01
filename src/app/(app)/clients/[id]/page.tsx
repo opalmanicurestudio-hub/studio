@@ -54,19 +54,14 @@ import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PrintableConsentForm } from '@/components/consents/PrintableConsentForm';
 
-type ClientPhoto = {
-  url: string;
-  label: string;
-};
-
 /**
- * Utility to safely convert Firestore/API values to Date objects.
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
  */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
 

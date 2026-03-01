@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -163,7 +162,6 @@ export const CheckoutHub = ({
         setAppliedDiscountCodes(appliedDiscountCodes.filter(c => c !== code));
     };
 
-    // Requirement: Recognizing and suggesting automated discounts
     const suggestedDiscounts = useMemo(() => {
         if (!selectedClient || !discounts) return [];
 
@@ -186,7 +184,6 @@ export const CheckoutHub = ({
             }
 
             if (trigger === 'loyalty' && d.automation?.appointmentThreshold) {
-                // If checking out now, it's visit # (completed + 1)
                 return (completedCount + 1) % d.automation.appointmentThreshold === 0;
             }
 
@@ -202,8 +199,6 @@ export const CheckoutHub = ({
             return false;
         });
     }, [selectedClient, discounts, appliedDiscountCodes, allAppointments, cartServiceIds]);
-    
-    const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
     
     const quickTenderOptions = useMemo(() => {
         const options = new Set<number>();
@@ -291,7 +286,16 @@ export const CheckoutHub = ({
                                 <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Warning</AlertTitle>
                                 <AlertDescription className="text-xs space-y-2 mt-1">
                                     <p>This client owes <strong>${selectedClient.outstandingBalance!.toFixed(2)}</strong> from past unpaid fees.</p>
-                                    <Button variant="destructive" size="sm" className="w-full h-8 font-bold text-[10px] uppercase">Add to Current Sale</Button>
+                                    <Button 
+                                        variant="destructive" 
+                                        size="sm" 
+                                        className="w-full h-8 font-bold text-[10px] uppercase"
+                                        onClick={() => {
+                                            selectedClient.unpaidFees?.forEach(fee => onApplyAdjustmentToggle(fee.feeId, true));
+                                        }}
+                                    >
+                                        Add to Current Sale
+                                    </Button>
                                 </AlertDescription>
                             </Alert>
                         </motion.div>
@@ -302,7 +306,7 @@ export const CheckoutHub = ({
                             <AccordionTrigger className="p-0 hover:no-underline py-2">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                     <ShoppingCart className="w-3 h-3" />
-                                    Items in Sale ({appointmentsData.length + cart.length})
+                                    Items in Sale ({appointmentsData.length + cart.length + Array.from(appliedAdjustments).length})
                                 </h3>
                             </AccordionTrigger>
                             <AccordionContent className="pt-2 pb-4">
@@ -373,25 +377,24 @@ export const CheckoutHub = ({
                                                     <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-3.5 h-3.5"/></Button>
                                                 </div>
                                             ))}
-                                            {selectedClient && memberships.find(m => m.id === selectedClient.activeMembershipId)?.retailDiscount && (
-                                                <Card className={cn("border-2", redeemedOffer?.type === 'retail_discount' ? "bg-primary/5 border-primary" : "border-indigo-500/20")}>
-                                                    <CardContent className="p-3">
-                                                        <div className="flex justify-between items-center">
-                                                            <div>
-                                                                <p className="font-bold text-xs">{memberships.find(m => m.id === selectedClient.activeMembershipId)?.retailDiscount}% Member Retail Discount</p>
-                                                            </div>
-                                                            <Button 
-                                                                variant={redeemedOffer?.type === 'retail_discount' ? "outline" : "secondary"} 
-                                                                size="sm" 
-                                                                className="h-8 text-[10px] font-black uppercase"
-                                                                onClick={() => setRedeemedOffer(redeemedOffer?.type === 'retail_discount' ? null : { type: 'retail_discount', id: 'retail_discount' })}
-                                                            >
-                                                                {redeemedOffer?.type === 'retail_discount' ? 'Remove' : 'Apply'}
-                                                            </Button>
+                                        </div>
+                                    )}
+
+                                    {appliedAdjustments.size > 0 && (
+                                        <div className="space-y-2">
+                                            {Array.from(appliedAdjustments).map(id => {
+                                                const adj = adjustments.find(a => a.id === id);
+                                                return (
+                                                    <div key={id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-destructive/5 border border-destructive/20 rounded-xl">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-bold text-xs md:text-sm truncate">{adj?.description}</p>
+                                                            <p className="text-[9px] md:text-[10px] text-destructive uppercase font-black">Settling Debt</p>
                                                         </div>
-                                                    </CardContent>
-                                                </Card>
-                                            )}
+                                                        <p className="font-bold font-mono text-xs md:text-sm text-destructive">${adj?.cost.toFixed(2)}</p>
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => onApplyAdjustmentToggle(id, false)}><X className="h-3.5 w-3.5"/></Button>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -463,6 +466,12 @@ export const CheckoutHub = ({
                         <div className="flex justify-between text-[11px] md:text-sm text-primary font-black uppercase tracking-tight">
                             <span className="flex items-center gap-1.5"><Percent className="w-3 h-3 md:w-3.5 md:h-3.5" /> Discounts Applied</span>
                             <span className="font-mono">-${(discount + membershipDiscount).toFixed(2)}</span>
+                        </div>
+                    )}
+                    {appliedAdjustments.size > 0 && (
+                        <div className="flex justify-between text-[11px] md:text-sm text-destructive font-black uppercase tracking-tight">
+                            <span className="flex items-center gap-1.5"><AlertTriangle className="w-3 h-3 md:w-3.5 md:h-3.5" /> Settling Debt</span>
+                            <span className="font-mono">+${Array.from(appliedAdjustments).reduce((sum, id) => sum + (adjustments.find(a => a.id === id)?.cost || 0), 0).toFixed(2)}</span>
                         </div>
                     )}
                     <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Estimated Tax</p><p className="font-mono">${tax.toFixed(2)}</p></div>

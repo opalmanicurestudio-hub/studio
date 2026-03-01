@@ -79,6 +79,7 @@ export default function POSPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
+    const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
@@ -236,6 +237,15 @@ export default function POSPage() {
         });
     }, []);
 
+    const handleApplyAdjustmentToggle = useCallback((id: string, apply: boolean) => {
+        setAppliedAdjustments(prev => {
+            const next = new Set(prev);
+            if (apply) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+
     useEffect(() => {
         if (selectedAppointmentIds.size > 0 && !selectedClientId) {
             const firstAptId = Array.from(selectedAppointmentIds)[0];
@@ -246,6 +256,7 @@ export default function POSPage() {
         } else if (selectedAppointmentIds.size === 0 && selectedClientId) {
             if (retailItems.length === 0) {
                 setSelectedClientId(null);
+                setAppliedAdjustments(new Set()); // Reset debt adjustments if payer changed/removed
             }
         }
     }, [selectedAppointmentIds, readyForCheckoutAppointments, selectedClientId, retailItems.length]);
@@ -387,7 +398,7 @@ export default function POSPage() {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded" }); return; }
     
         const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle');
-        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.checkInTime ? parseISO(b.checkInTime).getTime() : 0));
         
         if (waitingClients.length === 0) {
           toast({ title: 'No Clients Waiting' });
@@ -541,7 +552,18 @@ export default function POSPage() {
         }
     };
 
-    const { subtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
+    const clientAdjustments = useMemo(() => {
+        if (!selectedClient?.unpaidFees) return [];
+        return selectedClient.unpaidFees.map(f => ({
+            id: f.feeId,
+            clientName: selectedClient.name,
+            serviceName: 'Past Due Fee',
+            description: f.reason,
+            cost: f.feeAmount
+        }));
+    }, [selectedClient]);
+
+    const { subtotal, discount, membershipDiscount, tax, total, adjustmentTotal } = useMemo(() => {
         const servicesTotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
             if (!data) return acc;
@@ -552,6 +574,11 @@ export default function POSPage() {
 
         const retailTotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         const currentSubtotal = servicesTotal + retailTotal;
+
+        const currentAdjustmentTotal = Array.from(appliedAdjustments).reduce((sum, id) => {
+            const adj = clientAdjustments.find(a => a.id === id);
+            return sum + (adj?.cost || 0);
+        }, 0);
 
         let manualDiscount = 0;
         appliedDiscountCodes.forEach(code => {
@@ -577,16 +604,17 @@ export default function POSPage() {
         const totalDisc = manualDiscount + memDiscount;
         const subtotalAfterDisc = Math.max(0, currentSubtotal - totalDisc);
         const taxAmount = subtotalAfterDisc * 0.07;
-        const grandTotal = subtotalAfterDisc + taxAmount + tipAmount;
+        const grandTotal = subtotalAfterDisc + taxAmount + tipAmount + currentAdjustmentTotal;
 
         return {
             subtotal: currentSubtotal,
             discount: manualDiscount,
             membershipDiscount: memDiscount,
             tax: taxAmount,
-            total: grandTotal
+            total: grandTotal,
+            adjustmentTotal: currentAdjustmentTotal
         };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedDiscountCodes, discounts, selectedClientId, clients, memberships, tipAmount, redeemedOffer]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedDiscountCodes, discounts, selectedClientId, clients, memberships, tipAmount, redeemedOffer, appliedAdjustments, clientAdjustments]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
@@ -770,12 +798,43 @@ export default function POSPage() {
                 });
             });
 
-            if (selectedClientId) {
+            if (selectedClientId && selectedClient) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
-                batch.update(clientDocRef, { 
+                
+                let updatePayload: any = { 
                     lifetimeValue: increment(totalRevenueForLTV),
                     lastAppointment: nowISO
-                });
+                };
+
+                // Clear settled debt
+                if (appliedAdjustments.size > 0) {
+                    const remainingFees = (selectedClient.unpaidFees || []).filter(f => !appliedAdjustments.has(f.feeId));
+                    updatePayload.unpaidFees = remainingFees;
+                    updatePayload.outstandingBalance = increment(-adjustmentTotal);
+                    
+                    // Log settlement transactions
+                    appliedAdjustments.forEach(feeId => {
+                        const fee = selectedClient.unpaidFees?.find(f => f.feeId === feeId);
+                        if (fee) {
+                            const settlementTxnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+                            batch.set(settlementTxnRef, {
+                                date: nowISO,
+                                description: `Debt Settlement: ${fee.reason}`,
+                                clientOrVendor: selectedClient.name,
+                                clientId: selectedClient.id,
+                                type: 'income',
+                                context: 'Business',
+                                category: 'Debt Settlement',
+                                amount: fee.feeAmount,
+                                paymentMethod: paymentDetails.paymentMethod,
+                                hasReceipt: true,
+                                staffId: fee.staffId,
+                            });
+                        }
+                    });
+                }
+
+                batch.update(clientDocRef, updatePayload);
             }
 
             if (tipAmount > 0) {
@@ -813,7 +872,11 @@ export default function POSPage() {
                         { name: a.service.name, quantity: 1, price: redeemedOffer?.id === a.service.id ? 0 : getServicePrice(a.service, a.staff) },
                         ...a.addOnServices.map(addon => ({ name: addon.name, quantity: 1, price: getServicePrice(addon, a.staff) }))
                     ]),
-                    ...retailItems.map(i => ({ name: i.name, quantity: i.quantity, price: i.price }))
+                    ...retailItems.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+                    ...Array.from(appliedAdjustments).map(id => {
+                        const adj = clientAdjustments.find(a => a.id === id);
+                        return { name: `Debt: ${adj?.description}`, quantity: 1, price: adj?.cost || 0 };
+                    })
                 ],
                 subtotal,
                 discount: discount + membershipDiscount,
@@ -833,6 +896,7 @@ export default function POSPage() {
             setSelectedClientId(null);
             setTipAmount(0);
             setAppliedDiscountCodes([]);
+            setAppliedAdjustments(new Set());
             setRedeemedOffer(null);
             toast({ title: 'Sale Complete!' });
 
@@ -918,7 +982,7 @@ export default function POSPage() {
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === id);
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
           if (apt) clientIds.add(apt.appointment.clientId);
         });
         return (clients || []).filter(c => clientIds.has(c.id));
@@ -952,9 +1016,9 @@ export default function POSPage() {
         discounts: discounts || [],
         amountTendered,
         setAmountTendered,
-        adjustments: [],
-        appliedAdjustments: new Set<string>(),
-        onApplyAdjustmentToggle: () => {},
+        adjustments: clientAdjustments,
+        appliedAdjustments,
+        onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
         absorbedCost: 0,
         redeemedOffer,
         setRedeemedOffer,

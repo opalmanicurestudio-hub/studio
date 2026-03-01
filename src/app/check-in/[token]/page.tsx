@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -22,13 +21,13 @@ import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 /**
- * Utility to safely convert Firestore/API values to Date objects.
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
  */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
     return new Date(val);
 };
 
@@ -434,7 +433,7 @@ export default function CheckInPage() {
                 return (
                     <Card className="bg-muted/50 p-4 space-y-6">
                         <div className="text-center">
-                            <Check className="w-8 h-8 mx-auto text-green-500 mb-2"/>
+                            <CheckCircle2 className="w-8 h-8 mx-auto text-green-500 mb-2"/>
                             <h3 className="font-bold text-lg">Payment Successful!</h3>
                             <p className="text-sm text-muted-foreground">Select a new date and time for your appointment.</p>
                         </div>
