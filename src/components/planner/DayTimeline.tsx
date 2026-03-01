@@ -1,4 +1,3 @@
-
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
@@ -93,7 +92,6 @@ export const DayTimeline = ({
       }
     }, []);
 
-    // Filter columns for mobile view
     const displayedColumns = useMemo(() => {
         if (!isMobile) return columns;
         const selected = columns.find(c => c.id === mobileSelectedColumnId);
@@ -200,9 +198,7 @@ export const DayTimeline = ({
                                             ) : (
                                                 (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                             )}
-                                            <SelectValue>
-                                                <span className="font-semibold text-base truncate ml-2">{column.name}</span>
-                                            </SelectValue>
+                                            <SelectValue />
                                         </div>
                                     </SelectTrigger>
                                     <SelectContent>

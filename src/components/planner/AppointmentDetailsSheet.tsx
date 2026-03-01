@@ -84,6 +84,7 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection } from 'firebase/firestore';
 
@@ -208,6 +209,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
+  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [newAddOnId, setNewAddOnId] = useState('');
   const [newAddOnStaffId, setNewAddOnStaffId] = useState('');
   

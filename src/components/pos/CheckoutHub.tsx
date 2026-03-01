@@ -671,7 +671,7 @@ export const CheckoutHub = ({
                                                             value={allocation || ''} 
                                                             onChange={(e) => {
                                                                 const val = parseFloat(e.target.value) || 0;
-                                                                // The parent handleTipAllocation update should be used here
+                                                                // Note: Handle tip allocations through callback in parent if complex
                                                             }}
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />
