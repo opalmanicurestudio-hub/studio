@@ -99,7 +99,7 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
 );
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
         <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-center mb-8">Who are we serving today?</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
@@ -172,9 +172,9 @@ const StepDetails = ({
             <div className="space-y-2">
                 <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
                     <Mail className="w-5 h-5 text-primary"/>
-                    <span>Email</span>
+                    <span>Email Address</span>
                 </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
             </div>
 
             <AnimatePresence>
@@ -266,7 +266,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                 </div>
                 <div className="text-center">
                     <p className="font-semibold text-sm text-slate-100">{service.name}</p>
-                    <p className="text-xs text-slate-400 mt-1">{durationText} &middot; {priceText}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
                     {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
                 </div>
             </div>
@@ -282,11 +282,11 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
     
     if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-4">{categories.map(category => ( <button key={category} className="w-full p-8 text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+        return ( <div className="grid grid-cols-1 gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
     
     return (
-        <div className="space-y-4">
+        <div className="space-y-4" key="service-selection-list">
             <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-sm p-2 transition-colors">
                 <ArrowLeft className="h-4 w-4"/>Back to Categories
             </button>
@@ -306,7 +306,7 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
 };
 
 const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
-    <div className="space-y-4">
+    <div className="space-y-4" key="staff-selection-step">
         <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
             {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
@@ -321,7 +321,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 );
 
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-8">
+    <div className="space-y-8" key="consent-step">
         {requiredForms.map(form => (
             <div key={form.id} className="space-y-6 p-6 rounded-2xl border border-slate-700 bg-slate-800/30">
                 <h3 className="text-2xl font-bold flex items-center gap-3 text-slate-100"><FileSignature className="w-6 h-6 text-primary" /> {form.title}</h3>
@@ -391,7 +391,7 @@ const MemberSetup = ({
     const hasNextSubStep = currentSubStepIndex < subSteps.length - 1;
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
             <div className="p-6 md:p-8">
                 <h2 className="text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
                 <div className="flex items-center justify-between gap-4 mt-2">
@@ -408,6 +408,7 @@ const MemberSetup = ({
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
                             <StepDetails 
+                                key="step-details"
                                 member={member} 
                                 onUpdate={onUpdate} 
                                 isGroup={isGroup} 
@@ -417,9 +418,9 @@ const MemberSetup = ({
                                 isResolvingIdentity={isResolvingIdentity}
                             />
                         )}
-                        {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
-                        {memberSubStep === 'consents' && <StepConsents member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
-                        {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
+                        {memberSubStep === 'services' && <StepServices key="step-services" member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
+                        {memberSubStep === 'consents' && <StepConsents key="step-consents" member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
+                        {memberSubStep === 'staff' && <StepStaff key="step-staff" member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
                     </motion.div>
                 </AnimatePresence>
             </div>
@@ -466,7 +467,7 @@ const MemberSetup = ({
 };
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 md:p-16 text-center space-y-8">
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 md:p-16 text-center space-y-8" key="confirmation-screen">
         <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle className="w-12 h-12 text-green-500" />
         </div>
@@ -597,6 +598,10 @@ export default function WalkInPage() {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
     
+    // REQUIREMENT: Email is now mandatory in the Walk-in Kiosk
+    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Missing Email', description: 'Please provide an email address to proceed.' });
+    if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
+
     if (memberSubStep === 'details') {
         // Force an immediate identity check before allowing progression
         await resolveIdentity(member.email, member.phone);
