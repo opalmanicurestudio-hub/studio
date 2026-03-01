@@ -658,7 +658,7 @@ export const CheckoutHub = ({
                                             return (
                                                 <div key={staffId} className="flex items-center justify-between gap-3">
                                                     <div className="flex items-center gap-2 min-w-0">
-                                                        <Avatar className="h-6 w-6 border shadow-inner">
+                                                        <Avatar className="h-6 w-6 border shadow-sm">
                                                             <AvatarImage src={member?.avatarUrl} />
                                                             <AvatarFallback>{member?.name.charAt(0)}</AvatarFallback>
                                                         </Avatar>

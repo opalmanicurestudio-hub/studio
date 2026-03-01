@@ -248,7 +248,8 @@ function POSPageContent() {
         });
     }, []);
 
-    const { rawSubtotal, tax, total } = useMemo(() => {
+    // 1. Calculate Raw Subtotal FIRST
+    const rawSubtotal = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter(Boolean);
@@ -268,16 +269,10 @@ function POSPageContent() {
             return acc + (fee?.feeAmount || 0);
         }, 0);
 
-        const s = appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
-        const t = s * 0.07;
-        
-        return { 
-            rawSubtotal: s, 
-            tax: t, 
-            total: s + t + tipAmount 
-        };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees]);
+        return appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, waivedAppointmentFees]);
 
+    // 2. Calculate Discounts using the Raw Subtotal
     const { discount, membershipDiscount } = useMemo(() => {
         let dVal = 0;
         let mVal = 0;
@@ -299,6 +294,16 @@ function POSPageContent() {
 
         return { discount: dVal, membershipDiscount: mVal };
     }, [selectedClientId, appliedDiscountCodes, discounts, rawSubtotal, retailItems, clients, memberships]);
+
+    // 3. Final Total Calculation
+    const { tax, total } = useMemo(() => {
+        const subtotalAfterDiscounts = Math.max(0, rawSubtotal - (discount + membershipDiscount));
+        const t = subtotalAfterDiscounts * 0.07;
+        return { 
+            tax: t, 
+            total: subtotalAfterDiscounts + t + tipAmount 
+        };
+    }, [rawSubtotal, discount, membershipDiscount, tipAmount]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
@@ -754,7 +759,7 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: rawSubtotal, tax, total: total - (discount + membershipDiscount), tipAmount, setTipAmount, onCheckout: handleCheckout,
+        subtotal: rawSubtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
         appliedDiscountCodes, setAppliedDiscountCodes, discount, membershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
@@ -784,7 +789,7 @@ function POSPageContent() {
             {isMobile && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${(total - (discount + membershipDiscount)).toFixed(2)})</Button></SheetTrigger>
+                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${total.toFixed(2)})</Button></SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
                             <SheetHeader className="p-4 border-b">
                                 <SheetTitle>Current Sale</SheetTitle>

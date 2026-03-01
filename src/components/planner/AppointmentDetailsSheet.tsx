@@ -126,7 +126,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <ShieldCheck className="w-5 h-5 text-primary" />
-                        Waive Fee Authorization
+                        Waive Usage Overage Fees
                     </DialogTitle>
                     <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
                 </DialogHeader>
@@ -209,9 +209,9 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
-  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [newAddOnId, setNewAddOnId] = useState('');
   const [newAddOnStaffId, setNewAddOnStaffId] = useState('');
+  const [newAddOnTiming, setNewAddOnTiming] = useState<'immediate' | 'sequential'>('sequential');
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -294,7 +294,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const existingAddOns = appointment.addOnIds || [];
     const existingOverrides = appointment.checkoutState?.serviceStaffOverrides || {};
     
-    const updates = {
+    const updates: any = {
         addOnIds: [...existingAddOns, newAddOnId],
         'checkoutState.serviceStaffOverrides': {
             ...existingOverrides,
@@ -302,11 +302,22 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         }
     };
 
+    // If timing is immediate, we also need to mark the provider as busy on the floor
+    if (newAddOnTiming === 'immediate') {
+        const staffRef = doc(firestore, 'tenants', tenantId, 'staff', newAddOnStaffId);
+        updateDocumentNonBlocking(staffRef, { status: 'busy' });
+    }
+
     updateDocumentNonBlocking(appointmentRef, updates);
     setIsSplitServiceOpen(false);
     setNewAddOnId('');
     setNewAddOnStaffId('');
-    toast({ title: "Service Part Added", description: "Added and assigned to provider." });
+    toast({ 
+        title: "Service Part Added", 
+        description: newAddOnTiming === 'immediate' 
+            ? "Concurrent service started. Both providers marked busy." 
+            : "Sequential service queued. Provider notified." 
+    });
   };
 
   if (!appointment || !client || !service) return null;
@@ -603,6 +614,27 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                                 <p className="text-xs font-medium text-destructive">No providers currently idle.</p>
                             </div>
                         )}
+                    </RadioGroup>
+                </div>
+                <div className="space-y-2">
+                    <Label>Scheduling</Label>
+                    <RadioGroup value={newAddOnTiming} onValueChange={(v: any) => setNewAddOnTiming(v)} className="grid grid-cols-2 gap-2">
+                        <div>
+                            <RadioGroupItem value="immediate" id="timing-immediate" className="peer sr-only" />
+                            <Label htmlFor="timing-immediate" className="flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer hover:bg-muted peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5">
+                                <Clock className="w-4 h-4 mb-1" />
+                                <span className="text-[10px] font-black uppercase">Immediate</span>
+                                <span className="text-[8px] text-muted-foreground">Concurrent</span>
+                            </Label>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="sequential" id="timing-sequential" className="peer sr-only" />
+                            <Label htmlFor="timing-sequential" className="flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer hover:bg-muted peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5">
+                                <Repeat className="w-4 h-4 mb-1" />
+                                <span className="text-[10px] font-black uppercase">Handoff</span>
+                                <span className="text-[8px] text-muted-foreground">After Primary</span>
+                            </Label>
+                        </div>
                     </RadioGroup>
                 </div>
             </div>

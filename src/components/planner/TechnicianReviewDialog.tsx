@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -22,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -173,6 +172,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
   const totalAdditionalCharge = extraTimeCharge + extraProductCost;
 
+  const nextUpStaff = useMemo(() => {
+      const nextStaffId = Object.values(serviceStaffOverrides).find(id => id !== appointment.staffId);
+      if (!nextStaffId) return null;
+      return staff.find(s => s.id === nextStaffId);
+  }, [serviceStaffOverrides, appointment.staffId, staff]);
+
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
 
@@ -232,8 +237,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
-                <DialogTitle>Finish Service & Review</DialogTitle>
-                <DialogDescription>Confirm service actuals before handoff to the front desk.</DialogDescription>
+                <DialogTitle>{nextUpStaff ? 'Complete My Part & Hand-off' : 'Finish Service & Review'}</DialogTitle>
+                <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4 space-y-6">
@@ -257,9 +262,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
-                          <Label htmlFor="actual-duration" className="flex items-center gap-2"><Clock className="w-4 h-4" /> Actual Duration (minutes)</Label>
+                          <Label htmlFor="actual-duration-rev" className="flex items-center gap-2"><Clock className="w-4 h-4" /> Actual Duration (minutes)</Label>
                           <Input 
-                              id="actual-duration"
+                              id="actual-duration-rev"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
@@ -292,7 +297,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         <div className="space-y-2">
                             {editableFormula.map((item) => (
                             <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
-                                <span className="font-medium flex-1 truncate">{item.name}</span>
+                                <span className="font-medium flex-1 truncate pr-2">{item.name}</span>
                                 <div className="flex items-center gap-2">
                                     <Input
                                         type="number"
@@ -373,7 +378,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             <DialogFooter className="p-6 pt-4 border-t">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleSend} className="h-11">
-                    <Send className="mr-2 h-4 w-4" /> Send to Front Desk
+                    {nextUpStaff ? (
+                        <>
+                            <Repeat className="mr-2 h-4 w-4" /> Hand-off to {nextUpStaff.name.split(' ')[0]}
+                        </>
+                    ) : (
+                        <>
+                            <Send className="mr-2 h-4 w-4" /> Send to Front Desk
+                        </>
+                    )}
                 </Button>
             </DialogFooter>
         </ContentComponent>
