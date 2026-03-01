@@ -168,7 +168,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
   const nextUpStaff = useMemo(() => {
       if (!appointment || !currentUser) return null;
-      // Find someone assigned who isn't the current user and hasn't finished
       const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
           return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
       })?.[1];
@@ -208,7 +207,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const handleCompleteMyPart = () => {
     if (!client || !service || !appointment || !currentUser) return;
 
-    // Identify which parts the current user was responsible for
     const myServiceIds = Object.entries(serviceStaffOverrides)
         .filter(([_, staffId]) => staffId === currentUser.uid)
         .map(([svcId]) => svcId);
@@ -241,8 +239,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
-                <DialogTitle>{nextUpStaff ? 'Complete My Part & Hand-off' : 'Finish Service & Review'}</DialogTitle>
-                <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
+                <DialogTitle>{nextUpStaff ? 'Complete Part & Hand-off' : 'Complete Service'}</DialogTitle>
+                <DialogDescription>Confirm actuals before moving the client forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4 space-y-6">
@@ -262,7 +260,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <Card>
                     <CardHeader>
                         <CardTitle>Service Actuals</CardTitle>
-                        <CardDescription>Note deviations from standard duration or formula.</CardDescription>
+                        <CardDescription>Note any deviations from scheduled time or formula.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
@@ -333,11 +331,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <MessageSquare className="w-4 h-4 text-primary" />
                             Review Notes
                         </CardTitle>
-                        <CardDescription>Communicate context for overages to the front desk.</CardDescription>
+                        <CardDescription>Provide context for the front desk (e.g. "Client requested extra length").</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <Textarea 
-                            placeholder="e.g., Client requested extra density, arrived with severe matting..." 
+                            placeholder="e.g., Arrived with severe matting, requested extra density..." 
                             value={reviewNotes}
                             onChange={(e) => setReviewNotes(e.target.value)}
                             rows={3}
@@ -375,7 +373,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </ScrollArea>
             <DialogFooter className="p-6 pt-4 border-t">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleCompleteMyPart} className="h-11">
+                <Button onClick={handleCompleteMyPart} className="h-11 font-bold">
                     {nextUpStaff ? (
                         <>
                             <Repeat className="mr-2 h-4 w-4" /> Complete My Part & Hand-off

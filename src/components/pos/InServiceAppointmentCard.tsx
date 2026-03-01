@@ -102,7 +102,6 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                         <div className="space-y-1.5">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Active Providers</p>
                             {assignedTechnicians.map(tech => {
-                                // Identify which parts this specific tech is responsible for
                                 const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {})
                                     .filter(([_, staffId]) => staffId === tech.id)
                                     .map(([svcId]) => svcId);
@@ -112,13 +111,11 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                 
                                 const isDone = techServices.length > 0 && techServices.every(id => completedIds.includes(id));
                                 
-                                // Logic: Working if ANY of their assigned services are ready
-                                // Ready = NOT completed AND (is primary OR is concurrent OR previous part is done)
                                 const isWorking = techServices.some(svcId => {
                                     if (completedIds.includes(svcId)) return false;
                                     const isPrimary = svcId === appointment.serviceId;
                                     const isConcurrent = concurrentIds.includes(svcId);
-                                    const prevPartDone = completedIds.includes(appointment.serviceId); // Simplified handoff logic
+                                    const prevPartDone = completedIds.includes(appointment.serviceId);
                                     return isPrimary || isConcurrent || prevPartDone;
                                 });
 

@@ -683,9 +683,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         onOpenChange={setIsAddOnSelectorOpen} 
         allAddOns={allServices.filter(s => s.type === 'addon')} 
         initialSelected={[]} 
-        onSelect={(newAddOns) => {
-            // Bulk update logic could go here if needed
-        }} 
+        onSelect={(newAddOns) => {}} 
     />
 
     <WaiveFeeDialog 

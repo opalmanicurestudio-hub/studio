@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -172,54 +171,6 @@ function PlannerPageContent() {
     return map;
   }, [currentDate, appointments, events, staff, resources, activeView]);
 
-  const billsDue = useMemo(() => {
-    if (!billInstances || !billDefinitions) return [];
-    return billInstances.map(instance => {
-      const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
-      return { ...instance, definition: definition! };
-    }).filter(item => 
-        item.definition && 
-        item.status !== 'paid' && 
-        (item.status === 'overdue' || isBefore(parseISO(item.dueDate), addDays(new Date(), 1)))
-    );
-  }, [billInstances, billDefinitions]);
-
-  const kpis = useMemo(() => {
-    if (!appointments || !transactions) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
-    
-    const start = startOfWeek(currentDate);
-    const end = endOfDay(addDays(start, 6));
-
-    const weekTransactions = transactions.filter(t => t.date >= start && t.date <= end && t.type === 'income' && t.category === 'Service Revenue');
-    const weeklyRevenue = weekTransactions.reduce((acc, t) => acc + t.amount, 0);
-
-    return {
-        weeklyRevenue,
-        projectedRevenue: weeklyRevenue * 1.2,
-        weeklyBreakEven: 1500,
-        weeklyNetProfit: weeklyRevenue - 1500,
-        absorbedCosts: 120,
-    };
-  }, [currentDate, appointments, transactions]);
-
-  const handleScan = useCallback((data: string) => {
-    if (!appointments) return;
-    const raw = data.trim();
-    if (raw.startsWith('clarityflow://checkout/')) {
-        const id = raw.split('/').pop();
-        const apt = appointments.find(a => a.id === id);
-        if (apt) {
-            setSelectedAppointment(apt);
-            setIsDetailsOpen(true);
-            if (apt.status === 'ready_for_checkout') {
-                toast({ title: "Ticket Scanned", description: "This client is ready for checkout. Opening details." });
-            }
-        } else {
-            toast({ variant: 'destructive', title: 'Appointment Not Found' });
-        }
-    }
-  }, [appointments, toast]);
-
   const handleUpdateStatus = (id: string, status: Appointment['status']) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
@@ -255,7 +206,6 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
-    // 1. Update Appointment
     batch.update(appointmentRef, {
         status: 'cancelled',
         cancellationReason: data.reason,
@@ -263,17 +213,15 @@ function PlannerPageContent() {
         cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
     });
 
-    // 2. Sync with Public Check-in (Token) Record
     if (selectedAppointment.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
         batch.update(checkInRef, { 
             status: 'cancelled', 
             cancellationReason: data.reason,
-            tenantId: tenantId // Required for permission verification
+            tenantId: tenantId
         });
     }
 
-    // 3. Handle Fee Collection
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
             const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -324,28 +272,35 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     
+    const apt = appointments?.find(a => a.id === appointmentId);
+    if (!apt) return;
+
+    const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+    const completedIds = checkoutState.completedServiceIds || [];
+    const allComplete = completedIds.length >= totalServicesCount;
+
     const batch = writeBatch(firestore);
-    batch.update(appointmentRef, {
-        status: 'ready_for_checkout',
-        checkoutState,
-        actualEndTime: new Date().toISOString(),
-    });
     
-    const appointment = appointments?.find(a => a.id === appointmentId);
-    if (appointment?.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        batch.update(checkInRef, { status: 'ready_for_checkout', tenantId });
+    if (allComplete) {
+        batch.update(appointmentRef, {
+            status: 'ready_for_checkout',
+            checkoutState,
+            actualEndTime: new Date().toISOString(),
+        });
+        if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+    } else {
+        batch.update(appointmentRef, { checkoutState });
     }
 
-    if (appointment?.staffId) {
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+    if (currentUser) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid);
         batch.update(staffDocRef, { status: 'idle' });
     }
 
     batch.commit().then(() => {
         toast({
-            title: "Service Finished",
-            description: "The appointment has been sent to the front desk for checkout."
+            title: allComplete ? "Service Finished" : "Part Completed",
+            description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Mark as idle."
         });
         setIsTechnicianReviewOpen(false);
         setIsDetailsOpen(false);
@@ -394,53 +349,6 @@ function PlannerPageContent() {
     }
 
     batch.commit();
-  };
-
-  const handleAddEvent = (data: any) => {
-    if (!firestore || !tenantId) return;
-    const id = nanoid();
-    const event = { ...data, id, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() };
-    setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), event, {});
-    setIsAddEventOpen(false);
-    toast({ title: "Event Added" });
-  };
-
-  const handleLogPaymentConfirm = (paymentData: any) => {
-    if (!selectedBill || !firestore || !user || !tenantId) return;
-    
-    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
-    const newAmountPaid = (selectedBill.amountPaid || 0) + paymentData.amount;
-    const newAmountDue = selectedBill.amountDue - paymentData.amount;
-    const newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
-    
-    updateDocumentNonBlocking(billInstanceRef, {
-        amountPaid: newAmountPaid,
-        amountDue: newAmountDue,
-        status: newStatus
-    });
-
-    const newTransaction: Omit<Transaction, 'id'> = {
-        date: paymentData.date.toISOString(),
-        description: `Payment for ${selectedBill.definition.name}`,
-        clientOrVendor: selectedBill.definition.name,
-        type: 'payment',
-        context: selectedBill.definition.context,
-        category: selectedBill.definition.category,
-        amount: paymentData.amount,
-        paymentMethod: paymentData.paymentMethod,
-        hasReceipt: !!paymentData.receiptUrl,
-        receiptUrl: paymentData.receiptUrl,
-        relatedBillInstanceId: selectedBill.id,
-    };
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-    addDocumentNonBlocking(transactionsRef, newTransaction);
-    
-    toast({
-        title: "Payment Logged",
-        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
-    })
-
-    setSelectedBill(null);
   };
 
   const handleOverrideConfirm = async (staffId: string, reason: string) => {
@@ -536,9 +444,9 @@ function PlannerPageContent() {
                                         <TooltipTrigger asChild>
                                             <Button variant="outline" size="icon" className="relative h-8 w-8" onClick={() => setIsBillsSheetOpen(true)}>
                                                 <CreditCard className="h-4 w-4" />
-                                                {billsDue.length > 0 && (
+                                                {billInstances.filter(i => i.status !== 'paid').length > 0 && (
                                                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white">
-                                                        {billsDue.length}
+                                                        {billInstances.filter(i => i.status !== 'paid').length}
                                                     </span>
                                                 )}
                                             </Button>
@@ -584,14 +492,14 @@ function PlannerPageContent() {
                 mobileSelectedColumnId={mobileSelectedColumnId} 
                 onMobileColumnChange={onMobileColumnChange}
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-                onPrintReceipt={setReceiptToPrint} onPrintTicket={setTicketToPrint} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
+                onPrintReceipt={() => {}} onPrintTicket={() => {}} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
                 dailyTransactions={transactions?.filter(t => isSameDay(new Date(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={handleStartService}
                 onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
                 onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
-                walkIns={walkIns} clients={clients} services={services} resources={resources || []} publicScheduleProfile={publicScheduleProfile}
+                walkIns={walkIns} clients={clients} services={services} resources={resources || []}
             />
       </main>
 
@@ -607,8 +515,8 @@ function PlannerPageContent() {
         onCancel={handleCancelAppointment}
         onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
         onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
-        onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
-        onPrintTicket={setTicketToPrint}
+        onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(initialClient ? true : false); }}
+        onPrintTicket={() => {}}
         onOverride={() => setIsOverrideOpen(true)}
         onWaiveFee={handleWaiveFee}
       />
@@ -643,8 +551,7 @@ function PlannerPageContent() {
       />
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={handleAddAppointment} client={clientForNewApt} appointmentToRebook={appointmentToRebook} memberships={memberships || []} />
-      <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={handleAddEvent} staff={allStaff || []} />
-      {selectedAppointment && <EditAppointmentDialog open={isEditAppointmentOpen} onOpenChange={setIsEditAppointmentOpen} appointment={selectedAppointment} clients={clients || []} services={services || []} appointments={appointments || []} onConfirm={a => updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', a.id), a)} />}
+      <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={() => {}} staff={allStaff || []} />
       
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0 overflow-hidden">
@@ -662,7 +569,7 @@ function PlannerPageContent() {
       <BillsDueSheet 
         open={isBillsSheetOpen} 
         onOpenChange={setIsBillsSheetOpen} 
-        billInstances={billsDue as any} 
+        billInstances={billInstances as any} 
         isMobile={isMobile || false} 
         onLogPaymentClick={(instance) => {
             setSelectedBill(instance as any);

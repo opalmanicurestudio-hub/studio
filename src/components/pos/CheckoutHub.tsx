@@ -724,10 +724,7 @@ export const CheckoutHub = ({
                                                         <Input 
                                                             type="number" 
                                                             value={allocation || ''} 
-                                                            onChange={(e) => {
-                                                                const val = parseFloat(e.target.value) || 0;
-                                                                // Tip allocation updates are typically handled in parent component's state
-                                                            }}
+                                                            onChange={(e) => {}}
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />
                                                     </div>

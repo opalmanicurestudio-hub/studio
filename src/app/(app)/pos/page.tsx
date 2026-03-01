@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -454,38 +454,19 @@ function POSPageContent() {
         if (!firestore || !tenantId || !currentUser) return;
         const batch = writeBatch(firestore);
         
-        // Logic for independent staff completion
-        const isTechnicianSelfCompletion = !!checkoutState.completedServiceIds?.length;
+        batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' });
         
-        if (isTechnicianSelfCompletion) {
-            // Mark individual provider as Idle, even if appointment stays "Servicing"
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' });
+        const apt = appointments.find(a => a.id === appointmentId);
+        if (apt) {
+            const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+            const completedIds = checkoutState.completedServiceIds || [];
+            const allComplete = completedIds.length >= totalServicesCount;
             
-            // Check if ALL assigned parts are complete
-            const apt = appointments.find(a => a.id === appointmentId);
-            if (apt) {
-                const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
-                const allComplete = (checkoutState.completedServiceIds?.length || 0) >= totalServicesCount;
-                
-                if (allComplete) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
-                } else {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { checkoutState });
-                }
-            }
-        } else {
-            // Fallback for full completion
-            batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-            const appointment = appointments?.find(a => a.id === appointmentId);
-            if (appointment?.checkInToken) {
-                const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-                batch.update(checkInRef, { status: 'ready_for_checkout', tenantId });
-            }
-
-            if (appointment?.staffId) {
-                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-                batch.update(staffDocRef, { status: 'idle' });
+            if (allComplete) {
+                batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+                if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+            } else {
+                batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { checkoutState });
             }
         }
 

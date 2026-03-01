@@ -214,9 +214,7 @@ export const DayTimeline = ({
                                             ) : (
                                                 (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                             )}
-                                            <SelectValue>
-                                                <span className="sr-only">Toggle Column</span>
-                                            </SelectValue>
+                                            <SelectValue />
                                         </div>
                                     </SelectTrigger>
                                     <SelectContent>
