@@ -110,6 +110,17 @@ export type ActivityLog = {
     durationMinutes?: number;
 };
 
+export type WaivedFee = {
+    feeId: string;
+    appointmentId: string;
+    appointmentDate: string;
+    feeAmount: number;
+    reason: string;
+    waivedBy: string; // staffId
+    waivedByName?: string;
+    waivedAt: string; // ISO timestamp
+};
+
 export type Client = {
   id: string;
   name: string;
@@ -156,6 +167,7 @@ export type Client = {
     reason: string;
     staffId?: string;
   }[];
+  waivedFees?: WaivedFee[];
   address?: {
     street: string;
     city: string;
@@ -339,6 +351,9 @@ export type Appointment = {
   cancellationFeeApplied?: number;
   cancellationFeeWaived?: boolean;
   cancellationPaymentStatus?: 'paid' | 'unpaid' | 'waived';
+  waivedBy?: string;
+  waivedReason?: string;
+  waivedAt?: string;
   revenue?: number;
   tipAmount?: number;
   discountAmount?: number;

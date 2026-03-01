@@ -458,30 +458,47 @@ function PlannerPageContent() {
     setIsDetailsOpen(false);
   };
 
-  const handleWaiveFee = async (id: string) => {
+  const handleWaiveFee = async (id: string, authorizer: Staff, reason: string) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
     const apt = appointments.find(a => a.id === id);
     if (!apt || !apt.clientId) return;
 
     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', apt.clientId);
-    const client = clients?.find(c => c.id === apt.clientId);
-    if (!client) return;
+    const clientData = clients?.find(c => c.id === apt.clientId);
+    if (!clientData) return;
 
     const feeAmount = apt.cancellationFeeApplied || 0;
-    const newUnpaidFees = (client.unpaidFees || []).filter(f => f.appointmentId !== id);
-    const newBalance = (client.outstandingBalance || 0) - feeAmount;
+    const newUnpaidFees = (clientData.unpaidFees || []).filter(f => f.appointmentId !== id);
+    const newBalance = Math.max(0, (clientData.outstandingBalance || 0) - feeAmount);
+
+    const waiverEntry = {
+        feeId: nanoid(),
+        appointmentId: id,
+        appointmentDate: apt.startTime.toISOString ? apt.startTime.toISOString() : apt.startTime,
+        feeAmount: feeAmount,
+        reason: reason,
+        waivedBy: authorizer.id,
+        waivedByName: authorizer.name,
+        waivedAt: new Date().toISOString()
+    };
 
     const batch = writeBatch(firestore);
-    batch.update(appointmentRef, { cancellationFeeWaived: true });
+    batch.update(appointmentRef, { 
+        cancellationFeeWaived: true,
+        waivedBy: authorizer.id,
+        waivedReason: reason,
+        waivedAt: waiverEntry.waivedAt
+    });
     batch.update(clientRef, {
         unpaidFees: newUnpaidFees,
-        outstandingBalance: Math.max(0, newBalance)
+        outstandingBalance: newBalance,
+        waivedFees: arrayUnion(waiverEntry)
     });
 
     try {
         await batch.commit();
-        toast({ title: "Fee Waived", description: "The cancellation fee has been absorbed." });
+        toast({ title: "Fee Waived", description: `Fee of $${feeAmount.toFixed(2)} absorbed. Authorized by ${authorizer.name}.` });
     } catch (e) {
         console.error(e);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not waive fee.' });

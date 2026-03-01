@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -80,6 +79,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Label } from '../ui/label';
+import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 
 interface WaiveFeeDialogProps {
@@ -87,7 +87,7 @@ interface WaiveFeeDialogProps {
     onOpenChange: (open: boolean) => void;
     feeAmount: number;
     staff: Staff[];
-    onConfirm: (staffId: string, reason: string) => void;
+    onConfirm: (staffMember: Staff, reason: string) => void;
 }
 
 const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: WaiveFeeDialogProps) => {
@@ -96,16 +96,21 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
     const { toast } = useToast();
 
     const handleConfirm = () => {
-        const authorizedStaff = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'staff' || s.payStructure === 'salary'));
+        // SECURITY: Strictly check for admin role
+        const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
         if (!authorizedStaff) {
-            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Invalid PIN or insufficient permissions.' });
+            toast({ 
+                variant: 'destructive', 
+                title: 'Unauthorized', 
+                description: 'Invalid PIN or insufficient permissions. Admin authorization required.' 
+            });
             return;
         }
         if (!reason.trim()) {
             toast({ variant: 'destructive', title: 'Reason Required' });
             return;
         }
-        onConfirm(authorizedStaff.id, reason);
+        onConfirm(authorizedStaff, reason);
         setPin('');
         setReason('');
     };
@@ -114,7 +119,10 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Waive Cancellation Fee</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-primary" />
+                        Waive Cancellation Fee
+                    </DialogTitle>
                     <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6 py-4">
@@ -163,7 +171,7 @@ interface AppointmentDetailsSheetProps {
   onBookNewForClient: (clientId: string) => void;
   onPrintTicket: (data: any) => void;
   onOverride: () => void;
-  onWaiveFee: (id: string) => void;
+  onWaiveFee: (id: string, authorizer: Staff, reason: string) => void;
 }
 
 export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = ({
@@ -318,7 +326,10 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             </div>
                         )}
                         {appointment.cancellationFeeWaived && (
-                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">Fee Absorbed</Badge>
+                            <div className="p-3 border rounded-lg bg-green-50 text-green-800">
+                                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">Fee Absorbed</Badge>
+                                <p className="text-[10px] mt-2 italic">"{appointment.waivedReason}" — Authorizer PIN applied.</p>
+                            </div>
                         )}
                         {appointment.checkInStatus === 'auto_cancelled' && canPerformAdminActions && (
                             <Button variant="outline" size="sm" onClick={onOverride} className="w-full h-9 font-bold bg-white text-destructive border-destructive hover:bg-destructive hover:text-white transition-all">
@@ -469,8 +480,8 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         onOpenChange={setIsWaiveDialogOpen} 
         feeAmount={appointment.cancellationFeeApplied || 0} 
         staff={staff}
-        onConfirm={(sid, r) => {
-            onWaiveFee(appointment.id);
+        onConfirm={(authorizer, reason) => {
+            onWaiveFee(appointment.id, authorizer, reason);
             setIsWaiveDialogOpen(false);
         }}
     />

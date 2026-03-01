@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -13,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -49,7 +48,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff, WaivedFee } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -259,7 +258,7 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
     );
 };
 
-const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: boolean, onOpenChange: (val: boolean) => void, fee: any, onConfirm: (staffId: string, reason: string) => void, staff: Staff[] }) => {
+const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: boolean, onOpenChange: (val: boolean) => void, fee: any, onConfirm: (staffMember: Staff, reason: string) => void, staff: Staff[] }) => {
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
     const { toast } = useToast();
@@ -274,13 +273,18 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
             return;
         }
 
-        const authorizedStaff = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'staff' || s.payStructure === 'salary'));
+        // SECURITY: Strictly check for admin role
+        const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
         if (!authorizedStaff) {
-            toast({ variant: 'destructive', title: 'Invalid PIN', description: 'PIN not recognized or unauthorized.' });
+            toast({ 
+                variant: 'destructive', 
+                title: 'Unauthorized', 
+                description: 'A manager or owner PIN is required to waive fees. Standard staff PINs are not authorized for this action.' 
+            });
             return;
         }
 
-        onConfirm(authorizedStaff.id, reason);
+        onConfirm(authorizedStaff, reason);
         setPin('');
         setReason('');
     };
@@ -289,28 +293,31 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Waive Fee</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-primary" />
+                        Waive Fee Authorization
+                    </DialogTitle>
                     <DialogDescription>A manager or owner PIN is required to waive this ${fee?.feeAmount.toFixed(2)} fee.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6 py-4">
                     <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center block">Authorized PIN</Label>
+                        <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center block">Admin/Owner PIN</Label>
                         <div className="flex justify-center">
                             <Input 
                                 type="password" 
                                 maxLength={4} 
                                 value={pin} 
                                 onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                                className="text-center text-3xl font-black h-14 tracking-[0.5em] w-48 bg-muted/50"
+                                className="text-center text-3xl font-black h-14 tracking-[0.5em] w-48 bg-muted/50 border-2"
                                 autoFocus
                             />
                         </div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="waive-reason">Reason for Waiving</Label>
+                        <Label htmlFor="waive-reason">Reason for Waiving (Required)</Label>
                         <Textarea 
                             id="waive-reason" 
-                            placeholder="e.g., Family emergency, client error, good-will gesture..."
+                            placeholder="e.g., Client verified emergency, first-time courtesy..."
                             value={reason}
                             onChange={e => setReason(e.target.value)}
                         />
@@ -318,7 +325,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
                 </div>
                 <DialogFooter className="gap-2">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Confirm Waiver</Button>
+                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Authorize Waiver</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -495,7 +502,7 @@ export default function ClientDetailPage() {
     }
   }
 
-  const handleConfirmWaive = async (authorizedStaffId: string, reason: string) => {
+  const handleConfirmWaive = async (authorizer: Staff, reason: string) => {
     if (!feeToWaive || !client || !firestore || !tenantId) return;
 
     const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
@@ -504,13 +511,30 @@ export default function ClientDetailPage() {
     const newUnpaidFees = (client.unpaidFees || []).filter((f: any) => f.feeId !== feeToWaive.feeId);
     const newBalance = Math.max(0, (client.outstandingBalance || 0) - feeToWaive.feeAmount);
 
+    const waiverEntry: WaivedFee = {
+        ...feeToWaive,
+        waivedBy: authorizer.id,
+        waivedByName: authorizer.name,
+        waivedAt: new Date().toISOString(),
+        reason: reason
+    };
+
     const batch = writeBatch(firestore);
-    batch.update(clientRef, { unpaidFees: newUnpaidFees, outstandingBalance: newBalance });
-    batch.update(appointmentRef, { cancellationFeeWaived: true, waivedBy: authorizedStaffId, waivedReason: reason });
+    batch.update(clientRef, { 
+        unpaidFees: newUnpaidFees, 
+        outstandingBalance: newBalance,
+        waivedFees: arrayUnion(waiverEntry)
+    });
+    batch.update(appointmentRef, { 
+        cancellationFeeWaived: true, 
+        waivedBy: authorizer.id, 
+        waivedReason: reason,
+        waivedAt: waiverEntry.waivedAt
+    });
 
     try {
         await batch.commit();
-        toast({ title: "Fee Waived" });
+        toast({ title: "Fee Waived", description: `Authorized by ${authorizer.name}.` });
     } catch (error) {
         console.error("Error waiving fee:", error);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not waive the fee.' });
@@ -651,35 +675,56 @@ export default function ClientDetailPage() {
                                         <div className="p-4 rounded-lg bg-destructive/10"><div className="text-sm font-medium text-destructive">Outstanding Balance</div><div className="text-2xl font-bold text-destructive">${(client.outstandingBalance || 0).toFixed(2)}</div></div>
                                       </div>
                                    </CardContent>
-                                    {(isOwnerOrAdmin && client.unpaidFees && client.unpaidFees.length > 0) && (
+                                    {isOwnerOrAdmin && (
                                         <>
                                             <Separator />
-                                            <CardContent className="p-4">
-                                                <h4 className="font-medium mb-2">Unpaid Fees</h4>
-                                                <div className="space-y-2">
-                                                    {client.unpaidFees.map((fee: any) => {
-                                                        const feeStaff = staff?.find(s => s.id === fee.staffId);
-                                                        return (
-                                                            <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                                                <div className="min-w-0 pr-2">
-                                                                    <p className="text-sm font-medium truncate">{fee.reason}</p>
-                                                                    <div className="flex flex-col text-[10px] text-muted-foreground">
-                                                                        <span>Apt on {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</span>
-                                                                        {feeStaff && <span className="font-bold text-primary/80 truncate">Pro: {feeStaff.name}</span>}
+                                            <Accordion type="single" collapsible className="w-full">
+                                                <AccordionItem value="unpaid-fees" className="border-none">
+                                                    <AccordionTrigger className="px-4 py-2 hover:no-underline"><h4 className="font-medium">Unpaid Fees ({client.unpaidFees?.length || 0})</h4></AccordionTrigger>
+                                                    <AccordionContent className="px-4 pb-4">
+                                                        <div className="space-y-2">
+                                                            {client.unpaidFees && client.unpaidFees.length > 0 ? client.unpaidFees.map((fee: any) => {
+                                                                const feeStaff = staff?.find(s => s.id === fee.staffId);
+                                                                return (
+                                                                    <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                                                        <div className="min-w-0 pr-2">
+                                                                            <p className="text-sm font-medium truncate">{fee.reason}</p>
+                                                                            <div className="flex flex-col text-[10px] text-muted-foreground">
+                                                                                <span>Apt on {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</span>
+                                                                                {feeStaff && <span className="font-bold text-primary/80 truncate">Pro: {feeStaff.name}</span>}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <span className="font-semibold text-destructive text-sm">${fee.feeAmount.toFixed(2)}</span>
+                                                                            <Button size="xs" variant="outline" onClick={() => { setFeeToWaive(fee); setIsWaiveDialogOpen(true); }}>Waive</Button>
+                                                                        </div>
                                                                     </div>
+                                                                )
+                                                            }) : <p className="text-xs text-muted-foreground italic">No unpaid fees.</p>}
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                
+                                                <AccordionItem value="waived-history" className="border-none">
+                                                    <AccordionTrigger className="px-4 py-2 hover:no-underline"><h4 className="font-medium text-muted-foreground">Waiver History ({client.waivedFees?.length || 0})</h4></AccordionTrigger>
+                                                    <AccordionContent className="px-4 pb-4">
+                                                        <div className="space-y-2">
+                                                            {client.waivedFees && client.waivedFees.length > 0 ? client.waivedFees.map((waiver: WaivedFee) => (
+                                                                <div key={waiver.feeId} className="p-2 border rounded-md bg-muted/20 text-xs">
+                                                                    <div className="flex justify-between items-start">
+                                                                        <span className="font-bold text-muted-foreground">{waiver.reason}</span>
+                                                                        <span className="font-mono text-muted-foreground line-through">${waiver.feeAmount.toFixed(2)}</span>
+                                                                    </div>
+                                                                    <p className="text-[10px] mt-1 italic">Authorized by {waiver.waivedByName || 'Admin'} on {format(safeDate(waiver.waivedAt), 'MMM d, yyyy')}</p>
                                                                 </div>
-                                                                <div className="flex items-center gap-2 shrink-0">
-                                                                    <span className="font-semibold text-destructive text-sm">${fee.feeAmount.toFixed(2)}</span>
-                                                                    <Button size="xs" variant="outline" onClick={() => { setFeeToWaive(fee); setIsWaiveDialogOpen(true); }}>Waive</Button>
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    })}
-                                                </div>
-                                            </CardContent>
+                                                            )) : <p className="text-xs text-muted-foreground italic">No history of waived fees.</p>}
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                            </Accordion>
                                         </>
                                     )}
-                                  <CardFooter>
+                                  <CardFooter className="pt-2">
                                       <Button 
                                         disabled={!client.outstandingBalance || client.outstandingBalance === 0} 
                                         className="w-full"
