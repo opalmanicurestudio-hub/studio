@@ -55,10 +55,20 @@ import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PrintableConsentForm } from '@/components/consents/PrintableConsentForm';
 
-
 type ClientPhoto = {
   url: string;
   label: string;
+};
+
+/**
+ * Utility to safely convert Firestore/API values to Date objects.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
 };
 
 const getInitials = (name: string) => {
@@ -146,7 +156,7 @@ const AppointmentHistoryCard = ({
             <div>
                 <p className="font-semibold">{appointment.service?.name || 'N/A'}</p>
                 <p className="text-sm text-muted-foreground">
-                {format(appointment.startTime, 'MMMM d, yyyy')}
+                {format(safeDate(appointment.startTime), 'MMMM d, yyyy')}
                 </p>
             </div>
             <div className="sm:text-right">
@@ -304,13 +314,13 @@ export default function ClientDetailPage() {
   useEffect(() => {
     if (client) {
         const collectedPhotos: ClientPhoto[] = [];
-        if (client.inspirationPhotoUrl) {
-            collectedPhotos.push({ url: client.inspirationPhotoUrl, label: 'Client Inspiration' });
+        if (client.avatarUrl) {
+            // collectedPhotos.push({ url: client.avatarUrl, label: 'Profile Avatar' });
         }
         
         appointmentsForThisClient.forEach(apt => {
             if (apt.clientId === client.id && (apt as any).inspirationPhotoUrl) {
-                collectedPhotos.push({ url: (apt as any).inspirationPhotoUrl, label: `Inspo for ${format(new Date(apt.startTime), 'MMM d, yyyy')}`});
+                collectedPhotos.push({ url: (apt as any).inspirationPhotoUrl, label: `Inspo for ${format(safeDate(apt.startTime), 'MMM d, yyyy')}`});
             }
         });
         setPhotos(collectedPhotos);
@@ -441,8 +451,8 @@ export default function ClientDetailPage() {
 
   const clientDocRefReal = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
-  const upcomingAppointments = appointmentsForThisClient.filter(apt => new Date(apt.startTime) > new Date() && apt.status !== 'cancelled');
-  const pastAppointments = appointmentsForThisClient.filter(apt => new Date(apt.startTime) <= new Date()).sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
+  const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
 
   const handleRebook = (appointment: Appointment) => {
     setAppointmentToRebook(appointment);
@@ -672,7 +682,7 @@ export default function ClientDetailPage() {
                               <Card>
                                   <CardHeader><CardTitle>Client Details</CardTitle></CardHeader>
                                   <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6">
-                                      <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Birthday</p><p>{client.birthday ? format(new Date(client.birthday), 'MMMM d') : 'N/A'}</p></div>
+                                      <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Birthday</p><p>{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'N/A'}</p></div>
                                       <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Referral Source</p><p>{client.intel?.referralSource || 'N/A'}</p></div>
                                       {isOwnerOrAdmin && client.address && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Home className="w-4 h-4"/>Address</p><p>{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
                                       {client.emergencyContact && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><UserIcon className="w-4 h-4"/>Emergency Contact</p><p>{client.emergencyContact.name} ({client.emergencyContact.relationship})<br/>{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
@@ -748,7 +758,7 @@ export default function ClientDetailPage() {
                                                             </div>
                                                             <div className="space-y-1 text-right">
                                                                 <p className="text-[10px] uppercase font-bold text-muted-foreground">Next Bill</p>
-                                                                <p className="text-sm font-semibold">{client.subscription?.nextBillingDate ? format(parseISO(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
+                                                                <p className="text-sm font-semibold">{client.subscription?.nextBillingDate ? format(safeDate(client.subscription.nextBillingDate), 'MMM d, yyyy') : 'N/A'}</p>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -811,7 +821,7 @@ export default function ClientDetailPage() {
                                                         <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                                             <div>
                                                                 <p className="text-sm font-medium">{fee.reason}</p>
-                                                                <p className="text-xs text-muted-foreground">From apt on {format(parseISO(fee.appointmentDate), 'PPP')}</p>
+                                                                <p className="text-xs text-muted-foreground">From apt on {format(safeDate(fee.appointmentDate), 'PPP')}</p>
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <span className="font-semibold text-destructive">${fee.feeAmount.toFixed(2)}</span>
@@ -963,7 +973,7 @@ export default function ClientDetailPage() {
                                              <div className="grid grid-cols-[1fr,auto] gap-4">
                                                  <div>
                                                      <p className="font-semibold">{incident.type}</p>
-                                                     <p className="text-sm text-muted-foreground">{format(new Date(incident.date), 'MMM d, yyyy h:mm a')}</p>
+                                                     <p className="text-sm text-muted-foreground">{format(safeDate(incident.date), 'MMM d, yyyy h:mm a')}</p>
                                                  </div>
                                                  <Badge variant={incident.severity === 'Severe' ? 'destructive' : 'secondary'}>{incident.severity}</Badge>
                                              </div>
@@ -1007,7 +1017,7 @@ export default function ClientDetailPage() {
                                                     </div>
                                                     <div>
                                                         <p className="font-semibold">{consent.formTitle}</p>
-                                                        <p className="text-sm text-muted-foreground">Signed on {format(parseISO(consent.signedAt), 'PPP p')}</p>
+                                                        <p className="text-sm text-muted-foreground">Signed on {format(safeDate(consent.signedAt), 'PPP p')}</p>
                                                     </div>
                                                 </div>
                                                 <Button variant="outline" onClick={() => setViewingConsent(consent)}>View Responses</Button>
@@ -1079,7 +1089,7 @@ export default function ClientDetailPage() {
                 <DialogHeader className="print:hidden">
                     <DialogTitle>{viewingConsent?.formTitle}</DialogTitle>
                     <DialogDescription>
-                    Signed by {client.name} on {viewingConsent ? format(parseISO(viewingConsent.signedAt), 'PPP p') : ''}
+                    Signed by {client.name} on {viewingConsent ? format(safeDate(viewingConsent.signedAt), 'PPP p') : ''}
                     </DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="max-h-[60vh] -mr-6 pr-6 print:max-h-none print:mr-0 print:pr-0">
@@ -1158,7 +1168,7 @@ export default function ClientDetailPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Are you sure you want to waive this fee?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This will permanently remove the <strong>${feeToWaive?.feeAmount.toFixed(2)}</strong> fee for the appointment on {feeToWaive ? format(parseISO(feeToWaive.appointmentDate), 'PPP') : ''}. This action cannot be undone.
+                        This will permanently remove the <strong>${feeToWaive?.feeAmount.toFixed(2)}</strong> fee for the appointment on {feeToWaive ? format(safeDate(feeToWaive.appointmentDate), 'PPP') : ''}. This action cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

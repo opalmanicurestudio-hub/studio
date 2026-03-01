@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -23,7 +24,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -47,7 +48,7 @@ import {
   addWeeks,
 } from 'date-fns';
 import { nanoid } from 'nanoid';
-import { useForm, FormProvider } from 'react-hook-form';
+import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PhoneInput } from '../ui/phone-input';
@@ -57,7 +58,8 @@ import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -162,18 +164,28 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const { handleSubmit, watch } = methods;
   const clientEmail = watch('clientEmail');
 
-  // Logic to check for existing balance when email is provided
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
   
   useEffect(() => {
     if (clientEmail && clientEmail.includes('@') && firestore && tenant) {
         const checkBalance = async () => {
-            const q = query(collection(firestore, `tenants/${tenant.id}/clients`), where("email", "==", clientEmail.toLowerCase().trim()));
-            // Due to Firestore being real-time, it's better to use getDocs here for a one-off check during typing or step change
-            // But for MVP, we'll assume we can find it in the inventory or do a quick check.
+            const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
+            const q = query(clientsRef, where("email", "==", clientEmail.toLowerCase().trim()));
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const clientData = snapshot.docs[0].data() as Client;
+                if (clientData.outstandingBalance && clientData.outstandingBalance > 0) {
+                    setExistingClientWithBalance(clientData);
+                } else {
+                    setExistingClientWithBalance(null);
+                }
+            } else {
+                setExistingClientWithBalance(null);
+            }
         };
-        // For simplicity in the prototype, we check the locally cached client list if available or skip if complex.
-        // Let's assume we want to protect the business.
+        checkBalance();
+    } else {
+        setExistingClientWithBalance(null);
     }
   }, [clientEmail, firestore, tenant]);
 
@@ -224,7 +236,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
         appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
-            busyIntervals.push({ start: addMinutes(apt.startTime, -(aptService?.padBefore || 0)), end: addMinutes(apt.endTime, (aptService?.padAfter || 0)) });
+            const padBefore = aptService?.padBefore || 0;
+            const padAfter = aptService?.padAfter || 0;
+            busyIntervals.push({ start: addMinutes(apt.startTime, -padBefore), end: addMinutes(apt.endTime, padAfter) });
         });
 
         events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === staffMember.id)).forEach(evt => {
@@ -261,25 +275,25 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
     }, [service, consentForms]);
     
-    const { price, priceRange, activeTier } = useMemo(() => {
-        if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null, activeTier: null };
+    const { price, priceRange } = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null };
         
         if (selectedStaffId && selectedStaffId !== 'any') {
           const staffMember = staff.find(s => s.id === selectedStaffId);
           const tierPricing = service.serviceTiers.find(t => t.tierId === staffMember?.pricingTierId);
-          if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
+          if (tierPricing) return { price: tierPricing.price, priceRange: null };
         }
 
         if (selectedStaffId === 'any' && selectedTierId !== 'any') {
             const tierPricing = service.serviceTiers.find(t => t.tierId === selectedTierId);
-            if (tierPricing) return { price: tierPricing.price, priceRange: null, activeTier: tierPricing };
+            if (tierPricing) return { price: tierPricing.price, priceRange: null };
         }
 
         const prices = service.serviceTiers.map(t => t.price);
         const minPrice = Math.min(...prices);
         const maxPrice = Math.max(...prices);
-        if (minPrice === maxPrice) return { price: minPrice, priceRange: null, activeTier: null };
-        return { price: minPrice, priceRange: { min: minPrice, max: maxPrice }, activeTier: null };
+        if (minPrice === maxPrice) return { price: minPrice, priceRange: null };
+        return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
       }, [service, selectedStaffId, selectedTierId, staff]);
 
     const depositAmount = useMemo(() => {
@@ -523,15 +537,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <PhoneInput name="clientPhone" label="Phone (for SMS alerts)" />
                                     </div>
                                     
-                                    {/* DEBT NOTIFICATION LOGIC */}
+                                    {/* DEBT ENFORCEMENT ALERT */}
                                     <AnimatePresence>
-                                        {selectedClient?.outstandingBalance && selectedClient.outstandingBalance > 0 && (
+                                        {existingClientWithBalance && (
                                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 mt-4 border-2">
                                                     <Wallet className="h-4 w-4" />
                                                     <AlertTitle className="text-xs font-black uppercase">Outstanding Balance Notice</AlertTitle>
                                                     <AlertDescription className="text-xs mt-1">
-                                                        Our records indicate an unpaid balance. Please contact the studio at {tenant?.twilioPhoneNumber} to settle this before your visit.
+                                                        Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>. Please contact the studio at {tenant?.twilioPhoneNumber} to settle this before booking your next visit.
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>
@@ -606,7 +620,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             <SheetFooter className="p-6 border-t bg-muted/10 backdrop-blur-sm">
                 <div className="flex w-full gap-3">
                     {currentStepIndex > 0 && <Button variant="outline" onClick={handlePrevStep} className="flex-1 h-12">Back</Button>}
-                    <Button onClick={handleNextStep} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
+                    <Button onClick={handleNextStep} disabled={currentStep === 'details' && !!existingClientWithBalance} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
                         {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : currentStep === 'summary' || currentStep === 'payment' ? 'Confirm Booking' : 'Continue'}
                     </Button>
                 </div>
