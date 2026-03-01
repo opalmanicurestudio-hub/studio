@@ -481,8 +481,15 @@ function POSPageContent() {
             // Fallback for full completion
             batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
             const appointment = appointments?.find(a => a.id === appointmentId);
-            if (appointment?.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'ready_for_checkout', tenantId });
-            if (appointment?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'idle' });
+            if (appointment?.checkInToken) {
+                const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+                batch.update(checkInRef, { status: 'ready_for_checkout', tenantId });
+            }
+
+            if (appointment?.staffId) {
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+                batch.update(staffDocRef, { status: 'idle' });
+            }
         }
 
         batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Status Updated" }); });

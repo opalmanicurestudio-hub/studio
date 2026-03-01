@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 
 interface InServiceAppointmentCardProps {
     appointment: Appointment;
@@ -119,7 +120,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                         </Avatar>
                                         <span className="text-[11px] font-bold truncate flex-1">{tech.name.split(' ')[0]}</span>
                                         {isDone ? (
-                                            <Badge className="bg-green-500 border-none h-4 px-1 text-[8px] uppercase font-black">Done</Badge>
+                                            <Badge className="bg-green-500 border-none h-4 px-1 text-[8px] uppercase font-black text-white">Done</Badge>
                                         ) : (
                                             <Badge variant="outline" className="h-4 px-1 text-[8px] uppercase font-black animate-pulse border-primary text-primary">Working</Badge>
                                         )}

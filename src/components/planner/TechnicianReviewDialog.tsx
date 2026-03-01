@@ -174,7 +174,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       })?.[1];
       if (!nextStaffId) return null;
       return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff]);
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
