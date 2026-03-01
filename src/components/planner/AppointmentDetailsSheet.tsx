@@ -477,6 +477,17 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     <p className={cn("font-black text-2xl", financialData.profit >= 0 ? "text-green-600" : "text-destructive")}>${financialData.profit.toFixed(2)}</p>
                   </div>
                 </div>
+                
+                {appointment.status === 'completed' && appointment.cancellationFeeWaived && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-black text-green-800 uppercase tracking-widest">Usage Fees Absorbed</p>
+                            <Badge className="bg-green-100 text-green-800 border-none h-4 text-[8px] uppercase">Authorized</Badge>
+                        </div>
+                        <p className="text-[11px] font-medium text-green-700">Authorizer: {staff.find(s => s.id === appointment.waivedBy)?.name || 'Admin'}</p>
+                        <p className="text-xs italic text-green-600">"{appointment.waivedReason}"</p>
+                    </div>
+                )}
               </div>
             )}
 

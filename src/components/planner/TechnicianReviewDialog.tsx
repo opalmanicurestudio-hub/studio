@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -249,7 +249,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card>
-                    <CardHeader><CardTitle>Service Actuals</CardTitle></CardHeader>
+                    <CardHeader>
+                        <CardTitle>Service Actuals</CardTitle>
+                        <CardDescription>Dollar values are calculated at the desk.</CardDescription>
+                    </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
                           <Label htmlFor="actual-duration" className="flex items-center gap-2"><Clock className="w-4 h-4" /> Actual Duration (minutes)</Label>
@@ -260,9 +263,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex justify-between items-center">
-                                  <span className="text-xs font-bold text-amber-700">Extra Time Charge ({actualDuration - service.duration}m)</span>
-                                  <span className="font-bold text-amber-700">+${extraTimeCharge.toFixed(2)}</span>
+                              <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md flex justify-between items-center">
+                                  <span className="text-xs font-bold text-amber-700 flex items-center gap-2"><Info className="w-3 h-3"/> Extra Time Logged ({actualDuration - service.duration}m)</span>
                               </div>
                           )}
                         </div>
@@ -308,9 +310,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             </div>
                             ))}
                             {extraProductCost > 0 && (
-                                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex justify-between items-center">
-                                    <span className="text-xs font-bold text-amber-700">Extra Product Charge</span>
-                                    <span className="font-bold text-amber-700">+${extraProductCost.toFixed(2)}</span>
+                                <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md flex justify-between items-center">
+                                    <span className="text-xs font-bold text-amber-700 flex items-center gap-2"><Info className="w-3 h-3"/> Extra Product Used</span>
                                 </div>
                             )}
                         </div>

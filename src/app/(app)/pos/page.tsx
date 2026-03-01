@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -72,6 +73,21 @@ function POSPageContent() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
+    // Authorization state for waiving fees in cart
+    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Set() as any);
+
+    const handleWaiveFeeToggle = useCallback((appointmentId: string, waive: boolean, authorizerId?: string, reason?: string) => {
+        setWaivedAppointmentFees(prev => {
+            const next = new Map(prev);
+            if (waive && authorizerId && reason) {
+                next.set(appointmentId, { authorizerId, reason });
+            } else {
+                next.delete(appointmentId);
+            }
+            return next;
+        });
+    }, []);
+
     // State for Dialogs & Sheets
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
@@ -190,9 +206,16 @@ function POSPageContent() {
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
             const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
+            if (next.has(id)) next.add(id); // Effectively toggle
             else next.add(id);
             
+            // Toggle Logic
+            if (prev.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+
             // AUTOMATION: Auto-select payer based on selection
             const selectedApts = Array.from(next).map(aptId => 
                 readyForCheckoutAppointments.find(a => a.id === aptId)
@@ -249,7 +272,17 @@ function POSPageContent() {
                 if (!data) continue;
                 const { appointment, staff: provider } = data;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-                batch.update(appointmentRef, { status: 'completed' });
+                
+                const waiver = waivedAppointmentFees.get(id);
+                const updatePayload: any = { status: 'completed' };
+                if (waiver) {
+                    updatePayload.cancellationFeeWaived = true; // reusing existing waived field for usage fees
+                    updatePayload.waivedBy = waiver.authorizerId;
+                    updatePayload.waivedReason = waiver.reason;
+                    updatePayload.waivedAt = nowISO;
+                }
+
+                batch.update(appointmentRef, updatePayload);
                 if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
                 const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
                 batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
@@ -266,7 +299,7 @@ function POSPageContent() {
                 }
             }
             await batch.commit();
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null);
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map() as any);
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);
@@ -611,7 +644,10 @@ function POSPageContent() {
             if (!data) return acc;
             const mainPrice = getServicePrice(data.service, data.staff);
             const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
-            const extra = data.appointment.checkoutState?.additionalCharge || 0;
+            
+            // Check if usage fees are waived
+            const extra = waivedAppointmentFees.has(data.id) ? 0 : (data.appointment.checkoutState?.additionalCharge || 0);
+            
             return acc + mainPrice + addOnsPrice + extra;
         }, 0);
 
@@ -635,7 +671,7 @@ function POSPageContent() {
             tax: t, 
             total: baseForTax + t + tipAmount 
         };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -649,6 +685,7 @@ function POSPageContent() {
         adjustments: [],
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
         absorbedCost: 0, redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
+        waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
     };
 
     return (
@@ -709,7 +746,7 @@ function POSPageContent() {
                     </Sheet>
                 </div>
             )}
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4 pb-0"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
+            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             
             <AppointmentDetailsSheet 

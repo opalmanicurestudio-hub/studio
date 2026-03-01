@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -5,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,6 +23,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { useTenant } from '@/context/TenantContext';
 
 export const CheckoutHub = ({ 
     cart, 
@@ -59,6 +63,8 @@ export const CheckoutHub = ({
     memberships,
     packages,
     allowStacking,
+    waivedAppointmentFees,
+    onWaiveFeeToggle,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -95,12 +101,53 @@ export const CheckoutHub = ({
     memberships: Membership[];
     packages: Package[];
     allowStacking: boolean;
+    waivedAppointmentFees: Map<string, { authorizerId: string; reason: string }>;
+    onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => void;
 }) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments } = useInventory();
+    const { appointments: allAppointments, staff } = useInventory();
+    const { role } = useTenant();
     const { toast } = useToast();
+
+    const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
+    const [waivePin, setWaivePin] = useState('');
+    const [waiveReason, setWaiveReason] = useState('');
+    const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
+
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+
+    const handleWaiveClick = (aptId: string) => {
+        setPendingWaiveAptId(aptId);
+        setIsWaiveAuthOpen(true);
+    };
+
+    const handleConfirmWaive = () => {
+        if (!waivePin || waivePin.length < 4) {
+            toast({ variant: 'destructive', title: 'PIN Required' });
+            return;
+        }
+        if (!waiveReason.trim()) {
+            toast({ variant: 'destructive', title: 'Reason Required' });
+            return;
+        }
+
+        const authorizer = staff.find(s => s.pin === waivePin && s.role === 'admin');
+        if (!authorizer) {
+            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Invalid Admin PIN.' });
+            return;
+        }
+
+        if (pendingWaiveAptId) {
+            onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, waiveReason);
+            setIsWaiveAuthOpen(false);
+            setWaivePin('');
+            setWaiveReason('');
+            setPendingWaiveAptId(null);
+            toast({ title: "Usage Fee Waived", description: `Authorized by ${authorizer.name}.` });
+        }
+    };
 
     const selectedClient = useMemo(() => {
         return clients.find((c: Client) => c.id === selectedClientId);
@@ -311,6 +358,7 @@ export const CheckoutHub = ({
                                                 const itemPrice = getServicePrice(service, staff);
                                                 const isRedeemed = redeemedOffer?.id === service.id;
                                                 const additional = data.appointment.checkoutState?.additionalCharge || 0;
+                                                const isWaived = waivedAppointmentFees.has(data.id);
 
                                                 const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
                                                 const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
@@ -340,7 +388,7 @@ export const CheckoutHub = ({
                                                                     <div className="flex flex-wrap items-center gap-2 mt-1">
                                                                         <p className={cn("text-xs md:text-sm font-black font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>${itemPrice.toFixed(2)}</p>
                                                                         {additional > 0 && (
-                                                                            <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700 bg-amber-50">
+                                                                            <Badge variant="outline" className={cn("text-[9px] h-4 border-amber-500/30", isWaived ? "line-through opacity-50" : "text-amber-700 bg-amber-50")}>
                                                                                 +{additional.toFixed(2)} Usage Fees
                                                                             </Badge>
                                                                         )}
@@ -357,6 +405,19 @@ export const CheckoutHub = ({
                                                                 <div className="mt-2 p-1.5 rounded-lg bg-green-500/10 text-green-700 flex items-center justify-between border border-green-500/20">
                                                                     <span className="text-[10px] font-black uppercase flex items-center gap-1.5"><CheckCircle className="w-3 h-3" /> Perk Applied</span>
                                                                     <Button variant="ghost" size="xs" onClick={handleRedeem} className="h-5 px-1.5 text-[9px] font-bold uppercase underline">Undo</Button>
+                                                                </div>
+                                                            )}
+                                                            {additional > 0 && isOwnerOrAdmin && (
+                                                                <div className="mt-2 pt-2 border-t border-dashed flex justify-between items-center">
+                                                                    <span className="text-[9px] font-black text-muted-foreground uppercase">Additional Charges</span>
+                                                                    {isWaived ? (
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[9px] font-bold text-green-600 uppercase">Waived</span>
+                                                                            <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <Button variant="ghost" size="xs" onClick={() => handleWaiveClick(data.id)} className="h-5 text-[9px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50">Waive Fees</Button>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </CardContent>
@@ -526,6 +587,49 @@ export const CheckoutHub = ({
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
+            
+            <Dialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <ShieldCheck className="w-5 h-5 text-primary" />
+                            Manager Authorization
+                        </DialogTitle>
+                        <DialogDescription>A manager PIN is required to waive usage overage fees.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
+                        <div className="space-y-2 text-center">
+                            <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
+                            <div className="flex justify-center">
+                                <div className="relative w-40">
+                                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input 
+                                        type="password" 
+                                        maxLength={4} 
+                                        className="text-center text-3xl h-14 font-black tracking-[0.5em] bg-muted/50 border-2" 
+                                        value={waivePin} 
+                                        onChange={e => setWaivePin(e.target.value.replace(/\D/g, ''))}
+                                        autoFocus
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="waive-reason-pos">Reason for Waiving (Required)</Label>
+                            <Textarea 
+                                id="waive-reason-pos" 
+                                placeholder="e.g., Client verified traffic delay, first-time courtesy..." 
+                                value={waiveReason}
+                                onChange={e => setWaiveReason(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setIsWaiveAuthOpen(false); setPendingWaiveAptId(null); setWaivePin(''); setWaiveReason(''); }}>Cancel</Button>
+                        <Button onClick={handleConfirmWaive} disabled={waivePin.length < 4 || !waiveReason.trim()}>Authorize Waiver</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
