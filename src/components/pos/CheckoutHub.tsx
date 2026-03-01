@@ -74,6 +74,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                         <div className="flex justify-center">
                             <Input 
                                 type="password" 
+                                placeholder="••••"
                                 maxLength={4} 
                                 className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
                                 value={pin} 
