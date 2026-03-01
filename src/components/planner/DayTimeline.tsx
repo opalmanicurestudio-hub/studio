@@ -1,3 +1,4 @@
+
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
@@ -120,17 +121,17 @@ export const DayTimeline = ({
             
             function positionCluster(cluster: any[]) {
                 cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                const columns: any[][] = [];
+                const cols: any[][] = [];
                 for(const item of cluster) {
                     let placed = false;
-                    for (let i = 0; i < columns.length; i++) {
-                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
-                            columns[i].push(item); item.layout.col = i; placed = true; break;
+                    for (let i = 0; i < cols.length; i++) {
+                        if (!cols[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
+                            cols[i].push(item); item.layout.col = i; placed = true; break;
                         }
                     }
-                    if (!placed) { columns.push([item]); item.layout.col = columns.length - 1; }
+                    if (!placed) { cols.push([item]); item.layout.col = cols.length - 1; }
                 }
-                cluster.forEach(item => item.layout.cols = columns.length);
+                cluster.forEach(item => item.layout.cols = cols.length);
             }
 
             let lastEventEnd: Date | null = null;

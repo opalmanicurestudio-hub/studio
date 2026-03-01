@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -298,6 +299,40 @@ function POSPageContent() {
     }, [rawSubtotal, appliedDiscountCodes, discounts, selectedClientId, clients, memberships, retailItems, tipAmount]);
 
     const { discount, membershipDiscount, tax, total } = financialCalcs;
+
+    const allInvolvedStaffIds = useMemo(() => {
+        const ids = new Set<string>();
+        Array.from(selectedAppointmentIds).forEach(id => {
+            const data = readyForCheckoutAppointments.find(a => a.id === id);
+            if (data) {
+                if (data.appointment.staffId) ids.add(data.appointment.staffId);
+                const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
+                Object.values(overrides).forEach(sid => {
+                    if (sid) ids.add(sid);
+                });
+            }
+        });
+        return Array.from(ids);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    useEffect(() => {
+        if (allInvolvedStaffIds.length > 0 && tipAmount > 0) {
+            const splitAmount = Math.floor((tipAmount / allInvolvedStaffIds.length) * 100) / 100;
+            const newAllocations: Record<string, number> = {};
+            
+            allInvolvedStaffIds.forEach((sid, index) => {
+                if (index === allInvolvedStaffIds.length - 1) {
+                    const currentSum = Object.values(newAllocations).reduce((a, b) => a + b, 0);
+                    newAllocations[sid] = Math.max(0, parseFloat((tipAmount - currentSum).toFixed(2)));
+                } else {
+                    newAllocations[sid] = splitAmount;
+                }
+            });
+            setTipAllocations(newAllocations);
+        } else if (tipAmount === 0) {
+            setTipAllocations({});
+        }
+    }, [tipAmount, allInvolvedStaffIds]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
