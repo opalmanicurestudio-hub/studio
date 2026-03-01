@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -127,13 +128,13 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                     <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6 py-4">
-                    <div className="space-y-2">
-                        <Label className="text-center block font-black uppercase text-[10px] tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
+                    <div className="space-y-2 text-center">
+                        <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
                         <div className="flex justify-center">
                             <Input 
                                 type="password" 
                                 maxLength={4} 
-                                className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
+                                className="text-center text-2xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
                                 value={pin} 
                                 onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                                 autoFocus

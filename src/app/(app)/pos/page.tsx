@@ -37,6 +37,7 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -70,13 +71,13 @@ function POSPageContent() {
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
     // State for Dialogs & Sheets
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
     const [isOverrideOpen, setIsOverrideOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
-    const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
@@ -92,7 +93,6 @@ function POSPageContent() {
     const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
-    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
@@ -111,46 +111,6 @@ function POSPageContent() {
             }
         }
     }, [searchParams, clients, toast]);
-
-    useEffect(() => {
-        if (staff) {
-            const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
-            setOrderedStaff(sorted);
-        }
-    }, [staff]);
-
-    const handleVerifyPin = () => {
-        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
-        const targetStaff = staff.find(s => s.pin === authPin);
-        if (targetStaff && targetStaff.pin === authPin) {
-            const { staffId, action } = pendingStatusAction;
-            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-            const now = new Date().toISOString();
-            let staffUpdate: Partial<Staff> = {};
-            let logEntry: any = { staffId, type: action, timestamp: now };
-            switch (action) {
-                case 'clock_in': staffUpdate = { active: true }; break;
-                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-                case 'break_end':
-                    if (targetStaff.breakStartTime) {
-                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
-                        logEntry.durationMinutes = duration;
-                    }
-                    staffUpdate = { onBreak: false, breakStartTime: undefined };
-                    break;
-            }
-            addDocumentNonBlocking(activityLogsRef, logEntry);
-            updateDocumentNonBlocking(staffDocRef, staffUpdate);
-            setIsPinAuthOpen(false);
-            setAuthPin('');
-            setPendingStatusAction(null);
-            toast({ title: "Authorized", description: "Status updated successfully." });
-        } else {
-            toast({ variant: "destructive", title: "Invalid PIN" });
-        }
-    };
 
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
     const todayAppointments = useMemo(() => {
@@ -480,17 +440,6 @@ function POSPageContent() {
       toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
     };
 
-    const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
-    useEffect(() => {
-        const waiting = (walkIns || []).filter(w => w.status === 'waiting');
-        const sorted = [...waiting].sort((a, b) => {
-            const orderA = a.queueOrder || new Date(a.checkInTime).getTime();
-            const orderB = b.queueOrder || new Date(b.checkInTime).getTime();
-            return orderA - orderB;
-        });
-        setOrderedWaitingQueue(sorted);
-    }, [walkIns]);
-
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
     
@@ -566,56 +515,82 @@ function POSPageContent() {
         updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { waitForPreferredStaff: wait });
     };
 
-    const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
-        const appointmentsSubtotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
-            const data = readyForCheckoutAppointments.find(a => a.id === id);
-            if (!data) return acc;
-            const mainPrice = getServicePrice(data.service, data.staff);
-            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
-            return acc + mainPrice + addOnsPrice;
-        }, 0);
+    const kpiData = useMemo(() => {
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
 
-        const retailSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
-        const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, id) => {
-            if (!selectedClientId) return acc;
-            const client = clients?.find(c => c.id === selectedClientId);
-            const fee = client?.unpaidFees?.find(f => f.feeId === id);
-            return acc + (fee?.feeAmount || 0);
-        }, 0);
-
-        const sub = appointmentsSubtotal + retailSubtotal + adjustmentsSubtotal;
-
-        let totalDiscount = 0;
-        appliedDiscountCodes.forEach(code => {
-            const d = discounts.find(dis => dis.code === code);
-            if (d) {
-                if (d.type === 'percentage') totalDiscount += sub * (d.value / 100);
-                else totalDiscount += d.value;
-            }
+        const walkInsToday = (walkIns || []).filter(w => {
+            const checkInDate = parseISO(w.checkInTime);
+            return checkInDate >= todayStart && checkInDate <= todayEnd;
         });
 
-        let memDiscount = 0;
-        const selectedClient = clients.find(c => c.id === selectedClientId);
-        if (selectedClient && selectedClient.activeMembershipId) {
-            const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
-            if (membership?.retailDiscount && retailSubtotal > 0) {
-                memDiscount = retailSubtotal * (membership.retailDiscount / 100);
+        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
+        const waitTimes = completedWalkIns.map(w => differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime)));
+        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
+
+        const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
+        const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
+
+        const totalInServiceMinutes = appointments.reduce((total, apt) => {
+            if (apt.status === 'completed' && isSameDay(new Date(apt.startTime), todayStart)) {
+                if (apt.actualStartTime && apt.actualEndTime) {
+                    return total + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
+                }
+                const service = services?.find(s => s.id === apt.serviceId);
+                return total + (service?.duration || 0);
             }
-        }
+            return total;
+        }, 0);
 
-        const subAfterDiscounts = Math.max(0, sub - totalDiscount - memDiscount);
-        const taxVal = subAfterDiscounts * 0.07;
-        const totalVal = subAfterDiscounts + taxVal + tipAmount;
+        const totalServiceRevenue = (transactions || []).filter(t => {
+            const transactionDate = new Date(t.date);
+            return t.category === 'Service Revenue' && transactionDate >= todayStart && transactionDate <= todayEnd;
+        }).reduce((acc, t) => acc + t.amount, 0);
 
-        return { 
-            currentSubtotal: sub, 
-            currentTax: taxVal, 
-            currentTotal: totalVal, 
-            currentDiscount: totalDiscount, 
-            currentMembershipDiscount: memDiscount 
+        const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
+
+        return {
+            avgWaitTime,
+            walkInConversionRate: conversionRate,
+            totalWalkIns: walkInsToday.length,
+            revenuePerServiceHour,
         };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, selectedClientId, clients, appliedDiscountCodes, discounts, memberships, tipAmount]);
+    }, [walkIns, appointments, transactions, services]);
+
+    const handleVerifyPin = () => {
+        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
+        const targetStaff = staff.find(s => s.pin === authPin);
+        if (targetStaff && targetStaff.pin === authPin) {
+            const { staffId, action } = pendingStatusAction;
+            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+            const now = new Date().toISOString();
+            let staffUpdate: Partial<Staff> = {};
+            let logEntry: any = { staffId, type: action, timestamp: now };
+            switch (action) {
+                case 'clock_in': staffUpdate = { active: true }; break;
+                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+                case 'break_end':
+                    if (targetStaff.breakStartTime) {
+                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
+                        logEntry.durationMinutes = duration;
+                    }
+                    staffUpdate = { onBreak: false, breakStartTime: undefined };
+                    break;
+            }
+            addDocumentNonBlocking(activityLogsRef, logEntry);
+            updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            setIsPinAuthOpen(false);
+            setAuthPin('');
+            setPendingStatusAction(null);
+            toast({ title: "Authorized", description: "Status updated successfully." });
+        } else {
+            toast({ variant: "destructive", title: "Invalid PIN" });
+        }
+    };
+
+    const handleStatusChangeWithConfirmation = () => {};
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -623,43 +598,98 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: currentSubtotal, tax: currentTax, total: currentTotal, tipAmount, setTipAmount, onCheckout: handleCheckout,
-        appliedDiscountCodes, setAppliedDiscountCodes, discount: currentDiscount, membershipDiscount: currentMembershipDiscount,
+        subtotal: 0, tax: 0, total: 0, tipAmount, setTipAmount, onCheckout: handleCheckout,
+        appliedDiscountCodes, setAppliedDiscountCodes, discount: 0, membershipDiscount: 0,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
-        adjustments: selectedClientId ? (clients.find(c => c.id === selectedClientId)?.unpaidFees?.map(f => ({ id: f.feeId, clientName: clients.find(c => c.id === selectedClientId)!.name, serviceName: 'Fee', description: f.reason, cost: f.feeAmount })) || []) : [],
+        adjustments: [],
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
         absorbedCost: 0, redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
     };
-
-    const unifiedWaitlist = useMemo(() => {
-        const today = startOfDay(new Date());
-        const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => {
-            const potentialAlias = clients?.find(c => (c.status === 'banned' || (c.outstandingBalance || 0) > 0) && c.name.toLowerCase() === w.customerName.toLowerCase());
-            return { ...w, type: 'walk-in' as const, isPotentialAlias: !!potentialAlias, matchedClientId: potentialAlias?.id };
-        });
-        const apts = (appointments || []).filter(a => 
-            !a.isWalkIn && 
-            isSameDay(new Date(a.startTime), today) && 
-            (a.status === 'confirmed' || a.status === 'deposit_pending')
-        ).map(a => {
-            const potentialAlias = clients?.find(c => (c.status === 'banned' || (c.outstandingBalance || 0) > 0) && c.name.toLowerCase() === (a.clientName || '').toLowerCase() && c.id !== a.clientId);
-            return { ...a, type: 'appointment' as const, isPotentialAlias: !!potentialAlias, matchedClientId: potentialAlias?.id };
-        });
-
-        return [...wins, ...apts].sort((a, b) => {
-            const timeA = a.type === 'walk-in' ? (a.queueOrder || new Date(a.checkInTime).getTime()) : new Date(a.startTime).getTime();
-            const timeB = b.type === 'walk-in' ? (b.queueOrder || new Date(b.checkInTime).getTime()) : new Date(b.startTime).getTime();
-            return timeA - timeB;
-        });
-    }, [walkIns, appointments, clients]);
 
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
+                    {/* KPI Cards for Desktop */}
+                    <div className="hidden md:grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        <KpiCard 
+                            title="Avg. Wait Time" 
+                            value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
+                            icon={<Clock className="text-blue-500" />} 
+                            iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
+                            description="Today's average wait for walk-ins." 
+                        />
+                        <KpiCard 
+                            title="Walk-in Conversion" 
+                            value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
+                            icon={<TrendingUp className="text-green-500"/>} 
+                            iconBgColor="bg-green-100 dark:bg-green-900/50" 
+                            description="Walk-ins that resulted in a service." 
+                        />
+                        <KpiCard 
+                            title="Today's Volume" 
+                            value={kpiData.totalWalkIns.toString()} 
+                            icon={<Users className="text-purple-500"/>} 
+                            iconBgColor="bg-purple-100 dark:bg-purple-900/50" 
+                            description="Total check-ins today." 
+                        />
+                        <KpiCard 
+                            title="Revenue / Hour" 
+                            value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
+                            icon={<DollarSign className="text-amber-500"/>} 
+                            iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
+                            description="Service revenue per active hour." 
+                        />
+                    </div>
+
+                    {/* KPI Cards for Mobile */}
+                    <div className="md:hidden">
+                        <ScrollArea>
+                            <div className="flex space-x-4 pb-4">
+                                <div className="w-60 shrink-0">
+                                    <KpiCard 
+                                        title="Avg. Wait Time" 
+                                        value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
+                                        icon={<Clock className="text-blue-500" />} 
+                                        iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
+                                        description="Today's average wait." 
+                                    />
+                                </div>
+                                <div className="w-60 shrink-0">
+                                    <KpiCard 
+                                        title="Walk-in Conversion" 
+                                        value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
+                                        icon={<TrendingUp className="text-green-500"/>} 
+                                        iconBgColor="bg-green-100 dark:bg-green-900/50" 
+                                        description="Check-in to service conversion." 
+                                    />
+                                </div>
+                                <div className="w-60 shrink-0">
+                                    <KpiCard 
+                                        title="Today's Volume" 
+                                        value={kpiData.totalWalkIns.toString()} 
+                                        icon={<Users className="text-purple-500"/>} 
+                                        iconBgColor="bg-purple-100 dark:bg-purple-900/50" 
+                                        description="Total check-ins today." 
+                                    />
+                                </div>
+                                <div className="w-60 shrink-0">
+                                    <KpiCard 
+                                        title="Revenue / Hour" 
+                                        value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
+                                        icon={<DollarSign className="text-amber-500"/>} 
+                                        iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
+                                        description="Revenue per service hour." 
+                                    />
+                                </div>
+                            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    </div>
+
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} unifiedWaitlist={unifiedWaitlist} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={orderedWaitingQueue} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={handleToggleWaitForStaff} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={handleToggleWaitForStaff} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
