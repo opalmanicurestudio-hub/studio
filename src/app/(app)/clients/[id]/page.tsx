@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound, ShieldCheck, Send } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound, ShieldCheck, Send, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -47,12 +47,12 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc } from 'firebase/firestore';
+import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc, deleteField } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff, WaivedFee } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { PrintableConsentForm } from '@/components/consents/PrintableConsentForm';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 /**
  * Utility to safely convert potential strings or Date objects into valid Date instances.
@@ -375,6 +375,54 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
     );
 };
 
+const BalanceNoticePreviewDialog = ({ open, onOpenChange, client, tenant, onSend }: { open: boolean, onOpenChange: (val: boolean) => void, client: Client, tenant: Tenant | null, onSend: () => void }) => {
+    const amount = (client.outstandingBalance || 0).toFixed(2);
+    const businessName = tenant?.name || 'ClarityFlow Studio';
+    
+    const smsMessage = `Hi ${client.name.split(' ')[0]}, this is a friendly reminder regarding your outstanding balance of $${amount} at ${businessName}. You can settle this online via your secure portal or at the front desk. We look forward to seeing you soon!`;
+    
+    const emailSubject = `Outstanding Balance Notice - ${businessName}`;
+    const emailBody = `Dear ${client.name},\n\nOur records indicate an outstanding balance of $${amount} on your account.\n\nTo maintain an active booking status, we kindly ask that you settle this balance at your earliest convenience. You can view your account details and pay online through our client portal, or we can assist you during your next visit.\n\nThank you for being a valued client.\n\nBest regards,\nThe ${businessName} Team`;
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-2xl p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+                <DialogHeader className="p-6 bg-muted/10 border-b shrink-0 text-left">
+                    <DialogTitle>Preview Balance Notice</DialogTitle>
+                    <DialogDescription>Review the notification before sending retrieval reminder to {client.name}.</DialogDescription>
+                </DialogHeader>
+                <div className="flex-1 overflow-y-auto p-6 bg-background space-y-8 pb-12">
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><MessageSquare className="w-3 h-3" /> SMS Notice</Label>
+                        <div className="bg-slate-100 dark:bg-slate-900 rounded-2xl p-4 relative max-w-[85%]">
+                            <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed">{smsMessage}</p>
+                            <div className="absolute -bottom-1 -left-1 w-4 h-4 bg-slate-100 dark:bg-slate-900 rotate-45" />
+                        </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Mail className="w-3 h-3" /> Email Notice</Label>
+                        <Card className="border shadow-none bg-muted/5">
+                            <CardHeader className="p-4 border-b bg-muted/20">
+                                <p className="text-xs"><strong>Subject:</strong> {emailSubject}</p>
+                            </CardHeader>
+                            <CardContent className="p-4 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                                {emailBody}
+                            </CardContent>
+                        </Card>
+                    </div>
+                </div>
+                <DialogFooter className="p-6 pt-4 border-t bg-background gap-2 shrink-0">
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Close Preview</Button>
+                    <Button onClick={onSend} className="gap-2 font-bold"><Send className="w-4 h-4" /> Send Retrieval Notice</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
@@ -410,6 +458,7 @@ export default function ClientDetailPage() {
   const [feeToWaive, setFeeToWaive] = useState<any | null>(null);
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
+  const [isNoticePreviewOpen, setIsNoticePreviewOpen] = useState(false);
 
   const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
   const [isCodeDirty, setIsCodeDirty] = useState(false);
@@ -489,11 +538,16 @@ export default function ClientDetailPage() {
 
   const handleSendBalanceNotice = () => {
       if (!client) return;
-      // Simulated retrieval notice
+      setIsNoticePreviewOpen(true);
+  };
+
+  const handleConfirmSendNotice = () => {
+      if (!client) return;
       toast({
           title: "Notice Sent",
           description: `A balance reminder has been sent to ${client.name} via ${client.phone ? 'SMS' : 'Email'}.`,
       });
+      setIsNoticePreviewOpen(false);
   };
 
   const isLoadingStatus = isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading;
@@ -857,9 +911,9 @@ export default function ClientDetailPage() {
       <WaiveFeeDialog 
         open={isWaiveDialogOpen} 
         onOpenChange={setIsWaiveDialogOpen} 
-        fee={feeToWaive} 
-        onConfirm={handleConfirmWaive} 
+        feeAmount={feeToWaive?.feeAmount || 0} 
         staff={staff || []}
+        onConfirm={handleConfirmWaive}
       />
 
       <BanClientDialog
@@ -868,6 +922,14 @@ export default function ClientDetailPage() {
         client={client}
         staff={staff || []}
         onConfirm={handleConfirmBan}
+      />
+
+      <BalanceNoticePreviewDialog
+        open={isNoticePreviewOpen}
+        onOpenChange={setIsNoticePreviewOpen}
+        client={client}
+        tenant={selectedTenant}
+        onSend={handleConfirmSendNotice}
       />
 
         <Dialog open={!!viewingConsent} onOpenChange={() => setViewingConsent(null)}>
