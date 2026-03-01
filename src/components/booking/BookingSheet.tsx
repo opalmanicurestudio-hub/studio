@@ -361,7 +361,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (!valid) return; 
         
         // Final guard: wait for identity resolution before proceeding
-        if (isResolvingIdentity) return; 
+        const currentEmail = watch('clientEmail');
+        const currentPhone = watch('clientPhone');
+        
+        // Forced sync check to prevent race condition before clicking continue
+        await resolveIdentity(currentEmail, currentPhone);
+        
         if (bannedClient || existingClientWithBalance) return;
     }
     if (currentStep === 'consents') {
@@ -572,12 +577,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     
                                     <AnimatePresence>
                                         {isResolvingIdentity && (
-                                            <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                                            <motion.div key="resolving" className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
                                                 <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
-                                            </div>
+                                            </motion.div>
                                         )}
                                         {bannedClient && (
-                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                                            <motion.div key="banned" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2">
                                                     <Ban className="h-4 w-4" />
                                                     <AlertTitle className="text-xs font-black uppercase">Booking Restricted</AlertTitle>
@@ -588,7 +593,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             </motion.div>
                                         )}
                                         {existingClientWithBalance && !bannedClient && (
-                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                                            <motion.div key="balance" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 mt-4 border-2">
                                                     <Wallet className="h-4 w-4" />
                                                     <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>

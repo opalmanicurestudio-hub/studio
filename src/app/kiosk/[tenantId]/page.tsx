@@ -179,12 +179,12 @@ const StepDetails = ({
 
             <AnimatePresence>
                 {isResolvingIdentity && (
-                    <div className="flex items-center gap-2 text-xs text-slate-400 animate-pulse">
+                    <motion.div key="resolving" className="flex items-center gap-2 text-xs text-slate-400 animate-pulse">
                         <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
-                    </div>
+                    </motion.div>
                 )}
                 {bannedClient && (
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                    <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2 text-white">
                             <Ban className="h-4 w-4 text-white" />
                             <AlertTitle className="text-xs font-black uppercase">Check-in Restricted</AlertTitle>
@@ -195,7 +195,7 @@ const StepDetails = ({
                     </motion.div>
                 )}
                 {existingClientWithBalance && !bannedClient && (
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                    <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 border-2 text-white">
                             <Wallet className="h-4 w-4 text-white" />
                             <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
@@ -593,12 +593,16 @@ export default function WalkInPage() {
     setPartyMembers(prev => prev.map((m, idx) => idx === currentMemberIndex ? { ...m, ...updates } : m));
   };
 
-  const handleNextSubStep = (next: MemberSubStep) => {
+  const handleNextSubStep = async (next: MemberSubStep) => {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
     
-    if (memberSubStep === 'details' && (bannedClient || existingClientWithBalance)) {
-        return; 
+    if (memberSubStep === 'details') {
+        // Force an immediate identity check before allowing progression
+        await resolveIdentity(member.email, member.phone);
+        if (bannedClient || existingClientWithBalance) {
+            return; 
+        }
     }
 
     if (memberSubStep === 'services' && member.serviceIds.length === 0) return toast({ variant: 'destructive', title: 'Select a Service' });
