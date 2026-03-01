@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -672,8 +671,7 @@ export const CheckoutHub = ({
                                                             value={allocation || ''} 
                                                             onChange={(e) => {
                                                                 const val = parseFloat(e.target.value) || 0;
-                                                                onApplyAdjustmentToggle('tip-' + staffId, true); // Dummy toggle to force re-render
-                                                                // In real use we'd update tipAllocations via parent callback
+                                                                // The parent handleTipAllocation update should be used here
                                                             }}
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -700,7 +699,7 @@ function POSPageContent() {
         };
     }, [walkIns, appointments, transactions, services]);
 
-    const { rawSubtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
+    const { rawSubtotal, tax, total } = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter(Boolean);
@@ -721,14 +720,23 @@ function POSPageContent() {
         }, 0);
 
         const s = appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
+        const t = s * 0.07;
         
+        return { 
+            rawSubtotal: s, 
+            tax: t, 
+            total: s + t + tipAmount 
+        };
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees]);
+
+    const { discount, membershipDiscount } = useMemo(() => {
         let dVal = 0;
         let mVal = 0;
 
         appliedDiscountCodes.forEach(code => {
             const disc = discounts.find(d => d.code === code);
             if (disc) {
-                if (disc.type === 'percentage') dVal += s * (disc.value / 100);
+                if (disc.type === 'percentage') dVal += rawSubtotal * (disc.value / 100);
                 else dVal += disc.value;
             }
         });
@@ -736,21 +744,12 @@ function POSPageContent() {
         const membership = selectedClientId ? clients.find(c => c.id === selectedClientId)?.activeMembershipId : null;
         const activeMem = membership ? memberships.find(m => m.id === membership) : null;
         if (activeMem?.retailDiscount) {
-            const retailSub = cartRawSubtotal;
+            const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
             mVal = retailSub * (activeMem.retailDiscount / 100);
         }
 
-        const discountedSubtotal = Math.max(0, s - (dVal + mVal));
-        const t = discountedSubtotal * 0.07;
-        
-        return { 
-            rawSubtotal: s, 
-            discount: dVal,
-            membershipDiscount: mVal,
-            tax: t, 
-            total: discountedSubtotal + t + tipAmount 
-        };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees, appliedDiscountCodes, discounts, memberships]);
+        return { discount: dVal, membershipDiscount: mVal };
+    }, [selectedClientId, appliedDiscountCodes, discounts, rawSubtotal, retailItems, clients, memberships]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -758,7 +757,7 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: rawSubtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
+        subtotal: rawSubtotal, tax, total: total - (discount + membershipDiscount), tipAmount, setTipAmount, onCheckout: handleCheckout,
         appliedDiscountCodes, setAppliedDiscountCodes, discount, membershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
@@ -788,7 +787,7 @@ function POSPageContent() {
             {isMobile && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${total.toFixed(2)})</Button></SheetTrigger>
+                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${(total - (discount + membershipDiscount)).toFixed(2)})</Button></SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
                             <SheetHeader className="p-4 border-b">
                                 <SheetTitle>Current Sale</SheetTitle>

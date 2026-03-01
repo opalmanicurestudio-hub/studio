@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -85,6 +84,8 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { doc, writeBatch, arrayUnion, increment, collection } from 'firebase/firestore';
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -200,7 +201,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
 }) => {
   const isMobile = useIsMobile();
   const { inventory, services: allServices, resources, staff, clients } = useInventory();
-  const { role, user, selectedTenant } = useTenant();
+  const { role, selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const { firestore } = useFirebase();
