@@ -39,6 +39,8 @@ import {
   XCircle,
   ShieldCheck,
   Ban,
+  Wallet,
+  KeyRound,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,10 +59,18 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice } from '@/lib/data';
+import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice, Staff } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -69,6 +79,71 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+
+interface WaiveFeeDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    feeAmount: number;
+    staff: Staff[];
+    onConfirm: (staffId: string, reason: string) => void;
+}
+
+const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: WaiveFeeDialogProps) => {
+    const [pin, setPin] = useState('');
+    const [reason, setReason] = useState('');
+    const { toast } = useToast();
+
+    const handleConfirm = () => {
+        const authorizedStaff = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'staff' || s.payStructure === 'salary'));
+        if (!authorizedStaff) {
+            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Invalid PIN or insufficient permissions.' });
+            return;
+        }
+        if (!reason.trim()) {
+            toast({ variant: 'destructive', title: 'Reason Required' });
+            return;
+        }
+        onConfirm(authorizedStaff.id, reason);
+        setPin('');
+        setReason('');
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Waive Cancellation Fee</DialogTitle>
+                    <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                    <div className="space-y-2">
+                        <Label className="text-center block font-black uppercase text-[10px] tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
+                        <div className="flex justify-center">
+                            <Input 
+                                type="password" 
+                                maxLength={4} 
+                                className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
+                                value={pin} 
+                                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="waive-reason">Reason for Waiver</Label>
+                        <Textarea id="waive-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide reasoning..." />
+                    </div>
+                </div>
+                <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Waive Fee</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
 
 interface AppointmentDetailsSheetProps {
   open: boolean;
@@ -115,6 +190,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const { inventory, services: allServices, resources, staff } = useInventory();
   const { role, user } = useTenant();
   const { toast } = useToast();
+  const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -195,6 +271,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
         <SheetHeader className="p-6 pb-0">
@@ -236,7 +313,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                                     <p className="font-bold text-base text-destructive">${appointment.cancellationFeeApplied.toFixed(2)}</p>
                                 </div>
                                 {canPerformAdminActions && (
-                                    <Button variant="outline" size="sm" onClick={() => onWaiveFee(appointment.id)} className="h-8">Waive Fee</Button>
+                                    <Button variant="outline" size="sm" onClick={() => setIsWaiveDialogOpen(true)} className="h-8">Waive Fee</Button>
                                 )}
                             </div>
                         )}
@@ -248,6 +325,16 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                                 Override & Restore
                             </Button>
                         )}
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {client.outstandingBalance && client.outstandingBalance > 0 && (
+                <Alert className="border-destructive/20 bg-destructive/5">
+                    <Wallet className="h-4 w-4 text-destructive" />
+                    <AlertTitle className="text-xs font-black uppercase text-destructive">Owes Balance</AlertTitle>
+                    <AlertDescription className="text-xs">
+                        This client has an outstanding balance of <strong>${client.outstandingBalance.toFixed(2)}</strong>.
                     </AlertDescription>
                 </Alert>
             )}
@@ -377,5 +464,16 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         </SheetFooter>
       </SheetContent>
     </Sheet>
+    <WaiveFeeDialog 
+        open={isWaiveDialogOpen} 
+        onOpenChange={setIsWaiveDialogOpen} 
+        feeAmount={appointment.cancellationFeeApplied || 0} 
+        staff={staff}
+        onConfirm={(sid, r) => {
+            onWaiveFee(appointment.id);
+            setIsWaiveDialogOpen(false);
+        }}
+    />
+    </>
   );
 };

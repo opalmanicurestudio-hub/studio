@@ -5,12 +5,12 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ShieldPlus, AlertTriangle, Ear, Edit, Mail, Phone, ShieldAlert, Ban, Award } from 'lucide-react';
+import { ShieldPlus, AlertTriangle, Ear, Edit, Mail, Phone, ShieldAlert, Ban, Award, Wallet } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -42,10 +42,13 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return isNaN(val) ? 0 : val;
     }, [client.lifetimeValue]);
 
+    const hasDebt = (client.outstandingBalance || 0) > 0;
+
     return (
         <Card className={cn(
             "transition-all duration-200 hover:shadow-lg hover:-translate-y-1 flex flex-col",
             isSelected && "border-primary ring-2 ring-primary",
+            hasDebt && "border-destructive/50 ring-destructive/10",
             (client.activeMembershipId || client.subscription) && "border-indigo-500/30 bg-indigo-500/[0.02]"
         )}>
             <CardContent className="p-4 space-y-4 flex-1">
@@ -63,9 +66,26 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         <AvatarFallback>{getInitials(client.name)}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                        <Link href={`/clients/${client.id}`} className="group">
-                            <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
-                        </Link>
+                        <div className="flex items-center gap-2 mb-1">
+                            <Link href={`/clients/${client.id}`} className="group min-w-0">
+                                <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
+                            </Link>
+                            {hasDebt && (
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Badge variant="destructive" className="h-5 px-1.5 font-black text-[9px] uppercase animate-pulse">
+                                                <Wallet className="w-3 h-3 mr-1" />
+                                                Owes Balance
+                                            </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p>This client has an outstanding balance of ${client.outstandingBalance?.toFixed(2)}</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </div>
                         {isOwnerOrAdmin ? (
                             <div className="text-xs text-muted-foreground mt-2 space-y-1">
                                 {client.email && (
