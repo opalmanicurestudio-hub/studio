@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark, MessageSquare } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,6 +25,76 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useTenant } from '@/context/TenantContext';
+
+interface WaiveFeeDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    feeAmount: number;
+    staff: Staff[];
+    onConfirm: (staffMember: Staff, reason: string) => void;
+}
+
+const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: WaiveFeeDialogProps) => {
+    const [pin, setPin] = useState('');
+    const [reason, setReason] = useState('');
+    const { toast } = useToast();
+
+    const handleConfirm = () => {
+        const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
+        if (!authorizedStaff) {
+            toast({ 
+                variant: 'destructive', 
+                title: 'Unauthorized', 
+                description: 'Invalid PIN or insufficient permissions. Admin authorization required.' 
+            });
+            return;
+        }
+        if (!reason.trim()) {
+            toast({ variant: 'destructive', title: 'Reason Required' });
+            return;
+        }
+        onConfirm(authorizedStaff, reason);
+        setPin('');
+        setReason('');
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-primary" />
+                        Waive Usage Overage Fees
+                    </DialogTitle>
+                    <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                    <div className="space-y-2 text-center">
+                        <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
+                        <div className="flex justify-center">
+                            <Input 
+                                type="password" 
+                                maxLength={4} 
+                                className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
+                                value={pin} 
+                                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="waive-reason-pos">Reason for Waiver</Label>
+                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide context for this waiver (e.g., Client verified emergency)..." />
+                    </div>
+                </div>
+                <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Absorb Fees</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
 
 export const CheckoutHub = ({ 
     cart, 
@@ -112,8 +181,6 @@ export const CheckoutHub = ({
     const { toast } = useToast();
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
-    const [waivePin, setWaivePin] = useState('');
-    const [waiveReason, setWaiveReason] = useState('');
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
 
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -123,29 +190,12 @@ export const CheckoutHub = ({
         setIsWaiveAuthOpen(true);
     };
 
-    const handleConfirmWaive = () => {
-        if (!waivePin || waivePin.length < 4) {
-            toast({ variant: 'destructive', title: 'PIN Required' });
-            return;
-        }
-        if (!waiveReason.trim()) {
-            toast({ variant: 'destructive', title: 'Reason Required' });
-            return;
-        }
-
-        const authorizer = staff.find(s => s.pin === waivePin && s.role === 'admin');
-        if (!authorizer) {
-            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Invalid Admin PIN.' });
-            return;
-        }
-
+    const handleConfirmWaive = (authorizer: Staff, reason: string) => {
         if (pendingWaiveAptId) {
-            onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, waiveReason);
+            onWaiveFeeToggle(pendingWaiveAptId, true, authorizer.id, reason);
             setIsWaiveAuthOpen(false);
-            setWaivePin('');
-            setWaiveReason('');
             setPendingWaiveAptId(null);
-            toast({ title: "Usage Fee Waived", description: `Authorized by ${authorizer.name}.` });
+            toast({ title: "Fees Absorbed", description: `Authorization provided by ${authorizer.name}.` });
         }
     };
 
@@ -354,10 +404,11 @@ export const CheckoutHub = ({
                                     {appointmentsData.length > 0 && (
                                         <div className="space-y-2">
                                             {appointmentsData.map(data => {
-                                                const { service, client, staff } = data;
-                                                const itemPrice = getServicePrice(service, staff);
+                                                const { service, client, staff: provider } = data;
+                                                const itemPrice = getServicePrice(service, provider);
                                                 const isRedeemed = redeemedOffer?.id === service.id;
                                                 const additional = data.appointment.checkoutState?.additionalCharge || 0;
+                                                const reviewNotes = data.appointment.checkoutState?.reviewNotes;
                                                 const isWaived = waivedAppointmentFees.has(data.id);
 
                                                 const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
@@ -396,6 +447,14 @@ export const CheckoutHub = ({
                                                                 </div>
                                                                 <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                                             </div>
+                                                            
+                                                            {reviewNotes && (
+                                                                <div className="mt-2 p-2 rounded-lg bg-muted/50 border flex gap-2 items-start">
+                                                                    <MessageSquare className="w-3 h-3 text-primary mt-0.5 flex-shrink-0" />
+                                                                    <p className="text-[10px] leading-tight italic">"{reviewNotes}"</p>
+                                                                </div>
+                                                            )}
+
                                                             {hasPerk && !isRedeemed && (
                                                                 <Button variant="secondary" size="sm" className="w-full mt-2 text-[10px] md:text-[11px] font-bold uppercase" onClick={handleRedeem}>
                                                                     {hasMembershipPerk ? <><Award className="w-3 h-3 mr-1.5" />Redeem Perk ({effectiveUsageCount}/{membershipPerk.quantity})</> : <><Repeat className="w-3 h-3 mr-1.5" />Use Package Session</>}
@@ -409,14 +468,14 @@ export const CheckoutHub = ({
                                                             )}
                                                             {additional > 0 && isOwnerOrAdmin && (
                                                                 <div className="mt-2 pt-2 border-t border-dashed flex justify-between items-center">
-                                                                    <span className="text-[9px] font-black text-muted-foreground uppercase">Additional Charges</span>
+                                                                    <span className="text-[9px] font-black text-muted-foreground uppercase">Overage Recovery</span>
                                                                     {isWaived ? (
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="text-[9px] font-bold text-green-600 uppercase">Waived</span>
+                                                                            <span className="text-[9px] font-bold text-green-600 uppercase">Absorbed</span>
                                                                             <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>
                                                                         </div>
                                                                     ) : (
-                                                                        <Button variant="ghost" size="xs" onClick={() => handleWaiveClick(data.id)} className="h-5 text-[9px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50">Waive Fees</Button>
+                                                                        <Button variant="ghost" size="xs" onClick={() => handleWaiveClick(data.id)} className="h-5 text-[9px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50">Absorb Fee</Button>
                                                                     )}
                                                                 </div>
                                                             )}
@@ -588,48 +647,13 @@ export const CheckoutHub = ({
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
             
-            <Dialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <ShieldCheck className="w-5 h-5 text-primary" />
-                            Manager Authorization
-                        </DialogTitle>
-                        <DialogDescription>A manager PIN is required to waive usage overage fees.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-6 py-4">
-                        <div className="space-y-2 text-center">
-                            <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin/Owner PIN</Label>
-                            <div className="flex justify-center">
-                                <div className="relative w-40">
-                                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input 
-                                        type="password" 
-                                        maxLength={4} 
-                                        className="text-center text-3xl h-14 font-black tracking-[0.5em] bg-muted/50 border-2" 
-                                        value={waivePin} 
-                                        onChange={e => setWaivePin(e.target.value.replace(/\D/g, ''))}
-                                        autoFocus
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="waive-reason-pos">Reason for Waiving (Required)</Label>
-                            <Textarea 
-                                id="waive-reason-pos" 
-                                placeholder="e.g., Client verified traffic delay, first-time courtesy..." 
-                                value={waiveReason}
-                                onChange={e => setWaiveReason(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => { setIsWaiveAuthOpen(false); setPendingWaiveAptId(null); setWaivePin(''); setWaiveReason(''); }}>Cancel</Button>
-                        <Button onClick={handleConfirmWaive} disabled={waivePin.length < 4 || !waiveReason.trim()}>Authorize Waiver</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <WaiveFeeDialog 
+                open={isWaiveAuthOpen} 
+                onOpenChange={setIsWaiveAuthOpen} 
+                feeAmount={appointmentsData.find(a => a.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} 
+                staff={staff}
+                onConfirm={handleConfirmWaive}
+            />
         </div>
     );
 };

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -22,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -35,6 +34,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { useTenant } from '@/context/TenantContext';
+import { Textarea } from '../ui/textarea';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -74,6 +74,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
+  const [reviewNotes, setReviewNotes] = useState('');
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [formulaName, setFormulaName] = useState('Default Service Formula');
@@ -114,6 +115,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
         
         setActualDuration(durationToSet || 0);
+        setReviewNotes(checkoutState?.reviewNotes || '');
         
         const initialOverrides: Record<string, string> = {};
         initialAddons.forEach(addon => {
@@ -158,9 +160,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
   const extraProductCost = useMemo(() => {
     if (!service) return 0;
-    // Current formula cost
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-    // Standard formula cost
     const standardCost = service.products?.reduce((acc, p) => {
         const item = inventory.find(inv => inv.id === p.id);
         const cpu = item?.costPerUnit || 0;
@@ -210,6 +210,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         formula: editableFormula,
         addOns: selectedAddOns,
         actualDuration,
+        reviewNotes,
         serviceStaffOverrides,
         absorbedCost: 0, 
         tipAmount: 0, 
@@ -251,7 +252,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <Card>
                     <CardHeader>
                         <CardTitle>Service Actuals</CardTitle>
-                        <CardDescription>Dollar values are calculated at the desk.</CardDescription>
+                        <CardDescription>Note deviations from standard duration or formula.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
@@ -318,6 +319,24 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         <div className='flex gap-2'>
                             <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
                         </div>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4 text-primary" />
+                            Review Notes
+                        </CardTitle>
+                        <CardDescription>Communicate reasons for overages to the front desk.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Textarea 
+                            placeholder="e.g., Client requested extra length, arrived late with complex needs..." 
+                            value={reviewNotes}
+                            onChange={(e) => setReviewNotes(e.target.value)}
+                            rows={3}
+                        />
                     </CardContent>
                 </Card>
                 

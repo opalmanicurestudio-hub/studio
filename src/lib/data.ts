@@ -321,6 +321,7 @@ export type AppointmentCheckoutState = {
     additionalCharge: number;
     absorbedCost: number;
     redeemedRetailDiscount?: boolean;
+    reviewNotes?: string;
 };
 
 export type Appointment = {
