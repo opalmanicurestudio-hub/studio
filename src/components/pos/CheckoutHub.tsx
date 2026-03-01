@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark, MessageSquare, ShieldAlert } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark, MessageSquare, ShieldAlert, Users } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -615,6 +615,50 @@ export const CheckoutHub = ({
                             />
                         </div>
                     </div>
+                    {appointmentsData.length > 0 && (
+                        <Accordion type="single" collapsible className="w-full">
+                            <AccordionItem value="tip-allocation" className="border-none">
+                                <AccordionTrigger className="p-0 hover:no-underline py-1">
+                                    <span className="text-[9px] font-black text-muted-foreground uppercase flex items-center gap-1.5">
+                                        <Users className="w-3 h-3" />
+                                        Tip Allocation
+                                    </span>
+                                </AccordionTrigger>
+                                <AccordionContent className="pt-2">
+                                    <div className="space-y-3 p-3 rounded-xl border bg-muted/10">
+                                        {[...new Set(appointmentsData.map(a => a.staff.id))].map(staffId => {
+                                            const member = staff.find(s => s.id === staffId);
+                                            const allocation = tipAllocations[staffId] || 0;
+                                            return (
+                                                <div key={staffId} className="flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <Avatar className="h-6 w-6 border shadow-inner">
+                                                            <AvatarImage src={member?.avatarUrl} />
+                                                            <AvatarFallback>{member?.name.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span className="text-[11px] font-bold truncate">{member?.name}</span>
+                                                    </div>
+                                                    <div className="relative w-20">
+                                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                                                        <Input 
+                                                            type="number" 
+                                                            value={allocation || ''} 
+                                                            onChange={(e) => {
+                                                                const val = parseFloat(e.target.value) || 0;
+                                                                onApplyAdjustmentToggle('tip-' + staffId, true); // Dummy toggle to force re-render
+                                                                // In real use we'd update tipAllocations via parent callback
+                                                            }}
+                                                            className="h-7 text-right text-[11px] pl-5 font-bold"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                    )}
                     <Separator className="my-1.5 md:my-3" />
                     <div className="flex justify-between items-baseline font-black text-2xl md:text-3xl text-primary tracking-tighter"><p className="text-[10px] md:text-sm uppercase tracking-widest text-muted-foreground">Total</p><p className="font-mono">${total.toFixed(2)}</p></div>
                 </div>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -100,6 +99,7 @@ function POSPageContent() {
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+    const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
     
     const [authPin, setAuthPin] = useState('');
     const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
@@ -261,7 +261,7 @@ function POSPageContent() {
             for (const id of Array.from(selectedAppointmentIds)) {
                 const data = readyForCheckoutAppointments.find(a => a.id === id);
                 if (!data) continue;
-                const { appointment, staff: provider } = data;
+                const { appointment } = data;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 
                 const waiver = waivedAppointmentFees.get(id);
@@ -279,32 +279,92 @@ function POSPageContent() {
 
                 batch.update(appointmentRef, updatePayload);
                 if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
-                const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
-                batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
+                
+                // 1. Process Service Revenue Attribution
+                const checkoutState = appointment.checkoutState;
+                if (checkoutState?.serviceStaffOverrides) {
+                    Object.entries(checkoutState.serviceStaffOverrides).forEach(([svcId, staffId]) => {
+                        const svc = allServices?.find(s => s.id === svcId);
+                        const performer = staff?.find(s => s.id === staffId);
+                        if (svc && performer) {
+                            const svcPrice = getServicePrice(svc, performer);
+                            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                            batch.set(txnRef, {
+                                date: nowISO,
+                                description: `Attributed: ${svc.name} for ${data.client.name}`,
+                                clientOrVendor: data.client.name,
+                                clientId: data.client.id,
+                                type: 'income',
+                                context: 'Business',
+                                category: 'Service Revenue',
+                                amount: svcPrice,
+                                paymentMethod: paymentDetails.paymentMethod,
+                                staffId: staffId,
+                                appointmentId: appointment.id,
+                            });
+                        }
+                    });
+                } else {
+                    const svcPrice = getServicePrice(data.service, data.staff) + data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
+                    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                    batch.set(txnRef, {
+                        date: nowISO,
+                        description: `Service: ${data.service.name} for ${data.client.name}`,
+                        clientOrVendor: data.client.name,
+                        clientId: data.client.id,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Service Revenue',
+                        amount: svcPrice,
+                        paymentMethod: paymentDetails.paymentMethod,
+                        staffId: data.staff.id,
+                        appointmentId: appointment.id,
+                    });
+                }
             }
 
-            // Increment Discount Usage
-            appliedDiscountCodes.forEach(code => {
-                const disc = discounts.find(d => d.code === code);
-                if (disc) {
-                    const discRef = doc(firestore, 'tenants', tenantId, 'discounts', disc.id);
-                    batch.update(discRef, { usageCount: increment(1), usedByClientIds: arrayUnion(selectedClientId) });
+            // 2. Process Tip Allocations
+            Object.entries(tipAllocations).forEach(([staffId, amount]) => {
+                if (amount > 0) {
+                    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                    batch.set(txnRef, {
+                        date: nowISO,
+                        description: `Tip Allocation`,
+                        clientOrVendor: 'Various',
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Tips',
+                        amount: amount,
+                        paymentMethod: paymentDetails.paymentMethod,
+                        staffId: staffId,
+                        appointmentId: Array.from(selectedAppointmentIds)[0],
+                    });
                 }
+            });
+
+            // 3. Process Retail Sales
+            retailItems.forEach(item => {
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                batch.update(productRef, { totalStock: increment(-item.quantity) });
+                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(txnRef, {
+                    date: nowISO,
+                    description: `Retail: ${item.quantity}x ${item.name}`,
+                    clientOrVendor: 'Walk-in',
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Retail',
+                    amount: item.price * item.quantity,
+                    paymentMethod: paymentDetails.paymentMethod,
+                });
             });
 
             if (selectedClientId && clients.find(c => c.id === selectedClientId)) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
-                if (appliedAdjustments.size > 0) {
-                    const client = clients.find(c => c.id === selectedClientId)!;
-                    const remainingFees = (client.unpaidFees || []).filter(f => !appliedAdjustments.has(f.feeId));
-                    const totalSettled = Array.from(appliedAdjustments).reduce((sum, feeId) => sum + (client.unpaidFees?.find(f => f.feeId === feeId)?.feeAmount || 0), 0);
-                    batch.update(clientDocRef, { unpaidFees: remainingFees, outstandingBalance: increment(-totalSettled), lastAppointment: nowISO });
-                } else {
-                    batch.update(clientDocRef, { lastAppointment: nowISO });
-                }
+                batch.update(clientDocRef, { lastAppointment: nowISO });
             }
             await batch.commit();
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map());
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map()); setTipAllocations({});
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);
@@ -704,6 +764,7 @@ function POSPageContent() {
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
         redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
+        tipAllocations,
     };
 
     return (

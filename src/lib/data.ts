@@ -313,7 +313,7 @@ export type AppointmentCheckoutState = {
         costPerUnit: number;
     }[];
     retailItems: any[];
-    addOns: Service[];
+    addOnServices: Service[];
     actualDuration: number;
     serviceStaffOverrides: Record<string, string>;
     tipAllocations: Record<string, number>;
