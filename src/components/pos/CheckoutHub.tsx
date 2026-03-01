@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -336,7 +337,7 @@ export const CheckoutHub = ({
                                                                 <div className="flex-1 min-w-0">
                                                                     <p className="font-bold text-xs md:text-sm truncate">{service.name}</p>
                                                                     {isGroupCheckout && <p className="text-[9px] md:text-[10px] text-muted-foreground">for {client.name}</p>}
-                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                    <div className="flex flex-wrap items-center gap-2 mt-1">
                                                                         <p className={cn("text-xs md:text-sm font-black font-mono", isRedeemed ? "line-through text-muted-foreground opacity-50" : "text-primary")}>${itemPrice.toFixed(2)}</p>
                                                                         {additional > 0 && (
                                                                             <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700 bg-amber-50">
