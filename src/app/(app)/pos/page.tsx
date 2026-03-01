@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -55,7 +54,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 function POSPageContent() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
     const { firestore } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -95,6 +94,63 @@ function POSPageContent() {
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
+
+    const onUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
+        if (!firestore || !tenantId) return;
+        const targetRef = isWalkIn 
+            ? doc(firestore, 'tenants', tenantId, 'walkIns', id)
+            : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        
+        const updateData: any = { checkInStatus: status };
+        if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
+        
+        updateDocumentNonBlocking(targetRef, updateData);
+        toast({ title: "Status Updated" });
+    };
+
+    const handleSkip = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
+        toast({ title: "Guest Skipped" });
+    };
+
+    const handleReturnToQueue = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
+            status: 'waiting', 
+            notifiedTimestamp: deleteField(), 
+            assignedStaffId: deleteField() 
+        });
+
+        if (walkIn?.assignedStaffId) {
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
+                status: 'idle' 
+            });
+        }
+
+        const aptId = `apt-walkin-${walkInId}`;
+        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
+        
+        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed' });
+        if (appointmentId.startsWith('apt-walkin-')) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified' });
+        }
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing' });
+    };
 
     useEffect(() => {
         const payerId = searchParams.get('payer_id');
@@ -218,19 +274,6 @@ function POSPageContent() {
         } finally { setIsSubmitting(false); }
     };
 
-    const onUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
-        if (!firestore || !tenantId) return;
-        const targetRef = isWalkIn 
-            ? doc(firestore, 'tenants', tenantId, 'walkIns', id)
-            : doc(firestore, 'tenants', tenantId, 'appointments', id);
-        
-        const updateData: any = { checkInStatus: status };
-        if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
-        
-        updateDocumentNonBlocking(targetRef, updateData);
-        toast({ title: "Status Updated" });
-    };
-
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointments) return;
       const appointment = appointments.find(a => a.id === appointmentId);
@@ -307,50 +350,6 @@ function POSPageContent() {
             });
             setIsPrintDialogOpen(true);
         }
-    };
-
-    const handleSkip = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
-        toast({ title: "Guest Skipped" });
-    };
-
-    const handleReturnToQueue = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        const batch = writeBatch(firestore);
-        
-        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
-            status: 'waiting', 
-            notifiedTimestamp: deleteField(), 
-            assignedStaffId: deleteField() 
-        });
-
-        if (walkIn?.assignedStaffId) {
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
-                status: 'idle' 
-            });
-        }
-
-        const aptId = `apt-walkin-${walkInId}`;
-        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
-        
-        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
-    };
-
-    const handleRevertToReady = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed' });
-        if (appointmentId.startsWith('apt-walkin-')) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified' });
-        }
-    };
-
-    const handleRevertToService = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing' });
     };
 
     const handleResolve = (item: any) => {
@@ -625,11 +624,8 @@ function POSPageContent() {
         }, 0);
 
         const s = appointmentsSubtotal + cartSubtotal + adjustmentsSubtotal;
-        
-        // Simple 7% tax for demo
         const t_rate = 0.07;
-        const disc = 0; // Real logic would subtract promo/membership discounts here
-        const baseForTax = Math.max(0, s - disc);
+        const baseForTax = Math.max(0, s);
         const t = baseForTax * t_rate;
         
         return { 
@@ -665,14 +661,14 @@ function POSPageContent() {
                             value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
                             icon={<Clock className="text-blue-500" />} 
                             iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
-                            description="Real-time check-in to service." 
+                            description="Check-in to service." 
                         />
                         <KpiCard 
                             title="Walk-in Conversion" 
                             value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
                             icon={<TrendingUp className="text-green-500"/>} 
                             iconBgColor="bg-green-100 dark:bg-green-900/50" 
-                            description="Check-in to chair success rate." 
+                            description="Check-in to chair rate." 
                         />
                         <KpiCard 
                             title="Today's Volume" 
@@ -686,7 +682,7 @@ function POSPageContent() {
                             value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
                             icon={<DollarSign className="text-amber-500"/>} 
                             iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
-                            description="Revenue per active hour." 
+                            description="Rev per service hour." 
                         />
                     </div>
 

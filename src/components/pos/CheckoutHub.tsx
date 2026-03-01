@@ -1,31 +1,26 @@
-
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import React, { useState, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer, UserPlus, DollarSign, Award, Loader, Gift, AlertTriangle, Repeat, CheckCircle, Percent, QrCode, Tag, Wand2, X, ShoppingCart, ChevronDown } from 'lucide-react';
+import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Switch } from '../ui/switch';
-import { Checkbox } from '../ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { subMonths, parseISO, isAfter, format, isSameMonth, differenceInDays } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-
 
 export const CheckoutHub = ({ 
     cart, 
@@ -56,10 +51,8 @@ export const CheckoutHub = ({
     discounts,
     amountTendered,
     setAmountTendered,
-    adjustments,
     appliedAdjustments,
     onApplyAdjustmentToggle,
-    absorbedCost,
     redeemedOffer,
     setRedeemedOffer,
     memberships,
@@ -94,10 +87,8 @@ export const CheckoutHub = ({
     discounts: Discount[];
     amountTendered: number;
     setAmountTendered: (amount: number) => void;
-    adjustments: { id: string; clientName: string; serviceName: string; description: string; cost: number; }[];
     appliedAdjustments: Set<string>;
     onApplyAdjustmentToggle: (adjustmentId: string, apply: boolean) => void;
-    absorbedCost: number;
     redeemedOffer: { type: 'membership' | 'package' | 'retail_discount'; id: string } | null;
     setRedeemedOffer: (offer: { type: 'membership' | 'package' | 'retail_discount'; id: string } | null) => void;
     memberships: Membership[];
@@ -107,7 +98,7 @@ export const CheckoutHub = ({
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments, services } = useInventory();
+    const { appointments: allAppointments } = useInventory();
     const { toast } = useToast();
 
     const selectedClient = useMemo(() => {
@@ -224,7 +215,7 @@ export const CheckoutHub = ({
                 </div>
             )}
             <div className="mb-2 md:mb-4 flex-shrink-0 px-4 md:px-0">
-                <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">Payer</Label>
+                <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Payer</Label>
                 <div className="flex gap-2 mt-1">
                     <Select
                         value={selectedClientId || 'walk-in'}
@@ -307,7 +298,7 @@ export const CheckoutHub = ({
                             <AccordionTrigger className="p-0 hover:no-underline py-2">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                     <ShoppingCart className="w-3 h-3" />
-                                    Items in Sale ({appointmentsData.length + cart.length + Array.from(appliedAdjustments).length})
+                                    Items in Sale ({appointmentsData.length + cart.length + appliedAdjustments.size})
                                 </h3>
                             </AccordionTrigger>
                             <AccordionContent className="pt-2 pb-4">
@@ -392,14 +383,15 @@ export const CheckoutHub = ({
                                     {appliedAdjustments.size > 0 && (
                                         <div className="space-y-2">
                                             {Array.from(appliedAdjustments).map(id => {
-                                                const adj = adjustments.find(a => a.id === id);
+                                                const clientFees = clients.flatMap(c => c.unpaidFees || []);
+                                                const adj = clientFees.find(f => f.feeId === id);
                                                 return (
                                                     <div key={id} className="text-sm flex items-center gap-3 p-2 md:p-3 bg-destructive/5 border border-destructive/20 rounded-xl">
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="font-bold text-xs md:text-sm truncate">{adj?.description}</p>
+                                                            <p className="font-bold text-xs md:text-sm truncate">{adj?.reason || 'Past Due Fee'}</p>
                                                             <p className="text-[9px] md:text-[10px] text-destructive uppercase font-black">Settling Debt</p>
                                                         </div>
-                                                        <p className="font-bold font-mono text-xs md:text-sm text-destructive">${adj?.cost.toFixed(2)}</p>
+                                                        <p className="font-bold font-mono text-xs md:text-sm text-destructive">${adj?.feeAmount.toFixed(2)}</p>
                                                         <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-destructive" onClick={() => onApplyAdjustmentToggle(id, false)}><X className="h-3.5 w-3.5"/></Button>
                                                     </div>
                                                 );
@@ -480,7 +472,11 @@ export const CheckoutHub = ({
                     {appliedAdjustments.size > 0 && (
                         <div className="flex justify-between text-[11px] md:text-sm text-destructive font-black uppercase tracking-tight">
                             <span className="flex items-center gap-1.5"><AlertTriangle className="w-3 h-3 md:w-3.5 md:h-3.5" /> Settling Debt</span>
-                            <span className="font-mono">+${Array.from(appliedAdjustments).reduce((sum, id) => sum + (adjustments.find(a => a.id === id)?.cost || 0), 0).toFixed(2)}</span>
+                            <span className="font-mono">+${Array.from(appliedAdjustments).reduce((sum, id) => {
+                                const clientFees = clients.flatMap(c => c.unpaidFees || []);
+                                const fee = clientFees.find(f => f.feeId === id);
+                                return sum + (fee?.feeAmount || 0);
+                            }, 0).toFixed(2)}</span>
                         </div>
                     )}
                     <div className="flex justify-between text-muted-foreground font-medium text-xs md:text-sm"><p>Estimated Tax</p><p className="font-mono">${tax.toFixed(2)}</p></div>
@@ -512,7 +508,7 @@ export const CheckoutHub = ({
                         <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 md:space-y-4 pt-1">
                             <div className="grid grid-cols-2 gap-3 md:gap-4">
                                 <div className="space-y-1"><Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-muted-foreground">Amount Tendered</Label><div className="relative"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground" /><Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-7 md:pl-8 h-10 md:h-12 font-black text-lg md:text-xl border-2" /></div></div>
-                                {changeDue > 0 && (<div className="space-y-1"><Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600">Change Due</Label><div className="h-10 md:h-12 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl"><p className="font-black text-lg md:text-xl text-green-600 font-mono">${changeDue.toFixed(2)}</p></div></div>)}
+                                {amountTendered > total && (<div className="space-y-1"><Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600">Change Due</Label><div className="h-10 md:h-12 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl"><p className="font-black text-lg md:text-xl text-green-600 font-mono">${(amountTendered - total).toFixed(2)}</p></div></div>)}
                             </div>
                             <div className="flex gap-1.5 md:gap-2 overflow-x-auto pb-1 no-scrollbar">
                                 {quickTenderOptions.map(val => (<Button key={val} variant="outline" size="sm" className="flex-1 font-bold h-8 md:h-9 rounded-xl text-xs md:text-sm shrink-0" onClick={() => setAmountTendered(val)}>${val}</Button>))}
