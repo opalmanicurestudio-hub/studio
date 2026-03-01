@@ -9,9 +9,9 @@ import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark, MessageSquare, ShieldAlert } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '../ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -471,7 +471,7 @@ export const CheckoutHub = ({
                                                             {additional > 0 && isOwnerOrAdmin && (
                                                                 <div className="mt-2 pt-2 border-t border-dashed flex justify-between items-center">
                                                                     <span className="text-[9px] font-black text-muted-foreground uppercase">Overage Recovery</span>
-                                                                    {isWaive ? (
+                                                                    {isWaived ? (
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] font-bold text-green-600 uppercase">Absorbed</span>
                                                                             <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>
