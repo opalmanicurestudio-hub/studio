@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -23,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -38,6 +37,7 @@ import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
+import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -57,7 +57,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 function POSPageContent() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, pricingTiers } = useInventory();
     const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
+    const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
     const router = useRouter();
@@ -71,26 +71,31 @@ function POSPageContent() {
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+    
+    // Dialog & Sheet States
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+    const [isOverrideOpen, setIsOverrideOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
-    const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
+    const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
+
+    const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+    const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     
-    const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
-    const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
-
-    const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
     const [authPin, setAuthPin] = useState('');
     const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
-    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
+    const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
     useEffect(() => {
         const payerId = searchParams.get('payer_id');
@@ -117,7 +122,7 @@ function POSPageContent() {
 
     const handleVerifyPin = () => {
         if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
-        const targetStaff = staff.find(s => s.id === pendingStatusAction.staffId);
+        const targetStaff = staff.find(s => s.pin === authPin);
         if (targetStaff && targetStaff.pin === authPin) {
             const { staffId, action } = pendingStatusAction;
             const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
@@ -251,6 +256,11 @@ function POSPageContent() {
       batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
+    const handleFinishService = (apt: Appointment) => {
+        setAppointmentToReview(apt);
+        setIsTechnicianReviewOpen(true);
+    };
+
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
@@ -313,6 +323,96 @@ function POSPageContent() {
     const handleRevertToService = (appointmentId: string) => {
         if (!firestore || !tenantId) return;
         updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing' });
+    };
+
+    const handleResolve = (item: any) => {
+        if (item.type === 'walk-in') {
+            const apt = appointments.find(a => a.id === `apt-walkin-${item.id}`);
+            if (apt) {
+                setSelectedAppointment(apt);
+                setIsDetailsOpen(true);
+            }
+        } else {
+            setSelectedAppointment(item);
+            setIsDetailsOpen(true);
+        }
+    };
+
+    const handleCancelAppointment = (id: string) => {
+        const apt = appointments.find(a => a.id === id);
+        if (apt) {
+            setSelectedAppointment(apt);
+            setIsCancelDialogOpen(true);
+        }
+    };
+
+    const handleCancelAction = (id: string, isWalkIn: boolean) => {
+        if (!isWalkIn) {
+            handleCancelAppointment(id);
+            return;
+        }
+        
+        setConfirmation({
+            isOpen: true,
+            title: 'Are you sure?',
+            description: 'This will remove the guest from the queue. This action cannot be undone.',
+            onConfirm: async () => {
+                if (!firestore || !tenantId) return;
+                const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', id);
+                await updateDocumentNonBlocking(walkInRef, { status: 'cancelled' });
+                toast({ title: "Walk-in Removed" });
+                setConfirmation(null);
+            }
+        });
+    };
+
+    const handleConfirmCancellation = async (data: any) => {
+        if (!selectedAppointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+        const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
+
+        batch.update(appointmentRef, {
+            status: 'cancelled',
+            cancellationReason: data.reason,
+            cancellationFeeApplied: data.feeAmount,
+            cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
+        });
+
+        if (data.chargeFee && data.feeAmount > 0) {
+            if (data.paymentMethod === 'add_to_balance') {
+                batch.update(clientRef, {
+                    unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: selectedAppointment.startTime, feeAmount: data.feeAmount, reason: `Late cancellation: ${data.reason}`, staffId: selectedAppointment.staffId }),
+                    outstandingBalance: increment(data.feeAmount)
+                });
+            }
+        }
+
+        try {
+            await batch.commit();
+            setIsCancelDialogOpen(false);
+            setIsDetailsOpen(false);
+            toast({ title: "Appointment Cancelled" });
+        } catch (e) {
+            toast({ variant: 'destructive', title: 'Cancellation Failed' });
+        }
+    };
+
+    const handleWaiveFee = (id: string, authorizer: Staff, reason: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
+        updateDocumentNonBlocking(appointmentRef, { cancellationFeeWaived: true, waivedBy: authorizer.id, waivedReason: reason, waivedAt: new Date().toISOString() });
+        toast({ title: "Fee Waived" });
+    };
+
+    const handleOverrideConfirm = async (staffId: string, reason: string) => {
+        if (!selectedAppointment || !firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: reason, overriddenBy: staffId });
+        setIsOverrideOpen(false);
+        setIsDetailsOpen(false);
+        toast({ title: "Override Complete" });
     };
 
     const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
@@ -386,7 +486,7 @@ function POSPageContent() {
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={() => {}} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={(a) => { setAppointmentToReview(a); setIsTechnicianReviewOpen(true); }} onUpdateStatus={() => {}} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
@@ -408,6 +508,42 @@ function POSPageContent() {
             )}
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4 pb-0"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
+            
+            <AppointmentDetailsSheet 
+                open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment}
+                client={clients?.find(c => c.id === selectedAppointment?.clientId) || null}
+                service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
+                tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
+                onStartService={handleStartService}
+                onFinishService={handleFinishService}
+                onEdit={() => {}}
+                onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
+                onCancel={handleCancelAppointment}
+                onReschedule={() => {}}
+                onRebook={() => {}}
+                onBookNewForClient={() => {}}
+                onPrintTicket={() => {}}
+                onOverride={() => setIsOverrideOpen(true)}
+                onWaiveFee={handleWaiveFee}
+            />
+
+            {selectedAppointment && (
+                <CancelAppointmentDialog
+                    open={isCancelDialogOpen}
+                    onOpenChange={setIsCancelDialogOpen}
+                    appointment={selectedAppointment}
+                    tenant={selectedTenant}
+                    onConfirm={handleConfirmCancellation}
+                />
+            )}
+
+            <OverrideCancellationDialog 
+                open={isOverrideOpen}
+                onOpenChange={setIsOverrideOpen}
+                staff={staff || []}
+                onConfirm={handleOverrideConfirm}
+            />
+
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
             <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Authorize Action</DialogTitle></DialogHeader><div className="py-6 flex flex-col items-center gap-4"><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-3xl font-black h-16 w-48" /></div><DialogFooter><Button onClick={handleVerifyPin}>Confirm</Button></DialogFooter></DialogContent></Dialog>
             
@@ -428,6 +564,19 @@ function POSPageContent() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <AlertDialog open={!!confirmation} onOpenChange={(val) => !val && setConfirmation(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
+                        <AlertDialogDescription>{confirmation?.description}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmation?.onConfirm}>Confirm</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

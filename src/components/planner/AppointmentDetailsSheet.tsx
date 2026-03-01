@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -42,6 +41,7 @@ import {
   Wallet,
   KeyRound,
   Fingerprint,
+  ShieldAlert,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -290,7 +290,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         </SheetHeader>
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
-            {(appointment as any).isPotentialAlias && (
+            {appointment.isPotentialAlias && (
                 <div className="mb-6 p-4 rounded-xl border-4 border-destructive bg-destructive/10 text-destructive animate-in fade-in slide-in-from-top-4 duration-500">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-destructive rounded-full">
@@ -491,7 +491,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               )}
               <div className="space-y-2">
                 {client.medicalNotes && <div className="flex items-start gap-2 p-2 rounded-lg bg-red-500/5 text-red-700 text-xs font-bold border border-red-500/10"><ShieldPlus className="w-4 h-4 shrink-0"/><p>{client.medicalNotes}</p></div>}
-                {client.allergyNotes && <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 text-amber-700 text-xs font-bold border border-amber-500/10"><AlertTriangle className="w-4 h-4 shrink-0"/><p>{client.allergyNotes}</p></div>}
+                {client.allergyNotes && <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 text-amber-700 text-xs font-bold border border-amber-500/10"><AlertTriangle className="h-4 w-4 shrink-0"/><p>{client.allergyNotes}</p></div>}
                 {client.sensoryNeeds && <div className="flex items-start gap-2 p-2 rounded-lg bg-blue-500/5 text-blue-700 text-xs font-bold border border-blue-500/10"><Ear className="w-4 h-4 shrink-0"/><p>{client.sensoryNeeds}</p></div>}
               </div>
             </div>

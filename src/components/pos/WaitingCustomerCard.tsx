@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format, differenceInMinutes } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
@@ -32,6 +32,7 @@ interface WaitingCustomerCardProps {
     onPrintTicket: (id: string) => void;
     groupSize?: number;
     onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
+    onResolve: () => void;
 }
 
 const statusOptions = [
@@ -51,13 +52,14 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus }) => {
+export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
     const isWalkIn = item.type === 'walk-in';
     const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
     const serviceIds = isWalkIn ? (item as WalkIn).serviceIds : [(item as Appointment).serviceId];
     const checkInTime = isWalkIn ? (item as WalkIn).checkInTime : (item as Appointment).startTime;
     const checkInStatus = (item as any).checkInStatus || 'pending';
     const lateTimeMinutes = (item as any).lateTimeMinutes || 0;
+    const isPotentialAlias = (item as any).isPotentialAlias || false;
     
     const primaryServices = services?.filter(s => serviceIds.includes(s.id));
     const waitTime = isWalkIn ? formatDistanceToNow(safeDate(checkInTime), { addSuffix: true }) : format(safeDate(checkInTime), 'h:mm a');
@@ -77,7 +79,8 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
         <Card className={cn(
             "transition-all border-2",
             checkInStatus === 'arrived' ? "border-green-500/20 bg-green-500/[0.02]" : 
-            checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.02]" : "border-border"
+            checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.02]" : 
+            isPotentialAlias ? "border-destructive/40 ring-2 ring-destructive/10" : "border-border"
         )}>
             <CardContent className="p-4 space-y-3">
                 <div className="flex items-start gap-3">
@@ -150,6 +153,18 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                         </Badge>
                     )}
                 </div>
+
+                {isPotentialAlias && (
+                    <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        className="w-full mt-2 h-9 font-black animate-pulse shadow-lg shadow-destructive/20"
+                        onClick={onResolve}
+                    >
+                        <Fingerprint className="w-4 h-4 mr-2" />
+                        RESOLVE IDENTITY MATCH
+                    </Button>
+                )}
 
                 {(preferredStaff || (item as any).notes) && (
                     <div className="flex flex-wrap gap-2 pt-1 items-center">

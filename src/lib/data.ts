@@ -361,6 +361,8 @@ export type Appointment = {
   tipAmount?: number;
   discountAmount?: number;
   appliedDiscountCode?: string;
+  isPotentialAlias?: boolean;
+  matchedClientId?: string;
 };
 
 export type EventChecklistItem = {
@@ -456,6 +458,8 @@ export type WalkIn = {
   notes?: string;
   preferredStaffId?: string;
   waitForPreferredStaff?: boolean;
+  isPotentialAlias?: boolean;
+  matchedClientId?: string;
 };
 
 export type StockCorrection = {

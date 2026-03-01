@@ -50,6 +50,7 @@ interface WalkInQueueProps {
     onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
     onRevertToReady: (appointmentId: string) => void;
     onRevertToService: (appointmentId: string) => void;
+    onResolve: (item: any) => void;
 }
 
 export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
@@ -77,6 +78,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     onUpdateStatus,
     onRevertToReady,
     onRevertToService,
+    onResolve,
 }) => {
     const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
 
@@ -170,6 +172,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         onPrintTicket={onPrintTicket}
                                         groupSize={item.type === 'walk-in' ? (groupSizes.get(item.groupId) || 1) : 1}
                                         onUpdateStatus={onUpdateStatus}
+                                        onResolve={() => onResolve(item)}
                                     />
                                 ))
                             ) : (
