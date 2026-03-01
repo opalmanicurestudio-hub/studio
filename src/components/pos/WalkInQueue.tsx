@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -111,7 +112,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         if (item.type === 'walk-in') {
             setWalkInToAssign(item);
         } else {
-            // For appointments, assign logic might differ or we just start them
             onStartService(item.id);
         }
     };

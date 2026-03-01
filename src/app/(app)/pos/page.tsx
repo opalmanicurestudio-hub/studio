@@ -350,13 +350,21 @@ function POSPageContent() {
     };
 
     const handleResolve = (item: any) => {
-        if (item.type === 'walk-in' || item.isWalkIn) {
-            const aptId = item.type === 'walk-in' ? `apt-walkin-${item.id}` : item.id;
-            const apt = appointments.find(a => a.id === aptId);
-            if (apt) {
-                setSelectedAppointment(apt);
-                setIsDetailsOpen(true);
-            }
+        if (item.type === 'walk-in') {
+            const ghostApt: Partial<Appointment> = {
+                id: `walkin-resolve-${item.id}`,
+                clientName: item.customerName,
+                clientId: item.clientId || item.id,
+                serviceId: item.serviceIds[0],
+                status: 'confirmed',
+                isWalkIn: true,
+                isPotentialAlias: item.isPotentialAlias,
+                matchedClientId: item.matchedClientId,
+                startTime: item.checkInTime,
+                endTime: item.checkInTime,
+            };
+            setSelectedAppointment(ghostApt as Appointment);
+            setIsDetailsOpen(true);
         } else {
             setSelectedAppointment(item);
             setIsDetailsOpen(true);
@@ -490,57 +498,38 @@ function POSPageContent() {
 
         const idleStaff = staff
             .filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !assignedStaffIds.has(s.id))
-            .sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+            .sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
         
         if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy, on break, or have a pending turn.' });
           return;
         }
         
-        const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
+        const waitingClients = (walkIns || [])
+            .filter(w => w.status === 'waiting')
+            .sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
         
         if (waitingClients.length === 0) {
           toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
           return;
         }
     
-        if (assignmentMode === 'fair_play') {
-          for (const staffMember of idleStaff) {
+        for (const staffMember of idleStaff) {
             for (const client of waitingClients) {
-              const allServiceIds = client.serviceIds;
-              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
-              const staffSkills = staffMember.skillSet || [];
-              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-    
-              const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-              if (canPerformService && !existingAssignment) {
-                handleAssignStaff(client, staffMember.id);
-                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return;
-              }
-            }
-          }
-        } else { 
-          for (const client of waitingClients) {
-            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
-            if (existingAssignment) continue;
-            
-            for (const staffMember of idleStaff) {
                 const allServiceIds = client.serviceIds;
                 const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
                 const staffSkills = staffMember.skillSet || [];
                 const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-    
-              if (canPerformService) {
-                handleAssignStaff(client, staffMember.id);
-                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
-                return;
-              }
+
+                if (canPerformService) {
+                    handleAssignStaff(client, staffMember.id);
+                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                    return;
+                }
             }
-          }
         }
     
-        toast({ variant: 'destructive', title: 'No Match', description: "Could not find a matching provider for the next client." });
+        toast({ variant: 'destructive', title: 'No Match', description: "Found available providers, but none have the required skills for the next clients in line." });
     };
 
     const handleSkip = (walkInId: string) => {
@@ -551,10 +540,25 @@ function POSPageContent() {
 
     const handleReturnToQueue = (walkInId: string) => {
         if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'waiting', notifiedTimestamp: deleteField(), assignedStaffId: deleteField() });
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
+            status: 'waiting', 
+            notifiedTimestamp: deleteField(), 
+            assignedStaffId: deleteField() 
+        });
+
+        if (walkIn?.assignedStaffId) {
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
+                status: 'idle' 
+            });
+        }
+
         const aptId = `apt-walkin-${walkInId}`;
-        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
-        toast({ title: "Guest Returned to Queue" });
+        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
+        
+        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
     };
 
     const handleToggleWaitForStaff = (walkInId: string, wait: boolean) => {
