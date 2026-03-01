@@ -10,7 +10,6 @@ import {
   MoreHorizontal,
   DollarSign,
   Clock,
-  Briefcase,
   FileText,
   FlaskConical,
   Edit,
@@ -23,7 +22,6 @@ import {
   MessageSquare,
   Send,
   User as UserIcon,
-  Book,
   Calendar,
   FileText as TicketIcon,
   Users,
@@ -42,6 +40,7 @@ import {
   KeyRound,
   Fingerprint,
   ShieldAlert,
+  Loader,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

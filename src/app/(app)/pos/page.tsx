@@ -209,7 +209,7 @@ function POSPageContent() {
             }
 
             const selectedApts = Array.from(next).map(aptId => 
-                readyForCheckoutAppointments.find(a => a.id === aptId)
+                readyForCheckoutAppointments.find(a => a.id === id)
             ).filter(Boolean);
 
             if (selectedApts.length > 0) {
