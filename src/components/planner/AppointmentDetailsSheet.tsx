@@ -123,7 +123,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <ShieldCheck className="w-5 h-5 text-primary" />
-                        Waive Cancellation Fee
+                        Waive Fee Authorization
                     </DialogTitle>
                     <DialogDescription>Authorize the waiver of ${feeAmount.toFixed(2)} with a manager PIN.</DialogDescription>
                 </DialogHeader>
@@ -142,13 +142,13 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                         </div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="waive-reason">Reason for Waiver</Label>
-                        <Textarea id="waive-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide reasoning..." />
+                        <Label htmlFor="waive-reason-details">Reason for Waiver</Label>
+                        <Textarea id="waive-reason-details" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide reasoning..." />
                     </div>
                 </div>
                 <DialogFooter className="gap-2">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Waive Fee</Button>
+                    <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Authorize Waiver</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

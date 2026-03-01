@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -208,7 +209,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
-        addOns: selectedAddOns,
+        addOnServices: selectedAddOns,
         actualDuration,
         reviewNotes,
         serviceStaffOverrides,

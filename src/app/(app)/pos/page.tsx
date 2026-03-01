@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle, Fingerprint } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -72,7 +72,7 @@ function POSPageContent() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map() as any);
+    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
     const handleWaiveFeeToggle = useCallback((appointmentId: string, waive: boolean, authorizerId?: string, reason?: string) => {
         setWaivedAppointmentFees(prev => {
@@ -297,14 +297,14 @@ function POSPageContent() {
                 if (appliedAdjustments.size > 0) {
                     const client = clients.find(c => c.id === selectedClientId)!;
                     const remainingFees = (client.unpaidFees || []).filter(f => !appliedAdjustments.has(f.feeId));
-                    const totalSettled = Array.from(appliedAdjustments).reduce((sum, id) => sum + (client.unpaidFees?.find(f => f.feeId === id)?.feeAmount || 0), 0);
+                    const totalSettled = Array.from(appliedAdjustments).reduce((sum, feeId) => sum + (client.unpaidFees?.find(f => f.feeId === feeId)?.feeAmount || 0), 0);
                     batch.update(clientDocRef, { unpaidFees: remainingFees, outstandingBalance: increment(-totalSettled), lastAppointment: nowISO });
                 } else {
                     batch.update(clientDocRef, { lastAppointment: nowISO });
                 }
             }
             await batch.commit();
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map() as any);
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map());
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);
@@ -639,38 +639,12 @@ function POSPageContent() {
         };
     }, [walkIns, appointments, transactions, services]);
 
-    const { discount, membershipDiscount } = useMemo(() => {
-        if (!selectedClientId || !discounts) return { discount: 0, membershipDiscount: 0 };
-        
-        let dVal = 0;
-        let mVal = 0;
-
-        // 1. Applied Promo Codes
-        appliedDiscountCodes.forEach(code => {
-            const disc = discounts.find(d => d.code === code);
-            if (disc) {
-                if (disc.type === 'percentage') dVal += subtotal * (disc.value / 100);
-                else dVal += disc.value;
-            }
-        });
-
-        // 2. Membership Retail Perk
-        const client = clients.find(c => c.id === selectedClientId);
-        const membership = client?.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
-        if (membership?.retailDiscount) {
-            const retailSubtotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-            mVal = retailSubtotal * (membership.retailDiscount / 100);
-        }
-
-        return { discount: dVal, membershipDiscount: mVal };
-    }, [selectedClientId, appliedDiscountCodes, discounts, subtotal, retailItems, clients, memberships]);
-
-    const { subtotal: rawSubtotal, tax, total } = useMemo(() => {
+    const { rawSubtotal, discount, membershipDiscount, tax, total } = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter(Boolean);
         
-        const appointmentsSubtotal = selectedApts.reduce((acc, data) => {
+        const appointmentsRawSubtotal = selectedApts.reduce((acc, data) => {
             if (!data) return acc;
             const mainPrice = getServicePrice(data.service, data.staff);
             const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
@@ -678,24 +652,45 @@ function POSPageContent() {
             return acc + mainPrice + addOnsPrice + additional;
         }, 0);
 
-        const cartSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, feeId) => {
+        const cartRawSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const adjustmentsRawSubtotal = Array.from(appliedAdjustments).reduce((acc, feeId) => {
             const client = clients.find(c => c.id === selectedClientId);
             const fee = client?.unpaidFees?.find(f => f.feeId === feeId);
             return acc + (fee?.feeAmount || 0);
         }, 0);
 
-        const s = appointmentsSubtotal + cartSubtotal + adjustmentsSubtotal;
-        const t_rate = 0.07;
-        const discountedSubtotal = Math.max(0, s - (discount + membershipDiscount));
-        const t = discountedSubtotal * t_rate;
+        const s = appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
+        
+        // Calculate Discounts based on this raw subtotal
+        let dVal = 0;
+        let mVal = 0;
+
+        appliedDiscountCodes.forEach(code => {
+            const disc = discounts.find(d => d.code === code);
+            if (disc) {
+                if (disc.type === 'percentage') dVal += s * (disc.value / 100);
+                else dVal += disc.value;
+            }
+        });
+
+        const membership = selectedClientId ? clients.find(c => c.id === selectedClientId)?.activeMembershipId : null;
+        const activeMem = membership ? memberships.find(m => m.id === membership) : null;
+        if (activeMem?.retailDiscount) {
+            const retailSub = cartRawSubtotal;
+            mVal = retailSub * (activeMem.retailDiscount / 100);
+        }
+
+        const discountedSubtotal = Math.max(0, s - (dVal + mVal));
+        const t = discountedSubtotal * 0.07;
         
         return { 
-            subtotal: s, 
+            rawSubtotal: s, 
+            discount: dVal,
+            membershipDiscount: mVal,
             tax: t, 
             total: discountedSubtotal + t + tipAmount 
         };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees, discount, membershipDiscount]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees, appliedDiscountCodes, discounts, memberships]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
