@@ -288,6 +288,7 @@ function PlannerPageContent() {
                 paymentMethod: 'Card on File',
                 hasReceipt: false,
                 appointmentId: selectedAppointment.id,
+                staffId: selectedAppointment.staffId,
             });
             toast({ title: "Card Charged Successfully" });
         } else if (data.paymentMethod === 'add_to_balance') {
@@ -295,9 +296,10 @@ function PlannerPageContent() {
             const feeEntry = {
                 feeId,
                 appointmentId: selectedAppointment.id,
-                appointmentDate: selectedAppointment.startTime,
+                appointmentDate: selectedAppointment.startTime.toISOString ? selectedAppointment.startTime.toISOString() : selectedAppointment.startTime,
                 feeAmount: data.feeAmount,
                 reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
+                staffId: selectedAppointment.staffId,
             };
             batch.update(clientRef, {
                 unpaidFees: arrayUnion(feeEntry),

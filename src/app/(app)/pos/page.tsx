@@ -489,7 +489,7 @@ export default function POSPage() {
             cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
         });
 
-        // CRITICAL: Sync with Public Check-in link
+        // Sync with Public Check-in link
         if (appointmentToCancel.checkInToken) {
             const checkInRef = doc(firestore, 'appointmentCheckIns', appointmentToCancel.checkInToken);
             batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason, tenantId });
@@ -510,6 +510,7 @@ export default function POSPage() {
                     paymentMethod: 'Card on File',
                     hasReceipt: false,
                     appointmentId: appointmentToCancel.id,
+                    staffId: appointmentToCancel.staffId,
                 });
                 toast({ title: "Card Charged Successfully" });
             } else if (data.paymentMethod === 'add_to_balance') {
@@ -517,9 +518,10 @@ export default function POSPage() {
                 const feeEntry = {
                     feeId,
                     appointmentId: appointmentToCancel.id,
-                    appointmentDate: appointmentToCancel.startTime,
+                    appointmentDate: appointmentToCancel.startTime.toISOString ? appointmentToCancel.startTime.toISOString() : appointmentToCancel.startTime,
                     feeAmount: data.feeAmount,
                     reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
+                    staffId: appointmentToCancel.staffId,
                 };
                 batch.update(clientRef, {
                     unpaidFees: arrayUnion(feeEntry),

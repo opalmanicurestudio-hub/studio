@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -122,7 +121,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         }
     }}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col h-fit max-h-[90dvh]">
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0">
+        <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0 text-left">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
             Record cancellation for {appointment.clientName}.
@@ -130,25 +129,34 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         </DialogHeader>
         
         <div className="flex-1 overflow-y-auto bg-background">
-            <div className="px-6 py-6 space-y-6">
+            <div className="px-6 py-6 space-y-6 pb-12">
                 <div className="space-y-3">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation Reason</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
+                    <div 
+                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        onClick={() => setReason('client_request')}
+                    >
                         <RadioGroupItem value="client_request" id="reason-client" />
                         <Label htmlFor="reason-client" className="flex-1 cursor-pointer">
                             <p className="font-semibold text-sm">Client Request</p>
                             {isLateCancellation && <p className="text-[9px] text-amber-600 font-bold uppercase tracking-tighter">Late Notice</p>}
                         </Label>
                     </div>
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
+                    <div 
+                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        onClick={() => setReason('no-show')}
+                    >
                         <RadioGroupItem value="no-show" id="reason-noshow" />
                         <Label htmlFor="reason-noshow" className="flex-1 cursor-pointer">
                             <span className="font-semibold text-sm">No-Show</span>
                             <span className="text-[9px] text-destructive font-black uppercase tracking-tighter block">Penalty: 100% Price</span>
                         </Label>
                     </div>
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
+                    <div 
+                        className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border"
+                        onClick={() => setReason('other')}
+                    >
                         <RadioGroupItem value="other" id="reason-other" />
                         <Label htmlFor="reason-other" className="flex-1 cursor-pointer font-semibold text-sm">Other</Label>
                     </div>
@@ -205,7 +213,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                             <div className="space-y-3">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
                                 <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={paymentStatus === 'processing'} className="grid grid-cols-2 gap-2">
-                                    <div className="flex flex-col h-full">
+                                    <div className="flex flex-col h-full" onClick={() => setPaymentMethod('card_on_file')}>
                                         <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" />
                                         <Label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
                                             <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
@@ -213,7 +221,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                             <span className="text-[9px] text-muted-foreground mt-1">Visa •••• {cardOnFile.last4}</span>
                                         </Label>
                                     </div>
-                                    <div className="flex flex-col h-full">
+                                    <div className="flex flex-col h-full" onClick={() => setPaymentMethod('add_to_balance')}>
                                         <RadioGroupItem value="add_to_balance" id="pay-balance" className="peer sr-only" />
                                         <Label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
                                             <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />

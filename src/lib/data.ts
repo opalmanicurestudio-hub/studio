@@ -154,6 +154,7 @@ export type Client = {
     appointmentDate: string;
     feeAmount: number;
     reason: string;
+    staffId?: string;
   }[];
   address?: {
     street: string;

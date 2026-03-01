@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -817,18 +816,24 @@ export default function ClientDetailPage() {
                                             <CardContent className="p-4">
                                                 <h4 className="font-medium mb-2">Unpaid Fees</h4>
                                                 <div className="space-y-2">
-                                                    {client.unpaidFees.map((fee: any) => (
-                                                        <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                                            <div>
-                                                                <p className="text-sm font-medium">{fee.reason}</p>
-                                                                <p className="text-xs text-muted-foreground">From apt on {format(safeDate(fee.appointmentDate), 'PPP')}</p>
+                                                    {client.unpaidFees.map((fee: any) => {
+                                                        const feeStaff = staff?.find(s => s.id === fee.staffId);
+                                                        return (
+                                                            <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                                                <div>
+                                                                    <p className="text-sm font-medium">{fee.reason}</p>
+                                                                    <div className="flex flex-col text-xs text-muted-foreground">
+                                                                        <span>From apt on {format(safeDate(fee.appointmentDate), 'PPP')}</span>
+                                                                        {feeStaff && <span className="font-medium text-primary/80">Associated Pro: {feeStaff.name}</span>}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-semibold text-destructive">${fee.feeAmount.toFixed(2)}</span>
+                                                                    <Button size="xs" variant="outline" onClick={() => setFeeToWaive(fee)}>Waive</Button>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-semibold text-destructive">${fee.feeAmount.toFixed(2)}</span>
-                                                                <Button size="xs" variant="outline" onClick={() => setFeeToWaive(fee)}>Waive</Button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                        )
+                                                    })}
                                                 </div>
                                             </CardContent>
                                         </>
