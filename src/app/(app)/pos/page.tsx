@@ -2,9 +2,9 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, type PricingTier, InventoryItem, AppointmentCheckoutState, getServicePrice, type Discount, type Membership, type Package } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -23,8 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint, XCircle, Undo2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,6 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -73,8 +72,7 @@ function POSPageContent() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    // Authorization state for waiving fees in cart
-    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Set() as any);
+    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map() as any);
 
     const handleWaiveFeeToggle = useCallback((appointmentId: string, waive: boolean, authorizerId?: string, reason?: string) => {
         setWaivedAppointmentFees(prev => {
@@ -88,7 +86,6 @@ function POSPageContent() {
         });
     }, []);
 
-    // State for Dialogs & Sheets
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
     const [isOverrideOpen, setIsOverrideOpen] = useState(false);
@@ -155,8 +152,7 @@ function POSPageContent() {
 
     const handleRevertToReady = (appointmentId: string) => {
         if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed' });
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'confirmed' });
         if (appointmentId.startsWith('apt-walkin-')) {
             const walkInId = appointmentId.replace('apt-walkin-', '');
             updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified' });
@@ -206,17 +202,12 @@ function POSPageContent() {
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
             const next = new Set(prev);
-            if (next.has(id)) next.add(id); // Effectively toggle
-            else next.add(id);
-            
-            // Toggle Logic
             if (prev.has(id)) {
                 next.delete(id);
             } else {
                 next.add(id);
             }
 
-            // AUTOMATION: Auto-select payer based on selection
             const selectedApts = Array.from(next).map(aptId => 
                 readyForCheckoutAppointments.find(a => a.id === aptId)
             ).filter(Boolean);
@@ -274,9 +265,13 @@ function POSPageContent() {
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 
                 const waiver = waivedAppointmentFees.get(id);
-                const updatePayload: any = { status: 'completed' };
+                const updatePayload: any = { 
+                    status: 'completed',
+                    revenue: getServicePrice(data.service, data.staff) + data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0),
+                    appliedDiscountCodes: appliedDiscountCodes.join(','),
+                };
                 if (waiver) {
-                    updatePayload.cancellationFeeWaived = true; // reusing existing waived field for usage fees
+                    updatePayload.cancellationFeeWaived = true;
                     updatePayload.waivedBy = waiver.authorizerId;
                     updatePayload.waivedReason = waiver.reason;
                     updatePayload.waivedAt = nowISO;
@@ -287,6 +282,16 @@ function POSPageContent() {
                 const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
                 batch.update(staffRef, { status: 'idle', lastServedTimestamp: nowISO });
             }
+
+            // Increment Discount Usage
+            appliedDiscountCodes.forEach(code => {
+                const disc = discounts.find(d => d.code === code);
+                if (disc) {
+                    const discRef = doc(firestore, 'tenants', tenantId, 'discounts', disc.id);
+                    batch.update(discRef, { usageCount: increment(1), usedByClientIds: arrayUnion(selectedClientId) });
+                }
+            });
+
             if (selectedClientId && clients.find(c => c.id === selectedClientId)) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
                 if (appliedAdjustments.size > 0) {
@@ -520,14 +525,14 @@ function POSPageContent() {
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
     
-        const assignedStaffIds = new Set(walkIns.filter(w => w.status === 'notified').map(w => w.assignedStaffId));
+        const notifiedStaffIds = new Set(walkIns.filter(w => w.status === 'notified').map(w => w.assignedStaffId));
 
         const idleStaff = staff
-            .filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !assignedStaffIds.has(s.id))
+            .filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !notifiedStaffIds.has(s.id))
             .sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
         
         if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy, on break, or have a pending turn.' });
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or already assigned.' });
           return;
         }
         
@@ -634,8 +639,33 @@ function POSPageContent() {
         };
     }, [walkIns, appointments, transactions, services]);
 
-    const { subtotal, tax, total } = useMemo(() => {
-        // 1. Appointments
+    const { discount, membershipDiscount } = useMemo(() => {
+        if (!selectedClientId || !discounts) return { discount: 0, membershipDiscount: 0 };
+        
+        let dVal = 0;
+        let mVal = 0;
+
+        // 1. Applied Promo Codes
+        appliedDiscountCodes.forEach(code => {
+            const disc = discounts.find(d => d.code === code);
+            if (disc) {
+                if (disc.type === 'percentage') dVal += subtotal * (disc.value / 100);
+                else dVal += disc.value;
+            }
+        });
+
+        // 2. Membership Retail Perk
+        const client = clients.find(c => c.id === selectedClientId);
+        const membership = client?.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
+        if (membership?.retailDiscount) {
+            const retailSubtotal = retailItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+            mVal = retailSubtotal * (membership.retailDiscount / 100);
+        }
+
+        return { discount: dVal, membershipDiscount: mVal };
+    }, [selectedClientId, appliedDiscountCodes, discounts, subtotal, retailItems, clients, memberships]);
+
+    const { subtotal: rawSubtotal, tax, total } = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter(Boolean);
@@ -644,17 +674,11 @@ function POSPageContent() {
             if (!data) return acc;
             const mainPrice = getServicePrice(data.service, data.staff);
             const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
-            
-            // Check if usage fees are waived
-            const extra = waivedAppointmentFees.has(data.id) ? 0 : (data.appointment.checkoutState?.additionalCharge || 0);
-            
-            return acc + mainPrice + addOnsPrice + extra;
+            const additional = waivedAppointmentFees.has(data.id) ? 0 : (data.appointment.checkoutState?.additionalCharge || 0);
+            return acc + mainPrice + addOnsPrice + additional;
         }, 0);
 
-        // 2. Retail/Manual Cart
         const cartSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
-        // 3. Unpaid Fees (Adjustments)
         const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, feeId) => {
             const client = clients.find(c => c.id === selectedClientId);
             const fee = client?.unpaidFees?.find(f => f.feeId === feeId);
@@ -663,15 +687,15 @@ function POSPageContent() {
 
         const s = appointmentsSubtotal + cartSubtotal + adjustmentsSubtotal;
         const t_rate = 0.07;
-        const baseForTax = Math.max(0, s);
-        const t = baseForTax * t_rate;
+        const discountedSubtotal = Math.max(0, s - (discount + membershipDiscount));
+        const t = discountedSubtotal * t_rate;
         
         return { 
             subtotal: s, 
             tax: t, 
-            total: baseForTax + t + tipAmount 
+            total: discountedSubtotal + t + tipAmount 
         };
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees]);
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, tipAmount, waivedAppointmentFees, discount, membershipDiscount]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -679,12 +703,11 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
-        appliedDiscountCodes, setAppliedDiscountCodes, discount: 0, membershipDiscount: 0,
+        subtotal: rawSubtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
+        appliedDiscountCodes, setAppliedDiscountCodes, discount, membershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
-        adjustments: [],
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
-        absorbedCost: 0, redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
+        redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
     };
 
@@ -693,36 +716,11 @@ function POSPageContent() {
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                    {/* KPI Cards */}
                     <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-                        <KpiCard 
-                            title="Avg. Wait Time" 
-                            value={`${kpiData.avgWaitTime.toFixed(0)} min`} 
-                            icon={<Clock className="text-blue-500" />} 
-                            iconBgColor="bg-blue-100 dark:bg-blue-900/50" 
-                            description="Check-in to service." 
-                        />
-                        <KpiCard 
-                            title="Walk-in Conversion" 
-                            value={`${kpiData.walkInConversionRate.toFixed(0)}%`} 
-                            icon={<TrendingUp className="text-green-500"/>} 
-                            iconBgColor="bg-green-100 dark:bg-green-900/50" 
-                            description="Check-in to chair rate." 
-                        />
-                        <KpiCard 
-                            title="Today's Volume" 
-                            value={kpiData.totalWalkIns.toString()} 
-                            icon={<Users className="text-purple-500"/>} 
-                            iconBgColor="bg-purple-100 dark:bg-purple-900/50" 
-                            description="Total check-ins today." 
-                        />
-                        <KpiCard 
-                            title="Revenue / Hour" 
-                            value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} 
-                            icon={<DollarSign className="text-amber-500"/>} 
-                            iconBgColor="bg-amber-100 dark:bg-amber-900/50" 
-                            description="Rev per service hour." 
-                        />
+                        <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
+                        <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Check-in to chair rate." />
+                        <KpiCard title="Today's Volume" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total check-ins today." />
+                        <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Rev per service hour." />
                     </div>
 
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
