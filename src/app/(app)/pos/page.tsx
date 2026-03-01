@@ -81,7 +81,6 @@ function POSPageContent() {
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
-    const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
     
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -302,7 +301,6 @@ function POSPageContent() {
     };
 
     const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
-        // 1. Services & Add-ons
         const appointmentsSubtotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
             if (!data) return acc;
@@ -311,10 +309,8 @@ function POSPageContent() {
             return acc + mainPrice + addOnsPrice;
         }, 0);
 
-        // 2. Retail items
         const retailSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-        // 3. Adjustments (Unpaid Fees)
         const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, id) => {
             if (!selectedClientId) return acc;
             const client = clients?.find(c => c.id === selectedClientId);
@@ -324,7 +320,6 @@ function POSPageContent() {
 
         const sub = appointmentsSubtotal + retailSubtotal + adjustmentsSubtotal;
 
-        // 4. Discounts
         let totalDiscount = 0;
         appliedDiscountCodes.forEach(code => {
             const d = discounts.find(dis => dis.code === code);
@@ -334,7 +329,6 @@ function POSPageContent() {
             }
         });
 
-        // 5. Membership Retail Discount
         let memDiscount = 0;
         const selectedClient = clients.find(c => c.id === selectedClientId);
         if (selectedClient && selectedClient.activeMembershipId) {
@@ -382,19 +376,21 @@ function POSPageContent() {
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
             </div>
-            {isMobile && <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
-                <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                    <SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger>
-                    <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                        <SheetHeader className="p-4 border-b">
-                            <SheetTitle>Current Sale</SheetTitle>
-                        </SheetHeader>
-                        <div className="p-4 flex-1 overflow-y-auto">
-                            <CheckoutHub {...checkoutHubProps} />
-                        </div>
-                    </SheetContent>
-                </Sheet>
-            </div>}
+            {isMobile && (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
+                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                        <SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger>
+                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                            <SheetHeader className="p-4 border-b">
+                                <SheetTitle>Current Sale</SheetTitle>
+                            </SheetHeader>
+                            <div className="p-4 flex-1 overflow-y-auto">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                </div>
+            )}
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4 pb-0"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}

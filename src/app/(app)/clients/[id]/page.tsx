@@ -48,7 +48,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc, deleteField } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff, WaivedFee } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff, WaivedFee, Tenant } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -302,7 +302,7 @@ const BanClientDialog = ({ open, onOpenChange, client, onConfirm, staff }: { ope
     );
 };
 
-const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: boolean, onOpenChange: (val: boolean) => void, fee: any, onConfirm: (staffMember: Staff, reason: string) => void, staff: Staff[] }) => {
+const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: { open: boolean, onOpenChange: (val: boolean) => void, feeAmount: number, onConfirm: (staffMember: Staff, reason: string) => void, staff: Staff[] }) => {
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
     const { toast } = useToast();
@@ -340,7 +340,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
                         <ShieldCheck className="w-5 h-5 text-primary" />
                         Waive Fee Authorization
                     </DialogTitle>
-                    <DialogDescription>A manager or owner PIN is required to waive this ${fee?.feeAmount.toFixed(2)} fee.</DialogDescription>
+                    <DialogDescription>A manager or owner PIN is required to waive this ${feeAmount.toFixed(2)} fee.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6 py-4">
                     <div className="space-y-2">
@@ -869,7 +869,7 @@ export default function ClientDetailPage() {
                                         <Link href={`/pos?payer_id=${client.id}&action=settle`}>Settle Balance in POS</Link>
                                       </Button>
                                   </CardFooter>
-                              </Card>
+                               </Card>
                                <LoyaltyStatusCard client={client} appointments={pastAppointments} discounts={discounts || []} />
                            </div>
                       </div>

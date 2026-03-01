@@ -19,7 +19,7 @@ import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFire
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -50,6 +50,7 @@ import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
@@ -119,7 +120,23 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
     </motion.div>
 );
 
-const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; primaryMember?: PartyMember; isGroup: boolean; }) => {
+const StepDetails = ({ 
+    member, 
+    onUpdate, 
+    primaryMember, 
+    isGroup, 
+    bannedClient, 
+    existingClientWithBalance,
+    isResolvingIdentity
+}: { 
+    member: PartyMember; 
+    onUpdate: (updates: Partial<PartyMember>) => void; 
+    primaryMember?: PartyMember; 
+    isGroup: boolean; 
+    bannedClient: Client | null;
+    existingClientWithBalance: Client | null;
+    isResolvingIdentity: boolean;
+}) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
     return (
         <div className="space-y-6">
@@ -159,6 +176,37 @@ const StepDetails = ({ member, onUpdate, primaryMember, isGroup }: { member: Par
                 </Label>
                 <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="Optional" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
             </div>
+
+            <AnimatePresence>
+                {isResolvingIdentity && (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 animate-pulse">
+                        <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
+                    </div>
+                )}
+                {bannedClient && (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                        <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2 text-white">
+                            <Ban className="h-4 w-4 text-white" />
+                            <AlertTitle className="text-xs font-black uppercase">Check-in Restricted</AlertTitle>
+                            <AlertDescription className="text-xs mt-1 text-slate-200">
+                                We are currently unable to accept walk-ins for this account. Please see the front desk for assistance.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+                {existingClientWithBalance && !bannedClient && (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                        <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 border-2 text-white">
+                            <Wallet className="h-4 w-4 text-white" />
+                            <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
+                            <AlertDescription className="text-xs mt-1 text-slate-200">
+                                Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>. Please see the front desk to settle this before joining the queue.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <style jsx global>{`
                 .kiosk-phone-input .PhoneInputCountry {
                     margin-right: 12px;
@@ -313,7 +361,10 @@ const MemberSetup = ({
     isLastMember,
     onAddAnother,
     onSubmit,
-    isSubmitting
+    isSubmitting,
+    bannedClient,
+    existingClientWithBalance,
+    isResolvingIdentity
 }: any) => {
     const subStepTitles = {
         details: { title: 'Guest Details', icon: <User className="w-5 h-5" /> },
@@ -355,7 +406,17 @@ const MemberSetup = ({
             <div className="p-6 md:p-8 pt-0">
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                        {memberSubStep === 'details' && <StepDetails member={member} onUpdate={onUpdate} isGroup={isGroup} primaryMember={partyMembers?.[0]} />}
+                        {memberSubStep === 'details' && (
+                            <StepDetails 
+                                member={member} 
+                                onUpdate={onUpdate} 
+                                isGroup={isGroup} 
+                                primaryMember={partyMembers?.[0]} 
+                                bannedClient={bannedClient}
+                                existingClientWithBalance={existingClientWithBalance}
+                                isResolvingIdentity={isResolvingIdentity}
+                            />
+                        )}
                         {memberSubStep === 'services' && <StepServices member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
                         {memberSubStep === 'consents' && <StepConsents member={member} requiredForms={requiredForms} formAnswers={formAnswers} setFormAnswers={setFormAnswers} />}
                         {memberSubStep === 'staff' && <StepStaff member={member} onUpdate={onUpdate} staff={staff} pricingTiers={pricingTiers} />}
@@ -368,11 +429,35 @@ const MemberSetup = ({
                 <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
                 <div className="flex-1" />
                 {hasNextSubStep ? (
-                    <Button size="lg" onClick={() => onNext(subSteps[currentSubStepIndex + 1])} disabled={isSubmitting} className="h-14 px-10 text-xl font-bold">Continue <ArrowRight className="ml-2"/></Button>
+                    <Button 
+                        size="lg" 
+                        onClick={() => onNext(subSteps[currentSubStepIndex + 1])} 
+                        disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                        className="h-14 px-10 text-xl font-bold"
+                    >
+                        Continue <ArrowRight className="ml-2"/>
+                    </Button>
                 ) : (
                     <div className="flex flex-col sm:flex-row gap-3">
-                        {isGroup && !isLastMember && <Button size="lg" variant="outline" onClick={onAddAnother} disabled={isSubmitting} className="h-14 border-slate-700 text-slate-300 px-8 text-lg">Next Guest</Button>}
-                        <Button size="lg" onClick={onSubmit} disabled={isSubmitting} className="h-14 px-12 text-xl font-black shadow-xl shadow-primary/20">{isSubmitting ? <Loader className="animate-spin" /> : 'Finish & Join Queue'}</Button>
+                        {isGroup && !isLastMember && (
+                            <Button 
+                                size="lg" 
+                                variant="outline" 
+                                onClick={onAddAnother} 
+                                disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                                className="h-14 border-slate-700 text-slate-300 px-8 text-lg"
+                            >
+                                Next Guest
+                            </Button>
+                        )}
+                        <Button 
+                            size="lg" 
+                            onClick={onSubmit} 
+                            disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
+                            className="h-14 px-12 text-xl font-black shadow-xl shadow-primary/20"
+                        >
+                            {isSubmitting ? <Loader className="animate-spin" /> : 'Finish & Join Queue'}
+                        </Button>
                     </div>
                 )}
             </div>
@@ -446,6 +531,58 @@ export default function WalkInPage() {
   const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
 
+  const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
+  const [bannedClient, setBannedClient] = useState<Client | null>(null);
+  const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
+
+  const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
+    if (!firestore || !tenantId || (!email && !phone)) return;
+    
+    setIsResolvingIdentity(true);
+    try {
+        const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
+        const matchPromises = [];
+        if (email) matchPromises.push(getDocs(query(clientsRef, where("email", "==", email.toLowerCase().trim()))));
+        if (phone) matchPromises.push(getDocs(query(clientsRef, where("phone", "==", phone))));
+
+        const snapshots = await Promise.all(matchPromises);
+        const allDocs = snapshots.flatMap(s => s.docs);
+
+        if (allDocs.length > 0) {
+            const matchedClient = allDocs[0].data() as Client;
+            if (matchedClient.status === 'banned') {
+                setBannedClient(matchedClient);
+                setExistingClientWithBalance(null);
+            } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
+                setExistingClientWithBalance(matchedClient);
+                setBannedClient(null);
+            } else {
+                setBannedClient(null);
+                setExistingClientWithBalance(null);
+            }
+        } else {
+            setBannedClient(null);
+            setExistingClientWithBalance(null);
+        }
+    } catch (e) {
+        console.error("Identity resolution failed", e);
+    } finally {
+        setIsResolvingIdentity(false);
+    }
+  }, [firestore, tenantId]);
+
+  useEffect(() => {
+    const currentMember = partyMembers[currentMemberIndex];
+    if (!currentMember) return;
+
+    const timer = setTimeout(() => {
+        if ((currentMember.email && currentMember.email.includes('@')) || (currentMember.phone && currentMember.phone.length > 5)) {
+            resolveIdentity(currentMember.email, currentMember.phone);
+        }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [partyMembers, currentMemberIndex, resolveIdentity]);
+
   const handlePartyTypeSelect = (type: 'individual' | 'group') => {
     setIsGroup(type === 'group');
     setPartyMembers([{ id: nanoid(5), name: '', serviceIds: [], isPrimary: true, preferredStaffId: 'any', waitForPreferredStaff: false }]);
@@ -459,6 +596,12 @@ export default function WalkInPage() {
   const handleNextSubStep = (next: MemberSubStep) => {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
+    
+    // Hard check for restricted accounts
+    if (memberSubStep === 'details' && (bannedClient || existingClientWithBalance)) {
+        return; 
+    }
+
     if (memberSubStep === 'services' && member.serviceIds.length === 0) return toast({ variant: 'destructive', title: 'Select a Service' });
     if (memberSubStep === 'consents') {
         const service = services?.find(s => s.id === member.serviceIds[0]);
@@ -604,6 +747,9 @@ export default function WalkInPage() {
                             isGroup={isGroup} isLastMember={currentMemberIndex === partyMembers.length - 1}
                             onAddAnother={() => { setPartyMembers([...partyMembers, { id: nanoid(5), name: '', serviceIds: [], preferredStaffId: 'any', waitForPreferredStaff: false }]); setCurrentMemberIndex(partyMembers.length); setMemberSubStep('details'); }}
                             onSubmit={handleSubmit} isSubmitting={isSubmitting}
+                            bannedClient={bannedClient}
+                            existingClientWithBalance={existingClientWithBalance}
+                            isResolvingIdentity={isResolvingIdentity}
                         />
                     )}
                     {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); }} />}

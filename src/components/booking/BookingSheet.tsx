@@ -20,6 +20,7 @@ import {
   type ConsentForm,
   type PricingTier,
   type Client,
+  getServicePrice,
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -166,44 +167,54 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
   const [bannedClient, setBannedClient] = useState<Client | null>(null);
+  const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
   
-  useEffect(() => {
-    if ((clientEmail?.includes('@') || (clientPhone && clientPhone.length > 5)) && firestore && tenant) {
-        const checkClientStatus = async () => {
-            const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
-            
-            // Query for email
-            const qEmail = query(clientsRef, where("email", "==", clientEmail?.toLowerCase().trim() || ""));
-            const snapshotEmail = await getDocs(qEmail);
-            
-            // Query for phone
-            const qPhone = query(clientsRef, where("phone", "==", clientPhone || ""));
-            const snapshotPhone = await getDocs(qPhone);
+  const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
+    if (!firestore || !tenant || (!email && !phone)) return;
+    
+    setIsResolvingIdentity(true);
+    try {
+        const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
+        
+        // Strategy: Query for Email match OR Phone match to identify spoofing/returning users
+        const matchPromises = [];
+        if (email) matchPromises.push(getDocs(query(clientsRef, where("email", "==", email.toLowerCase().trim()))));
+        if (phone) matchPromises.push(getDocs(query(clientsRef, where("phone", "==", phone))));
 
-            const matchedClient = snapshotEmail.docs[0]?.data() as Client || snapshotPhone.docs[0]?.data() as Client;
+        const snapshots = await Promise.all(matchPromises);
+        const allDocs = snapshots.flatMap(s => s.docs);
 
-            if (matchedClient) {
-                if (matchedClient.status === 'banned') {
-                    setBannedClient(matchedClient);
-                    setExistingClientWithBalance(null);
-                } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
-                    setExistingClientWithBalance(matchedClient);
-                    setBannedClient(null);
-                } else {
-                    setExistingClientWithBalance(null);
-                    setBannedClient(null);
-                }
-            } else {
+        if (allDocs.length > 0) {
+            const matchedClient = allDocs[0].data() as Client;
+            if (matchedClient.status === 'banned') {
+                setBannedClient(matchedClient);
                 setExistingClientWithBalance(null);
+            } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
+                setExistingClientWithBalance(matchedClient);
                 setBannedClient(null);
+            } else {
+                setBannedClient(null);
+                setExistingClientWithBalance(null);
             }
-        };
-        checkClientStatus();
-    } else {
-        setExistingClientWithBalance(null);
-        setBannedClient(null);
+        } else {
+            setBannedClient(null);
+            setExistingClientWithBalance(null);
+        }
+    } catch (e) {
+        console.error("Identity resolution failed", e);
+    } finally {
+        setIsResolvingIdentity(false);
     }
-  }, [clientEmail, clientPhone, firestore, tenant]);
+  }, [firestore, tenant]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        if ((clientEmail && clientEmail.includes('@')) || (clientPhone && clientPhone.length > 5)) {
+            resolveIdentity(clientEmail, clientPhone);
+        }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [clientEmail, clientPhone, resolveIdentity]);
 
   const qualifiedStaff = useMemo(() => {
     if (!service?.requiredSkills || service.requiredSkills.length === 0) return staff;
@@ -346,7 +357,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handleNextStep = async () => {
     if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
-    if (currentStep === 'details') { const valid = await methods.trigger(['clientName', 'clientEmail']); if (!valid) return; }
+    if (currentStep === 'details') { 
+        const valid = await methods.trigger(['clientName', 'clientEmail']); 
+        if (!valid) return; 
+        
+        // Final guard: wait for identity resolution before proceeding
+        if (isResolvingIdentity) return; 
+        if (bannedClient || existingClientWithBalance) return;
+    }
     if (currentStep === 'consents') {
         const allCompleted = requiredForms.every(form => {
             const answers = formAnswers[form.id] || {};
@@ -554,6 +572,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     </div>
                                     
                                     <AnimatePresence>
+                                        {isResolvingIdentity && (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                                                <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
+                                            </div>
+                                        )}
                                         {bannedClient && (
                                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2">
@@ -569,9 +592,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 mt-4 border-2">
                                                     <Wallet className="h-4 w-4" />
-                                                    <AlertTitle className="text-xs font-black uppercase">Outstanding Balance Notice</AlertTitle>
-                                                    <AlertDescription className="text-xs mt-1">
-                                                        Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>. Please contact the studio at {tenant?.twilioPhoneNumber} to settle this before booking your next visit.
+                                                    <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
+                                                    <AlertDescription className="text-xs mt-1 space-y-3">
+                                                        <p>Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>.</p>
+                                                        <p>To ensure a smooth experience, please contact the studio at {tenant?.twilioPhoneNumber} to settle this before booking your next visit.</p>
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>
@@ -646,7 +670,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             <SheetFooter className="p-6 border-t bg-muted/10 backdrop-blur-sm">
                 <div className="flex w-full gap-3">
                     {currentStepIndex > 0 && <Button variant="outline" onClick={handlePrevStep} className="flex-1 h-12">Back</Button>}
-                    <Button onClick={handleNextStep} disabled={(currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient))} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
+                    <Button 
+                        onClick={handleNextStep} 
+                        disabled={(currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity))} 
+                        className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}
+                    >
                         {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : currentStep === 'summary' || currentStep === 'payment' ? 'Confirm Booking' : 'Continue'}
                     </Button>
                 </div>
