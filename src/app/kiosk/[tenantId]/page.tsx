@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -20,7 +19,7 @@ import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFire
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -85,8 +84,8 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
         <div className="inline-block p-6 bg-slate-900/50 rounded-full border border-slate-800 mb-4">
             <Clock className="w-12 h-12 text-primary" />
         </div>
-        <h1 className="text-3xl md:text-4xl font-bold text-white">We're Currently Closed</h1>
-        <p className="text-slate-400">Our self-check-in kiosk is only available during business hours. Please come back during our scheduled times or book an appointment online.</p>
+        <h1 className="text-2xl md:text-4xl font-bold text-white">We're Currently Closed</h1>
+        <p className="text-sm md:text-base text-slate-400">Our self-check-in kiosk is only available during business hours. Please come back during our scheduled times or book an appointment online.</p>
         {schedule && (
             <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-sm">
                 <p className="font-bold text-primary mb-2 uppercase tracking-widest text-[10px]">Today's Hours</p>
@@ -101,20 +100,20 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
-        <h2 className="text-xl md:text-4xl font-bold tracking-tight text-center mb-8 px-4">Who are we serving today?</h2>
+        <h2 className="text-2xl md:text-4xl font-black tracking-tighter text-center mb-8 px-4 text-white uppercase">Who's joining us?</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-10">
-            <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
+            <div className="rounded-3xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('individual')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
-                    <User className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
-                    <h3 className="text-xl md:text-4xl font-bold tracking-tight">Just Me</h3>
-                    <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself.</p>
+                    <User className="w-12 h-12 md:w-16 md:h-16 mb-4 md:mb-6 text-primary group-hover:scale-110 transition-transform" />
+                    <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">Just Me</h3>
+                    <p className="text-slate-400 mt-2 text-xs md:text-base font-medium">Single guest arrival</p>
                 </div>
             </div>
-             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
+             <div className="rounded-3xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('group')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
-                    <Users className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
-                    <h3 className="text-xl md:text-4xl font-bold tracking-tight">My Group</h3>
-                    <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself and others.</p>
+                    <Users className="w-12 h-12 md:w-16 md:h-16 mb-4 md:mb-6 text-primary group-hover:scale-110 transition-transform" />
+                    <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">My Group</h3>
+                    <p className="text-slate-400 mt-2 text-xs md:text-base font-medium">Multiple guests together</p>
                 </div>
             </div>
         </div>
@@ -142,21 +141,21 @@ const StepDetails = ({
     return (
         <div className="space-y-6">
             <div className="space-y-2">
-                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
-                    <User className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
-                    <span>Name</span>
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-slate-400">
+                    <User className="w-3.5 h-3.5 text-primary"/>
+                    <span>Full Name</span>
                 </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="flex h-12 md:h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-lg md:text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"/>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-slate-700 bg-slate-900/50 px-4 py-2 text-lg md:text-xl text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary transition-all"/>
             </div>
             {isGroup && !member.isPrimary && ( 
-                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-300 hover:text-slate-100">
-                    Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}
+                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-400 hover:text-slate-100 rounded-xl h-10">
+                    Same as {primaryMember?.name.split(' ')[0] || 'first guest'}
                 </Button> 
             )}
             <div className="space-y-2">
-                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
-                    <Phone className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
-                    <span>Phone</span>
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-slate-400">
+                    <Phone className="w-3.5 h-3.5 text-primary"/>
+                    <span>Phone Number</span>
                 </Label>
                 <div className="kiosk-phone-input">
                     <PhoneInput
@@ -165,43 +164,43 @@ const StepDetails = ({
                         value={member.phone || ''}
                         onChange={(value) => onUpdate({ phone: value || '' })}
                         inputComponent={Input}
-                        placeholder="For SMS updates"
-                        className="flex h-12 md:h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-lg md:text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
+                        placeholder="(555) 000-0000"
+                        className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-slate-700 bg-slate-900/50 px-4 py-2 text-lg md:text-xl text-slate-100 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
                     />
                 </div>
             </div>
             <div className="space-y-2">
-                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
-                    <Mail className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-xs md:text-sm font-black uppercase tracking-widest text-slate-400">
+                    <Mail className="w-3.5 h-3.5 text-primary"/>
                     <span>Email Address</span>
                 </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-14 text-lg md:text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-14 text-lg md:text-xl rounded-2xl border-2 bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
             </div>
 
             <AnimatePresence>
                 {isResolvingIdentity && (
-                    <motion.div key="resolving" className="flex items-center gap-2 text-xs text-slate-400 animate-pulse">
-                        <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
+                    <motion.div key="resolving" className="flex items-center gap-2 text-[10px] uppercase font-black tracking-widest text-slate-500 animate-pulse">
+                        <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
                     </motion.div>
                 )}
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2 text-white">
+                        <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2 rounded-2xl">
                             <Ban className="h-4 w-4 text-white" />
-                            <AlertTitle className="text-xs font-black uppercase">Check-in Restricted</AlertTitle>
-                            <AlertDescription className="text-xs mt-1 text-slate-200">
-                                We are currently unable to accept walk-ins for this account. Please see the front desk for assistance.
+                            <AlertTitle className="text-xs font-black uppercase tracking-tight">Check-in Restricted</AlertTitle>
+                            <AlertDescription className="text-xs mt-1 text-slate-200 font-medium">
+                                Account restricted. Please see the front desk for further assistance.
                             </AlertDescription>
                         </Alert>
                     </motion.div>
                 )}
                 {existingClientWithBalance && !bannedClient && (
                     <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                        <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 border-2 text-white">
+                        <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 border-2 rounded-2xl">
                             <Wallet className="h-4 w-4 text-white" />
                             <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
-                            <AlertDescription className="text-xs mt-1 text-slate-200">
-                                Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>. Please see the front desk to settle this before joining the queue.
+                            <AlertDescription className="text-xs mt-1 text-slate-200 font-medium">
+                                Balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Please settle at the desk to join the queue.
                             </AlertDescription>
                         </Alert>
                     </motion.div>
@@ -241,22 +240,22 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             const minPrice = Math.min(...prices);
             return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
         }
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${duration} min`, hasTiers: false };
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${service.duration} min`, hasTiers: false };
     }, [service, staffTierId, pricingTiers]);
 
     return (
         <div 
             className={cn(
-                "block cursor-pointer rounded-xl border-2 transition-all hover:shadow-lg h-full",
-                isSelected ? "border-primary ring-2 ring-primary bg-primary/5 shadow-primary/10" : "border-slate-700 bg-slate-800/50"
+                "block cursor-pointer rounded-2xl border-2 transition-all hover:shadow-lg h-full overflow-hidden",
+                isSelected ? "border-primary ring-2 ring-primary bg-primary/10 shadow-primary/20" : "border-slate-700 bg-slate-800/50"
             )}
             onClick={(e) => {
                 e.preventDefault();
                 onToggle();
             }}
         >
-            <div className="p-2 md:p-3 flex flex-col items-center justify-between gap-2 md:gap-3 h-full">
-                <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
+            <div className="flex flex-col h-full">
+                <div className="w-full aspect-video relative bg-slate-700/50 overflow-hidden">
                     {service.imageUrl ? (
                         <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
                     ) : (
@@ -265,10 +264,12 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                         </div>
                     )}
                 </div>
-                <div className="text-center">
-                    <p className="font-semibold text-xs md:text-sm text-slate-100">{service.name}</p>
-                    <p className="text-[10px] md:text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
-                    {hasTiers && <p className="text-[9px] md:text-[10px] text-slate-500">Tiered Pricing</p>}
+                <div className="p-3 text-center flex-1 flex flex-col justify-center">
+                    <p className="font-bold text-xs md:text-sm text-slate-100 uppercase tracking-tight line-clamp-1">{service.name}</p>
+                    <div className="flex items-center justify-center gap-2 mt-1">
+                        <span className="text-[9px] md:text-[10px] text-primary font-black uppercase">{priceText}</span>
+                        <span className="text-[9px] md:text-[10px] text-slate-500 font-bold uppercase">{durationText}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -283,13 +284,13 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
     
     if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-8 text-lg md:text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-10 text-xl md:text-3xl font-black rounded-[2rem] border-2 border-slate-700 bg-slate-800/50 text-slate-100 hover:border-primary hover:bg-primary/5 transition-all shadow-xl uppercase tracking-tighter" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
     
     return (
         <div className="space-y-4" key="service-selection-list">
-            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-xs md:text-sm p-2 transition-colors">
-                <ArrowLeft className="h-4 w-4"/>Back to Categories
+            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-xs font-black uppercase tracking-widest p-2 transition-colors">
+                <ArrowLeft className="h-4 w-4"/> Change Category
             </button>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
                 {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
@@ -313,8 +314,11 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
             {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-            <div className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800/50 p-4 mt-4">
-                <Label htmlFor={`wait-${member.id}`} className="font-medium text-slate-200 text-base md:text-lg">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name.split(' ')[0]}?</Label>
+            <div className="flex items-center justify-between rounded-2xl border-2 border-slate-700 bg-slate-800/50 p-4 mt-4 shadow-inner">
+                <div className="space-y-0.5">
+                    <Label htmlFor={`wait-${member.id}`} className="font-bold text-slate-200 text-sm md:text-lg">Wait for Professional?</Label>
+                    <p className="text-[10px] text-slate-500 uppercase font-black">Estimated wait time may increase</p>
+                </div>
                 <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
             </div>
         )}
@@ -324,9 +328,9 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
     <div className="space-y-6 md:space-y-8" key="consent-step">
         {requiredForms.map(form => (
-            <div key={form.id} className="space-y-4 md:space-y-6 p-4 md:p-6 rounded-2xl border border-slate-700 bg-slate-800/30">
-                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 text-slate-100"><FileSignature className="w-5 h-5 md:w-6 md:h-6 text-primary" /> {form.title}</h3>
-                <div className="space-y-6 md:space-y-8">
+            <div key={form.id} className="space-y-4 md:space-y-6 p-4 md:p-8 rounded-[2rem] border-2 border-slate-700 bg-slate-800/30 shadow-2xl">
+                <h3 className="text-xl md:text-3xl font-black flex items-center gap-3 text-slate-100 uppercase tracking-tighter"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary" /> {form.title}</h3>
+                <div className="space-y-6 md:space-y-10">
                     {form.fields?.map(field => (
                         <div key={field.id} className="text-slate-200">
                             <FormFieldRenderer 
@@ -368,11 +372,11 @@ const MemberSetup = ({
     isResolvingIdentity
 }: any) => {
     const subStepTitles = {
-        details: { title: 'Guest Details', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
-        services: { title: 'Select Service', icon: <Scissors className="w-4 h-4 md:w-5 md:h-5" /> },
+        details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
+        services: { title: 'Select Treatment', icon: <Scissors className="w-4 h-4 md:w-5 md:h-5" /> },
         addons: { title: 'Add-ons', icon: <PlusCircle className="w-4 h-4 md:w-5 md:h-5" /> },
-        consents: { title: 'Important Forms', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
-        staff: { title: 'Preferred Staff', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
+        consents: { title: 'Agreements', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
+        staff: { title: 'Preferences', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
     };
     
     const primaryService = services.find((s: Service) => s.id === member.serviceIds[0]);
@@ -393,18 +397,18 @@ const MemberSetup = ({
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
-            <div className="p-6 md:p-10">
-                <h2 className="text-xl md:text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
-                <div className="flex items-center justify-between gap-4 mt-2">
-                    <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-[9px] md:text-xs">
-                        {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
-                    </div>
-                    {isGroup && <p className="text-[10px] md:text-xs font-black text-primary bg-primary/10 px-2 py-1 rounded-md">{member.index + 1} / {partyMembers.length}</p>}
+            <div className="p-6 md:p-12 pb-4">
+                <div className="flex items-center justify-between gap-4 mb-2">
+                    <h2 className="text-2xl md:text-5xl font-black tracking-tighter text-white uppercase">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
+                    {isGroup && <Badge className="bg-primary/20 text-primary border-none font-black px-3 py-1 rounded-lg text-xs md:text-sm">{member.index + 1} / {partyMembers.length}</Badge>}
                 </div>
-                <div className="pt-4 md:pt-6"><Progress value={progress} className="h-1.5 md:h-2 bg-slate-800" /></div>
+                <div className="flex items-center gap-2 text-slate-500 font-black uppercase tracking-widest text-[10px] md:text-xs">
+                    {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
+                </div>
+                <div className="pt-6 md:pt-8"><Progress value={progress} className="h-1 md:h-1.5 bg-slate-800" /></div>
             </div>
 
-            <div className="p-6 md:p-10 pt-0">
+            <div className="p-6 md:p-12 pt-4 md:pt-6">
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
@@ -426,28 +430,28 @@ const MemberSetup = ({
                 </AnimatePresence>
             </div>
 
-            <Separator className="bg-slate-800" />
-            <div className="p-6 md:p-10 flex flex-col sm:flex-row gap-3 md:gap-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-12 md:h-14 text-sm md:text-lg">Back</Button>
+            <Separator className="bg-slate-800/50" />
+            <div className="p-6 md:p-12 flex flex-col sm:flex-row gap-3 md:gap-4">
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-500 hover:text-slate-100 hover:bg-slate-800/50 h-14 md:h-16 text-sm md:text-xl font-bold rounded-2xl">Back</Button>
                 <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
                         size="lg" 
                         onClick={() => onNext(subSteps[currentSubStepIndex + 1])} 
                         disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                        className="h-12 md:h-14 px-8 md:px-10 text-lg md:text-xl font-bold"
+                        className="h-14 md:h-16 px-10 md:px-14 text-lg md:text-2xl font-black rounded-2xl shadow-xl shadow-primary/20 group"
                     >
-                        Continue <ArrowRight className="ml-2 w-5 h-5"/>
+                        Continue <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1"/>
                     </Button>
                 ) : (
-                    <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
+                    <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
                         {isGroup && !isLastMember && (
                             <Button 
                                 size="lg" 
                                 variant="outline" 
                                 onClick={onAddAnother} 
                                 disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                                className="h-12 md:h-14 border-slate-700 text-slate-300 px-6 md:px-8 text-sm md:text-lg"
+                                className="h-14 md:h-16 border-slate-700 text-slate-300 px-8 md:px-10 text-sm md:text-xl font-bold rounded-2xl"
                             >
                                 Next Guest
                             </Button>
@@ -456,9 +460,9 @@ const MemberSetup = ({
                             size="lg" 
                             onClick={onSubmit} 
                             disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                            className="h-12 md:h-14 px-8 md:px-12 text-lg md:text-xl font-black shadow-xl shadow-primary/20"
+                            className="h-14 md:h-16 px-10 md:px-16 text-lg md:text-2xl font-black rounded-2xl shadow-2xl shadow-primary/30 uppercase tracking-tight"
                         >
-                            {isSubmitting ? <Loader className="animate-spin" /> : 'Finish & Join Queue'}
+                            {isSubmitting ? <Loader className="animate-spin" /> : 'Join Queue'}
                         </Button>
                     </div>
                 )}
@@ -468,33 +472,33 @@ const MemberSetup = ({
 };
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 md:p-16 text-center space-y-6 md:space-y-8" key="confirmation-screen">
-        <div className="w-16 h-16 md:w-24 md:h-24 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
-            <CheckCircle className="w-10 h-10 md:w-12 md:h-12 text-green-500" />
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 md:p-20 text-center space-y-8 md:space-y-12" key="confirmation-screen">
+        <div className="w-20 h-20 md:w-32 md:h-32 bg-green-500/20 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20">
+            <CheckCircle className="w-12 h-12 md:w-20 md:h-20 text-green-500" />
         </div>
-        <div className="space-y-2">
-            <h2 className="text-2xl md:text-5xl font-black tracking-tight text-white">You're in line!</h2>
-            <p className="text-slate-400 text-sm md:text-xl">We'll text you as soon as your pro is ready.</p>
+        <div className="space-y-3">
+            <h2 className="text-3xl md:text-6xl font-black tracking-tighter text-white uppercase">You're in line!</h2>
+            <p className="text-slate-400 text-sm md:text-2xl font-medium">Keep an eye on your phone for a text alert.</p>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 max-w-2xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
             {confirmedParty.map(ticket => (
-                <Card key={ticket.id} className="bg-slate-800/30 border-slate-700 text-left">
-                    <CardContent className="p-3 md:p-4 flex justify-between items-center">
+                <Card key={ticket.id} className="bg-slate-800/30 border-2 border-slate-700 rounded-[2rem] text-left shadow-xl">
+                    <CardContent className="p-5 md:p-8 flex justify-between items-center">
                         <div>
-                            <p className="font-bold text-white text-xs md:text-base">{ticket.name}</p>
-                            <p className="text-[9px] md:text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
+                            <p className="font-black text-white text-base md:text-2xl uppercase tracking-tighter">{ticket.name}</p>
+                            <p className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest mt-1">Queue Position: #{ticket.queuePosition}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 h-8 w-8 md:h-10 md:w-10">
-                            <Printer className="w-4 h-4 md:w-5 md:h-5" />
+                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 rounded-xl h-10 w-10 md:h-14 md:w-14">
+                            <Printer className="w-5 h-5 md:w-8 md:h-8" />
                         </Button>
                     </CardContent>
                 </Card>
             ))}
         </div>
 
-        <div className="pt-6 md:pt-8">
-            <Button size="lg" onClick={onDone} className="h-12 md:h-16 px-8 md:px-12 text-lg md:text-2xl font-black">Finish</Button>
+        <div className="pt-8 md:pt-12">
+            <Button size="lg" onClick={onDone} className="h-14 md:h-20 px-12 md:px-20 text-xl md:text-3xl font-black rounded-3xl uppercase tracking-widest shadow-2xl shadow-primary/20">Finish</Button>
         </div>
     </motion.div>
 );
@@ -597,11 +601,10 @@ export default function WalkInPage() {
 
   const handleNextSubStep = async (next: MemberSubStep) => {
     const member = partyMembers[currentMemberIndex];
-    if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
+    if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Name Required' });
     
-    // Email is now mandatory in the Walk-in Kiosk
-    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Missing Email', description: 'Please provide an email address to proceed.' });
-    if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
+    if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Email Required', description: 'Mandatory for identity verification.' });
+    if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email' });
 
     if (memberSubStep === 'details') {
         await resolveIdentity(member.email, member.phone);
@@ -622,7 +625,7 @@ export default function WalkInPage() {
                 return answers[id]?.[field.id] !== undefined;
             });
         });
-        if (!allDone) return toast({ variant: 'destructive', title: 'Form Incomplete', description: 'Please fill and sign all required forms.' });
+        if (!allDone) return toast({ variant: 'destructive', title: 'Forms Incomplete', description: 'Please sign all required forms.' });
     }
     setMemberSubStep(next);
   };
@@ -662,11 +665,19 @@ export default function WalkInPage() {
         let pos = existingQueue.size + 1;
 
         for (const member of partyMembers) {
-            let clientId: string | undefined;
-            if (member.email) clientId = clients?.find(c => c.email.toLowerCase() === member.email!.toLowerCase())?.id;
-            if (!clientId && member.phone) clientId = clients?.find(c => c.phone === member.phone)?.id;
+            let matchedClient = clients?.find(c => (member.email && c.email.toLowerCase() === member.email.toLowerCase()) || (member.phone && c.phone === member.phone));
+            let clientId = matchedClient?.id;
+
+            // Identity Conflict Logic
+            let isPotentialAlias = false;
+            let matchedClientId = undefined;
 
             if (!clientId) {
+                const shadowMatch = clients?.find(c => c.name.toLowerCase() === member.name.toLowerCase() && (c.status === 'banned' || (c.outstandingBalance || 0) > 0));
+                if (shadowMatch) {
+                    isPotentialAlias = true;
+                    matchedClientId = shadowMatch.id;
+                }
                 clientId = nanoid();
                 batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { id: clientId, name: member.name, email: member.email || '', phone: member.phone || '', avatarUrl: `https://picsum.photos/seed/${clientId}/100`, lifetimeValue: 0, lastAppointment: now, status: 'active' });
             }
@@ -685,7 +696,9 @@ export default function WalkInPage() {
                 status: 'waiting',
                 queueOrder: Date.now() + tickets.length,
                 waitForPreferredStaff: !!member.waitForPreferredStaff,
-                estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + (s.duration || 0), 0) || 0
+                estimatedDuration: services?.filter(s => member.serviceIds.includes(s.id)).reduce((acc, s) => acc + (s.duration || 0), 0) || 0,
+                isPotentialAlias,
+                matchedClientId
             };
 
             if (isGroup) {
@@ -713,7 +726,7 @@ export default function WalkInPage() {
         setStep('confirmation');
     } catch (e) {
         console.error(e);
-        toast({ variant: 'destructive', title: 'Error Joining Waitlist' });
+        toast({ variant: 'destructive', title: 'Check-in Error' });
     } finally { setIsSubmitting(false); }
   };
 
@@ -723,23 +736,23 @@ export default function WalkInPage() {
     return (staff || []).filter(s => s.active && !s.onBreak);
   }, [staff]);
 
-  if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader className="animate-spin text-primary" /></div>;
+  if (!tenant || !services) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader className="animate-spin text-primary w-10 h-10" /></div>;
   if (isClosed) return <div className="h-screen flex items-center justify-center bg-slate-950 p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 overflow-x-hidden font-body">
         <AnimatePresence mode="wait">
             {!entered ? (
-                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4" onClick={() => setEntered(true)}>
-                    <div className="inline-block p-4 md:p-6 bg-slate-900/50 rounded-full shadow-2xl mb-6 md:mb-8 border border-slate-800"><ClarityFlowLogo className="!text-white w-12 h-12 md:w-20 md:h-20" /></div>
-                    <h1 className="text-3xl md:text-6xl lg:text-8xl font-black tracking-tighter text-white mb-4">Welcome to {tenant?.name}</h1>
-                    <p className="text-slate-400 text-base md:text-2xl font-medium tracking-wide uppercase">Tap Screen to Check In</p>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-8 md:mt-12 flex justify-center">
-                        <ArrowDown className="w-5 h-5 md:w-6 md:h-6 animate-bounce text-muted-foreground" />
+                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group" onClick={() => setEntered(true)}>
+                    <div className="inline-block p-6 md:p-8 bg-slate-900/50 rounded-full shadow-2xl mb-8 md:mb-12 border-2 border-slate-800 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-500"><ClarityFlowLogo className="!text-white w-12 h-12 md:w-24 md:h-24" /></div>
+                    <h1 className="text-3xl md:text-7xl lg:text-9xl font-black tracking-tighter text-white mb-6 uppercase">Welcome</h1>
+                    <p className="text-slate-500 text-sm md:text-3xl font-black tracking-[0.2em] uppercase animate-pulse">Tap to Check-in</p>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 md:mt-20 flex justify-center">
+                        <ArrowDown className="w-6 h-6 md:w-10 md:h-10 animate-bounce text-muted-foreground" />
                     </motion.div>
                 </motion.div>
             ) : (
-                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border border-slate-800 rounded-3xl md:rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-xl">
+                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border-2 border-slate-800 rounded-[2.5rem] md:rounded-[4rem] shadow-2xl overflow-hidden backdrop-blur-3xl ring-1 ring-white/5">
                     {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                     {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
                         <MemberSetup 
