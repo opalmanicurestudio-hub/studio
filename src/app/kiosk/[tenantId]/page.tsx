@@ -19,7 +19,7 @@ import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFire
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -84,7 +84,7 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
         <div className="inline-block p-6 bg-slate-900/50 rounded-full border border-slate-800 mb-4">
             <Clock className="w-12 h-12 text-primary" />
         </div>
-        <h1 className="text-4xl font-bold text-white">We're Currently Closed</h1>
+        <h1 className="text-3xl md:text-4xl font-bold text-white">We're Currently Closed</h1>
         <p className="text-slate-400">Our self-check-in kiosk is only available during business hours. Please come back during our scheduled times or book an appointment online.</p>
         {schedule && (
             <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-sm">
@@ -100,20 +100,20 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
-        <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-center mb-8">Who are we serving today?</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+        <h2 className="text-2xl md:text-4xl font-bold tracking-tight text-center mb-8 px-4">Who are we serving today?</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6">
             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
-                    <User className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
-                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">Just Me</h3>
-                    <p className="text-slate-400 mt-2">I'm checking in for myself.</p>
+                    <User className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
+                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight">Just Me</h3>
+                    <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself.</p>
                 </div>
             </div>
              <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
-                    <Users className="w-12 h-12 md:w-16 md:h-16 mb-6 text-primary" />
-                    <h3 className="text-3xl md:text-4xl font-bold tracking-tight">My Group</h3>
-                    <p className="text-slate-400 mt-2">I'm checking in for myself and others.</p>
+                    <Users className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
+                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight">My Group</h3>
+                    <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself and others.</p>
                 </div>
             </div>
         </div>
@@ -141,20 +141,20 @@ const StepDetails = ({
     return (
         <div className="space-y-6">
             <div className="space-y-2">
-                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
-                    <User className="w-5 h-5 text-primary"/>
+                <Label htmlFor={`name-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
+                    <User className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
                     <span>Name</span>
                 </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="flex h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"/>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Your Full Name" : "Guest's Name"} className="flex h-12 md:h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-lg md:text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"/>
             </div>
             {isGroup && !member.isPrimary && ( 
-                <Button variant="outline" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-300 hover:text-slate-100">
+                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full border-slate-700 text-slate-300 hover:text-slate-100">
                     Use contact info from {primaryMember?.name.split(' ')[0] || 'first guest'}
                 </Button> 
             )}
             <div className="space-y-2">
-                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
-                    <Phone className="w-5 h-5 text-primary"/>
+                <Label htmlFor={`phone-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
+                    <Phone className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
                     <span>Phone</span>
                 </Label>
                 <div className="kiosk-phone-input">
@@ -165,16 +165,16 @@ const StepDetails = ({
                         onChange={(value) => onUpdate({ phone: value || '' })}
                         inputComponent={Input}
                         placeholder="For SMS updates"
-                        className="flex h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
+                        className="flex h-12 md:h-14 w-full rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-lg md:text-xl text-slate-100 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
                     />
                 </div>
             </div>
             <div className="space-y-2">
-                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-base text-slate-300">
-                    <Mail className="w-5 h-5 text-primary"/>
+                <Label htmlFor={`email-${member.id}`} className="flex items-center gap-2 text-sm md:text-base text-slate-300">
+                    <Mail className="w-4 h-4 md:w-5 md:h-5 text-primary"/>
                     <span>Email Address</span>
                 </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-14 text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-14 text-lg md:text-xl bg-slate-900/50 border-slate-700 text-slate-100 focus-visible:ring-primary"/>
             </div>
 
             <AnimatePresence>
@@ -254,20 +254,20 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                 onToggle();
             }}
         >
-            <div className="p-3 flex flex-col items-center justify-between gap-3 h-full">
+            <div className="p-2 md:p-3 flex flex-col items-center justify-between gap-2 md:gap-3 h-full">
                 <div className="w-full aspect-[4/3] relative bg-slate-700/50 rounded-lg overflow-hidden">
                     {service.imageUrl ? (
                         <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-500">
-                            <Scissors className="w-8 h-8"/>
+                            <Scissors className="w-6 h-6 md:w-8 md:h-8"/>
                         </div>
                     )}
                 </div>
                 <div className="text-center">
-                    <p className="font-semibold text-sm text-slate-100">{service.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
-                    {hasTiers && <p className="text-[10px] text-slate-500">Price varies by provider</p>}
+                    <p className="font-semibold text-xs md:text-sm text-slate-100">{service.name}</p>
+                    <p className="text-[10px] md:text-xs text-muted-foreground mt-1">{durationText} &middot; {priceText}</p>
+                    {hasTiers && <p className="text-[9px] md:text-[10px] text-slate-500">Tiered Pricing</p>}
                 </div>
             </div>
         </div>
@@ -282,15 +282,15 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
     
     if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-8 text-xl md:text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
     
     return (
         <div className="space-y-4" key="service-selection-list">
-            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-sm p-2 transition-colors">
+            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-slate-400 hover:text-slate-100 flex items-center gap-2 text-xs md:text-sm p-2 transition-colors">
                 <ArrowLeft className="h-4 w-4"/>Back to Categories
             </button>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
                 {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
                     <ServiceSelectionCard 
                         key={service.id} 
@@ -307,13 +307,13 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
 
 const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
     <div className="space-y-4" key="staff-selection-step">
-        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
             {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
         </RadioGroup>
         {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
             <div className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800/50 p-4 mt-4">
-                <Label htmlFor={`wait-${member.id}`} className="font-medium text-slate-200 text-lg">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name.split(' ')[0]}?</Label>
+                <Label htmlFor={`wait-${member.id}`} className="font-medium text-slate-200 text-base md:text-lg">Wait for {staff?.find(s => s.id === member.preferredStaffId)?.name.split(' ')[0]}?</Label>
                 <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} />
             </div>
         )}
@@ -321,11 +321,11 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 );
 
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-8" key="consent-step">
+    <div className="space-y-6 md:space-y-8" key="consent-step">
         {requiredForms.map(form => (
-            <div key={form.id} className="space-y-6 p-6 rounded-2xl border border-slate-700 bg-slate-800/30">
-                <h3 className="text-2xl font-bold flex items-center gap-3 text-slate-100"><FileSignature className="w-6 h-6 text-primary" /> {form.title}</h3>
-                <div className="space-y-8">
+            <div key={form.id} className="space-y-4 md:space-y-6 p-4 md:p-6 rounded-2xl border border-slate-700 bg-slate-800/30">
+                <h3 className="text-xl md:text-2xl font-bold flex items-center gap-3 text-slate-100"><FileSignature className="w-5 h-5 md:w-6 md:h-6 text-primary" /> {form.title}</h3>
+                <div className="space-y-6 md:space-y-8">
                     {form.fields?.map(field => (
                         <div key={field.id} className="text-slate-200">
                             <FormFieldRenderer 
@@ -367,11 +367,11 @@ const MemberSetup = ({
     isResolvingIdentity
 }: any) => {
     const subStepTitles = {
-        details: { title: 'Guest Details', icon: <User className="w-5 h-5" /> },
-        services: { title: 'Select Service', icon: <Scissors className="w-5 h-5" /> },
-        addons: { title: 'Add-ons', icon: <PlusCircle className="w-5 h-5" /> },
-        consents: { title: 'Important Forms', icon: <FileSignature className="w-5 h-5" /> },
-        staff: { title: 'Preferred Staff', icon: <Users className="w-5 h-5" /> },
+        details: { title: 'Guest Details', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
+        services: { title: 'Select Service', icon: <Scissors className="w-4 h-4 md:w-5 md:h-5" /> },
+        addons: { title: 'Add-ons', icon: <PlusCircle className="w-4 h-4 md:w-5 md:h-5" /> },
+        consents: { title: 'Important Forms', icon: <FileSignature className="w-4 h-4 md:w-5 md:h-5" /> },
+        staff: { title: 'Preferred Staff', icon: <Users className="w-4 h-4 md:w-5 md:h-5" /> },
     };
     
     const primaryService = services.find((s: Service) => s.id === member.serviceIds[0]);
@@ -393,14 +393,14 @@ const MemberSetup = ({
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
             <div className="p-6 md:p-8">
-                <h2 className="text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
+                <h2 className="text-2xl md:text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
                 <div className="flex items-center justify-between gap-4 mt-2">
-                    <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-xs">
+                    <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">
                         {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
                     </div>
-                    {isGroup && <p className="text-xs font-black text-primary bg-primary/10 px-2 py-1 rounded-md">{member.index + 1} / {partyMembers.length}</p>}
+                    {isGroup && <p className="text-[10px] md:text-xs font-black text-primary bg-primary/10 px-2 py-1 rounded-md">{member.index + 1} / {partyMembers.length}</p>}
                 </div>
-                <div className="pt-6"><Progress value={progress} className="h-2 bg-slate-800" /></div>
+                <div className="pt-4 md:pt-6"><Progress value={progress} className="h-1.5 md:h-2 bg-slate-800" /></div>
             </div>
 
             <div className="p-6 md:p-8 pt-0">
@@ -426,27 +426,27 @@ const MemberSetup = ({
             </div>
 
             <Separator className="bg-slate-800" />
-            <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-14 text-lg">Back</Button>
-                <div className="flex-1" />
+            <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-3 md:gap-4">
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-12 md:h-14 text-base md:text-lg">Back</Button>
+                <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
                         size="lg" 
                         onClick={() => onNext(subSteps[currentSubStepIndex + 1])} 
                         disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                        className="h-14 px-10 text-xl font-bold"
+                        className="h-12 md:h-14 px-8 md:px-10 text-lg md:text-xl font-bold"
                     >
-                        Continue <ArrowRight className="ml-2"/>
+                        Continue <ArrowRight className="ml-2 w-5 h-5"/>
                     </Button>
                 ) : (
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
                         {isGroup && !isLastMember && (
                             <Button 
                                 size="lg" 
                                 variant="outline" 
                                 onClick={onAddAnother} 
                                 disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                                className="h-14 border-slate-700 text-slate-300 px-8 text-lg"
+                                className="h-12 md:h-14 border-slate-700 text-slate-300 px-6 md:px-8 text-base md:text-lg"
                             >
                                 Next Guest
                             </Button>
@@ -455,7 +455,7 @@ const MemberSetup = ({
                             size="lg" 
                             onClick={onSubmit} 
                             disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                            className="h-14 px-12 text-xl font-black shadow-xl shadow-primary/20"
+                            className="h-12 md:h-14 px-8 md:px-12 text-lg md:text-xl font-black shadow-xl shadow-primary/20"
                         >
                             {isSubmitting ? <Loader className="animate-spin" /> : 'Finish & Join Queue'}
                         </Button>
@@ -467,33 +467,33 @@ const MemberSetup = ({
 };
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 md:p-16 text-center space-y-8" key="confirmation-screen">
-        <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="w-12 h-12 text-green-500" />
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 md:p-16 text-center space-y-6 md:space-y-8" key="confirmation-screen">
+        <div className="w-16 h-16 md:w-24 md:h-24 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
+            <CheckCircle className="w-10 h-10 md:w-12 md:h-12 text-green-500" />
         </div>
         <div className="space-y-2">
-            <h2 className="text-5xl font-black tracking-tight text-white">You're in line!</h2>
-            <p className="text-slate-400 text-xl">We'll text you as soon as your pro is ready.</p>
+            <h2 className="text-3xl md:text-5xl font-black tracking-tight text-white">You're in line!</h2>
+            <p className="text-slate-400 text-base md:text-xl">We'll text you as soon as your pro is ready.</p>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 max-w-2xl mx-auto">
             {confirmedParty.map(ticket => (
                 <Card key={ticket.id} className="bg-slate-800/30 border-slate-700 text-left">
-                    <CardContent className="p-4 flex justify-between items-center">
+                    <CardContent className="p-3 md:p-4 flex justify-between items-center">
                         <div>
-                            <p className="font-bold text-white">{ticket.name}</p>
-                            <p className="text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
+                            <p className="font-bold text-white text-sm md:text-base">{ticket.name}</p>
+                            <p className="text-[10px] md:text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10">
-                            <Printer className="w-5 h-5" />
+                        <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 h-8 w-8 md:h-10 md:w-10">
+                            <Printer className="w-4 h-4 md:w-5 md:h-5" />
                         </Button>
                     </CardContent>
                 </Card>
             ))}
         </div>
 
-        <div className="pt-8">
-            <Button size="lg" onClick={onDone} className="h-16 px-12 text-2xl font-black">Finish</Button>
+        <div className="pt-6 md:pt-8">
+            <Button size="lg" onClick={onDone} className="h-12 md:h-16 px-8 md:px-12 text-xl md:text-2xl font-black">Finish</Button>
         </div>
     </motion.div>
 );
@@ -730,13 +730,16 @@ export default function WalkInPage() {
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4">
         <AnimatePresence mode="wait">
             {!entered ? (
-                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer" onClick={() => setEntered(true)}>
-                    <div className="inline-block p-6 bg-slate-900/50 rounded-full shadow-2xl mb-8 border border-slate-800"><ClarityFlowLogo className="!text-white w-20 h-20" /></div>
-                    <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-white mb-4">Welcome to {tenant?.name}</h1>
-                    <p className="text-slate-400 text-2xl font-medium tracking-wide uppercase">Tap Screen to Check In</p>
+                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4" onClick={() => setEntered(true)}>
+                    <div className="inline-block p-4 md:p-6 bg-slate-900/50 rounded-full shadow-2xl mb-6 md:mb-8 border border-slate-800"><ClarityFlowLogo className="!text-white w-16 h-16 md:w-20 md:h-20" /></div>
+                    <h1 className="text-4xl md:text-6xl lg:text-8xl font-black tracking-tighter text-white mb-4">Welcome to {tenant?.name}</h1>
+                    <p className="text-slate-400 text-lg md:text-2xl font-medium tracking-wide uppercase">Tap Screen to Check In</p>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 flex justify-center">
+                        <ArrowDown className="w-6 h-6 animate-bounce text-muted-foreground" />
+                    </motion.div>
                 </motion.div>
             ) : (
-                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border border-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-xl">
+                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border border-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-xl">
                     {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                     {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
                         <MemberSetup 
@@ -764,7 +767,7 @@ export default function WalkInPage() {
             )}
         </AnimatePresence>
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-sm"><DialogHeader><DialogTitle>Ticket Printed</DialogTitle></DialogHeader><div className="flex justify-center p-4">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter><Button className="w-full" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Print & Close</Button></DialogFooter></DialogContent>
+            <DialogContent className="max-w-sm"><DialogHeader><DialogTitle className="text-lg">Ticket Printed</DialogTitle></DialogHeader><div className="flex justify-center p-4">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter><Button className="w-full h-12" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Print & Close</Button></DialogFooter></DialogContent>
         </Dialog>
     </div>
   );
