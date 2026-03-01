@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -98,7 +99,6 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
     const { toast } = useToast();
 
     const handleConfirm = () => {
-        // SECURITY: Strictly check for admin role
         const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
         if (!authorizedStaff) {
             toast({ 
