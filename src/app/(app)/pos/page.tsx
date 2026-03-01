@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -99,7 +98,7 @@ function POSPageContent() {
     useEffect(() => {
         const payerId = searchParams.get('payer_id');
         const action = searchParams.get('action');
-        if (payerId && clients) {
+        if (payerId && clients && clients.length > 0) {
             const client = clients.find(c => c.id === payerId);
             if (client) {
                 setSelectedClientId(client.id);
@@ -253,7 +252,7 @@ function POSPageContent() {
             for (const id of Array.from(selectedAppointmentIds)) {
                 const data = readyForCheckoutAppointments.find(a => a.id === id);
                 if (!data) continue;
-                const { appointment, service, staff: provider } = data;
+                const { appointment, staff: provider } = data;
                 const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
                 batch.update(appointmentRef, { status: 'completed' });
                 if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
@@ -302,14 +301,70 @@ function POSPageContent() {
         batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Service Finished" }); });
     };
 
+    const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
+        // 1. Services & Add-ons
+        const appointmentsSubtotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
+            const data = readyForCheckoutAppointments.find(a => a.id === id);
+            if (!data) return acc;
+            const mainPrice = getServicePrice(data.service, data.staff);
+            const addOnsPrice = data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
+            return acc + mainPrice + addOnsPrice;
+        }, 0);
+
+        // 2. Retail items
+        const retailSubtotal = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        // 3. Adjustments (Unpaid Fees)
+        const adjustmentsSubtotal = Array.from(appliedAdjustments).reduce((acc, id) => {
+            if (!selectedClientId) return acc;
+            const client = clients?.find(c => c.id === selectedClientId);
+            const fee = client?.unpaidFees?.find(f => f.feeId === id);
+            return acc + (fee?.feeAmount || 0);
+        }, 0);
+
+        const sub = appointmentsSubtotal + retailSubtotal + adjustmentsSubtotal;
+
+        // 4. Discounts
+        let totalDiscount = 0;
+        appliedDiscountCodes.forEach(code => {
+            const d = discounts.find(dis => dis.code === code);
+            if (d) {
+                if (d.type === 'percentage') totalDiscount += sub * (d.value / 100);
+                else totalDiscount += d.value;
+            }
+        });
+
+        // 5. Membership Retail Discount
+        let memDiscount = 0;
+        const selectedClient = clients.find(c => c.id === selectedClientId);
+        if (selectedClient && selectedClient.activeMembershipId) {
+            const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
+            if (membership?.retailDiscount && retailSubtotal > 0) {
+                memDiscount = retailSubtotal * (membership.retailDiscount / 100);
+            }
+        }
+
+        const subAfterDiscounts = Math.max(0, sub - totalDiscount - memDiscount);
+        const taxVal = subAfterDiscounts * 0.07;
+        const totalVal = subAfterDiscounts + taxVal + tipAmount;
+
+        return { 
+            currentSubtotal: sub, 
+            currentTax: taxVal, 
+            currentTotal: totalVal, 
+            currentDiscount: totalDiscount, 
+            currentMembershipDiscount: memDiscount 
+        };
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, selectedClientId, clients, appliedDiscountCodes, discounts, memberships, tipAmount]);
+
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
         appointmentsData: Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any,
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: 0, tax: 0, total: 0, tipAmount, setTipAmount, onCheckout: handleCheckout,
-        appliedDiscountCodes, setAppliedDiscountCodes, discount: 0, membershipDiscount: 0,
+        subtotal: currentSubtotal, tax: currentTax, total: currentTotal, tipAmount, setTipAmount, onCheckout: handleCheckout,
+        appliedDiscountCodes, setAppliedDiscountCodes, discount: currentDiscount, membershipDiscount: currentMembershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
         adjustments: selectedClientId ? (clients.find(c => c.id === selectedClientId)?.unpaidFees?.map(f => ({ id: f.feeId, clientName: clients.find(c => c.id === selectedClientId)!.name, serviceName: 'Fee', description: f.reason, cost: f.feeAmount })) || []) : [],
         appliedAdjustments, onApplyAdjustmentToggle: handleApplyAdjustmentToggle,
@@ -327,7 +382,19 @@ function POSPageContent() {
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
             </div>
-            {isMobile && <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40"><Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}><SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger><SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col"><div className="p-4 flex-1 overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></div></SheetContent></Sheet></div>}
+            {isMobile && <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
+                <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                    <SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger>
+                    <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                        <SheetHeader className="p-4 border-b">
+                            <SheetTitle>Current Sale</SheetTitle>
+                        </SheetHeader>
+                        <div className="p-4 flex-1 overflow-y-auto">
+                            <CheckoutHub {...checkoutHubProps} />
+                        </div>
+                    </SheetContent>
+                </Sheet>
+            </div>}
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4 pb-0"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
