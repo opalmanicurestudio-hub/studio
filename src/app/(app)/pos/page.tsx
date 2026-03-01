@@ -70,13 +70,9 @@ function POSPageContent() {
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
-    const [manualTicketId, setManualTicketId] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
-    const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
-    const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false);
-    const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
@@ -84,8 +80,6 @@ function POSPageContent() {
     
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
-    const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
-    const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
 
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
     const [authPin, setAuthPin] = useState('');
@@ -116,20 +110,6 @@ function POSPageContent() {
             setOrderedStaff(sorted);
         }
     }, [staff]);
-
-    const handleStaffReorder = (newOrder: Staff[]) => {
-        setOrderedStaff(newOrder);
-        if (!firestore || !tenantId) return;
-        const batch = writeBatch(firestore);
-        newOrder.forEach((staffMember, index) => {
-            const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffMember.id);
-            batch.update(staffRef, { turnOrder: index });
-        });
-        batch.commit().catch(err => {
-            console.error("Failed to save staff order:", err);
-            toast({ variant: 'destructive', title: "Error", description: "Could not save turn order." });
-        });
-    };
 
     const handleVerifyPin = () => {
         if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
@@ -214,29 +194,6 @@ function POSPageContent() {
             return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
         });
     }, []);
-
-    const handleScan = useCallback((data: string) => {
-      const raw = data.trim();
-      const id = raw.split('/').pop();
-      if (!id) return;
-      const apt = appointments.find(a => a.id === id || a.id.toUpperCase().endsWith(id.toUpperCase()));
-      if (apt) {
-          if (apt.status === 'ready_for_checkout') {
-              handleSelectAppointment(apt.id);
-              toast({ title: "Client Added", description: `${apt.clientName} added to sale.` });
-          } else {
-              setViewingAppointment(apt);
-              setIsDetailsOpen(true);
-              toast({ title: "Viewing Progress" });
-          }
-      } else {
-          const product = inventory.find(p => p.sku === raw || p.id === id);
-          if (product) {
-              handleAddToCart(product);
-              toast({ title: "Product Added" });
-          } else toast({ variant: 'destructive', title: 'Code Not Recognized' });
-      }
-    }, [appointments, inventory, handleSelectAppointment, handleAddToCart, toast]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
@@ -333,8 +290,8 @@ function POSPageContent() {
         const selectedClient = clients.find(c => c.id === selectedClientId);
         if (selectedClient && selectedClient.activeMembershipId) {
             const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
-            if (membership?.retailDiscount && retailSubtotal > 0) {
-                memDiscount = retailSubtotal * (membership.retailDiscount / 100);
+            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
+                memDiscount = retailTotalForDiscount * (membership.retailDiscount / 100);
             }
         }
 
@@ -370,8 +327,8 @@ function POSPageContent() {
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={(w, s) => {}} onAssignNext={() => {}} onCancel={() => {}} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={() => {}} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={(a) => { setAppointmentToReview(a); setIsTechnicianReviewOpen(true); }} onUpdateStatus={() => {}} onRevertToReady={() => {}} onRevertToService={() => {}} />
+                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={() => {}} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={() => {}} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={(a) => { setAppointmentToReview(a); setIsTechnicianReviewOpen(true); }} onUpdateStatus={() => {}} onRevertToReady={() => {}} onRevertToService={() => {}} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>

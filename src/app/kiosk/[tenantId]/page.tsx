@@ -597,7 +597,6 @@ export default function WalkInPage() {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
     
-    // Hard check for restricted accounts
     if (memberSubStep === 'details' && (bannedClient || existingClientWithBalance)) {
         return; 
     }
@@ -711,7 +710,6 @@ export default function WalkInPage() {
 
   const isClosed = !isBusinessOpen(new Date(), scheduleProfiles?.[0]).open;
 
-  // Filter staff to only include those currently clocked in for immediate walk-in assignments
   const activeStaff = useMemo(() => {
     return (staff || []).filter(s => s.active && !s.onBreak);
   }, [staff]);

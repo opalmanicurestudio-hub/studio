@@ -24,7 +24,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, Ban } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, Ban, Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -176,7 +176,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     try {
         const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
         
-        // Strategy: Query for Email match OR Phone match to identify spoofing/returning users
         const matchPromises = [];
         if (email) matchPromises.push(getDocs(query(clientsRef, where("email", "==", email.toLowerCase().trim()))));
         if (phone) matchPromises.push(getDocs(query(clientsRef, where("phone", "==", phone))));
@@ -583,7 +582,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                                     <Ban className="h-4 w-4" />
                                                     <AlertTitle className="text-xs font-black uppercase">Booking Restricted</AlertTitle>
                                                     <AlertDescription className="text-xs mt-1">
-                                                        We are currently unable to accept online bookings for this account. Please contact the studio at {tenant?.twilioPhoneNumber} for assistance.
+                                                        We are currently unable to accept online bookings for this account. Please contact the studio for assistance.
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>
