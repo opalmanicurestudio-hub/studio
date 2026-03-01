@@ -129,7 +129,7 @@ export type Client = {
   avatarUrl: string;
   lifetimeValue: number;
   lastAppointment: string;
-  status?: 'active' | 'archived';
+  status?: 'active' | 'archived' | 'banned';
   notes?: {
     goals?: string;
     routine?: string;
@@ -168,6 +168,9 @@ export type Client = {
     staffId?: string;
   }[];
   waivedFees?: WaivedFee[];
+  banReason?: string;
+  bannedAt?: string;
+  bannedBy?: string;
   address?: {
     street: string;
     city: string;

@@ -79,6 +79,7 @@ export default function ClientsPage() {
   const { toast } = useToast();
   
   const [showArchived, setShowArchived] = useState(false);
+  const [showBanned, setShowBanned] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
 
@@ -189,7 +190,8 @@ export default function ClientsPage() {
   const filteredClients = useMemo(() => {
     if (!clients) return [];
     let clientsToFilter = clients.filter(client => {
-      return showArchived ? client.status === 'archived' : client.status !== 'archived';
+      if (showBanned) return client.status === 'banned';
+      return showArchived ? client.status === 'archived' : client.status === 'active';
     });
     
     if (owesBalanceOnly) {
@@ -221,7 +223,7 @@ export default function ClientsPage() {
     }
 
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
-  }, [clients, searchTerm, lastSeenFilter, showArchived, owesBalanceOnly]);
+  }, [clients, searchTerm, lastSeenFilter, showArchived, showBanned, owesBalanceOnly]);
   
   const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
   const paginatedClients = useMemo(() => {
@@ -326,7 +328,7 @@ export default function ClientsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
+                    <div className="text-sm font-medium text-muted-foreground">Total Displayed Clients</div>
                     <div className="text-2xl font-bold">{stats.totalActiveClients}</div>
                 </div>
                  <div className="p-3 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
@@ -409,10 +411,14 @@ export default function ClientsPage() {
                                   <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
                               </div>
                           </div>
-                          <div className="flex items-center space-x-6 pt-4">
+                          <div className="flex items-center space-x-6 pt-4 flex-wrap gap-y-4">
                               <div className="flex items-center space-x-2">
-                                <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
                                 <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
+                                <Label htmlFor="show-banned" className="text-destructive">{showBanned ? "Viewing Banned" : "Show Banned"}</Label>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
@@ -425,8 +431,8 @@ export default function ClientsPage() {
                               <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                   <p className="text-sm font-medium">{selectedItems.size} client(s) selected</p>
                                   <div className="flex gap-2">
-                                      {showArchived ? (
-                                          <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                                      {showArchived || showBanned ? (
+                                          <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Restore Access</Button>
                                       ) : (
                                           <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
                                       )}

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -24,7 +23,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, Ban } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -163,31 +162,48 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const { handleSubmit, watch } = methods;
   const clientEmail = watch('clientEmail');
+  const clientPhone = watch('clientPhone');
 
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
+  const [bannedClient, setBannedClient] = useState<Client | null>(null);
   
   useEffect(() => {
-    if (clientEmail && clientEmail.includes('@') && firestore && tenant) {
-        const checkBalance = async () => {
+    if ((clientEmail?.includes('@') || (clientPhone && clientPhone.length > 5)) && firestore && tenant) {
+        const checkClientStatus = async () => {
             const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
-            const q = query(clientsRef, where("email", "==", clientEmail.toLowerCase().trim()));
-            const snapshot = await getDocs(q);
-            if (!snapshot.empty) {
-                const clientData = snapshot.docs[0].data() as Client;
-                if (clientData.outstandingBalance && clientData.outstandingBalance > 0) {
-                    setExistingClientWithBalance(clientData);
+            
+            // Query for email
+            const qEmail = query(clientsRef, where("email", "==", clientEmail?.toLowerCase().trim() || ""));
+            const snapshotEmail = await getDocs(qEmail);
+            
+            // Query for phone
+            const qPhone = query(clientsRef, where("phone", "==", clientPhone || ""));
+            const snapshotPhone = await getDocs(qPhone);
+
+            const matchedClient = snapshotEmail.docs[0]?.data() as Client || snapshotPhone.docs[0]?.data() as Client;
+
+            if (matchedClient) {
+                if (matchedClient.status === 'banned') {
+                    setBannedClient(matchedClient);
+                    setExistingClientWithBalance(null);
+                } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
+                    setExistingClientWithBalance(matchedClient);
+                    setBannedClient(null);
                 } else {
                     setExistingClientWithBalance(null);
+                    setBannedClient(null);
                 }
             } else {
                 setExistingClientWithBalance(null);
+                setBannedClient(null);
             }
         };
-        checkBalance();
+        checkClientStatus();
     } else {
         setExistingClientWithBalance(null);
+        setBannedClient(null);
     }
-  }, [clientEmail, firestore, tenant]);
+  }, [clientEmail, clientPhone, firestore, tenant]);
 
   const qualifiedStaff = useMemo(() => {
     if (!service?.requiredSkills || service.requiredSkills.length === 0) return staff;
@@ -537,9 +553,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <PhoneInput name="clientPhone" label="Phone (for SMS alerts)" />
                                     </div>
                                     
-                                    {/* DEBT ENFORCEMENT ALERT */}
                                     <AnimatePresence>
-                                        {existingClientWithBalance && (
+                                        {bannedClient && (
+                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2">
+                                                    <Ban className="h-4 w-4" />
+                                                    <AlertTitle className="text-xs font-black uppercase">Booking Restricted</AlertTitle>
+                                                    <AlertDescription className="text-xs mt-1">
+                                                        We are currently unable to accept online bookings for this account. Please contact the studio at {tenant?.twilioPhoneNumber} for assistance.
+                                                    </AlertDescription>
+                                                </Alert>
+                                            </motion.div>
+                                        )}
+                                        {existingClientWithBalance && !bannedClient && (
                                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                                                 <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 mt-4 border-2">
                                                     <Wallet className="h-4 w-4" />
@@ -620,7 +646,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             <SheetFooter className="p-6 border-t bg-muted/10 backdrop-blur-sm">
                 <div className="flex w-full gap-3">
                     {currentStepIndex > 0 && <Button variant="outline" onClick={handlePrevStep} className="flex-1 h-12">Back</Button>}
-                    <Button onClick={handleNextStep} disabled={currentStep === 'details' && !!existingClientWithBalance} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
+                    <Button onClick={handleNextStep} disabled={(currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient))} className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}>
                         {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : currentStep === 'summary' || currentStep === 'payment' ? 'Confirm Booking' : 'Continue'}
                     </Button>
                 </div>

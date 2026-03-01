@@ -1,4 +1,3 @@
-
 {
   "entities": {
     "User": {
@@ -385,6 +384,7 @@
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "archived", "banned"] },
         "activeMembershipId": { "type": "string" },
         "subscription": {
           "type": "object",
@@ -481,7 +481,10 @@
                 },
                 "required": ["feeId", "appointmentId", "appointmentDate", "feeAmount", "reason"]
             }
-        }
+        },
+        "banReason": { "type": "string" },
+        "bannedAt": { "type": "string", "format": "date-time" },
+        "bannedBy": { "type": "string" }
       },
       "required": [
         "id",

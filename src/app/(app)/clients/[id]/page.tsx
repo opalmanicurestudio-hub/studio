@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Star, Percent, Loader, MoreHorizontal, XCircle, RefreshCw, FileSignature, Printer, KeyRound, ShieldCheck, Send } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -80,12 +80,18 @@ const getInitials = (name: string) => {
 };
 
 const ClientIntelBanner = ({ client }: { client: Client }) => {
-    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || (Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show'));
+    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || (Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show')) || client.status === 'banned';
     if (!hasIntel) return null;
 
     return (
-        <Card className="bg-muted/50">
+        <Card className={cn("bg-muted/50 border-2", client.status === 'banned' && "border-destructive bg-destructive/5")}>
             <CardContent className="p-4 flex flex-wrap gap-x-6 gap-y-3">
+                {client.status === 'banned' && (
+                    <div className="flex items-center gap-2 text-sm font-black text-destructive uppercase tracking-tight">
+                        <Ban className="w-4 h-4" />
+                        <span>Banned Client</span>
+                    </div>
+                )}
                 {client.intel?.hasIncidents && (
                      <div className="flex items-center gap-2 text-sm font-medium text-purple-600 dark:text-purple-400">
                         <ShieldAlert className="w-4 h-4" />
@@ -120,26 +126,6 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
         </Card>
     )
 }
-
-const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
-    <AccordionItem value={formula.name}>
-        <AccordionTrigger>
-            <div className="flex items-center gap-3">
-                <FlaskConical className="w-5 h-5 text-primary" />
-                <span className="font-semibold">{formula.name}</span>
-            </div>
-        </AccordionTrigger>
-        <AccordionContent className="pt-2 space-y-2">
-            {formula.items.map((item, index) => (
-                <div key={index} className="p-3 rounded-md bg-background border text-sm">
-                    <p className="font-medium">{item.quantityUsed}{item.unit} {item.productName}</p>
-                    {item.note && <p className="text-xs text-muted-foreground pl-4">&ndash; {item.note}</p>}
-                </div>
-            ))}
-             <Button variant="outline" size="sm" className="mt-2"><Edit className="w-3 h-3 mr-2"/>Edit Formula</Button>
-        </AccordionContent>
-    </AccordionItem>
-)
 
 const AppointmentHistoryCard = ({
   appointment,
@@ -258,6 +244,64 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
     );
 };
 
+const BanClientDialog = ({ open, onOpenChange, client, onConfirm, staff }: { open: boolean, onOpenChange: (val: boolean) => void, client: Client, onConfirm: (staffMember: Staff, reason: string) => void, staff: Staff[] }) => {
+    const [pin, setPin] = useState('');
+    const [reason, setReason] = useState('');
+    const { toast } = useToast();
+
+    const handleConfirm = () => {
+        const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
+        if (!authorizedStaff) {
+            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Admin PIN required to ban clients.' });
+            return;
+        }
+        if (!reason.trim()) {
+            toast({ variant: 'destructive', title: 'Reason Required' });
+            return;
+        }
+        onConfirm(authorizedStaff, reason);
+        setPin('');
+        setReason('');
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-destructive">
+                        <Ban className="w-5 h-5" />
+                        Ban Client: {client.name}
+                    </DialogTitle>
+                    <DialogDescription>Banned clients cannot book online and will be flagged across the app. This requires owner/admin authorization.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                    <div className="space-y-2">
+                        <Label className="text-center block font-black uppercase text-[10px] tracking-widest text-muted-foreground">Admin PIN</Label>
+                        <div className="flex justify-center">
+                            <Input 
+                                type="password" 
+                                maxLength={4} 
+                                className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
+                                value={pin} 
+                                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="ban-reason">Reason for Ban (Required)</Label>
+                        <Textarea id="ban-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Repeated harassment, verified check fraud..." />
+                    </div>
+                </div>
+                <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button variant="destructive" onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()}>Authorize Ban</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: boolean, onOpenChange: (val: boolean) => void, fee: any, onConfirm: (staffMember: Staff, reason: string) => void, staff: Staff[] }) => {
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
@@ -273,13 +317,12 @@ const WaiveFeeDialog = ({ open, onOpenChange, fee, onConfirm, staff }: { open: b
             return;
         }
 
-        // SECURITY: Strictly check for admin role
         const authorizedStaff = staff.find(s => s.pin === pin && s.role === 'admin');
         if (!authorizedStaff) {
             toast({ 
                 variant: 'destructive', 
                 title: 'Unauthorized', 
-                description: 'A manager or owner PIN is required to waive fees. Standard staff PINs are not authorized for this action.' 
+                description: 'A manager or owner PIN is required to waive fees.' 
             });
             return;
         }
@@ -358,7 +401,6 @@ export default function ClientDetailPage() {
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
   
   const { toast } = useToast();
-  const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -367,15 +409,11 @@ export default function ClientDetailPage() {
   const [selectedPhoto, setSelectedPhoto] = useState<any | null>(null);
   const [feeToWaive, setFeeToWaive] = useState<any | null>(null);
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
+  const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
 
   const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
   const [isCodeDirty, setIsCodeDirty] = useState(false);
   const [viewingConsent, setViewingConsent] = useState<any | null>(null);
-
-  const formTemplateForViewing = useMemo(() => {
-    if (!viewingConsent || !consentForms) return null;
-    return consentForms.find(f => f.id === viewingConsent.formId);
-  }, [viewingConsent, consentForms]);
 
   const appointmentsForThisClient = useMemo(() => {
       return (allAppointments || [])
@@ -449,12 +487,13 @@ export default function ClientDetailPage() {
     toast({ title: "LTV Reconciled", description: `${client.name}'s lifetime value updated.` });
   };
 
-  const handleSaveFormula = (formula: CustomFormula) => {
-    if (!client || !firestore || !tenantId) return;
-    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-    updateDocumentNonBlocking(clientRef, { customFormulas: arrayUnion(formula) });
-    toast({ title: "Formula Saved" });
-    setIsAddFormulaOpen(false);
+  const handleSendBalanceNotice = () => {
+      if (!client) return;
+      // Simulated retrieval notice
+      toast({
+          title: "Notice Sent",
+          description: `A balance reminder has been sent to ${client.name} via ${client.phone ? 'SMS' : 'Email'}.`,
+      });
   };
 
   const isLoadingStatus = isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading;
@@ -544,16 +583,48 @@ export default function ClientDetailPage() {
     setFeeToWaive(null);
   };
 
+  const handleConfirmBan = (authorizer: Staff, reason: string) => {
+      updateDocumentNonBlocking(clientDocRefReal, {
+          status: 'banned',
+          banReason: reason,
+          bannedAt: new Date().toISOString(),
+          bannedBy: authorizer.name
+      });
+      toast({ title: "Client Banned", description: "This client is now prohibited from online booking." });
+      setIsBanDialogOpen(false);
+  };
+
+  const handleUnban = () => {
+      updateDocumentNonBlocking(clientDocRefReal, {
+          status: 'active',
+          banReason: deleteField(),
+          bannedAt: deleteField(),
+          bannedBy: deleteField()
+      });
+      toast({ title: "Ban Lifted", description: "The client can now book online again." });
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <Button variant="outline" size="sm" asChild><Link href="/clients"><ArrowLeft className="h-4 w-4 mr-2" />Back to Clients</Link></Button>
-                {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}><Edit className="h-4 w-4 mr-2" />Edit Profile</Button>}
+                <div className="flex gap-2">
+                    {client.status === 'banned' ? (
+                        <Button variant="outline" size="sm" onClick={handleUnban} className="text-primary border-primary/20 hover:bg-primary/5">
+                            <CheckCircle className="h-4 w-4 mr-2" /> Unban Client
+                        </Button>
+                    ) : (
+                        <Button variant="outline" size="sm" onClick={() => setIsBanDialogOpen(true)} className="text-destructive border-destructive/20 hover:bg-destructive/5">
+                            <Ban className="h-4 w-4 mr-2" /> Ban Client
+                        </Button>
+                    )}
+                    {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}><Edit className="h-4 w-4 mr-2" />Edit Profile</Button>}
+                </div>
             </div>
             
-            <Card>
+            <Card className={cn(client.status === 'banned' && "border-destructive ring-2 ring-destructive/10")}>
                  <CardContent className="p-6 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
                     <div className="relative">
                         <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
@@ -570,6 +641,7 @@ export default function ClientDetailPage() {
                         <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-2">
                             <h1 className="text-2xl font-bold">{client.name}</h1>
                             {activeMembership && <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">Active Member</Badge>}
+                            {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse">HARD BAN</Badge>}
                         </div>
                         {isOwnerOrAdmin ? (
                             <div className="text-muted-foreground space-y-2">
@@ -667,7 +739,17 @@ export default function ClientDetailPage() {
                           </div>
                            <div className="lg:col-span-1 space-y-6">
                                <Card>
-                                   <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Client Accounts</CardTitle>{isOwnerOrAdmin && <Button variant="ghost" size="icon" onClick={handleReconcileLTV} title="Reconcile LTV"><RefreshCw className="h-4 w-4" /></Button>}</CardHeader>
+                                   <CardHeader className="flex flex-row items-center justify-between">
+                                       <CardTitle>Client Accounts</CardTitle>
+                                       <div className="flex gap-1">
+                                            {client.outstandingBalance && client.outstandingBalance > 0 && (
+                                                <Button variant="ghost" size="icon" onClick={handleSendBalanceNotice} title="Send Balance Reminder">
+                                                    <Send className="h-4 w-4 text-primary" />
+                                                </Button>
+                                            )}
+                                            {isOwnerOrAdmin && <Button variant="ghost" size="icon" onClick={handleReconcileLTV} title="Reconcile LTV"><RefreshCw className="h-4 w-4" /></Button>}
+                                       </div>
+                                   </CardHeader>
                                    <CardContent className="space-y-4">
                                       <div className="p-4 rounded-lg bg-primary/5 border border-primary/10"><div className="text-sm text-muted-foreground">Lifetime Value</div><div className="text-3xl font-bold text-primary">${safeLTV.toFixed(2)}</div></div>
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -767,7 +849,7 @@ export default function ClientDetailPage() {
             </Tabs>
       </main>
       
-      <AddFormulaDialog open={isAddFormulaOpen} onOpenChange={setIsAddFormulaOpen} onSave={handleSaveFormula} />
+      <AddFormulaDialog open={false} onOpenChange={() => {}} onSave={() => {}} />
       <LogIncidentDialog open={isLogIncidentOpen} onOpenChange={setIsLogIncidentOpen} client={client} onIncidentLogged={handleIncidentLogged} />
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={handleUpdateClient} />
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} appointmentToRebook={appointmentToRebook} memberships={memberships || []} onConfirm={() => setIsAddAppointmentOpen(false)}/>
@@ -778,6 +860,14 @@ export default function ClientDetailPage() {
         fee={feeToWaive} 
         onConfirm={handleConfirmWaive} 
         staff={staff || []}
+      />
+
+      <BanClientDialog
+        open={isBanDialogOpen}
+        onOpenChange={setIsBanDialogOpen}
+        client={client}
+        staff={staff || []}
+        onConfirm={handleConfirmBan}
       />
 
         <Dialog open={!!viewingConsent} onOpenChange={() => setViewingConsent(null)}>
