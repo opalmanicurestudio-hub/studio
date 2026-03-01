@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -368,22 +369,28 @@ function PlannerPageContent() {
   };
 
   const handleStartService = (id: string) => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || !appointments) return;
     const now = new Date().toISOString();
+    const appointment = appointments.find(a => a.id === id);
+    if (!appointment) return;
+
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
-    
     const batch = writeBatch(firestore);
     batch.update(appointmentRef, { status: 'servicing', actualStartTime: now });
     
-    const apt = appointments?.find(a => a.id === id);
-    if (apt?.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+    if (appointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
         batch.update(checkInRef, { status: 'servicing', tenantId });
     }
 
-    if (apt?.staffId) {
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', apt.staffId);
+    if (appointment.staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
         batch.update(staffDocRef, { status: 'busy' });
+    }
+
+    if (appointment.isWalkIn) {
+        const walkInId = id.replace('apt-walkin-', '');
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: now });
     }
 
     batch.commit();

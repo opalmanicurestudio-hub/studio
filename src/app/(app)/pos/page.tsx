@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -11,7 +12,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -32,8 +33,6 @@ import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
-import { Separator } from '@/components/ui/separator';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
@@ -264,8 +263,20 @@ function POSPageContent() {
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
       batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing', actualStartTime: nowISO });
-      if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
-      if (appointment.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' });
+      
+      if (appointment.checkInToken) {
+          batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+      }
+      
+      if (appointment.staffId) {
+          batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' });
+      }
+
+      if (appointment.isWalkIn) {
+          const walkInId = appointment.id.replace('apt-walkin-', '');
+          batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO });
+      }
+
       batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
@@ -475,12 +486,10 @@ function POSPageContent() {
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
     
-        // A staff member is only available if they are clocked in, not on break, and idle
-        // CRITICAL: Also check if they are already assigned to someone in the notified status to prevent double booking
         const assignedStaffIds = new Set(walkIns.filter(w => w.status === 'notified').map(w => w.assignedStaffId));
 
         const idleStaff = staff
-            .filter(s => s.active && !s.onBreak && s.status === 'idle' && !assignedStaffIds.has(s.id))
+            .filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !assignedStaffIds.has(s.id))
             .sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
         
         if (idleStaff.length === 0) {
