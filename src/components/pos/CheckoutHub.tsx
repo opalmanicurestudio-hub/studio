@@ -471,7 +471,7 @@ export const CheckoutHub = ({
                                                             {additional > 0 && isOwnerOrAdmin && (
                                                                 <div className="mt-2 pt-2 border-t border-dashed flex justify-between items-center">
                                                                     <span className="text-[9px] font-black text-muted-foreground uppercase">Overage Recovery</span>
-                                                                    {isWaived ? (
+                                                                    {isWaive ? (
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] font-bold text-green-600 uppercase">Absorbed</span>
                                                                             <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>

@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle, Fingerprint } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle, Fingerprint, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -37,6 +37,7 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
