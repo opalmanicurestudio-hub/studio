@@ -294,6 +294,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
     const existingAddOns = appointment.addOnIds || [];
     const existingOverrides = appointment.checkoutState?.serviceStaffOverrides || {};
+    const existingConcurrent = appointment.checkoutState?.concurrentServiceIds || [];
     
     const updates: any = {
         addOnIds: [...existingAddOns, newAddOnId],
@@ -306,6 +307,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     if (newAddOnTiming === 'immediate') {
         const staffRef = doc(firestore, 'tenants', tenantId, 'staff', newAddOnStaffId);
         updateDocumentNonBlocking(staffRef, { status: 'busy' });
+        updates['checkoutState.concurrentServiceIds'] = [...existingConcurrent, newAddOnId];
     }
 
     updateDocumentNonBlocking(appointmentRef, updates);
@@ -329,9 +331,12 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const newOverrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
     delete newOverrides[addOnId];
 
+    const newConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).filter(id => id !== addOnId);
+
     updateDocumentNonBlocking(appointmentRef, {
         addOnIds: newAddOns,
-        'checkoutState.serviceStaffOverrides': newOverrides
+        'checkoutState.serviceStaffOverrides': newOverrides,
+        'checkoutState.concurrentServiceIds': newConcurrent
     });
     
     toast({ title: "Service Removed" });
@@ -660,7 +665,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             <Label htmlFor="timing-sequential" className="flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer hover:bg-muted peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5">
                                 <Repeat className="w-4 h-4 mb-1" />
                                 <span className="text-[10px] font-black uppercase">Handoff</span>
-                                <span className="text-[8px] text-muted-foreground">After Primary</span>
+                                <span className="text-[8px] text-muted-foreground">After Previous</span>
                             </Label>
                         </div>
                     </RadioGroup>

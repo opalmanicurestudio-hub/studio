@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, addMinutes, differenceInSeconds } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check } from 'lucide-react';
+import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -89,7 +89,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     }, [appointment, staff]);
 
     const completedIds = appointment.checkoutState?.completedServiceIds || [];
-    
+    const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
     const isReady = appointment.status === 'ready_for_checkout';
     
     return (
@@ -102,15 +102,25 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                         <div className="space-y-1.5">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Active Providers</p>
                             {assignedTechnicians.map(tech => {
-                                // Check if this specific tech is done with all their assigned parts
+                                // Identify which parts this specific tech is responsible for
                                 const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {})
                                     .filter(([_, staffId]) => staffId === tech.id)
                                     .map(([svcId]) => svcId);
                                 if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) {
-                                    techServices.push(appointment.serviceId);
+                                    techServices.unshift(appointment.serviceId);
                                 }
                                 
                                 const isDone = techServices.length > 0 && techServices.every(id => completedIds.includes(id));
+                                
+                                // Logic: Working if ANY of their assigned services are ready
+                                // Ready = NOT completed AND (is primary OR is concurrent OR previous part is done)
+                                const isWorking = techServices.some(svcId => {
+                                    if (completedIds.includes(svcId)) return false;
+                                    const isPrimary = svcId === appointment.serviceId;
+                                    const isConcurrent = concurrentIds.includes(svcId);
+                                    const prevPartDone = completedIds.includes(appointment.serviceId); // Simplified handoff logic
+                                    return isPrimary || isConcurrent || prevPartDone;
+                                });
 
                                 return (
                                     <div key={tech.id} className={cn("flex items-center gap-2 p-1 rounded-lg border bg-background transition-opacity", isDone && "opacity-50 grayscale")}>
@@ -121,8 +131,13 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                         <span className="text-[11px] font-bold truncate flex-1">{tech.name.split(' ')[0]}</span>
                                         {isDone ? (
                                             <Badge className="bg-green-500 border-none h-4 px-1 text-[8px] uppercase font-black text-white">Done</Badge>
-                                        ) : (
+                                        ) : isWorking ? (
                                             <Badge variant="outline" className="h-4 px-1 text-[8px] uppercase font-black animate-pulse border-primary text-primary">Working</Badge>
+                                        ) : (
+                                            <Badge variant="secondary" className="h-4 px-1 text-[8px] uppercase font-black bg-muted text-muted-foreground border-none">
+                                                <Hourglass className="w-2 h-2 mr-0.5" />
+                                                Queued
+                                            </Badge>
                                         )}
                                     </div>
                                 );

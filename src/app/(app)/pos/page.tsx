@@ -271,7 +271,7 @@ function POSPageContent() {
         return appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
     }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, waivedAppointmentFees]);
 
-    const { discount, membershipDiscount } = useMemo(() => {
+    const financialCalcs = useMemo(() => {
         let dVal = 0;
         let mVal = 0;
 
@@ -290,17 +290,14 @@ function POSPageContent() {
             mVal = retailSub * (activeMem.retailDiscount / 100);
         }
 
-        return { discount: dVal, membershipDiscount: mVal };
-    }, [selectedClientId, appliedDiscountCodes, discounts, rawSubtotal, retailItems, clients, memberships]);
+        const subtotalAfterDiscounts = Math.max(0, rawSubtotal - (dVal + mVal));
+        const tax = subtotalAfterDiscounts * 0.07;
+        const total = subtotalAfterDiscounts + tax + tipAmount;
 
-    const { tax, total } = useMemo(() => {
-        const subtotalAfterDiscounts = Math.max(0, rawSubtotal - (discount + membershipDiscount));
-        const t = subtotalAfterDiscounts * 0.07;
-        return { 
-            tax: t, 
-            total: subtotalAfterDiscounts + t + tipAmount 
-        };
-    }, [rawSubtotal, discount, membershipDiscount, tipAmount]);
+        return { discount: dVal, membershipDiscount: mVal, tax, total };
+    }, [rawSubtotal, appliedDiscountCodes, discounts, selectedClientId, clients, memberships, retailItems, tipAmount]);
+
+    const { discount, membershipDiscount, tax, total } = financialCalcs;
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;
