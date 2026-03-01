@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint, XCircle } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer, FileText, Fingerprint, XCircle, Undo2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -199,7 +199,7 @@ function POSPageContent() {
             ).filter(Boolean);
 
             if (selectedApts.length > 0) {
-                const clientIds = [...new Set(selectedApts.map(a => a?.appointment.clientId))];
+                const clientIds = [...new Set(selectedApts.map(a => a?.client.id))];
                 if (clientIds.length === 1) {
                     setSelectedClientId(clientIds[0]!);
                 }
@@ -287,7 +287,8 @@ function POSPageContent() {
       }
       
       if (appointment.staffId) {
-          batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' });
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
+          batch.update(staffDocRef, { status: 'busy' });
       }
 
       if (appointment.isWalkIn) {
@@ -566,11 +567,12 @@ function POSPageContent() {
             return checkInDate >= todayStart && checkInDate <= todayEnd;
         });
 
-        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
-        const waitTimes = completedWalkIns.map(w => differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime)));
+        const servedWalkIns = walkInsToday.filter(w => w.serviceStartTime);
+        const waitTimes = servedWalkIns.map(w => differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime)));
         const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
 
         const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
+        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed');
         const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
 
         const totalInServiceMinutes = appointments.reduce((total, apt) => {
