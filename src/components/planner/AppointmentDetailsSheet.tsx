@@ -86,6 +86,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection, deleteField } from 'firebase/firestore';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -208,6 +209,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
+  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [newAddOnId, setNewAddOnId] = useState('');
   const [newAddOnStaffId, setNewAddOnStaffId] = useState('');
   const [newAddOnTiming, setNewAddOnTiming] = useState<'immediate' | 'sequential'>('sequential');
@@ -670,6 +672,16 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             </DialogFooter>
         </DialogContent>
     </Dialog>
+
+    <SelectAddOnsDialog 
+        open={isAddOnSelectorOpen} 
+        onOpenChange={setIsAddOnSelectorOpen} 
+        allAddOns={allServices.filter(s => s.type === 'addon')} 
+        initialSelected={[]} 
+        onSelect={(newAddOns) => {
+            // Bulk update logic can be added here if needed
+        }} 
+    />
 
     <WaiveFeeDialog 
         open={isWaiveDialogOpen} 

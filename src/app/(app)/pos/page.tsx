@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -250,7 +249,6 @@ function POSPageContent() {
         });
     }, []);
 
-    // 1. Calculate Raw Subtotal FIRST
     const rawSubtotal = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -274,7 +272,6 @@ function POSPageContent() {
         return appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
     }, [selectedAppointmentIds, readyForCheckoutAppointments, retailItems, appliedAdjustments, clients, selectedClientId, waivedAppointmentFees]);
 
-    // 2. Calculate Discounts using the Raw Subtotal
     const { discount, membershipDiscount } = useMemo(() => {
         let dVal = 0;
         let mVal = 0;
@@ -297,7 +294,6 @@ function POSPageContent() {
         return { discount: dVal, membershipDiscount: mVal };
     }, [selectedClientId, appliedDiscountCodes, discounts, rawSubtotal, retailItems, clients, memberships]);
 
-    // 3. Final Total Calculation
     const { tax, total } = useMemo(() => {
         const subtotalAfterDiscounts = Math.max(0, rawSubtotal - (discount + membershipDiscount));
         const t = subtotalAfterDiscounts * 0.07;

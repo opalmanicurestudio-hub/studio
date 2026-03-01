@@ -239,7 +239,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
                 <DialogTitle>{nextUpStaff ? 'Complete My Part & Hand-off' : 'Finish Service & Review'}</DialogTitle>
-                <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
+                <DialogHeader>
+                    <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
+                </DialogHeader>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4 space-y-6">

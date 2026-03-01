@@ -101,18 +101,15 @@ export const DayTimeline = ({
         const map = new Map<string, any[]>();
         if (!itemsByColumn) return map;
         
-        // Extended logic: check for staff overrides to show in multiple columns
         const allItemsOnDate = Array.from(itemsByColumn.values()).flat();
         
         for (const column of columns) {
             const columnId = column.id;
             
-            // Get primary assigned items
             const primaryItems = itemsByColumn.get(columnId) || [];
             
-            // Get secondary assigned items (handoffs/concurrent)
             const secondaryItems = activeView === 'staff' ? allItemsOnDate.filter(item => {
-                if (item.staffId === columnId) return false; // Already in primary
+                if (item.staffId === columnId) return false;
                 const overrides = (item as Appointment).checkoutState?.serviceStaffOverrides || {};
                 return Object.values(overrides).includes(columnId);
             }) : [];
@@ -127,7 +124,7 @@ export const DayTimeline = ({
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < columns.length; i++) {
-                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: a.startTime, end: a.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
+                        if (!columns[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
                             columns[i].push(item); item.layout.col = i; placed = true; break;
                         }
                     }
