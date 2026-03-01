@@ -290,8 +290,8 @@ function POSPageContent() {
         const selectedClient = clients.find(c => c.id === selectedClientId);
         if (selectedClient && selectedClient.activeMembershipId) {
             const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
-            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
-                memDiscount = retailTotalForDiscount * (membership.retailDiscount / 100);
+            if (membership?.retailDiscount && retailSubtotal > 0) {
+                memDiscount = retailSubtotal * (membership.retailDiscount / 100);
             }
         }
 
