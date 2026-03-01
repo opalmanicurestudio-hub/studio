@@ -205,7 +205,7 @@ export const CheckoutHub = ({
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments, staff } = useInventory();
+    const { appointments: allAppointments, staff, services } = useInventory();
     const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
     const { firestore } = useFirebase();
@@ -469,7 +469,7 @@ export const CheckoutHub = ({
                                                 const isRedeemed = redeemedOffer?.id === service.id;
                                                 const additional = data.appointment.checkoutState?.additionalCharge || 0;
                                                 const reviewNotes = data.appointment.checkoutState?.reviewNotes;
-                                                const isWaived = waivedAppointmentFees.has(data.id);
+                                                const isWaived = waivedAppointmentFees.has(data.appointment.id);
 
                                                 const membership = client.activeMembershipId ? memberships.find(m => m.id === client.activeMembershipId) : null;
                                                 const membershipPerk = membership?.includedServices?.find(ps => ps.id === service.id);
@@ -490,7 +490,7 @@ export const CheckoutHub = ({
                                                 const handleRedeem = () => setRedeemedOffer(isRedeemed ? null : { type: packagePerk ? 'package' : 'membership', id: service.id });
                                                 
                                                 return (
-                                                    <Card key={data.id} className={cn("overflow-hidden rounded-xl border-2", isRedeemed ? "bg-primary/5 border-primary shadow-sm" : "border-indigo-500/20")}>
+                                                    <Card key={data.appointment.id} className={cn("overflow-hidden rounded-xl border-2", isRedeemed ? "bg-primary/5 border-primary shadow-sm" : "border-indigo-500/20")}>
                                                         <CardContent className="p-2 md:p-3">
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="flex-1 min-w-0">
@@ -505,7 +505,7 @@ export const CheckoutHub = ({
                                                                         )}
                                                                     </div>
                                                                 </div>
-                                                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 shrink-0 text-destructive" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                                             </div>
                                                             
                                                             {reviewNotes && (
@@ -529,7 +529,7 @@ export const CheckoutHub = ({
                                                                             </div>
                                                                             <div className="flex items-center gap-2">
                                                                                 <span className="text-[10px] font-black text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</span>
-                                                                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(data.id, addonId)}>
+                                                                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(data.appointment.id, addonId)}>
                                                                                     <Trash2 className="w-3 h-3" />
                                                                                 </Button>
                                                                             </div>
@@ -555,10 +555,10 @@ export const CheckoutHub = ({
                                                                     {isWaived ? (
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-[9px] font-bold text-green-600 uppercase">Absorbed</span>
-                                                                            <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>
+                                                                            <Button variant="ghost" size="xs" onClick={() => onWaiveFeeToggle(data.appointment.id, false)} className="h-5 text-[9px] font-black uppercase underline">Restore</Button>
                                                                         </div>
                                                                     ) : (
-                                                                        <Button variant="ghost" size="xs" onClick={() => handleWaiveClick(data.id)} className="h-5 text-[9px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50">Absorb Fee</Button>
+                                                                        <Button variant="ghost" size="xs" onClick={() => handleWaiveClick(data.appointment.id)} className="h-5 text-[9px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50">Absorb Fee</Button>
                                                                     )}
                                                                 </div>
                                                             )}
@@ -772,7 +772,7 @@ export const CheckoutHub = ({
             <WaiveFeeDialog 
                 open={isWaiveAuthOpen} 
                 onOpenChange={setIsWaiveAuthOpen} 
-                feeAmount={appointmentsData.find(a => a.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} 
+                feeAmount={appointmentsData.find(a => a.appointment.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} 
                 staff={staff}
                 onConfirm={handleConfirmWaive}
             />

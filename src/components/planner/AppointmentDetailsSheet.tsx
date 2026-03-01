@@ -67,6 +67,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -83,7 +84,6 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection, deleteField } from 'firebase/firestore';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -486,19 +486,19 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     <p className='font-bold text-foreground text-base'>{service.name}</p>
                     <p className="font-black text-primary">${getServicePrice(service, staff.find(s => s.id === appointment.staffId)).toFixed(2)}</p>
                   </div>
-                  {(appointment.addOnIds || []).map(id => {
-                    const addon = allServices.find(s => s.id === id);
-                    const providerId = appointment.checkoutState?.serviceStaffOverrides?.[id];
+                  {(appointment.addOnIds || []).map(addonId => {
+                    const addon = allServices.find(s => s.id === addonId);
+                    const providerId = appointment.checkoutState?.serviceStaffOverrides?.[addonId];
                     const provider = staff.find(s => s.id === providerId);
                     return addon ? (
-                        <div key={addon.id} className="flex justify-between items-center pl-4 py-1.5 bg-muted/20 rounded-lg mt-1 group">
+                        <div key={addonId} className="flex justify-between items-center pl-4 py-1.5 bg-muted/20 rounded-lg mt-1 group">
                             <div className="flex items-center gap-2 min-w-0">
                                 <p className="text-xs text-muted-foreground font-medium truncate">+ {addon.name}</p>
                                 {provider && <Badge variant="outline" className="text-[8px] h-3.5 uppercase px-1">{provider.name.split(' ')[0]}</Badge>}
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(addon.id)}>
+                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addon.id)}>
                                     <Trash2 className="w-3 h-3" />
                                 </Button>
                             </div>
