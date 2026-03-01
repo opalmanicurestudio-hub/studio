@@ -284,7 +284,7 @@ function POSPageContent() {
                 const checkoutState = appointment.checkoutState;
                 if (checkoutState?.serviceStaffOverrides) {
                     Object.entries(checkoutState.serviceStaffOverrides).forEach(([svcId, staffId]) => {
-                        const svc = allServices?.find(s => s.id === svcId);
+                        const svc = services?.find(s => s.id === svcId);
                         const performer = staff?.find(s => s.id === staffId);
                         if (svc && performer) {
                             const svcPrice = getServicePrice(svc, performer);
@@ -721,7 +721,6 @@ function POSPageContent() {
 
         const s = appointmentsRawSubtotal + cartRawSubtotal + adjustmentsRawSubtotal;
         
-        // Calculate Discounts based on this raw subtotal
         let dVal = 0;
         let mVal = 0;
 

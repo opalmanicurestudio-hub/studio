@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -13,7 +11,7 @@ import {
   CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin, Link as LinkIcon } from 'lucide-react';
+import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin, Link as LinkIcon, AlertTriangle } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
@@ -26,10 +24,115 @@ import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
+import { cn } from '@/lib/utils';
+
+const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number }) => {
+    const { inventory, pricingTiers } = useInventory();
+
+    const { cost, timeCost, productCost } = useMemo(() => {
+        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+        const timeCost = (totalDuration / 60) * tmhr;
+        
+        const productCost = (service.products || []).reduce((acc, p) => {
+            const product = inventory.find(i => i.id === p.id);
+            if (!product) return acc;
+
+            let costPerUse = 0;
+            if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.size;
+            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+            } else {
+                costPerUse = product.costPerUnit || 0;
+            }
+            
+            return acc + (costPerUse * p.quantityUsed);
+        }, 0);
+        
+        return { cost: timeCost + productCost, timeCost, productCost };
+    }, [service, tmhr, inventory]);
+
+    const tierAnalysis = useMemo(() => {
+        if (!service.serviceTiers || service.serviceTiers.length === 0 || !pricingTiers) {
+            const profit = service.price - cost;
+            const margin = service.price > 0 ? (profit / service.price) * 100 : 0;
+            return [{ name: 'Standard', price: service.price, profit, margin, rank: 0 }];
+        }
+
+        return service.serviceTiers.map(tier => {
+            const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
+            if (!tierInfo) return null;
+
+            const profit = tier.price - cost;
+            const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
+
+            return {
+                name: tierInfo.name,
+                rank: tierInfo.rank,
+                price: tier.price,
+                profit,
+                margin,
+            };
+        }).filter((t): t is NonNullable<typeof t> => t !== null).sort((a,b) => a.rank - b.rank);
+    }, [service, cost, pricingTiers]);
+
+    return (
+        <Card className="lg:sticky top-24 border-2">
+            <CardHeader>
+                <CardTitle>Profitability Engine</CardTitle>
+                <CardDescription>
+                    Analysis based on your <strong>${tmhr.toFixed(2)}/hr</strong> TMHR.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div className="p-4 rounded-xl bg-destructive/5 border-2 border-destructive/10 space-y-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                        <TrendingUp className="w-3 h-3" />
+                        Breakeven Cost
+                    </p>
+                    <div className="flex justify-between items-baseline">
+                        <span className="text-3xl font-black text-destructive">${cost.toFixed(2)}</span>
+                        <span className="text-xs text-muted-foreground">per service</span>
+                    </div>
+                    <div className="space-y-1 text-[11px] pt-2 border-t border-destructive/10">
+                        <div className="flex justify-between"><span>Time Cost ({service.duration}m):</span> <span>${timeCost.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Product Cost:</span> <span>${productCost.toFixed(2)}</span></div>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tier Performance</p>
+                    {tierAnalysis.map(tier => (
+                        <div key={tier.name} className={cn("p-3 rounded-xl border-2 transition-all", tier.profit >= 0 ? "bg-primary/5 border-primary/10" : "bg-red-50 border-red-200")}>
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-black uppercase tracking-tight">{tier.name}</span>
+                                {tier.profit < 0 && <Badge variant="destructive" className="h-4 text-[8px] uppercase animate-pulse">Loss</Badge>}
+                            </div>
+                            <div className="flex justify-between items-baseline">
+                                <span className="text-xs font-bold text-muted-foreground">Price: ${tier.price.toFixed(2)}</span>
+                                <span className={cn("font-black text-sm", tier.profit >= 0 ? "text-primary" : "text-destructive")}>
+                                    ${tier.profit.toFixed(2)} ({tier.margin.toFixed(0)}%)
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+            {tierAnalysis.some(t => t.profit < 0) && (
+                <CardFooter className="p-4 bg-red-50 rounded-b-lg border-t border-red-100">
+                    <div className="flex gap-3 text-xs text-red-800">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <p>One or more tiers are priced below your <strong>TMHR Breakeven</strong>. Adjust prices to ensure studio profitability.</p>
+                    </div>
+                </CardFooter>
+            )}
+        </Card>
+    );
+};
 
 const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
   const { inventory } = useInventory();
-  const { timeCost, productCosts, equipmentCosts, totalCost } = useMemo(() => {
+  const { timeCost, productCosts, totalCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
 
@@ -54,36 +157,10 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       }
     });
 
-    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
-        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) {
-            return {
-                id: resourceId,
-                name: equipmentItem?.name || 'Unknown Equipment',
-                cost: 0,
-                imageUrl: equipmentItem?.imageUrl
-            };
-        }
-
-        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
-        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
-        const serviceDurationHours = totalDuration / 60;
-        const depreciationForService = hourlyDepreciation * serviceDurationHours;
-        
-        return {
-            id: resourceId,
-            name: equipmentItem.name,
-            cost: depreciationForService,
-            imageUrl: equipmentItem.imageUrl
-        };
-    });
-
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
-    const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
-    const totalCost = timeCost + totalProductCost; // Removed equipment cost
+    const totalCost = timeCost + totalProductCost;
 
-    return { timeCost, productCosts, equipmentCosts, totalCost };
+    return { timeCost, productCosts, totalCost };
   }, [service, tmhr, inventory]);
 
   return (
@@ -180,14 +257,6 @@ export default function ServiceDetailPage() {
     }
     const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
-    const sortedTiers = useMemo(() => {
-        if (!service.pricingTiers || service.pricingTiers.length === 0) {
-            return [];
-        }
-        const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
-        return [...service.pricingTiers].sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
-    }, [service.pricingTiers]);
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Service Details" />
@@ -208,82 +277,75 @@ export default function ServiceDetailPage() {
             </div>
         </div>
 
-        <div className="space-y-6">
-            <Card>
-                <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row items-start gap-6">
-                        <div className="w-32 h-32 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
-                            {service.imageUrl ? (
-                                <Image 
-                                    src={service.imageUrl} 
-                                    alt={service.name} 
-                                    width={128} 
-                                    height={128} 
-                                    className='rounded-lg object-cover h-full w-full' 
-                                    data-ai-hint="manicure nails" 
-                                />
-                            ) : (
-                                <List className="w-16 h-16 text-muted-foreground" />
-                            )}
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <h1 className="text-3xl font-bold">{service.name}</h1>
-                            <div className="flex items-center gap-4 text-muted-foreground">
-                                <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && `(+${totalPadding} pad)`}</div>
+        <div className="grid lg:grid-cols-3 gap-8 items-start">
+            <div className="lg:col-span-2 space-y-6">
+                <Card>
+                    <CardContent className="p-6">
+                        <div className="flex flex-col md:flex-row items-start gap-6">
+                            <div className="w-32 h-32 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
+                                {service.imageUrl ? (
+                                    <Image 
+                                        src={service.imageUrl} 
+                                        alt={service.name} 
+                                        width={128} 
+                                        height={128} 
+                                        className='rounded-lg object-cover h-full w-full' 
+                                        data-ai-hint="manicure nails" 
+                                    />
+                                ) : (
+                                    <List className="w-16 h-16 text-muted-foreground" />
+                                )}
                             </div>
-                            <p className="text-sm pt-2">{service.description || 'No description provided.'}</p>
-                        </div>
-                    </div>
-                     <Separator className="my-6" />
-                     <div className="space-y-4">
-                         <h4 className="font-medium">Pricing Tiers</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            {sortedTiers.map(tier => (
-                                <div key={tier.level} className="p-3 rounded-lg bg-muted/50 text-center">
-                                    <p className="text-sm capitalize text-muted-foreground">{tier.level}</p>
-                                    <p className="text-2xl font-bold">${tier.price.toFixed(2)}</p>
+                            <div className="flex-1 space-y-2">
+                                <h1 className="text-3xl font-bold">{service.name}</h1>
+                                <div className="flex items-center gap-4 text-muted-foreground">
+                                    <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && `(+${totalPadding} pad)`}</div>
                                 </div>
-                            ))}
+                                <p className="text-sm pt-2">{service.description || 'No description provided.'}</p>
+                            </div>
                         </div>
-                    </div>
-                </CardContent>
-            </Card>
-            
-            <Tabs defaultValue="performance">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="performance">Performance</TabsTrigger>
-                    <TabsTrigger value="formula">Formula</TabsTrigger>
-                </TabsList>
-                <TabsContent value="performance" className="mt-4">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>All-Time Performance</CardTitle>
-                        </CardHeader>
-                         <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="p-4 bg-muted/50 rounded-lg">
-                                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><BarChart className="w-4 h-4" /> Total Bookings</div>
-                                <div className="text-3xl font-bold">{servicePerformance?.totalBookings}</div>
-                            </div>
-                             <div className="p-4 bg-muted/50 rounded-lg">
-                                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Total Revenue</div>
-                                <div className="text-3xl font-bold">${servicePerformance?.totalRevenue.toFixed(2)}</div>
-                            </div>
-                             <div className="p-4 bg-muted/50 rounded-lg">
-                                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Users className="w-4 h-4" /> Unique Clients</div>
-                                <div className="text-3xl font-bold">{servicePerformance?.uniqueClients}</div>
-                            </div>
-                             <div className="p-4 bg-muted/50 rounded-lg">
-                                <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Avg. Revenue</div>
-                                <div className="text-3xl font-bold">${servicePerformance?.avgRevenuePerBooking.toFixed(2)}</div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-                <TabsContent value="formula" className="mt-4">
-                    <CostBreakdown service={service} tmhr={tmhr} />
-                </TabsContent>
-            </Tabs>
+                    </CardContent>
+                </Card>
+                
+                <Tabs defaultValue="performance">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="performance">Performance</TabsTrigger>
+                        <TabsTrigger value="formula">Formula</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="performance" className="mt-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>All-Time Performance</CardTitle>
+                            </CardHeader>
+                             <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="p-4 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><BarChart className="w-4 h-4" /> Total Bookings</div>
+                                    <div className="text-3xl font-bold">{servicePerformance?.totalBookings}</div>
+                                </div>
+                                 <div className="p-4 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Total Revenue</div>
+                                    <div className="text-3xl font-bold">${servicePerformance?.totalRevenue.toFixed(2)}</div>
+                                </div>
+                                 <div className="p-4 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Users className="w-4 h-4" /> Unique Clients</div>
+                                    <div className="text-3xl font-bold">{servicePerformance?.uniqueClients}</div>
+                                </div>
+                                 <div className="p-4 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Avg. Revenue</div>
+                                    <div className="text-3xl font-bold">${servicePerformance?.avgRevenuePerBooking.toFixed(2)}</div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="formula" className="mt-4">
+                        <CostBreakdown service={service} tmhr={tmhr} />
+                    </TabsContent>
+                </Tabs>
 
+            </div>
+            <div className="lg:col-span-1">
+                <ProfitAnalysisCard service={service} tmhr={tmhr} />
+            </div>
         </div>
       </main>
     </div>

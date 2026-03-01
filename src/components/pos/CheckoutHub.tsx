@@ -5,7 +5,31 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Banknote, CreditCard, Scan, Trash2, User, UserPlus, DollarSign, Award, Loader, Tag, Wand2, X, ShoppingCart, CheckCircle, Percent, AlertTriangle, QrCode, ShieldCheck, KeyRound, Landmark, MessageSquare, ShieldAlert, Users } from 'lucide-react';
+import { 
+    Banknote, 
+    CreditCard, 
+    Scan, 
+    Trash2, 
+    User, 
+    UserPlus, 
+    DollarSign, 
+    Award, 
+    Loader, 
+    Tag, 
+    Wand2, 
+    X, 
+    ShoppingCart, 
+    CheckCircle, 
+    Percent, 
+    AlertTriangle, 
+    QrCode, 
+    ShieldCheck, 
+    KeyRound, 
+    Landmark, 
+    MessageSquare, 
+    ShieldAlert, 
+    Users 
+} from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -135,6 +159,7 @@ export const CheckoutHub = ({
     allowStacking,
     waivedAppointmentFees,
     onWaiveFeeToggle,
+    tipAllocations,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -173,6 +198,7 @@ export const CheckoutHub = ({
     allowStacking: boolean;
     waivedAppointmentFees: Map<string, { authorizerId: string; reason: string }>;
     onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => void;
+    tipAllocations: Record<string, number>;
 }) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');

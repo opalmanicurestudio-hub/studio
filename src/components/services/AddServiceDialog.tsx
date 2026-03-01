@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -40,7 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2 } from 'lucide-react';
+import { AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package, PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -193,13 +191,6 @@ const Step1 = ({
     </div>
   </div>
     );
-};
-
-type EditableFormulaItem = {
-    id: string; // productId
-    name: string;
-    quantity: number;
-    unit: string;
 };
 
 const Step2 = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
@@ -388,12 +379,23 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
     }, [depositType, breakEvenCost, setValue]);
 
     return (
-        <Card>
-            <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
+        <Card className="border-2 border-primary/10">
+            <CardHeader className="bg-primary/5">
+                <div className="flex justify-between items-center">
+                    <div>
+                        <CardTitle>Pricing & Booking</CardTitle>
+                        <CardDescription>Determine your price based on studio costs.</CardDescription>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Est. Breakeven</p>
+                        <p className="text-xl font-black text-destructive">${breakEvenCost.toFixed(2)}</p>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6">
                 {pricingTiers.length > 0 ? (
                     <div className="space-y-4">
-                        <Label>Pricing & Duration by Tier</Label>
+                        <Label className="font-bold flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" /> Pricing & Duration by Tier</Label>
                         {(errors.serviceTiers && typeof errors.serviceTiers === 'object' && !Array.isArray(errors.serviceTiers)) && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one pricing tier must be configured.</AlertDescription></Alert>}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
@@ -401,10 +403,10 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        <Label htmlFor="standard-price">Standard Price</Label>
+                        <Label htmlFor="standard-price" className="font-bold">Standard Retail Price</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input id="standard-price" type="number" placeholder="0.00" {...register('price')} className="pl-8" />
+                            <Input id="standard-price" type="number" placeholder="0.00" {...register('price')} className="pl-8 h-12 text-lg font-bold" />
                         </div>
                         {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
                     </div>
@@ -413,7 +415,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                 
                 {!isAddon && (
                     <div className="space-y-4 pt-4 border-t">
-                        <Label>Deposit Requirement</Label>
+                        <Label className="font-bold">Booking Deposit Rule</Label>
                         <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
                                 <div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
@@ -473,7 +475,7 @@ const Step4 = ({ consentForms }: { consentForms: ConsentForm[] }) => {
                     <div className="space-y-2"><Label htmlFor="confirmationMessage">Confirmation Message</Label><Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} /></div>
                     <div className="flex items-center justify-between p-4 border rounded-lg"><div className='space-y-1'><Label htmlFor="private-service">Private Service</Label><p className='text-sm text-muted-foreground'>Hide from public booking page.</p></div><Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} /> )}/></div>
                     <div className="space-y-2"><Label>Required Consent Forms</Label>
-                    {requiredForms.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{requiredForms.map(form => (<div key={form.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{form.title}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveForm(form.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No forms required.</CardContent></Card>)}
+                    {requiredForms.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{requiredForms.map(form => ( <div key={form.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{form.title}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveForm(form.id)}><Trash2 className="h-4 w-4" /></Button></div> ))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No forms required.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsConsentFormBrowserOpen(true)} type="button" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Browse Forms</Button></div>
                 </CardContent>
             </Card>
@@ -544,7 +546,7 @@ export const AddServiceDialog: React.FC<{
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers, price, serviceTiers } = values;
+  const { duration, padBefore, padAfter, products } = values;
   const { inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const tmhr = selectedTenant?.tmhr || 50;
