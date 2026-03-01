@@ -475,7 +475,13 @@ function POSPageContent() {
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
     
-        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+        // A staff member is only available if they are clocked in, not on break, and idle
+        // CRITICAL: Also check if they are already assigned to someone in the notified status to prevent double booking
+        const assignedStaffIds = new Set(walkIns.filter(w => w.status === 'notified').map(w => w.assignedStaffId));
+
+        const idleStaff = staff
+            .filter(s => s.active && !s.onBreak && s.status === 'idle' && !assignedStaffIds.has(s.id))
+            .sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
         
         if (idleStaff.length === 0) {
           toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
@@ -526,6 +532,25 @@ function POSPageContent() {
         }
     
         toast({ variant: 'destructive', title: 'No Match', description: "Could not find a matching provider for the next client." });
+    };
+
+    const handleSkip = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
+        toast({ title: "Guest Skipped" });
+    };
+
+    const handleReturnToQueue = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'waiting', notifiedTimestamp: deleteField(), assignedStaffId: deleteField() });
+        const aptId = `apt-walkin-${walkInId}`;
+        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
+        toast({ title: "Guest Returned to Queue" });
+    };
+
+    const handleToggleWaitForStaff = (walkInId: string, wait: boolean) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { waitForPreferredStaff: wait });
     };
 
     const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
@@ -621,7 +646,7 @@ function POSPageContent() {
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} unifiedWaitlist={unifiedWaitlist} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={orderedWaitingQueue} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <WalkInQueue walkIns={walkIns} unifiedWaitlist={unifiedWaitlist} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={orderedWaitingQueue} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={handleToggleWaitForStaff} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
