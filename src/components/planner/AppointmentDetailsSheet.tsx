@@ -84,6 +84,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -133,6 +134,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                         <div className="flex justify-center">
                             <Input 
                                 type="password" 
+                                placeholder="••••"
                                 maxLength={4} 
                                 className="text-center text-2xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
                                 value={pin} 
@@ -198,10 +200,15 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
 }) => {
   const isMobile = useIsMobile();
   const { inventory, services: allServices, resources, staff, clients } = useInventory();
-  const { role, user } = useTenant();
+  const { role, user, selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const { toast } = useToast();
+  const { firestore } = useFirebase();
   
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
+  const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
+  const [newAddOnId, setNewAddOnId] = useState('');
+  const [newAddOnStaffId, setNewAddOnStaffId] = useState('');
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -277,10 +284,39 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     return { revenue, breakEven, profit: revenue - breakEven, timeCost, productCost };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
+  const handleAddServicePart = async () => {
+    if (!appointment || !newAddOnId || !newAddOnStaffId || !firestore || !tenantId) return;
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const existingAddOns = appointment.addOnIds || [];
+    const existingOverrides = appointment.checkoutState?.serviceStaffOverrides || {};
+    
+    const updates = {
+        addOnIds: [...existingAddOns, newAddOnId],
+        'checkoutState.serviceStaffOverrides': {
+            ...existingOverrides,
+            [newAddOnId]: newAddOnStaffId
+        }
+    };
+
+    updateDocumentNonBlocking(appointmentRef, updates);
+    setIsSplitServiceOpen(false);
+    setNewAddOnId('');
+    setNewAddOnStaffId('');
+    toast({ title: "Service Part Added", description: "Added and assigned to provider." });
+  };
+
   if (!appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
+
+  const idleQualifiedStaff = staff.filter(s => {
+      if (!s.active || s.onBreak || s.status === 'busy') return false;
+      const selectedAddOn = allServices.find(svc => svc.id === newAddOnId);
+      if (!selectedAddOn) return true;
+      return (selectedAddOn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill));
+  });
 
   return (
     <>
@@ -326,9 +362,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             )}
             {appointment.status === 'servicing' && (
               <div className="space-y-3">
-                <Button onClick={() => onFinishService(appointment)} className="w-full h-12" size="lg" variant="default">
-                  <Square className="mr-2 h-4 w-4" /> Finish Service
-                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                    <Button onClick={() => onFinishService(appointment)} className="h-12" size="lg" variant="default">
+                        <Square className="mr-2 h-4 w-4" /> Finish
+                    </Button>
+                    <Button variant="outline" className="h-12" onClick={() => setIsSplitServiceOpen(true)}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Part
+                    </Button>
+                </div>
                 {elapsedTime && (
                   <div className={cn("p-4 rounded-xl border-2 text-center transition-all", isRunningOver ? "bg-destructive/10 border-destructive text-destructive animate-pulse" : "bg-primary/5 border-primary/20 text-primary")}>
                     <p className="text-[10px] font-black uppercase tracking-widest mb-1">Service Time Elapsed</p>
@@ -408,7 +449,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                   <p className='font-bold text-foreground text-base'>{service.name}</p>
                   {(appointment.addOnIds || []).map(id => {
                     const addon = allServices.find(s => s.id === id);
-                    return addon ? <p key={addon.id} className="text-sm pl-4 text-muted-foreground/80 font-medium">+ {addon.name}</p> : null;
+                    const providerId = appointment.checkoutState?.serviceStaffOverrides?.[id];
+                    const provider = staff.find(s => s.id === providerId);
+                    return addon ? (
+                        <div key={addon.id} className="flex justify-between items-center pl-4 py-1">
+                            <p className="text-sm text-muted-foreground/80 font-medium">+ {addon.name}</p>
+                            {provider && <Badge variant="outline" className="text-[9px] h-4 uppercase">{provider.name.split(' ')[0]}</Badge>}
+                        </div>
+                    ) : null;
                   })}
                 </div>
                 <div className='flex flex-col p-3 rounded-lg border bg-muted/30'>
@@ -517,6 +565,51 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         </SheetFooter>
       </SheetContent>
     </Sheet>
+
+    <Dialog open={isSplitServiceOpen} onOpenChange={setIsSplitServiceOpen}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2"><PlusCircle className="w-5 h-5 text-primary" /> Add Service Part</DialogTitle>
+                <DialogDescription>Assign an additional add-on to a different provider who is currently available.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 py-4">
+                <div className="space-y-2">
+                    <Label>Select Add-on</Label>
+                    <Select value={newAddOnId} onValueChange={setNewAddOnId}>
+                        <SelectTrigger><SelectValue placeholder="Choose service..." /></SelectTrigger>
+                        <SelectContent>
+                            {allServices.filter(s => s.type === 'addon' && !(appointment.addOnIds || []).includes(s.id)).map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.duration} min)</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="space-y-2">
+                    <Label>Assign Provider</Label>
+                    <p className="text-[10px] text-muted-foreground uppercase font-black mb-2">Showing Idle & Qualified Staff</p>
+                    <RadioGroup value={newAddOnStaffId} onValueChange={setNewAddOnStaffId} className="grid grid-cols-2 gap-2">
+                        {idleQualifiedStaff.map(s => (
+                            <label key={s.id} htmlFor={`assign-${s.id}`} className="flex items-center gap-2 p-2 border-2 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary">
+                                <RadioGroupItem value={s.id} id={`assign-${s.id}`} className="sr-only" />
+                                <Avatar className="h-8 w-8 border shadow-sm"><AvatarImage src={s.avatarUrl} className="object-cover" /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar>
+                                <span className="text-xs font-bold truncate">{s.name.split(' ')[0]}</span>
+                            </label>
+                        ))}
+                        {idleQualifiedStaff.length === 0 && (
+                            <div className="col-span-2 p-4 text-center border-2 border-dashed rounded-xl bg-destructive/5 border-destructive/20">
+                                <p className="text-xs font-medium text-destructive">No providers currently idle.</p>
+                            </div>
+                        )}
+                    </RadioGroup>
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsSplitServiceOpen(false)}>Cancel</Button>
+                <Button onClick={handleAddServicePart} disabled={!newAddOnId || !newAddOnStaffId}>Assign Part</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+
     <WaiveFeeDialog 
         open={isWaiveDialogOpen} 
         onOpenChange={setIsWaiveDialogOpen} 

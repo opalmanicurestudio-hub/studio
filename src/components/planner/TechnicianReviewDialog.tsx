@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -230,7 +231,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
-            <DialogHeader className="p-6 pb-0">
+            <DialogHeader className="p-6 pb-0 text-left">
                 <DialogTitle>Finish Service & Review</DialogTitle>
                 <DialogDescription>Confirm service actuals before handoff to the front desk.</DialogDescription>
             </DialogHeader>
