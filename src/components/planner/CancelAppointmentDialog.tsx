@@ -54,7 +54,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
   
-  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'declined' | 'success'>('idle');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cardOnFile = { brand: 'Visa', last4: '4242' };
 
@@ -81,30 +81,24 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   }, [reason, isLateCancellation, dynamicFees]);
 
   const handleAction = async () => {
-    if (chargeFee && feeAmount > 0 && paymentMethod === 'card_on_file') {
-        setPaymentStatus('processing');
-        await new Promise(r => setTimeout(r, 1500));
-        setPaymentStatus('success');
-    }
-    
+    setIsSubmitting(true);
     await onConfirm({
         reason: reason === 'other' ? customReason : reason,
         chargeFee: chargeFee && feeAmount > 0,
         feeAmount: chargeFee ? feeAmount : 0,
         paymentMethod: (chargeFee && feeAmount > 0) ? paymentMethod : 'waived',
     });
-    
-    setPaymentStatus('idle');
+    setIsSubmitting(false);
     onOpenChange(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col max-h-[95dvh]">
         <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0 text-left">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
-            Record cancellation for {appointment.clientName}.
+            Confirming cancellation for <strong>{appointment.clientName}</strong>.
           </DialogDescription>
         </DialogHeader>
         
@@ -170,7 +164,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                           <Badge variant="outline" className="font-mono text-[9px] uppercase">{dynamicFees.duration}m Service</Badge>
                       </div>
                   </CardHeader>
-                  <CardContent className="p-4 pt-0 space-y-2">
+                  <CardContent className="p-4 pt-0 space-y-2 text-sm">
                       <div className="flex justify-between items-baseline border-b border-dashed pb-2">
                           <span className="text-xs text-muted-foreground">Reserved Overhead</span>
                           <span className="font-bold text-sm text-destructive">${dynamicFees.overheadRecovery.toFixed(2)}</span>
@@ -194,27 +188,27 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                 <span className={cn("text-xl font-black", chargeFee ? "text-destructive" : "text-muted-foreground")}>
                                     ${feeAmount.toFixed(2)}
                                 </span>
-                                <Switch checked={chargeFee} onCheckedChange={setChargeFee} disabled={paymentStatus === 'processing'} />
+                                <Switch checked={chargeFee} onCheckedChange={setChargeFee} disabled={isSubmitting} />
                             </div>
                         </div>
                         
                         {chargeFee && feeAmount > 0 && (
                             <div className="space-y-3">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
-                                <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={paymentStatus === 'processing'} className="grid grid-cols-2 gap-2">
-                                    <div className="flex flex-col h-full" onClick={() => setPaymentMethod('card_on_file')}>
+                                <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-2">
+                                    <div className="flex flex-col h-full">
                                         <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" />
                                         <Label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
                                             <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
                                             <span className="text-[10px] font-black uppercase">Card on File</span>
-                                            <span className="text-[9px] text-muted-foreground mt-1">Visa •••• {cardOnFile.last4}</span>
+                                            <span className="text-[9px] text-muted-foreground mt-1 truncate w-full px-1">Visa •••• {cardOnFile.last4}</span>
                                         </Label>
                                     </div>
-                                    <div className="flex flex-col h-full" onClick={() => setPaymentMethod('add_to_balance')}>
+                                    <div className="flex flex-col h-full">
                                         <RadioGroupItem value="add_to_balance" id="pay-balance" className="peer sr-only" />
                                         <Label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
                                             <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
-                                            <span className="text-[10px] font-black uppercase">Add to Client<br/>Balance</span>
+                                            <span className="text-[10px] font-black uppercase leading-tight">Add to Client<br/>Balance</span>
                                         </Label>
                                     </div>
                                 </RadioGroup>
@@ -227,17 +221,17 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
         <DialogFooter className="p-6 pt-4 border-t gap-2 bg-background shrink-0">
           <div className="grid grid-cols-2 gap-2 w-full">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={paymentStatus === 'processing'} className="h-12">Back</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 font-bold uppercase tracking-tight">Back</Button>
             <Button 
                 variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
                 onClick={handleAction} 
-                className="font-bold h-12"
-                disabled={paymentStatus === 'processing'}
+                className="font-bold h-12 uppercase tracking-tight shadow-lg"
+                disabled={isSubmitting}
             >
-                {paymentStatus === 'processing' ? (
-                    <><Loader className="w-4 h-4 animate-spin mr-2" /> Charging...</>
+                {isSubmitting ? (
+                    <><Loader className="w-4 h-4 animate-spin mr-2" /> Processing...</>
                 ) : (
-                    chargeFee && feeAmount > 0 ? (paymentMethod === 'card_on_file' ? 'Collect & Cancel' : 'Add to Balance') : 'Confirm Cancel'
+                    chargeFee && feeAmount > 0 ? (paymentMethod === 'card_on_file' ? 'Collect & Cancel' : 'Add & Cancel') : 'Confirm Cancel'
                 )}
             </Button>
           </div>

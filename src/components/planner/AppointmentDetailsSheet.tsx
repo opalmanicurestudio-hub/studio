@@ -196,7 +196,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
-  const { inventory, services: allServices, resources, staff } = useInventory();
+  const { inventory, services: allServices, resources, staff, clients } = useInventory();
   const { role, user } = useTenant();
   const { toast } = useToast();
   
@@ -279,12 +279,13 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   if (!appointment || !client || !service) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
+  const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
 
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
-        <SheetHeader className="p-6 pb-0">
+        <SheetHeader className="p-6 pb-0 text-left">
           <SheetTitle>Appointment Details</SheetTitle>
           <SheetDescription>A full breakdown of this appointment.</SheetDescription>
         </SheetHeader>
@@ -297,18 +298,20 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             <Fingerprint className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h3 className="font-black uppercase tracking-tighter text-sm">Identity Match Warning</h3>
-                            <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Potential Restricted Profile</p>
+                            <h3 className="font-black uppercase tracking-tighter text-sm">Identity Match Alert</h3>
+                            <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Suspected Shadow Profile</p>
                         </div>
                     </div>
                     <Alert variant="destructive" className="bg-white border-destructive text-destructive mt-3 shadow-xl">
                         <ShieldAlert className="h-4 w-4" />
-                        <AlertTitle className="text-xs font-black uppercase">Verify Physical ID</AlertTitle>
-                        <AlertDescription className="text-xs space-y-3">
-                            <p>This guest's name matches a restricted profile (Banned or Owed Balance).</p>
-                            <div className="flex gap-2">
-                                <Button variant="destructive" size="sm" className="h-8 font-black text-[10px] flex-1">Merge & Enforce</Button>
-                                <Button variant="outline" size="sm" className="h-8 font-bold text-[10px] flex-1">Not a Match</Button>
+                        <AlertTitle className="text-xs font-black uppercase">Enforcement Action Required</AlertTitle>
+                        <AlertDescription className="text-xs space-y-3 pt-1">
+                            <p>This guest's name matches a restricted account: <strong>{shadowProfile?.name || 'Restricted Profile'}</strong>.</p>
+                            {shadowProfile?.status === 'banned' && <p className="text-destructive font-black">REASON: Account is Banned ({shadowProfile.banReason})</p>}
+                            {(shadowProfile?.outstandingBalance || 0) > 0 && <p className="text-destructive font-black uppercase tracking-tight">ACTION: Collect Outstanding Debt (${shadowProfile?.outstandingBalance?.toFixed(2)})</p>}
+                            <div className="flex gap-2 pt-2">
+                                <Button variant="destructive" size="sm" className="h-8 font-black text-[10px] flex-1 uppercase tracking-tight shadow-md">Merge & Enforce</Button>
+                                <Button variant="outline" size="sm" className="h-8 font-bold text-[10px] flex-1">False Match</Button>
                             </div>
                         </AlertDescription>
                     </Alert>
@@ -338,7 +341,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             {appointment.status === 'cancelled' && (
                 <Alert className={cn(appointment.checkInStatus === 'auto_cancelled' ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-muted")}>
                     {appointment.checkInStatus === 'auto_cancelled' ? <ShieldCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
-                    <AlertTitle>{appointment.checkInStatus === 'auto_cancelled' ? 'Auto-Cancelled (Late)' : 'Manual Cancellation'}</AlertTitle>
+                    <AlertTitle className="font-bold">{appointment.checkInStatus === 'auto_cancelled' ? 'Auto-Cancelled (Late)' : 'Manual Cancellation'}</AlertTitle>
                     <AlertDescription className="space-y-3">
                         <p className="text-xs">Reason: {appointment.cancellationReason?.replace('_', ' ') || 'None provided.'}</p>
                         {appointment.cancellationFeeApplied && !appointment.cancellationFeeWaived && (
@@ -408,7 +411,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                   })}
                 </div>
                 <div className='flex flex-col p-3 rounded-lg border bg-muted/30'>
-                  <span className='font-bold text-foreground'>{format(new Date(appointment.startTime), 'EEEE, MMM d, yyyy')}</span>
+                  <span className='font-bold text-foreground'>{format(new Date(appointment.startTime), 'EEEE, MMMM d, yyyy')}</span>
                   <span className="text-xs">{format(new Date(appointment.startTime), 'h:mm a')} - {format(new Date(appointment.endTime), 'h:mm a')}</span>
                 </div>
               </div>
@@ -497,8 +500,8 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             </div>
           </div>
         </ScrollArea>
-        <SheetFooter className="p-6 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+        <SheetFooter className="p-6 border-t bg-background">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12">Close</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

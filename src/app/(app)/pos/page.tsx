@@ -12,7 +12,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -429,6 +429,105 @@ function POSPageContent() {
         toast({ title: "Override Complete" });
     };
 
+    const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
+      if (!firestore || !tenantId || !services) return;
+      
+      const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
+      updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
+      
+      const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+      const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
+
+      const appointmentId = `apt-walkin-${walkIn.id}`;
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+      
+      const now = new Date();
+
+      const appointmentData = {
+          id: appointmentId,
+          tenantId: tenantId,
+          clientId: walkIn.clientId || walkIn.id,
+          clientName: walkIn.customerName,
+          serviceId: walkIn.serviceIds[0],
+          staffId: staffId,
+          status: 'confirmed' as const,
+          source: 'walk-in' as const,
+          isWalkIn: true,
+          startTime: now.toISOString(),
+          endTime: addMinutes(now, duration).toISOString(),
+      };
+      setDocumentNonBlocking(appointmentRef, appointmentData, {});
+        
+      toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
+    };
+
+    const [orderedWaitingQueue, setOrderedWaitingQueue] = useState<WalkIn[]>([]);
+    useEffect(() => {
+        const waiting = (walkIns || []).filter(w => w.status === 'waiting');
+        const sorted = [...waiting].sort((a, b) => {
+            const orderA = a.queueOrder || new Date(a.checkInTime).getTime();
+            const orderB = b.queueOrder || new Date(b.checkInTime).getTime();
+            return orderA - orderB;
+        });
+        setOrderedWaitingQueue(sorted);
+    }, [walkIns]);
+
+    const handleAssignNext = () => {
+        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
+    
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && s.status === 'idle').sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+        
+        if (idleStaff.length === 0) {
+          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+          return;
+        }
+        
+        const waitingClients = orderedWaitingQueue.filter(w => w.status === 'waiting');
+        
+        if (waitingClients.length === 0) {
+          toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
+          return;
+        }
+    
+        if (assignmentMode === 'fair_play') {
+          for (const staffMember of idleStaff) {
+            for (const client of waitingClients) {
+              const allServiceIds = client.serviceIds;
+              const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+              const staffSkills = staffMember.skillSet || [];
+              const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+    
+              const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+              if (canPerformService && !existingAssignment) {
+                handleAssignStaff(client, staffMember.id);
+                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                return;
+              }
+            }
+          }
+        } else { 
+          for (const client of waitingClients) {
+            const existingAssignment = walkIns.find(w => w.id === client.id && w.assignedStaffId);
+            if (existingAssignment) continue;
+            
+            for (const staffMember of idleStaff) {
+                const allServiceIds = client.serviceIds;
+                const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
+                const staffSkills = staffMember.skillSet || [];
+                const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
+    
+              if (canPerformService) {
+                handleAssignStaff(client, staffMember.id);
+                toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                return;
+              }
+            }
+          }
+        }
+    
+        toast({ variant: 'destructive', title: 'No Match', description: "Could not find a matching provider for the next client." });
+    };
+
     const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
         const appointmentsSubtotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
@@ -494,13 +593,35 @@ function POSPageContent() {
         absorbedCost: 0, redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
     };
 
+    const unifiedWaitlist = useMemo(() => {
+        const today = startOfDay(new Date());
+        const wins = (walkIns || []).filter(w => w.status === 'waiting').map(w => {
+            const potentialAlias = clients?.find(c => (c.status === 'banned' || (c.outstandingBalance || 0) > 0) && c.name.toLowerCase() === w.customerName.toLowerCase());
+            return { ...w, type: 'walk-in' as const, isPotentialAlias: !!potentialAlias, matchedClientId: potentialAlias?.id };
+        });
+        const apts = (appointments || []).filter(a => 
+            !a.isWalkIn && 
+            isSameDay(new Date(a.startTime), today) && 
+            (a.status === 'confirmed' || a.status === 'deposit_pending')
+        ).map(a => {
+            const potentialAlias = clients?.find(c => (c.status === 'banned' || (c.outstandingBalance || 0) > 0) && c.name.toLowerCase() === (a.clientName || '').toLowerCase() && c.id !== a.clientId);
+            return { ...a, type: 'appointment' as const, isPotentialAlias: !!potentialAlias, matchedClientId: potentialAlias?.id };
+        });
+
+        return [...wins, ...apts].sort((a, b) => {
+            const timeA = a.type === 'walk-in' ? (a.queueOrder || new Date(a.checkInTime).getTime()) : new Date(a.startTime).getTime();
+            const timeB = b.type === 'walk-in' ? (b.queueOrder || new Date(b.checkInTime).getTime()) : new Date(b.startTime).getTime();
+            return timeA - timeB;
+        });
+    }, [walkIns, appointments, clients]);
+
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <WalkInQueue walkIns={walkIns} unifiedWaitlist={unifiedWaitlist} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={orderedWaitingQueue} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
@@ -579,16 +700,10 @@ function POSPageContent() {
                 </DialogContent>
             </Dialog>
 
-            <AlertDialog open={!!confirmation} onOpenChange={(val) => !val && setConfirmation(null)}>
+            <AlertDialog open={confirmation?.isOpen} onOpenChange={(val) => !val && setConfirmation(null)}>
                 <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
-                        <AlertDialogDescription>{confirmation?.description}</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmation?.onConfirm}>Confirm</AlertDialogAction>
-                    </AlertDialogFooter>
+                    <AlertDialogHeader><AlertDialogTitle>{confirmation?.title}</AlertDialogTitle><AlertDialogDescription>{confirmation?.description}</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation?.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
         </div>
