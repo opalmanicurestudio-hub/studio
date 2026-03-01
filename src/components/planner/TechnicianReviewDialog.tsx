@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -173,10 +173,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const totalAdditionalCharge = extraTimeCharge + extraProductCost;
 
   const nextUpStaff = useMemo(() => {
+      if (!appointment) return null;
       const nextStaffId = Object.values(serviceStaffOverrides).find(id => id !== appointment.staffId);
       if (!nextStaffId) return null;
       return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, appointment.staffId, staff]);
+  }, [serviceStaffOverrides, appointment?.staffId, staff]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
@@ -210,7 +211,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   };
 
   const handleSend = () => {
-    if (!client || !service || !onSendToFrontDesk) return;
+    if (!client || !service || !appointment || !onSendToFrontDesk) return;
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
@@ -227,7 +228,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     onSendToFrontDesk(appointment.id, checkoutState);
   };
 
-  if (!client || !service) return null;
+  if (!client || !service || !appointment) return null;
 
   const DialogComponent = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;

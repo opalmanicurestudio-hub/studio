@@ -100,7 +100,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                                 type="password" 
                                 placeholder="••••"
                                 maxLength={4} 
-                                className="text-center text-3xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
+                                className="text-center text-2xl font-black h-14 w-48 tracking-[0.5em] bg-muted/50 border-2" 
                                 value={pin} 
                                 onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                                 autoFocus
@@ -109,7 +109,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: Wai
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="waive-reason-pos">Reason for Waiver</Label>
-                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide context for this waiver (e.g., Client verified emergency)..." />
+                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="Provide context for this waiver..." />
                     </div>
                 </div>
                 <DialogFooter className="gap-2">

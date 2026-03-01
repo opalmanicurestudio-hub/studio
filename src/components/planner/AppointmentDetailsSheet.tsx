@@ -302,7 +302,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         }
     };
 
-    // If timing is immediate, we also need to mark the provider as busy on the floor
     if (newAddOnTiming === 'immediate') {
         const staffRef = doc(firestore, 'tenants', tenantId, 'staff', newAddOnStaffId);
         updateDocumentNonBlocking(staffRef, { status: 'busy' });
