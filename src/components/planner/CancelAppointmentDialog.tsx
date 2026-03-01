@@ -96,7 +96,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         setPaymentStatus('processing');
         await new Promise(r => setTimeout(r, 1500));
         
-        if (Math.random() > 0.7) {
+        if (Math.random() > 0.9) { // 10% chance of failure for simulation
             setPaymentStatus('declined');
             return;
         }
@@ -120,7 +120,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
             onOpenChange(val);
         }
     }}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col h-full max-h-[90dvh] sm:h-auto sm:max-h-[85vh]">
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col h-fit max-h-[90dvh]">
         <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0">
           <DialogTitle>Cancel Appointment</DialogTitle>
           <DialogDescription>
@@ -133,21 +133,21 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 <div className="space-y-3">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation Reason</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-md border-border">
+                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
                         <RadioGroupItem value="client_request" id="reason-client" />
                         <Label htmlFor="reason-client" className="flex-1 cursor-pointer">
                             <p className="font-semibold text-sm">Client Request</p>
                             {isLateCancellation && <p className="text-[9px] text-amber-600 font-bold uppercase tracking-tighter">Late Notice</p>}
                         </Label>
                     </div>
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-md border-border">
+                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
                         <RadioGroupItem value="no-show" id="reason-noshow" />
                         <Label htmlFor="reason-noshow" className="flex-1 cursor-pointer">
                             <span className="font-semibold text-sm">No-Show</span>
                             <span className="text-[9px] text-destructive font-black uppercase tracking-tighter block">Penalty: 100% Price</span>
                         </Label>
                     </div>
-                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-md border-border">
+                    <div className="flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm border-border">
                         <RadioGroupItem value="other" id="reason-other" />
                         <Label htmlFor="reason-other" className="flex-1 cursor-pointer font-semibold text-sm">Other</Label>
                     </div>

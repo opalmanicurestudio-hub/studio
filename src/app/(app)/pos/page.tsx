@@ -304,7 +304,7 @@ export default function POSPage() {
     const handleCheckInStatusUpdate = (id: string, isWalkIn: boolean, newStatus: string, lateMinutes?: number) => {
         if (!firestore || !tenantId) return;
         
-        const updateData: any = { checkInStatus: newStatus, lateTimeMinutes: lateMinutes || 0 };
+        const updateData: any = { checkInStatus: newStatus, lateTimeMinutes: lateMinutes || 0, tenantId };
         
         if (newStatus === 'auto_cancelled') {
             updateData.status = 'cancelled';
@@ -326,7 +326,7 @@ export default function POSPage() {
             
             const apt = appointments.find(a => a.id === id);
             if (apt?.checkInToken) {
-                updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...updateData, tenantId });
+                updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), updateData);
             }
 
             if (apt?.staffId) {
@@ -489,10 +489,10 @@ export default function POSPage() {
             cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
         });
 
-        // CRITICAL: Update public check-in token record
+        // CRITICAL: Sync with Public Check-in link
         if (appointmentToCancel.checkInToken) {
             const checkInRef = doc(firestore, 'appointmentCheckIns', appointmentToCancel.checkInToken);
-            batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason });
+            batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason, tenantId });
         }
 
         if (data.chargeFee && data.feeAmount > 0) {
@@ -677,7 +677,7 @@ export default function POSPage() {
                 });
 
                 if (appointment.checkInToken) {
-                    batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed' });
+                    batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
                 }
 
                 const staffRef = doc(firestore, 'tenants', tenantId, 'staff', provider.id);
@@ -859,7 +859,7 @@ export default function POSPage() {
 
       if (appointment.checkInToken) {
           const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-          batch.update(checkInRef, { status: 'servicing' });
+          batch.update(checkInRef, { status: 'servicing', tenantId });
       }
       
       if (appointment.staffId) {
@@ -899,7 +899,7 @@ export default function POSPage() {
         const appointment = appointments?.find(a => a.id === appointmentId);
         if (appointment?.checkInToken) {
             const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-            batch.update(checkInRef, { status: 'ready_for_checkout' });
+            batch.update(checkInRef, { status: 'ready_for_checkout', tenantId });
         }
         if (appointment?.staffId) {
             const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
@@ -916,7 +916,7 @@ export default function POSPage() {
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
         selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          const apt = readyForCheckoutAppointments.find(a => a.id === id);
           if (apt) clientIds.add(apt.appointment.clientId);
         });
         return (clients || []).filter(c => clientIds.has(c.id));

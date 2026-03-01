@@ -226,7 +226,7 @@ function PlannerPageContent() {
     
     const apt = appointments?.find(a => a.id === id);
     if (apt?.checkInToken) {
-        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status });
+        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status, tenantId });
     }
 
     toast({ title: "Status Updated", description: `Appointment status changed to ${status}.` });
@@ -262,13 +262,17 @@ function PlannerPageContent() {
         cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
     });
 
-    // CRITICAL: Update public check-in token record
+    // 2. Sync with Public Check-in (Token) Record
     if (selectedAppointment.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
-        batch.update(checkInRef, { status: 'cancelled', cancellationReason: data.reason });
+        batch.update(checkInRef, { 
+            status: 'cancelled', 
+            cancellationReason: data.reason,
+            tenantId: tenantId // Required for permission verification
+        });
     }
 
-    // 2. Handle Fee Collection
+    // 3. Handle Fee Collection
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
             const transactionRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -327,7 +331,7 @@ function PlannerPageContent() {
     const appointment = appointments?.find(a => a.id === appointmentId);
     if (appointment?.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        batch.update(checkInRef, { status: 'ready_for_checkout' });
+        batch.update(checkInRef, { status: 'ready_for_checkout', tenantId });
     }
 
     if (appointment?.staffId) {
@@ -372,7 +376,7 @@ function PlannerPageContent() {
     const apt = appointments?.find(a => a.id === id);
     if (apt?.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
-        batch.update(checkInRef, { status: 'servicing' });
+        batch.update(checkInRef, { status: 'servicing', tenantId });
     }
 
     if (apt?.staffId) {
@@ -445,7 +449,7 @@ function PlannerPageContent() {
     };
 
     updateDocumentNonBlocking(appointmentRef, updates);
-    if (checkInRef) updateDocumentNonBlocking(checkInRef, updates);
+    if (checkInRef) updateDocumentNonBlocking(checkInRef, { ...updates, tenantId });
 
     toast({ title: "Override Complete", description: "The appointment has been restored." });
     setIsOverrideOpen(false);

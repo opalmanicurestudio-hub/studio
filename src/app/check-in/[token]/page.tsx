@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -6,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors, CheckCircle, Wallet } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
@@ -19,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import Link from 'next/link';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 /**
  * Utility to safely convert Firestore/API values to Date objects.
@@ -515,6 +515,16 @@ export default function CheckInPage() {
                 <CardDescription>Ready for your appointment?</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+                {client.outstandingBalance && client.outstandingBalance > 0 && (
+                    <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive border-2">
+                        <Wallet className="h-4 w-4" />
+                        <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
+                        <AlertDescription className="text-xs mt-1">
+                            Our records show a balance of <strong>${client.outstandingBalance.toFixed(2)}</strong>. You can settle this with your provider today!
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
                      <div className="flex items-center gap-3">
                         <Avatar className="w-12 h-12">
