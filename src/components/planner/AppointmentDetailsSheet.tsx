@@ -679,7 +679,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         allAddOns={allServices.filter(s => s.type === 'addon')} 
         initialSelected={[]} 
         onSelect={(newAddOns) => {
-            // Bulk update logic can be added here if needed
+            // Bulk update logic could go here if needed
         }} 
     />
 

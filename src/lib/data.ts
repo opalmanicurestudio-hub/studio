@@ -316,6 +316,7 @@ export type AppointmentCheckoutState = {
     addOnServices: Service[];
     actualDuration: number;
     serviceStaffOverrides: Record<string, string>;
+    completedServiceIds?: string[];
     tipAllocations: Record<string, number>;
     tipAmount: number;
     additionalCharge: number;

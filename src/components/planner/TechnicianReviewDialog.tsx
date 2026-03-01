@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -35,6 +35,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { useTenant } from '@/context/TenantContext';
 import { Textarea } from '../ui/textarea';
+import { useUser } from '@/firebase';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -67,17 +68,18 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const { appointment, client, service } = appointmentData;
   const { services: allServices, inventory } = useInventory();
   const { selectedTenant } = useTenant();
+  const { user: currentUser } = useUser();
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
+  const [completedServiceIds, setCompletedServiceIds] = useState<string[]>([]);
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [reviewNotes, setReviewNotes] = useState('');
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-  const [formulaName, setFormulaName] = useState('Default Service Formula');
 
   useEffect(() => {
     if (open && service && appointment) {
@@ -98,6 +100,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             .map(id => allServices.find(s => s.id === id))
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
+        setCompletedServiceIds(checkoutState?.completedServiceIds || []);
         
         let durationToSet = checkoutState?.actualDuration;
 
@@ -118,10 +121,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setReviewNotes(checkoutState?.reviewNotes || '');
         
         const initialOverrides: Record<string, string> = {};
+        initialOverrides[service.id] = appointment.staffId || '';
         initialAddons.forEach(addon => {
-            initialOverrides[addon.id] = appointment.staffId || '';
+            initialOverrides[addon.id] = checkoutState?.serviceStaffOverrides?.[addon.id] || appointment.staffId || '';
         });
-        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
+        setServiceStaffOverrides(initialOverrides);
     }
   }, [service, appointment, open, allServices, inventory]);
 
@@ -149,35 +153,28 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
   };
 
-  const extraTimeCharge = useMemo(() => {
+  const totalAdditionalCharge = useMemo(() => {
     if (!service) return 0;
-    const overage = actualDuration - service.duration;
-    if (overage > 0) {
-        return (overage / 60) * tmhr;
-    }
-    return 0;
-  }, [actualDuration, service, tmhr]);
-
-  const extraProductCost = useMemo(() => {
-    if (!service) return 0;
+    const timeOverage = Math.max(0, (actualDuration - service.duration) / 60) * tmhr;
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const standardCost = service.products?.reduce((acc, p) => {
         const item = inventory.find(inv => inv.id === p.id);
         const cpu = item?.costPerUnit || 0;
         return acc + (p.quantityUsed * cpu);
     }, 0) || 0;
-    
-    return Math.max(0, currentCost - standardCost);
-  }, [editableFormula, service, inventory]);
-
-  const totalAdditionalCharge = extraTimeCharge + extraProductCost;
+    const productOverage = Math.max(0, currentCost - standardCost);
+    return timeOverage + productOverage;
+  }, [actualDuration, service, tmhr, editableFormula, inventory]);
 
   const nextUpStaff = useMemo(() => {
-      if (!appointment) return null;
-      const nextStaffId = Object.values(serviceStaffOverrides).find(id => id !== appointment.staffId);
+      if (!appointment || !currentUser) return null;
+      // Find someone assigned who isn't the current user and hasn't finished
+      const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
+          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
+      })?.[1];
       if (!nextStaffId) return null;
       return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, appointment?.staffId, staff]);
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
@@ -194,7 +191,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             }
           }) || [];
           setEditableFormula(defaultFormula);
-          setFormulaName('Default Service Formula');
           return;
       }
 
@@ -207,11 +203,17 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         }
       });
       setEditableFormula(newFormula);
-      setFormulaName(formula.name);
   };
 
-  const handleSend = () => {
-    if (!client || !service || !appointment || !onSendToFrontDesk) return;
+  const handleCompleteMyPart = () => {
+    if (!client || !service || !appointment || !currentUser) return;
+
+    // Identify which parts the current user was responsible for
+    const myServiceIds = Object.entries(serviceStaffOverrides)
+        .filter(([_, staffId]) => staffId === currentUser.uid)
+        .map(([svcId]) => svcId);
+
+    const newCompletedIds = [...new Set([...completedServiceIds, ...myServiceIds])];
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
@@ -219,6 +221,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         actualDuration,
         reviewNotes,
         serviceStaffOverrides,
+        completedServiceIds: newCompletedIds,
         absorbedCost: 0, 
         tipAmount: 0, 
         tipAllocations: {}, 
@@ -239,9 +242,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
                 <DialogTitle>{nextUpStaff ? 'Complete My Part & Hand-off' : 'Finish Service & Review'}</DialogTitle>
-                <DialogHeader>
-                    <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
-                </DialogHeader>
+                <DialogDescription>Confirm service actuals before moving the client to the next stage.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4 space-y-6">
@@ -273,7 +274,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md flex justify-between items-center">
+                              <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md">
                                   <span className="text-xs font-bold text-amber-700 flex items-center gap-2"><Info className="w-3 h-3"/> Extra Time Logged ({actualDuration - service.duration}m)</span>
                               </div>
                           )}
@@ -319,11 +320,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                             </div>
                             ))}
-                            {extraProductCost > 0 && (
-                                <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md flex justify-between items-center">
-                                    <span className="text-xs font-bold text-amber-700 flex items-center gap-2"><Info className="w-3 h-3"/> Extra Product Used</span>
-                                </div>
-                            )}
                         </div>
                         <div className='flex gap-2'>
                             <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
@@ -337,11 +333,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <MessageSquare className="w-4 h-4 text-primary" />
                             Review Notes
                         </CardTitle>
-                        <CardDescription>Communicate reasons for overages to the front desk.</CardDescription>
+                        <CardDescription>Communicate context for overages to the front desk.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <Textarea 
-                            placeholder="e.g., Client requested extra length, arrived late with complex needs..." 
+                            placeholder="e.g., Client requested extra density, arrived with severe matting..." 
                             value={reviewNotes}
                             onChange={(e) => setReviewNotes(e.target.value)}
                             rows={3}
@@ -350,27 +346,26 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
                 
                 <Card>
-                  <CardHeader><CardTitle>Add-ons & Staff</CardTitle></CardHeader>
+                  <CardHeader><CardTitle>Assigned Providers</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
-                        <h4 className="font-medium text-sm">Add-on Services</h4>
-                        <div className="space-y-2 text-sm">
-                            {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
-                        <Separator className="my-4"/>
-                        <h4 className="font-medium text-sm">Staff Hand-off</h4>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                 <span className="text-sm font-medium">{service.name}</span>
-                                <span className="text-sm font-semibold pr-2">{staff.find(s => s.id === appointment.staffId)?.name || 'Unassigned'}</span>
+                                <div className="flex items-center gap-2">
+                                    {completedServiceIds.includes(service.id) && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                    <span className="text-sm font-semibold">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name || 'Unassigned'}</span>
+                                </div>
                             </div>
                             {selectedAddOns.map(addon => (
                                 <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                     <span className="text-sm pl-4">+ {addon.name}</span>
-                                    <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                        <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                                    </Select>
+                                    <div className="flex items-center gap-2">
+                                        {completedServiceIds.includes(addon.id) && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                        <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                            <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                            <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -380,14 +375,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </ScrollArea>
             <DialogFooter className="p-6 pt-4 border-t">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleSend} className="h-11">
+                <Button onClick={handleCompleteMyPart} className="h-11">
                     {nextUpStaff ? (
                         <>
-                            <Repeat className="mr-2 h-4 w-4" /> Hand-off to {nextUpStaff.name.split(' ')[0]}
+                            <Repeat className="mr-2 h-4 w-4" /> Complete My Part & Hand-off
                         </>
                     ) : (
                         <>
-                            <Send className="mr-2 h-4 w-4" /> Send to Front Desk
+                            <Send className="mr-2 h-4 w-4" /> Complete My Part & Send to Desk
                         </>
                     )}
                 </Button>

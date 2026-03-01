@@ -36,7 +36,6 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -55,7 +54,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 function POSPageContent() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
-    const { firestore } = useFirebase();
+    const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
@@ -455,13 +454,38 @@ function POSPageContent() {
     };
 
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-        if (!firestore || !tenantId) return;
+        if (!firestore || !tenantId || !currentUser) return;
         const batch = writeBatch(firestore);
-        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-        const appointment = appointments?.find(a => a.id === appointmentId);
-        if (appointment?.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'ready_for_checkout', tenantId });
-        if (appointment?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'idle' });
-        batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Service Finished" }); });
+        
+        // Logic for independent staff completion
+        const isTechnicianSelfCompletion = !!checkoutState.completedServiceIds?.length;
+        
+        if (isTechnicianSelfCompletion) {
+            // Mark individual provider as Idle, even if appointment stays "Servicing"
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' });
+            
+            // Check if ALL assigned parts are complete
+            const apt = appointments.find(a => a.id === appointmentId);
+            if (apt) {
+                const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+                const allComplete = (checkoutState.completedServiceIds?.length || 0) >= totalServicesCount;
+                
+                if (allComplete) {
+                    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+                    if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+                } else {
+                    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { checkoutState });
+                }
+            }
+        } else {
+            // Fallback for full completion
+            batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+            const appointment = appointments?.find(a => a.id === appointmentId);
+            if (appointment?.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'ready_for_checkout', tenantId });
+            if (appointment?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'idle' });
+        }
+
+        batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Status Updated" }); });
     };
 
     const handleStaffReorder = (newOrder: Staff[]) => {

@@ -726,7 +726,7 @@ export const CheckoutHub = ({
                                                             value={allocation || ''} 
                                                             onChange={(e) => {
                                                                 const val = parseFloat(e.target.value) || 0;
-                                                                // Handle tip allocations through callback or local update logic if needed
+                                                                // Tip allocation updates are handled in local state of the dialog normally
                                                             }}
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />
