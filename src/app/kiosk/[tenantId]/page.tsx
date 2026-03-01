@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -100,19 +101,19 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
 
 const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'group') => void }) => (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
-        <h2 className="text-2xl md:text-4xl font-bold tracking-tight text-center mb-8 px-4">Who are we serving today?</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6">
+        <h2 className="text-xl md:text-4xl font-bold tracking-tight text-center mb-8 px-4">Who are we serving today?</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-10">
             <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('individual')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
                     <User className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
-                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight">Just Me</h3>
+                    <h3 className="text-xl md:text-4xl font-bold tracking-tight">Just Me</h3>
                     <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself.</p>
                 </div>
             </div>
              <div className="rounded-2xl border-2 border-slate-700 bg-slate-800/50 text-slate-100 shadow-lg transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer" onClick={() => onSelect('group')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
                     <Users className="w-10 h-10 md:w-16 md:h-16 mb-4 md:mb-6 text-primary" />
-                    <h3 className="text-2xl md:text-4xl font-bold tracking-tight">My Group</h3>
+                    <h3 className="text-xl md:text-4xl font-bold tracking-tight">My Group</h3>
                     <p className="text-slate-400 mt-2 text-sm md:text-base">I'm checking in for myself and others.</p>
                 </div>
             </div>
@@ -240,7 +241,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             const minPrice = Math.min(...prices);
             return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers };
         }
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min`, hasTiers: false };
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${duration} min`, hasTiers: false };
     }, [service, staffTierId, pricingTiers]);
 
     return (
@@ -282,7 +283,7 @@ const StepServices = ({ member, onUpdate, services, staff, pricingTiers }: { mem
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
     
     if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-8 text-xl md:text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-8 text-lg md:text-2xl font-bold rounded-2xl border border-slate-700 bg-slate-800/50 text-slate-100 hover:bg-slate-700/50 transition-colors shadow-lg" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
     
     return (
@@ -392,10 +393,10 @@ const MemberSetup = ({
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
-            <div className="p-6 md:p-8">
-                <h2 className="text-2xl md:text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
+            <div className="p-6 md:p-10">
+                <h2 className="text-xl md:text-4xl font-black tracking-tight text-white">{isGroup ? `Guest ${member.index + 1}` : 'Check-in'}</h2>
                 <div className="flex items-center justify-between gap-4 mt-2">
-                    <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">
+                    <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-[9px] md:text-xs">
                         {subStepTitles[memberSubStep as MemberSubStep].icon} {subStepTitles[memberSubStep as MemberSubStep].title}
                     </div>
                     {isGroup && <p className="text-[10px] md:text-xs font-black text-primary bg-primary/10 px-2 py-1 rounded-md">{member.index + 1} / {partyMembers.length}</p>}
@@ -403,7 +404,7 @@ const MemberSetup = ({
                 <div className="pt-4 md:pt-6"><Progress value={progress} className="h-1.5 md:h-2 bg-slate-800" /></div>
             </div>
 
-            <div className="p-6 md:p-8 pt-0">
+            <div className="p-6 md:p-10 pt-0">
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
@@ -426,8 +427,8 @@ const MemberSetup = ({
             </div>
 
             <Separator className="bg-slate-800" />
-            <div className="p-6 md:p-8 flex flex-col sm:flex-row gap-3 md:gap-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-12 md:h-14 text-base md:text-lg">Back</Button>
+            <div className="p-6 md:p-10 flex flex-col sm:flex-row gap-3 md:gap-4">
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 h-12 md:h-14 text-sm md:text-lg">Back</Button>
                 <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
@@ -446,7 +447,7 @@ const MemberSetup = ({
                                 variant="outline" 
                                 onClick={onAddAnother} 
                                 disabled={isSubmitting || (memberSubStep === 'details' && (!!bannedClient || !!existingClientWithBalance || isResolvingIdentity))} 
-                                className="h-12 md:h-14 border-slate-700 text-slate-300 px-6 md:px-8 text-base md:text-lg"
+                                className="h-12 md:h-14 border-slate-700 text-slate-300 px-6 md:px-8 text-sm md:text-lg"
                             >
                                 Next Guest
                             </Button>
@@ -472,8 +473,8 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             <CheckCircle className="w-10 h-10 md:w-12 md:h-12 text-green-500" />
         </div>
         <div className="space-y-2">
-            <h2 className="text-3xl md:text-5xl font-black tracking-tight text-white">You're in line!</h2>
-            <p className="text-slate-400 text-base md:text-xl">We'll text you as soon as your pro is ready.</p>
+            <h2 className="text-2xl md:text-5xl font-black tracking-tight text-white">You're in line!</h2>
+            <p className="text-slate-400 text-sm md:text-xl">We'll text you as soon as your pro is ready.</p>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 max-w-2xl mx-auto">
@@ -481,8 +482,8 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
                 <Card key={ticket.id} className="bg-slate-800/30 border-slate-700 text-left">
                     <CardContent className="p-3 md:p-4 flex justify-between items-center">
                         <div>
-                            <p className="font-bold text-white text-sm md:text-base">{ticket.name}</p>
-                            <p className="text-[10px] md:text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
+                            <p className="font-bold text-white text-xs md:text-base">{ticket.name}</p>
+                            <p className="text-[9px] md:text-xs text-slate-400">Position: #{ticket.queuePosition}</p>
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => onPrint(ticket)} className="text-primary hover:bg-primary/10 h-8 w-8 md:h-10 md:w-10">
                             <Printer className="w-4 h-4 md:w-5 md:h-5" />
@@ -493,7 +494,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
         </div>
 
         <div className="pt-6 md:pt-8">
-            <Button size="lg" onClick={onDone} className="h-12 md:h-16 px-8 md:px-12 text-xl md:text-2xl font-black">Finish</Button>
+            <Button size="lg" onClick={onDone} className="h-12 md:h-16 px-8 md:px-12 text-lg md:text-2xl font-black">Finish</Button>
         </div>
     </motion.div>
 );
@@ -598,12 +599,11 @@ export default function WalkInPage() {
     const member = partyMembers[currentMemberIndex];
     if (memberSubStep === 'details' && !member.name.trim()) return toast({ variant: 'destructive', title: 'Missing Name' });
     
-    // REQUIREMENT: Email is now mandatory in the Walk-in Kiosk
+    // Email is now mandatory in the Walk-in Kiosk
     if (memberSubStep === 'details' && !member.email?.trim()) return toast({ variant: 'destructive', title: 'Missing Email', description: 'Please provide an email address to proceed.' });
     if (memberSubStep === 'details' && !/^\S+@\S+\.\S+$/.test(member.email!)) return toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
 
     if (memberSubStep === 'details') {
-        // Force an immediate identity check before allowing progression
         await resolveIdentity(member.email, member.phone);
         if (bannedClient || existingClientWithBalance) {
             return; 
@@ -727,19 +727,19 @@ export default function WalkInPage() {
   if (isClosed) return <div className="h-screen flex items-center justify-center bg-slate-950 p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-4 overflow-x-hidden">
         <AnimatePresence mode="wait">
             {!entered ? (
                 <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4" onClick={() => setEntered(true)}>
-                    <div className="inline-block p-4 md:p-6 bg-slate-900/50 rounded-full shadow-2xl mb-6 md:mb-8 border border-slate-800"><ClarityFlowLogo className="!text-white w-16 h-16 md:w-20 md:h-20" /></div>
-                    <h1 className="text-4xl md:text-6xl lg:text-8xl font-black tracking-tighter text-white mb-4">Welcome to {tenant?.name}</h1>
-                    <p className="text-slate-400 text-lg md:text-2xl font-medium tracking-wide uppercase">Tap Screen to Check In</p>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-12 flex justify-center">
-                        <ArrowDown className="w-6 h-6 animate-bounce text-muted-foreground" />
+                    <div className="inline-block p-4 md:p-6 bg-slate-900/50 rounded-full shadow-2xl mb-6 md:mb-8 border border-slate-800"><ClarityFlowLogo className="!text-white w-12 h-12 md:w-20 md:h-20" /></div>
+                    <h1 className="text-3xl md:text-6xl lg:text-8xl font-black tracking-tighter text-white mb-4">Welcome to {tenant?.name}</h1>
+                    <p className="text-slate-400 text-base md:text-2xl font-medium tracking-wide uppercase">Tap Screen to Check In</p>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="mt-8 md:mt-12 flex justify-center">
+                        <ArrowDown className="w-5 h-5 md:w-6 md:h-6 animate-bounce text-muted-foreground" />
                     </motion.div>
                 </motion.div>
             ) : (
-                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border border-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-xl">
+                <motion.div key="content" className="w-full max-w-4xl mx-auto bg-slate-900/40 border border-slate-800 rounded-3xl md:rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-xl">
                     {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                     {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
                         <MemberSetup 

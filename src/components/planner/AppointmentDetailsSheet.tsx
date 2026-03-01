@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -40,6 +41,7 @@ import {
   Ban,
   Wallet,
   KeyRound,
+  Fingerprint,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -288,6 +290,31 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         </SheetHeader>
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
+            {(appointment as any).isPotentialAlias && (
+                <div className="mb-6 p-4 rounded-xl border-4 border-destructive bg-destructive/10 text-destructive animate-in fade-in slide-in-from-top-4 duration-500">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-destructive rounded-full">
+                            <Fingerprint className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h3 className="font-black uppercase tracking-tighter text-sm">Identity Match Warning</h3>
+                            <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Potential Restricted Profile</p>
+                        </div>
+                    </div>
+                    <Alert variant="destructive" className="bg-white border-destructive text-destructive mt-3 shadow-xl">
+                        <ShieldAlert className="h-4 w-4" />
+                        <AlertTitle className="text-xs font-black uppercase">Verify Physical ID</AlertTitle>
+                        <AlertDescription className="text-xs space-y-3">
+                            <p>This guest's name matches a restricted profile (Banned or Owed Balance) under a different email/phone.</p>
+                            <div className="flex gap-2">
+                                <Button variant="destructive" size="sm" className="h-8 font-black text-[10px] flex-1">Merge & Enforce</Button>
+                                <Button variant="outline" size="sm" className="h-8 font-bold text-[10px] flex-1">Not a Match</Button>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}
+
             {appointment.status === 'confirmed' && (
               <Button onClick={() => onStartService(appointment.id)} className="w-full h-12" size="lg">
                 <Play className="mr-2 h-4 w-4" /> Start Service

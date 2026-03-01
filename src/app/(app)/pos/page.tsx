@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -22,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark } from 'lucide-react';
+import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Keyboard, Loader, TicketIcon, Play, CheckCircle, Plus, Activity, KeyRound, Landmark, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
@@ -72,6 +73,7 @@ function POSPageContent() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
+    const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package' | 'retail_discount', id: string} | null>(null);
@@ -87,6 +89,8 @@ function POSPageContent() {
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
     const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
 
     useEffect(() => {
         const payerId = searchParams.get('payer_id');
@@ -257,6 +261,60 @@ function POSPageContent() {
         batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Service Finished" }); });
     };
 
+    const handleStaffReorder = (newOrder: Staff[]) => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        newOrder.forEach((s, i) => {
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: i });
+        });
+        batch.commit().catch(err => {
+            console.error("Failed to save staff order:", err);
+            toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
+        });
+    };
+
+    const handleReorderWalkIns = (newOrder: WalkIn[]) => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        const now = Date.now();
+        newOrder.forEach((w, i) => {
+            batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', w.id), { queueOrder: now + i });
+        });
+        batch.commit().catch(err => {
+            console.error("Failed to reorder queue:", err);
+            toast({ variant: 'destructive', title: "Error", description: "Could not save new queue order." });
+        });
+    };
+
+    const handlePrintTicket = (walkInId: string) => {
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        if (walkIn) {
+            setTicketToPrint({
+                id: walkIn.id,
+                name: walkIn.customerName,
+                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
+                queuePosition: (walkIns?.filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0)).findIndex(w => w.id === walkInId) || 0) + 1,
+                checkInTime: walkIn.checkInTime,
+            });
+            setIsPrintDialogOpen(true);
+        }
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed' });
+        if (appointmentId.startsWith('apt-walkin-')) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified' });
+        }
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing' });
+    };
+
     const { currentSubtotal, currentTax, currentTotal, currentDiscount, currentMembershipDiscount } = useMemo(() => {
         const appointmentsSubtotal = Array.from(selectedAppointmentIds).reduce((acc, id) => {
             const data = readyForCheckoutAppointments.find(a => a.id === id);
@@ -327,8 +385,8 @@ function POSPageContent() {
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={() => {}} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={() => {}} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={(a) => { setAppointmentToReview(a); setIsTechnicianReviewOpen(true); }} onUpdateStatus={() => {}} onRevertToReady={() => {}} onRevertToService={() => {}} />
+                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={() => {}} onAssignNext={() => {}} onCancel={() => {}} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={() => {}} onReturnToQueue={() => {}} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={(a) => { setAppointmentToReview(a); setIsTechnicianReviewOpen(true); }} onUpdateStatus={() => {}} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
@@ -352,6 +410,24 @@ function POSPageContent() {
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
             <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Authorize Action</DialogTitle></DialogHeader><div className="py-6 flex flex-col items-center gap-4"><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-3xl font-black h-16 w-48" /></div><DialogFooter><Button onClick={handleVerifyPin}>Confirm</Button></DialogFooter></DialogContent></Dialog>
+            
+            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                <DialogContent className="max-w-sm print:hidden">
+                    <DialogHeader>
+                        <DialogTitle>Walk-in Ticket</DialogTitle>
+                    </DialogHeader>
+                    <div id="print-ticket-area">
+                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
+                        <Button onClick={() => window.print()}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
