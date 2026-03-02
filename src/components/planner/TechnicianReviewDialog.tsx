@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle, Loader } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle, Loader, Check } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -398,7 +398,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <Button onClick={handleCompleteMyPart} className="h-11 font-bold">
                     {nextUpStaff ? (
                         <>
-                            <Repeat className="mr-2 h-4 w-4" /> Complete My Part & Hand-off
+                            <Repeat className="mr-2 h-4 w-4" /> Complete Part & Hand-off
                         </>
                     ) : (
                         <>

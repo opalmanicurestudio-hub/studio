@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -66,6 +67,27 @@ import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { firebaseConfig } from '@/firebase/config';
 
+/**
+ * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    // Handle Firestore Timestamp like object { seconds, nanoseconds }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
+
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[] }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
@@ -76,7 +98,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
 
     useEffect(() => {
         if (!member.compliance?.licenseExpiry) return;
-        const licenseExpiry = parseISO(member.compliance.licenseExpiry);
+        const licenseExpiry = safeDate(member.compliance.licenseExpiry);
         if (licenseExpiry) {
             const daysUntil = differenceInDays(licenseExpiry, new Date());
             const expired = isPast(licenseExpiry);
@@ -120,7 +142,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                  <div className="flex justify-between items-start">
                     <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize", {
                         'bg-green-100 text-green-800 dark:bg-green-900/50': member.active && !member.onBreak,
-                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': member.active && member.onBreak,
+                        'bg-yellow-100 text-yellow-800 dark:bg-green-900/50': member.active && member.onBreak,
                     })}>
                         {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                     </Badge>
@@ -154,7 +176,6 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                 <div className="w-full text-left space-y-3 text-sm">
                     <div className="flex justify-between items-center"><span className="text-muted-foreground">Total Sales</span><span className="font-semibold">${member.stats.totalSales.toFixed(2)}</span></div>
                     <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${member.stats.tips.toFixed(2)}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Consumption</span><span className="font-semibold">${member.stats.consumptionValue.toFixed(2)}</span></div>
                     <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${member.stats.earnings.toFixed(2)}</span></div>
                 </div>
 
@@ -314,7 +335,6 @@ export default function StaffPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
-  const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
   const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
   const [authPin, setAuthPin] = useState('');
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
@@ -358,7 +378,7 @@ export default function StaffPage() {
             return true;
         };
 
-        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedAppointmentsCount = completedAppointments.length;
       
@@ -367,7 +387,7 @@ export default function StaffPage() {
         completedAppointments.forEach(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
                 totalMinutesVariance += actualDuration - service.duration;
                 totalInServiceMinutes += actualDuration;
             } else if (service) {
@@ -377,7 +397,7 @@ export default function StaffPage() {
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
 
 
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
         
         const serviceRevenue = staffTransactions
             .filter(t => t.category === 'Service Revenue')
@@ -397,13 +417,13 @@ export default function StaffPage() {
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+        const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
         
         for (const log of sortedLogs) {
-            const logTime = log.timestamp;
+            const logTime = safeDate(log.timestamp);
             if (log.type === 'clock_in') {
                 if (clockInTime) {
                     const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
@@ -445,7 +465,7 @@ export default function StaffPage() {
 
         stockCorrections.forEach(sc => {
             if (!sc.reason) return;
-            const match = sc.reason.match(/Appointment #(\S+)/);
+            const match = sc.reason.match(/#([A-Z0-9]{6})/);
             if (match && staffAppointmentIds.has(match[1])) {
                 const product = inventory.find(p => p.id === sc.productId);
                 if (product && product.costPerUnit) {
@@ -588,7 +608,7 @@ export default function StaffPage() {
       }
       
       addDocumentNonBlocking(activityLogsRef, logEntry);
-      updateDocumentNonBlocking(staffDocRef, staffUpdate);
+      setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
   };
   
   const handleStatusChangeWithAuth = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
@@ -635,6 +655,19 @@ export default function StaffPage() {
     deleteDocumentNonBlocking(tierRef);
     toast({ title: 'Tier Deleted', variant: 'destructive' });
   };
+
+  const isLoadingTotal = staffLoading || pricingTiersLoading || isLoading;
+
+  if (isLoadingTotal) {
+    return (
+      <div className="flex min-h-screen w-full flex-col">
+        <AppHeader title="Staff Management" />
+        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+            <Loader className="h-8 w-8 animate-spin" />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">

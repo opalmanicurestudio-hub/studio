@@ -439,7 +439,7 @@ function POSPageContent() {
                         }
                         const update = inventoryUpdates.get(item.id)!;
                         if (item.costingMethod === 'size') update.partialSizeChange -= p.quantity;
-                        else if (item.costingMethod === 'uses' && item.partialContainerUses !== undefined) update.partialUsesChange -= p.quantity;
+                        else if (item.costingMethod === 'uses') update.partialUsesChange -= p.quantity;
                         else update.totalStockChange -= p.quantity;
                         
                         const staffName = data.staff?.name || 'Unknown Staff';
@@ -554,6 +554,7 @@ function POSPageContent() {
 
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointments) return;
+      // Search for normal and walk-in specific IDs
       const appointment = appointments.find(a => a.id === appointmentId) || appointments.find(a => a.id === `apt-walkin-${appointmentId}`);
       if (!appointment) return;
       const nowISO = new Date().toISOString();

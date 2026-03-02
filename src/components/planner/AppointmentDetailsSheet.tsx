@@ -554,7 +554,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     {canPerformAdminActions && (
                     <>
                         <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}><Edit className="mr-2 h-4 w-4"/>Edit Details</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}><Calendar className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { onOpenChange(false); setTimeout(() => onReschedule(appointment), 150); }} disabled={appointment.status === 'completed' || appointment.status === 'cancelled'}><CalendarIcon className="mr-2 h-4 w-4"/>Reschedule</DropdownMenuItem>
                     </>
                     )}
                     <DropdownMenuSeparator />

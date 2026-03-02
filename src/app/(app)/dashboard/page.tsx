@@ -245,7 +245,7 @@ const OwnerDashboard = ({
           <CardContent className="grid gap-6">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="flex items-center gap-4" key={`skeleton-${index}`}>
+                <div key={`skeleton-${index}`} className="flex items-center gap-4">
                   <Skeleton className="h-9 w-9 rounded-full" />
                   <div className="grid gap-1 flex-1">
                     <Skeleton className="h-4 w-24" />
