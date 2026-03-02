@@ -65,6 +65,9 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+/**
+ * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
+ */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -187,7 +190,7 @@ const OwnerDashboard = () => {
     const now = new Date();
     for (let i = 0; i < 7; i++) {
         const day = subDays(now, i);
-        const dayKey = format(day, 'yyyy-MM-dd');
+        const dayKey = format(day, 'yyyy-MM-0dd');
         dailyData[dayKey] = { revenue: 0, expense: 0 };
     }
 
@@ -313,222 +316,14 @@ const OwnerDashboard = () => {
   const isLoading = isUserLoading || isTenantLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
   return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Today's Revenue
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-32"/> : <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>}
-            {isLoading ? <Skeleton className="h-4 w-24 mt-1"/> : <p className="text-xs text-muted-foreground">
-              {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
-            </p>}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Today's Appointments
-            </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length || 0}
-            </div>
-             {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
-          </CardContent>
-        </Card>
-        <Card className={cn(totalOutstandingDebt > 0 && "border-destructive/50 bg-destructive/[0.02]")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Outstanding Debt</CardTitle>
-            <Wallet className={cn("h-4 w-4", totalOutstandingDebt > 0 ? "text-destructive" : "text-muted-foreground")} />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className={cn("text-2xl font-bold", totalOutstandingDebt > 0 && "text-destructive")}>${totalOutstandingDebt.toFixed(2)}</div>}
-            <p className="text-xs text-muted-foreground">Across all client profiles</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Client Retention</CardTitle>
-            <HeartHandshake className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className="text-2xl font-bold">{clientRetentionRate.toFixed(0)}%</div>}
-            <p className="text-xs text-muted-foreground">All-time repeat clients</p>
-          </CardContent>
-        </Card>
-      </div>
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-5">
-        <Card className="md:col-span-3">
-          <CardHeader>
-            <CardTitle>Weekly Profit</CardTitle>
-            <CardDescription>Your profit over the last 7 days.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ClientOnly>
-              <ChartContainer config={barChartConfig} className="h-[300px] w-full">
-                {isLoading ? <Skeleton className="w-full h-full" /> : (
-                    <BarChart accessibilityLayer data={barChartData}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                        dataKey="day"
-                        tickLine={false}
-                        tickMargin={10}
-                        axisLine={false}
-                    />
-                    <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={10}
-                        tickFormatter={(value) => `$${value}`}
-                    />
-                    <ChartTooltip
-                        cursor={false}
-                        content={<ChartTooltipContent />}
-                    />
-                    <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
-                    </BarChart>
-                )}
-              </ChartContainer>
-            </ClientOnly>
-          </CardContent>
-        </Card>
-         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>Revenue Breakdown</CardTitle>
-            <CardDescription>All-time revenue from services vs. retail.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1 flex justify-center pb-4">
-            <ClientOnly>
-              <ChartContainer
-                config={pieChartConfig}
-                className="mx-auto aspect-square h-[250px]"
-              >
-                <PieChart>
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent hideLabel />}
-                  />
-                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
-                    {revenueBreakdown.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                   <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-                </PieChart>
-              </ChartContainer>
-            </ClientOnly>
-          </CardContent>
-        </Card>
-        <Card className="md:col-span-5">
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>
-              Recent appointments and client activity.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6">
-            {isLoading ? (
-              Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="flex items-center gap-4">
-                  <Skeleton className="h-9 w-9 rounded-full" />
-                  <div className="grid gap-1 flex-1">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-4 w-32" />
-                  </div>
-                  <Skeleton className="h-5 w-16" />
-                </div>
-              ))
-            ) : (
-              recentActivities.map(({ apt, client, service }) => {
-                if (!client || !service) return null;
-                return (
-                  <div key={apt.id} className="flex items-center gap-4">
-                    <Avatar className="hidden h-9 w-9 sm:flex">
-                      <AvatarImage src={client.avatarUrl || undefined} alt="Avatar" />
-                      <AvatarFallback>
-                        {client.name.split(' ').map(n => n[0]).join('').substring(0,2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="grid gap-1">
-                      <p className="text-sm font-medium leading-none">
-                        {client.name}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {service.name}
-                      </p>
-                    </div>
-                    <div className="ml-auto font-medium text-primary">
-                      +${service.profit.toFixed(2)}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
-      </div>
-       <Card className="bg-primary/5 border-primary/20">
-          <CardHeader className="pb-4">
-            <CardTitle>End-of-Day Debrief</CardTitle>
-            <CardDescription>Get an AI summary of your day's performance and inventory needs.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setIsDebriefDialogOpen(true);
-                handleGenerateDebrief();
-              }}
-            >
-              <Sparkles className="mr-2 h-4 w-4" />
-              Generate Today's Debrief
-            </Button>
-          </CardContent>
-        </Card>
-        <Dialog
-        open={isDebriefDialogOpen}
-        onOpenChange={setIsDebriefDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>End-of-Day Debrief</DialogTitle>
-            <DialogDescription>
-              Here is your AI-powered summary for today's performance.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {isGenerating && (
-              <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                <Loader className="h-5 w-5 animate-spin" />
-                <span>Generating your summary...</span>
-              </div>
-            )}
-            {debriefContent && (
-              <p className="text-sm leading-relaxed">{debriefContent}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsDebriefDialogOpen(false)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <div className="flex h-screen w-full flex-col">
+      <AppHeader />
+      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView />}
+      </main>
+    </div>
   );
-};
+}
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
@@ -645,9 +440,9 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                isSameDay(safeDate(a.startTime), todayStart)
+                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
             )
-            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
             .map(apt => ({
                 ...apt,
                 client: clients.find(c => c.id === apt.clientId),
@@ -943,7 +738,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                             </div>
                             <div className="ml-auto text-right">
-                                <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
+                                <p className="font-bold">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
                             </div>
                         </div>
                         <Button asChild className="w-full">
@@ -970,7 +765,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground truncate">{apt.service?.name}</p>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                                    <p className="font-medium">{format(safeDate(apt.startTime), 'h:mm a')}</p>
                                     {apt.isWalkIn && <Badge variant="secondary" className="text-[9px] uppercase font-black">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (

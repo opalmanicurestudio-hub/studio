@@ -89,6 +89,23 @@ import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection, deleteField } from 'firebase/firestore';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
+/**
+ * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    return new Date(val);
+};
+
 interface WaiveFeeDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -224,7 +241,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (appointment?.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = appointment.actualStartTime instanceof Date ? appointment.actualStartTime : parseISO(appointment.actualStartTime as string);
+      const startTime = safeDate(appointment.actualStartTime);
       const interval = setInterval(() => {
         const now = new Date();
         const diffInSeconds = differenceInSeconds(now, startTime);
@@ -275,8 +292,8 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
       return acc + (costPerUse * quantity);
     }, 0);
 
-    const start = appointment.actualStartTime instanceof Date ? appointment.actualStartTime : parseISO(appointment.actualStartTime as string);
-    const end = appointment.actualEndTime instanceof Date ? appointment.actualEndTime : parseISO(appointment.actualEndTime as string);
+    const start = appointment.actualStartTime ? safeDate(appointment.actualStartTime) : safeDate(appointment.startTime);
+    const end = appointment.actualEndTime ? safeDate(appointment.actualEndTime) : safeDate(appointment.endTime);
 
     const actualDuration = appointment.actualEndTime && appointment.actualStartTime
         ? differenceInMinutes(end, start)
@@ -502,7 +519,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(addonId)}>
+                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(addon.id)}>
                                     <Trash2 className="w-3 h-3" />
                                 </Button>
                             </div>
