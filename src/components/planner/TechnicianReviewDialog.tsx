@@ -39,7 +39,7 @@ import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { doc } from 'firebase/firestore';
+import { doc, writeBatch } from 'firebase/firestore';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -161,13 +161,23 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       );
   };
 
-  const handleToggleConcurrency = (serviceId: string, isConcurrent: boolean) => {
+  const handleToggleConcurrency = async (serviceId: string, isConcurrent: boolean) => {
       setConcurrentServiceIds(prev => 
           isConcurrent ? [...new Set([...prev, serviceId])] : prev.filter(id => id !== serviceId)
       );
+
+      // If concurrent and appointment is servicing, mark tech as busy
+      if (appointment?.status === 'servicing' && firestore && selectedTenant) {
+          const assignedStaffId = serviceStaffOverrides[serviceId];
+          if (assignedStaffId) {
+              updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'staff', assignedStaffId), { 
+                  status: isConcurrent ? 'busy' : 'idle' 
+              });
+          }
+      }
   };
 
-  const handleUpdateAddOns = (newAddOns: Service[]) => {
+  const handleUpdateAddOns = async (newAddOns: Service[]) => {
     if (!firestore || !selectedTenant || !appointment) return;
     const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
     const newIds = newAddOns.map(s => s.id);
@@ -185,8 +195,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       return allServiceIds.every(id => completedServiceIds.includes(id));
   }, [allServiceIds, completedServiceIds]);
 
-  const handleStaffOverride = (serviceId: string, staffId: string) => {
+  const handleStaffOverride = async (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
+    
+    // If concurrent and appointment is servicing, mark tech as busy
+    const isConcurrent = concurrentServiceIds.includes(serviceId);
+    if (appointment?.status === 'servicing' && isConcurrent && firestore && selectedTenant) {
+        updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'staff', staffId), { 
+            status: 'busy' 
+        });
+    }
   };
 
   const handleAddProduct = (products: InventoryItem[]) => {

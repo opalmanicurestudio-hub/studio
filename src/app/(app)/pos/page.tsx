@@ -253,7 +253,22 @@ function POSPageContent() {
       const batch = writeBatch(firestore);
       batch.set(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
       if (appointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId }, { merge: true });
-      if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
+      
+      // Mark primary tech as busy
+      if (appointment.staffId) {
+          batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
+      }
+
+      // Mark all concurrent technicians as busy immediately
+      const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
+      const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
+      concurrentIds.forEach(svcId => {
+          const assignedStaffId = overrides[svcId];
+          if (assignedStaffId) {
+              batch.set(doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId), { status: 'busy' }, { merge: true });
+          }
+      });
+
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO }, { merge: true });

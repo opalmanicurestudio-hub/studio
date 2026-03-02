@@ -328,8 +328,19 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
     const overrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
     overrides[partId] = staffId;
-    updateDocumentNonBlocking(appointmentRef, { 'checkoutState.serviceStaffOverrides': overrides });
-    toast({ title: "Staff Assigned", description: "The professional has been updated for this service part." });
+    
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, { 'checkoutState.serviceStaffOverrides': overrides });
+
+    // Mark staff as busy immediately if the part is concurrent and the service is active
+    const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(partId);
+    if (appointment.status === 'servicing' && isConcurrent) {
+        batch.set(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'busy' }, { merge: true });
+    }
+
+    batch.commit().then(() => {
+        toast({ title: "Staff Assigned", description: "The professional has been updated for this service part." });
+    });
   };
 
   const handleToggleConcurrency = async (partId: string, isConcurrent: boolean) => {
@@ -342,8 +353,19 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     } else {
         newConcurrent = currentConcurrent.filter(id => id !== partId);
     }
-    updateDocumentNonBlocking(appointmentRef, { 'checkoutState.concurrentServiceIds': newConcurrent });
-    toast({ title: "Flow Updated", description: isConcurrent ? "Part marked as concurrent." : "Part marked as sequential." });
+    
+    const batch = writeBatch(firestore);
+    batch.update(appointmentRef, { 'checkoutState.concurrentServiceIds': newConcurrent });
+
+    // Sync staff status based on new flow state
+    const assignedStaffId = appointment.checkoutState?.serviceStaffOverrides?.[partId] || appointment.staffId;
+    if (appointment.status === 'servicing' && assignedStaffId) {
+        batch.set(doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId), { status: isConcurrent ? 'busy' : 'idle' }, { merge: true });
+    }
+
+    batch.commit().then(() => {
+        toast({ title: "Flow Updated", description: isConcurrent ? "Part marked as concurrent." : "Part marked as sequential." });
+    });
   };
 
   if (!client || !service || !appointment) return null;
