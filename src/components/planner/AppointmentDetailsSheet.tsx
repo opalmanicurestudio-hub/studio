@@ -226,7 +226,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const { firestore } = useFirebase();
   
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
-  const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
@@ -306,11 +305,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     return { revenue, breakEven, profit: revenue - breakEven, timeCost, productCost };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
-  if (!client || !service || !appointment) return null;
-
-  const ticketId = appointment.id.slice(-6).toUpperCase();
-  const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
-
   const handleUpdateAddOns = async (newAddOns: Service[]) => {
     if (!firestore || !tenantId || !appointment) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
@@ -326,6 +320,20 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     updateDocumentNonBlocking(appointmentRef, { addOnIds: newAddOns });
     toast({ title: "Service Removed" });
   };
+
+  const handleAssignStaffToPart = async (partId: string, staffId: string) => {
+    if (!firestore || !tenantId || !appointment) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const overrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
+    overrides[partId] = staffId;
+    updateDocumentNonBlocking(appointmentRef, { 'checkoutState.serviceStaffOverrides': overrides });
+    toast({ title: "Staff Assigned", description: "The professional has been updated for this service part." });
+  };
+
+  if (!client || !service || !appointment) return null;
+
+  const ticketId = appointment.id.slice(-6).toUpperCase();
+  const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
 
   return (
     <>
@@ -454,27 +462,49 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                 <p className="text-xs text-muted-foreground italic pt-2">Contact info restricted by business owner.</p>
               )}
               <div className="text-muted-foreground text-sm pt-4 space-y-3">
-                <div>
-                  <div className="flex justify-between items-center mb-1">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
                     <p className='font-bold text-foreground text-base'>{service.name}</p>
                     <p className="font-black text-primary">${getServicePrice(service, staff.find(s => s.id === appointment.staffId)).toFixed(2)}</p>
                   </div>
                   {(appointment.addOnIds || []).map(addonId => {
                     const addon = allServices.find(s => s.id === addonId);
-                    const providerId = appointment.checkoutState?.serviceStaffOverrides?.[addonId];
+                    if (!addon) return null;
+                    
+                    const providerId = appointment.checkoutState?.serviceStaffOverrides?.[addonId] || appointment.staffId;
                     const provider = staff.find(s => s.id === providerId);
-                    return addon ? (
-                        <div key={addonId} className="flex justify-between items-center pl-4 py-1.5 bg-muted/20 rounded-lg mt-1 group">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <p className="text-xs text-muted-foreground font-medium truncate">+ {addon.name}</p>
-                                {provider && <Badge variant="outline" className="text-[8px] h-3.5 uppercase px-1">{provider.name.split(' ')[0]}</Badge>}
+                    
+                    const qualifiedStaff = staff.filter(s => 
+                        !addon.requiredSkills || addon.requiredSkills.length === 0 || 
+                        addon.requiredSkills.every(skill => (s.skillSet || []).includes(skill))
+                    );
+
+                    return (
+                        <div key={addonId} className="flex justify-between items-center pl-4 py-2 bg-muted/20 rounded-lg mt-1 group">
+                            <div className="flex-1 min-w-0 pr-2">
+                                <p className="text-xs text-muted-foreground font-bold truncate">+ {addon.name}</p>
+                                <div className="mt-1">
+                                    <Select 
+                                        value={providerId} 
+                                        onValueChange={(val) => handleAssignStaffToPart(addonId, val)}
+                                    >
+                                        <SelectTrigger className="h-7 text-[9px] w-full max-w-[120px] font-black uppercase border-dashed bg-background">
+                                            <SelectValue placeholder="Assign" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {qualifiedStaff.map(s => (
+                                                <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
                                 <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addonId)}><Trash2 className="w-3 h-3" /></Button>
                             </div>
                         </div>
-                    ) : null;
+                    );
                   })}
                 </div>
                 <div className='flex flex-col p-3 rounded-lg border bg-muted/30'>

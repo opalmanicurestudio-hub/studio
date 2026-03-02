@@ -114,22 +114,25 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setSelectedAddOns(initialAddons);
         
         const alreadyDone = checkoutState?.completedServiceIds || [];
-        const initialOverrides: Record<string, string> = {};
-        initialOverrides[service.id] = appointment.staffId || '';
+        const initialOverrides: Record<string, string> = { ... (checkoutState?.serviceStaffOverrides || {}) };
+        
+        if (!initialOverrides[service.id]) {
+            initialOverrides[service.id] = appointment.staffId || '';
+        }
+        
         initialAddons.forEach(addon => {
-            initialOverrides[addon.id] = checkoutState?.serviceStaffOverrides?.[addon.id] || appointment.staffId || '';
+            if (!initialOverrides[addon.id]) {
+                initialOverrides[addon.id] = appointment.staffId || '';
+            }
         });
         setServiceStaffOverrides(initialOverrides);
 
-        // Auto-complete the services assigned to the CURRENT user
         const newlyCompleted = Object.entries(initialOverrides)
             .filter(([_, staffId]) => staffId === currentUser?.uid)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
-        // AUTO-POPULATE ACTUAL DURATION:
-        // Use logic from the "stopped clock" - difference between actualStartTime and now.
         let durationToSet = checkoutState?.actualDuration;
         if (!durationToSet) {
             if (appointment.actualStartTime) {
@@ -286,7 +289,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     />
                                     <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold">{service.name}</Label>
                                 </div>
-                                <Badge variant="outline" className="h-5 text-[9px] uppercase font-black">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name?.split(' ')[0] || 'Unassigned'}</Badge>
+                                <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
+                                    <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
+                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>)}</SelectContent>
+                                </Select>
                             </div>
                             {selectedAddOns.map(addon => (
                                 <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-xl border-2 border-transparent has-[:checked]:border-primary transition-all">
@@ -300,7 +306,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     </div>
                                     <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
                                         <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>)}</SelectContent>
                                     </Select>
                                 </div>
                             ))}
