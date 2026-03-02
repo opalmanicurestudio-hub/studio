@@ -741,9 +741,9 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
+  const loadingStatus = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
-  if(isLoading) {
+  if(loadingStatus) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />
@@ -765,7 +765,7 @@ export default function DashboardPage() {
             totalOutstandingDebt={totalOutstandingDebt}
             clientRetentionRate={clientRetentionRate}
             todayAppointments={todayAppointments}
-            isLoading={isLoading}
+            isLoading={loadingStatus}
             barChartData={barChartData}
             revenueBreakdown={revenueBreakdown}
             recentActivities={recentActivities}

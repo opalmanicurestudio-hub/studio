@@ -78,7 +78,6 @@ function POSPageContent() {
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { toast } = useToast();
     const router = useRouter();
     const searchParams = useSearchParams();
     const isMobile = useIsMobile();

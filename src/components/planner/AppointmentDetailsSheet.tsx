@@ -232,9 +232,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const [isWaiveDialogOpen, setIsWaiveDialogOpen] = useState(false);
   const [isSplitServiceOpen, setIsSplitServiceOpen] = useState(false);
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-  const [newAddOnId, setNewAddOnId] = useState('');
-  const [newAddOnStaffId, setNewAddOnStaffId] = useState('');
-  const [newAddOnTiming, setNewAddOnTiming] = useState<'immediate' | 'sequential'>('sequential');
   
   const canPerformAdminActions = role === 'owner' || role === 'admin' || role === 'staff';
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
