@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -355,6 +355,13 @@ function POSPageContent() {
         const nowTimestamp = Timestamp.fromDate(now);
         const nowISO = now.toISOString();
 
+        // Aggregated inventory updates
+        const inventoryUpdates = new Map<string, { 
+            totalStockChange: number, 
+            partialSizeChange: number, 
+            partialUsesChange: number 
+        }>();
+
         try {
             for (const id of Array.from(selectedAppointmentIds)) {
                 const data = readyForCheckoutAppointments.find(a => a.id === id);
@@ -382,29 +389,13 @@ function POSPageContent() {
                 formula.forEach((p: any) => {
                     const item = inventory.find(i => i.id === p.id);
                     if (item) {
-                        const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                        
-                        let newTotalStock = item.totalStock;
-                        let newPartialSize = item.partialContainerSize || 0;
-                        let newPartialUses = item.partialContainerUses || 0;
-
-                        if (item.costingMethod === 'size') {
-                            newPartialSize -= p.quantity;
-                            while (newPartialSize < 0 && newTotalStock > 0) {
-                                newTotalStock -= 1;
-                                newPartialSize += (item.size || 1);
-                            }
-                            batch.update(productRef, { totalStock: newTotalStock, partialContainerSize: Math.max(0, newPartialSize) });
-                        } else if (item.costingMethod === 'uses') {
-                            newPartialUses -= p.quantity;
-                            while (newPartialUses < 0 && newTotalStock > 0) {
-                                newTotalStock -= 1;
-                                newPartialUses += (item.estimatedUses || 1);
-                            }
-                            batch.update(productRef, { totalStock: newTotalStock, partialContainerUses: Math.max(0, newPartialUses) });
-                        } else {
-                            batch.update(productRef, { totalStock: increment(-p.quantity) });
+                        if (!inventoryUpdates.has(item.id)) {
+                            inventoryUpdates.set(item.id, { totalStockChange: 0, partialSizeChange: 0, partialUsesChange: 0 });
                         }
+                        const update = inventoryUpdates.get(item.id)!;
+                        if (item.costingMethod === 'size') update.partialSizeChange -= p.quantity;
+                        else if (item.costingMethod === 'uses') update.partialUsesChange -= p.quantity;
+                        else update.totalStockChange -= p.quantity;
                         
                         const staffName = data.staff?.name || 'Unknown Staff';
                         const appointmentShortId = appointment.id.slice(-6).toUpperCase();
@@ -442,7 +433,8 @@ function POSPageContent() {
                     batch.set(txnRef, {
                         date: nowTimestamp,
                         description: `Tip Allocation`,
-                        clientOrVendor: 'Various',
+                        clientOrVendor: selectedClient?.name || 'Various',
+                        clientId: selectedClientId,
                         type: 'income',
                         context: 'Business',
                         category: 'Tips',
@@ -455,8 +447,10 @@ function POSPageContent() {
             });
 
             retailItems.forEach(item => {
-                const product = inventory.find(p => p.id === item.id);
-                batch.update(productRef, { totalStock: increment(-item.quantity) });
+                if (!inventoryUpdates.has(item.id)) {
+                    inventoryUpdates.set(item.id, { totalStockChange: 0, partialSizeChange: 0, partialUsesChange: 0 });
+                }
+                inventoryUpdates.get(item.id)!.totalStockChange -= item.quantity;
                 
                 const clientName = selectedClient?.name || 'Walk-in';
                 const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
@@ -472,7 +466,7 @@ function POSPageContent() {
                 batch.set(txnRef, {
                     date: nowTimestamp,
                     description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: 'Walk-in',
+                    clientOrVendor: clientName,
                     type: 'income',
                     context: 'Business',
                     category: 'Retail',
@@ -481,12 +475,32 @@ function POSPageContent() {
                 });
             });
 
+            // Apply aggregated inventory updates
+            inventoryUpdates.forEach((changes, productId) => {
+                const item = inventory.find(i => i.id === productId)!;
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+                
+                let newTotalStock = item.totalStock + changes.totalStockChange;
+                let newPartialSize = (item.partialContainerSize || 0) + changes.partialSizeChange;
+                let newPartialUses = (item.partialContainerUses || 0) + changes.partialUsesChange;
+
+                if (item.costingMethod === 'size') {
+                    while (newPartialSize < 0 && newTotalStock > 0) { newTotalStock -= 1; newPartialSize += (item.size || 1); }
+                    batch.update(productRef, { totalStock: newTotalStock, partialContainerSize: Math.max(0, newPartialSize) });
+                } else if (item.costingMethod === 'uses') {
+                    while (newPartialUses < 0 && newTotalStock > 0) { newTotalStock -= 1; newPartialUses += (item.estimatedUses || 1); }
+                    batch.update(productRef, { totalStock: newTotalStock, partialContainerUses: Math.max(0, newPartialUses) });
+                } else {
+                    batch.update(productRef, { totalStock: newTotalStock });
+                }
+            });
+
             if (selectedClientId && clients.find(c => c.id === selectedClientId)) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
                 batch.update(clientDocRef, { lastAppointment: nowISO, lifetimeValue: increment(total - tax - tipAmount) });
             }
             await batch.commit();
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); onWaiveFeeToggle('', false);
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); 
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);

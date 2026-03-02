@@ -47,6 +47,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
  * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.

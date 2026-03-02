@@ -119,7 +119,7 @@ const OwnerDashboard = () => {
   
   const { firestore, user, isUserLoading } = useFirebase();
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
   
   const tenantId = selectedTenant?.id;
   
@@ -535,7 +535,7 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
-    const { selectedTenant } = useTenant();
+    const { selectedTenant, role } = useTenant();
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
@@ -780,7 +780,7 @@ const StaffDashboardView = () => {
           return true;
       };
   
-      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
+      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
       const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
       const completedAppointmentsCount = completedAppointments.length;
     
@@ -789,7 +789,7 @@ const StaffDashboardView = () => {
       completedAppointments.forEach(apt => {
           const service = services.find(s => s.id === apt.serviceId);
           if (apt.actualStartTime && apt.actualEndTime && service) {
-              const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
+              const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
               totalMinutesVariance += actualDuration - service.duration;
               totalInServiceMinutes += actualDuration;
           }
@@ -810,7 +810,7 @@ const StaffDashboardView = () => {
       const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
       let totalMinutesWorked = 0;
-      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
       const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       
       let clockInTime: Date | null = null;
