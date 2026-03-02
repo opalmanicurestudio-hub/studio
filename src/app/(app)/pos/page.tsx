@@ -218,8 +218,8 @@ function POSPageContent() {
 
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
     const todayAppointments = useMemo(() => {
-        const today = startOfDay(new Date());
-        return appointments.filter(apt => isSameDay(safeDate(apt.startTime), today));
+        const todayStart = startOfDay(new Date());
+        return appointments.filter(apt => isSameDay(safeDate(apt.startTime), todayStart));
     }, [appointments]);
 
     const readyForCheckoutAppointments = useMemo(() => {
@@ -455,7 +455,7 @@ function POSPageContent() {
             });
 
             retailItems.forEach(item => {
-                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                const product = inventory.find(p => p.id === item.id);
                 batch.update(productRef, { totalStock: increment(-item.quantity) });
                 
                 const clientName = selectedClient?.name || 'Walk-in';

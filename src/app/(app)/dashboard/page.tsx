@@ -648,7 +648,7 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
+                isSameDay(safeDate(a.startTime), todayStart)
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
             .map(apt => ({
@@ -734,15 +734,13 @@ const StaffDashboardView = () => {
 
         const appointmentsToday = appointments.filter(apt => 
             apt.staffId === staffMember.id &&
-            safeDate(apt.startTime) >= todayStart &&
-            safeDate(apt.startTime) <= todayEnd
+            isSameDay(safeDate(apt.startTime), todayStart)
         );
 
         const transactionsToday = transactions.filter(t => {
             const transactionDate = safeDate(t.date);
             return t.staffId === staffMember.id &&
-                    transactionDate >= todayStart &&
-                    transactionDate <= todayEnd;
+                    isSameDay(transactionDate, todayStart);
         });
         
         const serviceRevenue = transactionsToday
