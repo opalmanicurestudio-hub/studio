@@ -119,7 +119,7 @@ const OwnerDashboard = () => {
   
   const { firestore, user, isUserLoading } = useFirebase();
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
   
   const tenantId = selectedTenant?.id;
   
@@ -533,9 +533,9 @@ const OwnerDashboard = () => {
   );
 };
 
-const StaffDashboardView = () => {
+const StaffDashboardView = ({ role }: { role: string | null }) => {
     const { user, isUserLoading } = useUser();
-    const { selectedTenant, role } = useTenant();
+    const { selectedTenant } = useTenant();
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
@@ -648,7 +648,7 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                isSameDay(safeDate(a.startTime), todayStart)
+                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
             .map(apt => ({
@@ -734,13 +734,15 @@ const StaffDashboardView = () => {
 
         const appointmentsToday = appointments.filter(apt => 
             apt.staffId === staffMember.id &&
-            isSameDay(safeDate(apt.startTime), todayStart)
+            safeDate(apt.startTime) >= todayStart &&
+            safeDate(apt.startTime) <= todayEnd
         );
 
         const transactionsToday = transactions.filter(t => {
             const transactionDate = safeDate(t.date);
             return t.staffId === staffMember.id &&
-                    isSameDay(transactionDate, todayStart);
+                    transactionDate >= todayStart &&
+                    transactionDate <= todayEnd;
         });
         
         const serviceRevenue = transactionsToday
@@ -754,7 +756,7 @@ const StaffDashboardView = () => {
         const completed = appointmentsToday.filter(a => a.status === 'completed').length;
         
         let earnings = 0;
-        if (staffMember.payStructure === 'commission') {
+         if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
         } 
 
@@ -780,7 +782,7 @@ const StaffDashboardView = () => {
           return true;
       };
   
-      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
       const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
       const completedAppointmentsCount = completedAppointments.length;
     
@@ -789,7 +791,7 @@ const StaffDashboardView = () => {
       completedAppointments.forEach(apt => {
           const service = services.find(s => s.id === apt.serviceId);
           if (apt.actualStartTime && apt.actualEndTime && service) {
-              const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+              const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
               totalMinutesVariance += actualDuration - service.duration;
               totalInServiceMinutes += actualDuration;
           }
@@ -810,13 +812,13 @@ const StaffDashboardView = () => {
       const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
       let totalMinutesWorked = 0;
-      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-      const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+      const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
       
       let clockInTime: Date | null = null;
       let totalBreakMinutes = 0;
       for (const log of sortedLogs) {
-          const logTime = log.timestamp;
+          const logTime = safeDate(log.timestamp);
           if (log.type === 'clock_in') {
               if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
               clockInTime = logTime;
@@ -944,7 +946,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                             </div>
                             <div className="ml-auto text-right">
-                                <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
+                                <p className="font-bold">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
                             </div>
                         </div>
                         <Button asChild className="w-full">
@@ -971,7 +973,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground truncate">{apt.service?.name}</p>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                                    <p className="font-medium">{format(safeDate(apt.startTime), 'h:mm a')}</p>
                                     {apt.isWalkIn && <Badge variant="secondary" className="text-[9px] uppercase font-black">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (
@@ -1061,7 +1063,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView />}
+        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView role={role} />}
       </main>
     </div>
   );

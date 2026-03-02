@@ -510,11 +510,14 @@ function POSPageContent() {
 
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointments) return;
-      const appointment = appointments.find(a => a.id === appointmentId);
+      
+      // Robust lookup: handle raw IDs or prefixed walk-in IDs
+      const appointment = appointments.find(a => a.id === appointmentId) || appointments.find(a => a.id === `apt-walkin-${appointmentId}`);
       if (!appointment) return;
+
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing', actualStartTime: nowISO });
+      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
       
       if (appointment.checkInToken) {
           batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });

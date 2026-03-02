@@ -135,7 +135,7 @@ export const DayTimeline = ({
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
-                if (lastEventEnd !== null && item.startTime >= lastEventEnd) { positionCluster(currentCluster); currentCluster = []; }
+                if (lastEventEnd !== null && item.startTime.getTime() >= lastEventEnd.getTime()) { positionCluster(currentCluster); currentCluster = []; }
                 currentCluster.push(item);
                 lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
             }

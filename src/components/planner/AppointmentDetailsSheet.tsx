@@ -378,7 +378,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
+      <SheetContent side="right" className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
         <SheetHeader className="p-4 border-b text-left flex-shrink-0">
           <SheetTitle>Appointment Details</SheetTitle>
           <SheetDescription>A full breakdown of this appointment.</SheetDescription>
