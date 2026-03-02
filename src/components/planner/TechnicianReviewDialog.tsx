@@ -44,23 +44,12 @@ import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 
-/**
- * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -193,7 +182,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       })?.[1];
       if (!nextStaffId) return null;
       return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment?.id]);
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;

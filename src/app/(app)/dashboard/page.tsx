@@ -782,7 +782,7 @@ export default function DashboardPage() {
       </main>
       {staffMemberWithStats && (
           <StaffDetailsSheet
-              open={isDetailsOpen}
+              open={isDetailsSheetOpen}
               onOpenChange={setIsDetailsSheetOpen}
               staffMember={staffMemberWithStats}
               dateRange={dateRange ? { from: dateRange.todayStart, to: dateRange.todayEnd } : undefined}
