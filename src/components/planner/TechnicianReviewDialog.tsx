@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -133,14 +133,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setServiceStaffOverrides(initialOverrides);
         setConcurrentServiceIds(alreadyConcurrent);
 
-        // Auto-select parts where current user is assigned
         const newlyCompleted = Object.entries(initialOverrides)
             .filter(([_, staffId]) => staffId === currentUser?.uid)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
-        // AUTO-CALC: Auto-calculate duration from actualStartTime
         let durationToSet = checkoutState?.actualDuration;
         if (!durationToSet && appointment.actualStartTime) {
             const startTime = safeDate(appointment.actualStartTime);
@@ -166,7 +164,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           isConcurrent ? [...new Set([...prev, serviceId])] : prev.filter(id => id !== serviceId)
       );
 
-      // If concurrent and appointment is servicing, mark tech as busy
       if (appointment?.status === 'servicing' && firestore && selectedTenant) {
           const assignedStaffId = serviceStaffOverrides[serviceId];
           if (assignedStaffId) {
@@ -198,7 +195,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const handleStaffOverride = async (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
     
-    // If concurrent and appointment is servicing, mark tech as busy
     const isConcurrent = concurrentServiceIds.includes(serviceId);
     if (appointment?.status === 'servicing' && isConcurrent && firestore && selectedTenant) {
         updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'staff', staffId), { 
@@ -411,7 +407,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         <Separator />
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Package className="w-3 h-3"/> Formula Review</h4>
+                            <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-2"><PackageOpen className="w-3 h-3"/> Formula Review</h4>
                             {(client.customFormulas && client.customFormulas.length > 0) && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula} defaultValue="default">
@@ -482,11 +478,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </Button>
                 </div>
             </DialogFooter>
-        </ScrollArea>
+        </ContentComponent>
         <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
         <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
-      </ContentComponent>
-    </DialogComponent>
+      </DialogComponent>
     </>
   );
 };

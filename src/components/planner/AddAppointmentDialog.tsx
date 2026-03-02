@@ -442,7 +442,7 @@ const AddAppointmentForm = ({
                                                     <div className="flex items-center gap-2">
                                                         <Avatar className="w-6 h-6">
                                                             <AvatarImage src={s.avatarUrl} />
-                                                            <AvatarFallback>{(s?.name || 'S').charAt(0)}</AvatarFallback>
+                                                            <AvatarFallback>{(s?.name || 'S')?.charAt(0) || '?'}</AvatarFallback>
                                                         </Avatar>
                                                         <span>{s?.name || 'Unknown Staff'}</span>
                                                     </div>
