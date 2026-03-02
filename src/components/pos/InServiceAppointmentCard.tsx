@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, addMinutes, differenceInSeconds } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass } from 'lucide-react';
+import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';

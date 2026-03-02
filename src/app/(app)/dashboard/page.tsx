@@ -54,7 +54,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc, writeBatch } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow, isSameDay } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format, startOfWeek, isSameDay, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -535,7 +535,7 @@ const OwnerDashboard = () => {
 
 const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
-    const { selectedTenant } = useTenant();
+    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
@@ -758,24 +758,7 @@ const StaffDashboardView = () => {
         let earnings = 0;
         if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            // Need to calculate hours worked from logs
-            const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && safeDate(log.timestamp) >= todayStart && safeDate(log.timestamp) <= todayEnd);
-            const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-            let totalMinutes = 0;
-            let clockInTime: Date | null = null;
-            let totalBreak = 0;
-            for (const log of sortedLogs) {
-                if (log.type === 'clock_in') clockInTime = safeDate(log.timestamp);
-                else if (log.type === 'clock_out' && clockInTime) {
-                    totalMinutes += Math.max(0, differenceInMinutes(safeDate(log.timestamp), clockInTime) - totalBreak);
-                    clockInTime = null;
-                    totalBreak = 0;
-                } else if (log.type === 'break_end' && log.durationMinutes) totalBreak += log.durationMinutes;
-            }
-            if(clockInTime) totalMinutes += differenceInMinutes(new Date(), clockInTime) - totalBreak;
-            earnings = (totalMinutes / 60) * staffMember.hourlyRate;
-        }
+        } 
 
         const retailSales = transactionsToday
             .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -785,7 +768,7 @@ const StaffDashboardView = () => {
         
         return { revenue: serviceRevenue, tips, completed, earnings };
 
-    }, [transactions, appointments, staffMember, todayRange, activityLogs]);
+    }, [transactions, appointments, staffMember, todayRange]);
 
     const staffMemberWithStats = useMemo(() => {
       if (!staffMember || !appointments || !services || !transactions || !activityLogs) return null;
@@ -829,7 +812,7 @@ const StaffDashboardView = () => {
       const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
       let totalMinutesWorked = 0;
-      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
       const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
       
       let clockInTime: Date | null = null;
