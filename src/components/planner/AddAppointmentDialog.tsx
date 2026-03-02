@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -49,7 +50,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Calendar } from '../ui/calendar';
+import { Calendar } from '@/components/ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -288,7 +289,7 @@ const AddAppointmentForm = ({
             );
 
             if (!isOverlapping) {
-                options.push(format(currentTime, 'HH:mm'));
+                options.add(format(currentTime, 'HH:mm'));
             }
 
             currentTime = addMinutes(currentTime, bookingInterval);
@@ -507,7 +508,7 @@ const AddAppointmentForm = ({
                             <Label>Start Time</Label>
                             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                                 {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
-                                {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</div>)}
+                                {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-8">No available slots for this day.</div>)}
                             </div>
                         </div>
                         {isOverlapping && (
