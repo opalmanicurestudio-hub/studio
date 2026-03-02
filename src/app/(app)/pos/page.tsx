@@ -391,13 +391,16 @@ function POSPageContent() {
                         const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
                         batch.update(productRef, { totalStock: increment(-Math.floor(p.quantity / (item.estimatedUses || item.size || 1))) });
                         
+                        const staffName = data.staff?.name || 'Unknown Staff';
+                        const appointmentShortId = appointment.id.slice(-6).toUpperCase();
+
                         const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                         batch.set(correctionRef, {
                             productId: item.id,
                             date: nowISO,
                             change: -p.quantity,
                             unit: item.unit || 'units',
-                            reason: `Appointment #${appointment.id.slice(-6).toUpperCase()} usage`
+                            reason: `Service: ${data.service.name} (#${appointmentShortId}) for ${data.client.name} by ${staffName}`
                         });
                     }
                 });
@@ -466,13 +469,14 @@ function POSPageContent() {
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
                 batch.update(productRef, { totalStock: increment(-item.quantity) });
                 
+                const clientName = selectedClient?.name || 'Walk-in';
                 const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(correctionRef, {
                     productId: item.id,
                     date: nowISO,
                     change: -item.quantity,
                     unit: 'units',
-                    reason: `Retail Sale`
+                    reason: `Retail Sale to ${clientName}`
                 });
 
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -789,6 +793,7 @@ function POSPageContent() {
             }
             addDocumentNonBlocking(activityLogsRef, logEntry);
             updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            
             setIsPinAuthOpen(false);
             setAuthPin('');
             setPendingStatusAction(null);
