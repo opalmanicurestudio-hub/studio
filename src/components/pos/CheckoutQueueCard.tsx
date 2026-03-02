@@ -90,7 +90,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                         className="mt-1"
                     />
                     <div className="flex-1 space-y-1 min-w-0">
-                        <div className="font-semibold flex items-center gap-2 truncate">
+                        <div className="font-semibold flex items-center gap-2 truncate text-sm">
                             {client?.name || 'Walk-in'}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
@@ -107,7 +107,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                                 )}
                             </TooltipProvider>
                         </div>
-                        <p className="text-sm text-muted-foreground">{apt.startTime ? format(new Date(apt.startTime), 'h:mm a') : 'Now'}</p>
+                        <p className="text-[10px] md:text-xs text-muted-foreground">{apt.startTime ? format(new Date(apt.startTime), 'h:mm a') : 'Now'}</p>
                         <p className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded-md w-fit flex items-center gap-1 mt-1">
                             <TicketIcon className="w-2.5 h-2.5" />
                             {ticketId}

@@ -118,7 +118,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
         
-        // Auto-check services assigned to current user, plus whatever was already done
         const alreadyDone = checkoutState?.completedServiceIds || [];
         const initialOverrides: Record<string, string> = {};
         initialOverrides[service.id] = appointment.staffId || '';

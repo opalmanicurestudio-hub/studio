@@ -482,30 +482,6 @@ export default function StaffPage() {
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         earnings += tips + retailCommission; 
         
-        let consumptionValue = 0;
-        const staffAppointmentIds = new Set(
-            completedAppointments.map(a => a.id)
-        );
-
-        stockCorrections.forEach(sc => {
-            if (!sc.reason) return;
-            const match = sc.reason.match(/#([A-Z0-9]{6})/);
-            if (match && staffAppointmentIds.has(match[1])) {
-                const product = inventory.find(p => p.id === sc.productId);
-                if (product && product.costPerUnit) {
-                    let costPerUse = 0;
-                    if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                        costPerUse = product.costPerUnit / product.size;
-                    } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                        costPerUse = product.costPerUnit / product.estimatedUses;
-                    } else if (!product.costingMethod) {
-                        costPerUse = product.costPerUnit;
-                    }
-                    consumptionValue += Math.abs(sc.change) * costPerUse;
-                }
-            }
-        });
-
         return {
             ...staffMember,
             stats: {

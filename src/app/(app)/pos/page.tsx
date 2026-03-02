@@ -100,17 +100,97 @@ function POSPageContent() {
 
     const { toast } = useToast();
 
+    const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
+    const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
+    const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package' | 'retail_discount'; id: string } | null>(null);
+    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
+
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointmentsFromInventory || !clients || !services || !staff) return [];
+        return appointmentsFromInventory
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return { 
+                    id: apt.id,
+                    appointment: apt,
+                    client, 
+                    service, 
+                    addOnServices, 
+                    staff: staffMember 
+                };
+            }).filter((a): a is any => !!(a.client && a.service));
+    }, [appointmentsFromInventory, clients, services, staff]);
+
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
             const next = new Set(prev);
+            let targetClientId = selectedClientId;
+            
             if (prev.has(id)) {
                 next.delete(id);
+                if (next.size === 0) targetClientId = null;
             } else {
                 next.add(id);
+                const aptData = readyForCheckoutAppointments.find(a => a.id === id);
+                if (aptData?.client?.id) {
+                    targetClientId = aptData.client.id;
+                }
             }
+            setSelectedClientId(targetClientId);
             return next;
         });
-    }, []);
+    }, [readyForCheckoutAppointments, selectedClientId]);
+
+    const selectedAptsData = useMemo(() => 
+        Array.from(selectedAppointmentIds)
+            .map(id => readyForCheckoutAppointments.find(a => a.id === id))
+            .filter(Boolean) as any[]
+    , [selectedAppointmentIds, readyForCheckoutAppointments]);
+
+    const subtotal = useMemo(() => {
+        const servicesSub = selectedAptsData.reduce((acc, data) => {
+            const mainPrice = getServicePrice(data.service, data.staff);
+            const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
+            return acc + mainPrice + addonsPrice;
+        }, 0);
+        
+        const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        
+        const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => {
+            const allFees = (clients || []).flatMap(c => c.unpaidFees || []);
+            const fee = allFees.find(f => f.feeId === id);
+            return acc + (fee?.feeAmount || 0);
+        }, 0);
+
+        return servicesSub + retailSub + adjustmentSub;
+    }, [selectedAptsData, retailItems, appliedAdjustments, clients]);
+
+    const discount = useMemo(() => {
+        return appliedDiscountCodes.reduce((acc, code) => {
+            const d = (discounts || []).find(dis => dis.code.toUpperCase() === code.toUpperCase());
+            if (!d) return acc;
+            return acc + (d.type === 'percentage' ? subtotal * (d.value / 100) : d.value);
+        }, 0);
+    }, [appliedDiscountCodes, discounts, subtotal]);
+
+    const membershipDiscount = useMemo(() => {
+        if (!selectedClientId || !clients || !memberships) return 0;
+        const client = clients.find(c => c.id === selectedClientId);
+        const mId = client?.activeMembershipId || client?.subscription?.membershipId;
+        if (!mId) return 0;
+        const membership = memberships.find(m => m.id === mId);
+        if (!membership?.retailDiscount) return 0;
+        
+        const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        return retailSub * (membership.retailDiscount / 100);
+    }, [selectedClientId, clients, memberships, retailItems]);
+
+    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount]);
+    const total = useMemo(() => Math.max(0, subtotal - discount - membershipDiscount + tax + tipAmount), [subtotal, discount, membershipDiscount, tax, tipAmount]);
 
     const handleSkip = (walkInId: string) => {
         if (!firestore || !tenantId) return;
@@ -118,8 +198,10 @@ function POSPageContent() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
         if (walkIn?.assignedStaffId) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
-            batch.update(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`), { status: 'cancelled', cancellationReason: 'no-show' });
+            const staffRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
+            batch.set(staffRef, { status: 'idle' }, { merge: true });
+            const aptRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`);
+            batch.update(aptRef, { status: 'cancelled', cancellationReason: 'no-show' });
         }
         batch.commit().then(() => toast({ title: "Guest Skipped" }));
     };
@@ -130,7 +212,8 @@ function POSPageContent() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'waiting', assignedStaffId: deleteField(), notifiedTimestamp: deleteField() });
         if (walkIn?.assignedStaffId) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
+            const staffRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
+            batch.set(staffRef, { status: 'idle' }, { merge: true });
             batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`));
         }
         batch.commit().then(() => toast({ title: "Returned to Queue" }));
@@ -160,56 +243,6 @@ function POSPageContent() {
         });
     };
 
-    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
-        if (!apt) return;
-
-        const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
-        const completedIds = checkoutState.completedServiceIds || [];
-        const allComplete = completedIds.length >= totalServicesCount;
-
-        const batch = writeBatch(firestore);
-        
-        if (allComplete) {
-            batch.update(appointmentRef, {
-                status: 'ready_for_checkout',
-                checkoutState,
-                actualEndTime: new Date().toISOString(),
-            });
-            if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId }, { merge: true });
-        } else {
-            batch.update(appointmentRef, { checkoutState });
-        }
-
-        if (currentUser) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
-        }
-
-        batch.commit().then(() => {
-            toast({
-                title: allComplete ? "Service Finished" : "Part Completed",
-                description: allComplete ? "Moved to checkout queue." : "Your part is done. Technician marked as idle."
-            });
-            setIsTechnicianReviewOpen(false);
-            setIsDetailsOpen(false);
-        });
-    };
-
-    const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
-        if (!firestore || !tenantId) return;
-        const targetRef = isWalkIn 
-            ? doc(firestore, 'tenants', tenantId, 'walkIns', id)
-            : doc(firestore, 'tenants', tenantId, 'appointments', id);
-        
-        const updateData: any = { checkInStatus: status };
-        if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
-        
-        updateDocumentNonBlocking(targetRef, updateData);
-        toast({ title: "Status Updated" });
-    };
-
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointmentsFromInventory) return;
       const appointment = appointmentsFromInventory.find(a => a.id === appointmentId) || appointmentsFromInventory.find(a => a.id === `apt-walkin-${appointmentId}`);
@@ -224,11 +257,6 @@ function POSPageContent() {
           batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO }, { merge: true });
       }
       batch.commit().then(() => toast({ title: "Service Started" }));
-    };
-
-    const handleFinishService = (apt: Appointment) => {
-        setAppointmentToReview(apt);
-        setIsTechnicianReviewOpen(true);
     };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
@@ -310,46 +338,6 @@ function POSPageContent() {
         };
     }, [walkIns, appointmentsFromInventory, transactions, services]);
 
-    const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointmentsFromInventory || !clients || !services || !staff) return [];
-        return appointmentsFromInventory
-            .filter(apt => apt.status === 'ready_for_checkout')
-            .map(apt => {
-                const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === apt.serviceId);
-                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-                const staffMember = staff.find(s => s.id === apt.staffId);
-                return { 
-                    id: apt.id,
-                    appointment: apt,
-                    client, 
-                    service, 
-                    addOnServices, 
-                    staff: staffMember 
-                };
-            }).filter((a): a is any => !!(a.client && a.service));
-    }, [appointmentsFromInventory, clients, services, staff]);
-
-    const checkoutHubProps = {
-        cart: retailItems, onCartChange: setRetailItems,
-        appointmentsData: Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any,
-        onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
-        payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client.id === c.id)),
-        selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
-        subtotal: 0, tax: 0, total: 0, tipAmount: 0, setTipAmount: () => {}, onCheckout: () => {},
-        appliedDiscountCodes: [], setAppliedDiscountCodes: () => {}, discount: 0, membershipDiscount: 0,
-        isSubmitting: false, paymentTab: 'card', setPaymentTab: () => {}, discounts: discounts || [], amountTendered: 0, setAmountTendered: () => {},
-        appliedAdjustments: new Set<string>(), onApplyAdjustmentToggle: () => {},
-        redeemedOffer: null, setRedeemedOffer: () => {}, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
-        waivedAppointmentFees: new Map(), onWaiveFeeToggle: () => {},
-        tipAllocations: {},
-    };
-
-    const todayAppointments = useMemo(() => {
-        const today = startOfDay(new Date());
-        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
-    }, [appointmentsFromInventory]);
-
     const handleForceIdle = (staffId: string) => {
         if (!firestore || !tenantId) return;
         const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
@@ -380,19 +368,64 @@ function POSPageContent() {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
         newOrder.forEach((s, idx) => {
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx });
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true });
         });
         batch.commit();
     };
 
     const handleAssignNext = () => {
-        // Simple fair play auto-assign
         const waiting = walkIns?.filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
         const idle = staff?.filter(s => s.active && !s.onBreak && s.status === 'idle');
         if (waiting?.length && idle?.length) {
             handleAssignStaff(waiting[0], idle[0].id);
         }
     };
+
+    const checkoutHubProps = {
+        cart: retailItems, 
+        onCartChange: setRetailItems,
+        appointmentsData: selectedAptsData,
+        onSelectAppointment: handleSelectAppointment, 
+        clients: clients || [], 
+        isGroupCheckout: selectedAppointmentIds.size > 1,
+        payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id)),
+        selectedClientId, 
+        setSelectedClientId, 
+        onAddClientClick: () => setIsAddClientOpen(true), 
+        onScanClick: () => setIsScannerOpen(true),
+        subtotal, 
+        tax, 
+        total, 
+        tipAmount, 
+        setTipAmount, 
+        onCheckout: () => {},
+        appliedDiscountCodes, 
+        setAppliedDiscountCodes, 
+        discount, 
+        membershipDiscount,
+        isSubmitting, 
+        paymentTab, 
+        setPaymentTab, 
+        discounts: discounts || [], 
+        amountTendered, 
+        setAmountTendered,
+        appliedAdjustments, 
+        onApplyAdjustmentToggle: (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; }),
+        redeemedOffer, 
+        setRedeemedOffer, 
+        memberships: memberships || [], 
+        packages: packages || [], 
+        allowStacking: selectedTenant?.allowDiscountStacking || false, 
+        showTitle: false,
+        waivedAppointmentFees, 
+        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => setWaivedAppointmentFees(prev => { const next = new Map(prev); waive ? next.set(id, { authorizerId: authorizerId!, reason: reason! }) : next.delete(id); return next; }),
+        tipAllocations,
+    };
+
+    const todayAppointments = useMemo(() => {
+        const today = startOfDay(new Date());
+        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
+    }, [appointmentsFromInventory]);
 
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -479,7 +512,6 @@ function POSPageContent() {
                 const target = staff?.find(s => s.pin === authPin);
                 if (target && pendingStatusAction) {
                     const { staffId, action } = pendingStatusAction;
-                    const activityLogsRef = collection(firestore!, 'tenants', tenantId!, 'activityLogs');
                     const staffDocRef = doc(firestore!, 'tenants', tenantId!, 'staff', staffId);
                     const now = new Date().toISOString();
                     let staffUpdate: Partial<Staff> = {};
@@ -490,7 +522,7 @@ function POSPageContent() {
                         case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
                         case 'break_end': if(target.breakStartTime) logEntry.durationMinutes = differenceInMinutes(parseISO(now), parseISO(target.breakStartTime)); staffUpdate = { onBreak: false, breakStartTime: deleteField() as any }; break;
                     }
-                    addDocumentNonBlocking(activityLogsRef, logEntry);
+                    addDocumentNonBlocking(collection(firestore!, 'tenants', tenantId!, 'activityLogs'), logEntry);
                     setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
                     setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
                 } else toast({ variant: 'destructive', title: 'Invalid PIN' });

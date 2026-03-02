@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service, type Resource } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCcw } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCw } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds, isSameDay, startOfDay } from 'date-fns';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -129,7 +129,7 @@ const StaffMemberCard = ({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => onForceIdle(member.id)}>
-                                    <RefreshCcw className="w-4 h-4 mr-2" />
+                                    <RefreshCw className="w-4 h-4 mr-2" />
                                     Force Idle
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

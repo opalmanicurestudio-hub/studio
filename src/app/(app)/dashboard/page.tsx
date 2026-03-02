@@ -718,7 +718,7 @@ export default function DashboardPage() {
     let totalInServiceMinutes = 0;
     completedAppointments.forEach(apt => {
         const s = services.find(sv => sv.id === apt.serviceId);
-        if (apt.actualStartTime && apt.actualEndTime) totalInServiceMinutes += differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
+        if (apt.actualStartTime && apt.actualEndTime && s) totalInServiceMinutes += differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
         else if (s) totalInServiceMinutes += s.duration;
     });
     const staffTransactions = allTransactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
