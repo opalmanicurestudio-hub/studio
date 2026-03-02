@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -91,6 +91,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [completedServiceIds, setCompletedServiceIds] = useState<string[]>([]);
+  const [concurrentServiceIds, setConcurrentServiceIds] = useState<string[]>([]);
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [reviewNotes, setReviewNotes] = useState('');
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
@@ -117,6 +118,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setSelectedAddOns(initialAddons);
         
         const alreadyDone = checkoutState?.completedServiceIds || [];
+        const alreadyConcurrent = checkoutState?.concurrentServiceIds || [];
         const initialOverrides: Record<string, string> = { ... (checkoutState?.serviceStaffOverrides || {}) };
         
         if (!initialOverrides[service.id]) {
@@ -129,6 +131,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             }
         });
         setServiceStaffOverrides(initialOverrides);
+        setConcurrentServiceIds(alreadyConcurrent);
 
         // Auto-select parts where current user is assigned
         const newlyCompleted = Object.entries(initialOverrides)
@@ -155,6 +158,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const toggleServiceComplete = (serviceId: string) => {
       setCompletedServiceIds(prev => 
           prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId]
+      );
+  };
+
+  const handleToggleConcurrency = (serviceId: string, isConcurrent: boolean) => {
+      setConcurrentServiceIds(prev => 
+          isConcurrent ? [...new Set([...prev, serviceId])] : prev.filter(id => id !== serviceId)
       );
   };
 
@@ -249,6 +258,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         reviewNotes,
         serviceStaffOverrides,
         completedServiceIds: completedServiceIds,
+        concurrentServiceIds: concurrentServiceIds,
         absorbedCost: appointment.checkoutState?.absorbedCost || 0, 
         tipAmount: appointment.checkoutState?.tipAmount || 0, 
         tipAllocations: appointment.checkoutState?.tipAllocations || {}, 
@@ -288,46 +298,72 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader className="pb-3"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Service Components</CardTitle></CardHeader>
+                <Card className="border-2 border-primary/10">
+                  <CardHeader className="pb-3"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-xl border-2 border-transparent has-[:checked]:border-primary transition-all">
-                                <div className="flex items-center gap-3">
-                                    <Checkbox 
-                                        id={`complete-${service.id}`} 
-                                        checked={completedServiceIds.includes(service.id)} 
-                                        onCheckedChange={() => toggleServiceComplete(service.id)}
-                                    />
-                                    <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold">{service.name}</Label>
-                                </div>
-                                <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
-                                    <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                    <SelectContent>
-                                        {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
-                                            <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-xl border-2 border-transparent has-[:checked]:border-primary transition-all">
-                                    <div className="flex items-center gap-3 pl-4">
+                        <div className="space-y-3">
+                            <div className="space-y-2 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
                                         <Checkbox 
-                                            id={`complete-${addon.id}`} 
-                                            checked={completedServiceIds.includes(addon.id)} 
-                                            onCheckedChange={() => toggleServiceComplete(addon.id)}
+                                            id={`complete-${service.id}`} 
+                                            checked={completedServiceIds.includes(service.id)} 
+                                            onCheckedChange={() => toggleServiceComplete(service.id)}
                                         />
-                                        <Label htmlFor={`complete-${addon.id}`} className="text-sm font-medium text-muted-foreground">+ {addon.name}</Label>
+                                        <div className="min-w-0">
+                                            <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold block truncate">{service.name}</Label>
+                                            <p className="text-[10px] font-black uppercase text-primary tracking-widest">Main Service</p>
+                                        </div>
                                     </div>
-                                    <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                        <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
+                                    <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
+                                        <SelectTrigger className="w-[120px] h-10 text-[10px] font-black uppercase border-2 bg-background">
+                                            <SelectValue placeholder="Staff" />
+                                        </SelectTrigger>
                                         <SelectContent>
-                                            {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
-                                                <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
+                                            {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={cn("w-1.5 h-1.5 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                        <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
+                                                    </div>
+                                                </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
+                                </div>
+                            </div>
+                            {selectedAddOns.map(addon => (
+                                <div key={addon.id} className="space-y-3 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <Checkbox 
+                                                id={`complete-${addon.id}`} 
+                                                checked={completedServiceIds.includes(addon.id)} 
+                                                onCheckedChange={() => toggleServiceComplete(addon.id)}
+                                            />
+                                            <div className="min-w-0">
+                                                <Label htmlFor={`complete-${addon.id}`} className="text-sm font-bold block truncate">{addon.name}</Label>
+                                                <Badge variant="outline" className={cn("text-[8px] h-4 px-1 uppercase font-black cursor-pointer", (concurrentServiceIds.includes(addon.id)) ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-transparent")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
+                                                    {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2 h-2 mr-0.5" /> Concurrent</> : <><Workflow className="w-2 h-2 mr-0.5" /> Sequential</>}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                        <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                            <SelectTrigger className="w-[120px] h-10 text-[10px] font-black uppercase border-2 bg-background">
+                                                <SelectValue placeholder="Staff" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
+                                                    <SelectItem key={s.id} value={s.id}>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={cn("w-1.5 h-1.5 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                            <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
+                                                        </div>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -341,27 +377,27 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
-                          <Label htmlFor="actual-duration-rev" className="flex items-center gap-2"><Clock className="w-4 h-4" /> Actual Duration (minutes)</Label>
+                          <Label htmlFor="actual-duration-rev" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground"><Clock className="w-3 h-3" /> Actual Duration (minutes)</Label>
                           <Input 
                               id="actual-duration-rev"
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
-                              className="h-12 text-lg font-bold"
+                              className="h-12 text-lg font-black font-mono border-2"
                           />
                           {actualDuration > service.duration && (
-                              <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md">
-                                  <span className="text-xs font-bold text-amber-700 flex items-center gap-2"><Info className="w-3 h-3"/> Extra Time Logged ({actualDuration - service.duration}m)</span>
+                              <div className="p-3 bg-amber-500/5 border-2 border-amber-500/10 rounded-xl">
+                                  <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight"><Info className="w-3 h-3"/> Efficiency Alert: +{actualDuration - service.duration}m Overage</span>
                               </div>
                           )}
                         </div>
                         <Separator />
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h4 className="font-medium flex items-center gap-2"><Package className="w-4 h-4"/> Formula Review</h4>
+                            <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Package className="w-3 h-3"/> Formula Review</h4>
                             {(client.customFormulas && client.customFormulas.length > 0) && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula} defaultValue="default">
-                                    <SelectTrigger className="h-8 text-xs">
+                                    <SelectTrigger className="h-8 text-[10px] font-black uppercase border-2">
                                         <SelectValue placeholder="Load client formula..." />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -376,8 +412,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         <div className="space-y-2">
                             {editableFormula.map((item) => (
-                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
-                                <span className="font-medium flex-1 truncate pr-2">{item.name}</span>
+                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-xl border-2 border-transparent gap-2">
+                                <span className="font-bold text-xs flex-1 truncate pr-2">{item.name}</span>
                                 <div className="flex items-center gap-2">
                                     <Input
                                         type="number"
@@ -386,43 +422,44 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                             const newQty = parseFloat(e.target.value) || 0;
                                             setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
                                         }}
-                                        className="w-20 h-8 text-center"
+                                        className="w-20 h-8 text-center font-black font-mono"
                                         step="0.1"
                                     />
-                                    <span className="text-xs text-muted-foreground w-10 truncate">{item.unit}</span>
+                                    <span className="text-[9px] font-black uppercase text-muted-foreground w-10 truncate">{item.unit}</span>
                                     <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}>
-                                        <Trash2 className="w-4 h-4" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                     </Button>
                                 </div>
                             </div>
                             ))}
                         </div>
-                        <Button variant="outline" size="sm" type="button" className="w-full border-dashed" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Extra Product</Button>
+                        <Button variant="outline" size="sm" type="button" className="w-full border-dashed h-11" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Extra Product</Button>
                     </CardContent>
                 </Card>
 
                 <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-sm">
-                            <MessageSquare className="w-4 h-4 text-primary" />
-                            Provider Notes
+                    <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                            <MessageSquare className="w-3 h-3 text-primary" />
+                            Session Debrief Notes
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <Textarea 
-                            placeholder="Add internal notes for the front desk or next technician..." 
+                            placeholder="Formula adjustments, skin reactions, or client requests..." 
                             value={reviewNotes}
                             onChange={(e) => setReviewNotes(e.target.value)}
                             rows={3}
+                            className="bg-muted/10 border-2"
                         />
                     </CardContent>
                 </Card>
               </div>
             </ScrollArea>
-            <DialogFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
+            <DialogFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
                 <div className="grid grid-cols-2 gap-3 w-full">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 font-bold">Cancel</Button>
-                    <Button onClick={handleCompleteMyPart} className="h-12 font-black uppercase tracking-tight shadow-lg shadow-primary/20" disabled={completedServiceIds.length === 0}>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 font-bold uppercase tracking-tight">Cancel</Button>
+                    <Button onClick={handleCompleteMyPart} className="h-12 font-black uppercase tracking-tight shadow-xl shadow-primary/20" disabled={completedServiceIds.length === 0}>
                         {buttonLabel}
                     </Button>
                 </div>

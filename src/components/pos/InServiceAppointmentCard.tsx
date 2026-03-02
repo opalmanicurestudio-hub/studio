@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, addMinutes, differenceInSeconds } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle } from 'lucide-react';
+import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -111,11 +111,13 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                         <p className="font-bold flex items-center gap-2 truncate text-sm"><User className="w-4 h-4 shrink-0"/>{appointment.clientName}</p>
                         
                         <div className="space-y-1.5">
-                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Active Providers</p>
+                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Live Sequence</p>
                             {assignedTechnicians.map(tech => {
                                 const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {})
                                     .filter(([_, staffId]) => staffId === tech.id)
                                     .map(([svcId]) => svcId);
+                                
+                                // Default assignment if not in overrides
                                 if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) {
                                     techServices.unshift(appointment.serviceId);
                                 }
@@ -126,9 +128,13 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                     if (completedIds.includes(svcId)) return false;
                                     const isPrimary = svcId === appointment.serviceId;
                                     const isConcurrent = concurrentIds.includes(svcId);
-                                    const prevPartDone = completedIds.includes(appointment.serviceId);
-                                    return isPrimary || isConcurrent || prevPartDone;
+                                    // It's sequential if it's not the primary service and not concurrent
+                                    // We start showing "Working" for sequential parts only when the primary service is done
+                                    const primaryDone = completedIds.includes(appointment.serviceId);
+                                    return isPrimary || isConcurrent || primaryDone;
                                 });
+
+                                const isQueued = !isDone && !isWorking;
 
                                 return (
                                     <div key={tech.id} className={cn("flex items-center gap-2 p-1 rounded-lg border bg-background transition-opacity", isDone && "opacity-50 grayscale")}>
@@ -136,7 +142,25 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                             <AvatarImage src={tech.avatarUrl} className="object-cover" />
                                             <AvatarFallback>{tech.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
-                                        <span className="text-[11px] font-bold truncate flex-1">{tech.name.split(' ')[0]}</span>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-bold truncate leading-tight">{tech.name.split(' ')[0]}</p>
+                                            <div className="flex items-center gap-1">
+                                                {techServices.map(sid => {
+                                                    const svc = allServices.find(s => s.id === sid);
+                                                    const isPartConcurrent = concurrentIds.includes(sid);
+                                                    return (
+                                                        <TooltipProvider key={sid}>
+                                                            <Tooltip>
+                                                                <TooltipTrigger>
+                                                                    {isPartConcurrent ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground" />}
+                                                                </TooltipTrigger>
+                                                                <TooltipContent><p>{svc?.name} ({isPartConcurrent ? 'Concurrent' : 'Sequential'})</p></TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
                                         {isDone ? (
                                             <Badge className="bg-green-500 border-none h-4 px-1 text-[8px] uppercase font-black text-white">Done</Badge>
                                         ) : isWorking ? (
@@ -144,7 +168,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                         ) : (
                                             <Badge variant="secondary" className="h-4 px-1 text-[8px] uppercase font-black bg-muted text-muted-foreground border-none">
                                                 <Hourglass className="w-2 h-2 mr-0.5" />
-                                                Starts in ~{minsRemaining}m
+                                                Queued
                                             </Badge>
                                         )}
                                     </div>
@@ -166,7 +190,10 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                 {elapsedTime && (
                     <div className="mt-3 space-y-1">
                         <Progress value={progress} className={cn("h-1.5", isRunningOver && "[&>div]:bg-destructive")} />
-                        <p className="text-[9px] text-muted-foreground text-right uppercase font-black">{serviceDuration}m scheduled</p>
+                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-tighter text-muted-foreground">
+                            <span>{isRunningOver ? "Overtime" : `~${minsRemaining}m Left`}</span>
+                            <span>{serviceDuration}m scheduled</span>
+                        </div>
                     </div>
                 )}
             </CardContent>
@@ -184,7 +211,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={onViewDetails}>
                             <PlusCircle className="w-4 h-4 mr-2" />
-                            Add-ons / Assignments
+                            Manage Sequence
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={onRevertToReady} className="text-muted-foreground">
                             <Undo2 className="w-4 h-4 mr-2" />

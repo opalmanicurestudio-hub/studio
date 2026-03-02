@@ -317,7 +317,7 @@ export type AppointmentCheckoutState = {
     actualDuration: number;
     serviceStaffOverrides: Record<string, string>;
     completedServiceIds?: string[];
-    concurrentServiceIds?: string[]; // IDs of services that are concurrent
+    concurrentServiceIds?: string[]; // Added this to track concurrent parts
     tipAllocations: Record<string, number>;
     tipAmount: number;
     additionalCharge: number;

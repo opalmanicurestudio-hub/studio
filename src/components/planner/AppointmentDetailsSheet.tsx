@@ -42,6 +42,8 @@ import {
   ShieldAlert,
   Loader,
   Check,
+  Workflow,
+  Zap,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -330,6 +332,20 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     toast({ title: "Staff Assigned", description: "The professional has been updated for this service part." });
   };
 
+  const handleToggleConcurrency = async (partId: string, isConcurrent: boolean) => {
+    if (!firestore || !tenantId || !appointment) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const currentConcurrent = appointment.checkoutState?.concurrentServiceIds || [];
+    let newConcurrent;
+    if (isConcurrent) {
+        newConcurrent = [...new Set([...currentConcurrent, partId])];
+    } else {
+        newConcurrent = currentConcurrent.filter(id => id !== partId);
+    }
+    updateDocumentNonBlocking(appointmentRef, { 'checkoutState.concurrentServiceIds': newConcurrent });
+    toast({ title: "Flow Updated", description: isConcurrent ? "Part marked as concurrent." : "Part marked as sequential." });
+  };
+
   if (!client || !service || !appointment) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
@@ -463,9 +479,12 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
               )}
               <div className="text-muted-foreground text-sm pt-4 space-y-3">
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <p className='font-bold text-foreground text-base'>{service.name}</p>
-                    <p className="font-black text-primary">${getServicePrice(service, staff.find(s => s.id === appointment.staffId)).toFixed(2)}</p>
+                  <div className="flex justify-between items-center bg-muted/20 p-3 rounded-xl border">
+                    <div className="flex-1 min-w-0">
+                        <p className='font-bold text-foreground text-sm truncate'>{service.name}</p>
+                        <p className="text-[10px] font-black uppercase text-primary">Primary Service</p>
+                    </div>
+                    <p className="font-black text-primary ml-2">${getServicePrice(service, staff.find(s => s.id === appointment.staffId)).toFixed(2)}</p>
                   </div>
                   {(appointment.addOnIds || []).map(addonId => {
                     const addon = allServices.find(s => s.id === addonId);
@@ -473,6 +492,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     
                     const providerId = appointment.checkoutState?.serviceStaffOverrides?.[addonId] || appointment.staffId;
                     const provider = staff.find(s => s.id === providerId);
+                    const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(addonId);
                     
                     const qualifiedStaff = staff.filter(s => 
                         ((s.active && !s.onBreak) || s.id === providerId) && 
@@ -481,30 +501,48 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     );
 
                     return (
-                        <div key={addonId} className="flex justify-between items-center pl-4 py-2 bg-muted/20 rounded-lg mt-1 group">
-                            <div className="flex-1 min-w-0 pr-2">
-                                <p className="text-xs text-muted-foreground font-bold truncate">+ {addon.name}</p>
-                                <div className="mt-1">
-                                    <Select 
-                                        value={providerId} 
-                                        onValueChange={(val) => handleAssignStaffToPart(addonId, val)}
-                                    >
-                                        <SelectTrigger className="h-7 text-[9px] w-full max-w-[120px] font-black uppercase border-dashed bg-background">
-                                            <SelectValue placeholder="Assign" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {qualifiedStaff.map(s => (
-                                                <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                        <div key={addonId} className="p-3 bg-muted/20 rounded-xl border border-border/50 group space-y-3">
+                            <div className="flex justify-between items-start gap-2">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold truncate">{addon.name}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <Badge variant="outline" className={cn("text-[9px] h-4 px-1 uppercase font-black cursor-pointer transition-all", isConcurrent ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-transparent")} onClick={() => handleToggleConcurrency(addonId, !isConcurrent)}>
+                                            {isConcurrent ? <><Zap className="w-2 h-2 mr-0.5" /> Concurrent</> : <><Workflow className="w-2 h-2 mr-0.5" /> Sequential</>}
+                                        </Badge>
+                                    </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <p className="text-sm font-black text-primary">${getServicePrice(addon, provider).toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity -mr-1" onClick={() => handleRemoveAddOn(appointment.id, addonId)}>
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addonId)}>
-                                    <Trash2 className="w-3 h-3" />
-                                </Button>
+                            
+                            <div className="grid grid-cols-[1fr,auto] gap-3 items-center pt-2 border-t border-dashed">
+                                <Select 
+                                    value={providerId} 
+                                    onValueChange={(val) => handleAssignStaffToPart(addonId, val)}
+                                >
+                                    <SelectTrigger className="h-10 text-[11px] font-black uppercase border-2 bg-background">
+                                        <SelectValue placeholder="Assign Professional" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {qualifiedStaff.map(s => (
+                                            <SelectItem key={s.id} value={s.id}>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                    <span className="font-bold">{s?.name || 'Technician'}</span>
+                                                    <span className="text-[9px] text-muted-foreground opacity-60">({s.status === 'busy' ? 'Busy' : 'Idle'})</span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Avatar className="h-8 w-8 border shadow-sm shrink-0">
+                                    <AvatarImage src={provider?.avatarUrl} className="object-cover" />
+                                    <AvatarFallback>{provider?.name?.charAt(0) || '?'}</AvatarFallback>
+                                </Avatar>
                             </div>
                         </div>
                     );
