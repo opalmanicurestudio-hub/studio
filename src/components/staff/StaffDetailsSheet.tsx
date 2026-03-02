@@ -99,6 +99,23 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
     </Card>
 );
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
+
 export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   open,
   onOpenChange,

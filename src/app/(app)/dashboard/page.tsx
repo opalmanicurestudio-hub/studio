@@ -52,7 +52,7 @@ import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, writeBatch, deleteField } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format, startOfWeek, isSameDay, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -334,7 +334,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                         const duration = differenceInMinutes(new Date(now), safeDate(staffMember.breakStartTime));
                         logEntry.durationMinutes = duration;
                     }
-                    staffUpdate = { onBreak: false, breakStartTime: undefined };
+                    staffUpdate = { onBreak: false, breakStartTime: deleteField() as any };
                     break;
             }
         
@@ -782,7 +782,7 @@ export default function DashboardPage() {
       </main>
       {staffMemberWithStats && (
           <StaffDetailsSheet
-              open={isDetailsSheetOpen}
+              open={isDetailsOpen}
               onOpenChange={setIsDetailsSheetOpen}
               staffMember={staffMemberWithStats}
               dateRange={dateRange ? { from: dateRange.todayStart, to: dateRange.todayEnd } : undefined}

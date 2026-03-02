@@ -33,7 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { cn } from '@/lib/utils';
-import { differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
+import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -58,7 +58,6 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    // Handle Firestore Timestamp like object { seconds, nanoseconds }
     if (typeof val === 'object' && 'seconds' in val) {
         return new Date(val.seconds * 1000);
     }
@@ -66,7 +65,7 @@ const safeDate = (val: any): Date => {
 };
 
 type EditableFormulaItem = {
-    id: string; // productId
+    id: string; 
     name: string;
     quantity: number;
     unit: string;

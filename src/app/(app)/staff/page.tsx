@@ -509,13 +509,16 @@ export default function StaffPage() {
             ...staffMember,
             stats: {
                 totalServices: completedAppointmentsCount,
-                avgActualServiceTime,
+                avgActualServiceTime: 0, // Placeholder
                 avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
                 avgSalePerAppointment,
                 retailAttachmentRate,
-                avgVariance,
+                earnings,
+                totalSales,
+                tips,
+                totalHours: totalMinutesWorked / 60,
             }
         };
     });
@@ -626,7 +629,7 @@ export default function StaffPage() {
                   const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
                   logEntry.durationMinutes = duration;
               }
-              staffUpdate = { onBreak: false, breakStartTime: undefined }; 
+              staffUpdate = { onBreak: false, breakStartTime: deleteField() as any }; 
               break;
       }
       
