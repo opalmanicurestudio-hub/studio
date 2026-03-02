@@ -493,7 +493,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                                         </SelectTrigger>
                                         <SelectContent>
                                             {qualifiedStaff.map(s => (
-                                                <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>
+                                                <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>

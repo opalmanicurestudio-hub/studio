@@ -146,7 +146,7 @@ function POSPageContent() {
 
     const subtotal = useMemo(() => {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
-            const mainPrice = getServicePrice(data.service, data.staff);
+            const mainPrice = getServicePrice(service, data.staff);
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
             
             const additional = (data.appointment.checkoutState?.additionalCharge || 0);
@@ -574,7 +574,7 @@ function POSPageContent() {
         allowStacking: selectedTenant?.allowDiscountStacking || false, 
         showTitle: false,
         waivedAppointmentFees, 
-        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => setWaivedAppointmentFees(prev => { const next = new Map(prev); waive ? next.set(id, { authorizerId: authorizerId!, reason: reason! }) : next.delete(id); return next; }),
+        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
         tipAllocations,
     };
 

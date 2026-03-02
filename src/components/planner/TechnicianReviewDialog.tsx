@@ -291,7 +291,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                                 <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
                                     <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>)}</SelectContent>
+                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>)}</SelectContent>
                                 </Select>
                             </div>
                             {selectedAddOns.map(addon => (
@@ -306,7 +306,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     </div>
                                     <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
                                         <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name.split(' ')[0]}</SelectItem>)}</SelectContent>
+                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>)}</SelectContent>
                                     </Select>
                                 </div>
                             ))}
@@ -409,7 +409,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogFooter>
         </ContentComponent>
       </DialogComponent>
-      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
+      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
     </>
   );
