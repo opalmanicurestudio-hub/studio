@@ -96,7 +96,7 @@ const StaffMemberCard = ({
                     </div>
                 )}
                 <Avatar className="w-12 h-12 border shadow-inner">
-                    <AvatarImage src={member.avatarUrl} alt={member.name || 'Staff'} className="object-cover" />
+                    <AvatarImage src={member.avatarUrl} alt={member.name} className="object-cover" />
                     <AvatarFallback>{initials}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">

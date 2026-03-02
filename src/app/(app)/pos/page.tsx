@@ -9,26 +9,22 @@ import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, Timestamp } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, isSameDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, Square, XCircle, Fingerprint, Printer, Undo2 } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Html5Qrcode } from 'html5-qrcode';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
-import Image from 'next/image';
+import { WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -62,12 +58,11 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 function POSPageContent() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, resources } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, discounts, memberships, packages, resources } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     const router = useRouter();
-    const searchParams = useSearchParams();
     const isMobile = useIsMobile();
 
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
@@ -85,7 +80,6 @@ function POSPageContent() {
     const [isOverrideOpen, setIsOverrideOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
-    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
 
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -96,7 +90,6 @@ function POSPageContent() {
     const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
 
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
-    const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
     const { toast } = useToast();
@@ -156,7 +149,13 @@ function POSPageContent() {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
             const mainPrice = getServicePrice(data.service, data.staff);
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
-            return acc + mainPrice + addonsPrice;
+            
+            // Add additional charges (overages) unless waived
+            const additional = (data.appointment.checkoutState?.additionalCharge || 0);
+            const isWaived = waivedAppointmentFees.has(data.appointment.id);
+            const effectiveAdditional = isWaived ? 0 : additional;
+
+            return acc + mainPrice + addonsPrice + effectiveAdditional;
         }, 0);
         
         const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -168,7 +167,7 @@ function POSPageContent() {
         }, 0);
 
         return servicesSub + retailSub + adjustmentSub;
-    }, [selectedAptsData, retailItems, appliedAdjustments, clients]);
+    }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees]);
 
     const discount = useMemo(() => {
         return appliedDiscountCodes.reduce((acc, code) => {
@@ -363,14 +362,7 @@ function POSPageContent() {
     const handlePrintTicket = (walkInId: string) => {
         const walkIn = walkIns?.find(w => w.id === walkInId);
         if (walkIn) {
-            setTicketToPrint({
-                id: walkIn.id,
-                name: walkIn.customerName,
-                services: (walkIn.serviceIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s),
-                queuePosition: (walkIns?.filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0)).findIndex(w => w.id === walkInId) || 0) + 1,
-                checkInTime: walkIn.checkInTime,
-            });
-            setIsPrintDialogOpen(true);
+            toast({ title: "Printing Ticket...", description: "Simulating hardware call." });
         }
     };
 
@@ -424,6 +416,128 @@ function POSPageContent() {
         });
     };
 
+    const handleCheckout = async () => {
+        if (!selectedClientId || !firestore || !tenantId) return;
+        setIsSubmitting(true);
+
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        // 1. Process Appointments
+        for (const aptData of selectedAptsData) {
+            const { appointment: apt, service, addOnServices, staff: tech } = aptData;
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
+            
+            // Formula & Inventory Deduction
+            const formula = apt.checkoutState?.formula || [];
+            formula.forEach(item => {
+                const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
+                batch.update(productRef, { totalStock: increment(-1) }); // Simplification for prototype
+            });
+
+            const mainPrice = getServicePrice(service, tech);
+            const addOnsPrice = addOnServices.reduce((sum, s) => sum + getServicePrice(s, tech), 0);
+            const additional = !waivedAppointmentFees.has(apt.id) ? (apt.checkoutState?.additionalCharge || 0) : 0;
+            const itemRevenue = mainPrice + addOnsPrice + additional;
+
+            batch.update(appointmentRef, { 
+                status: 'completed', 
+                revenue: itemRevenue,
+                actualEndTime: now
+            });
+
+            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
+            
+            // Log Service Revenue
+            const serviceTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(serviceTxnRef, {
+                date: now,
+                description: `Service: ${service.name} ${addOnServices.length > 0 ? `+ ${addOnServices.length} add-ons` : ''}`,
+                clientOrVendor: selectedClient?.name || 'Client',
+                clientId: selectedClientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Service Revenue',
+                amount: itemRevenue,
+                paymentMethod: paymentTab,
+                staffId: tech.id,
+                appointmentId: apt.id,
+                hasReceipt: true
+            });
+        }
+
+        // 2. Process Retail Items
+        retailItems.forEach(item => {
+            const retailTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(retailTxnRef, {
+                date: now,
+                description: `Retail: ${item.quantity}x ${item.name}`,
+                clientOrVendor: selectedClient?.name || 'Client',
+                clientId: selectedClientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Retail',
+                amount: item.price * item.quantity,
+                paymentMethod: paymentTab,
+                hasReceipt: true
+            });
+            const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
+            batch.update(productRef, { totalStock: increment(-item.quantity) });
+        });
+
+        // 3. Log Tips
+        Object.entries(tipAllocations).forEach(([staffId, amount]) => {
+            if (amount > 0) {
+                const tipTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(tipTxnRef, {
+                    date: now,
+                    description: 'Gratuity',
+                    clientOrVendor: selectedClient?.name || 'Client',
+                    clientId: selectedClientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Tips',
+                    amount: amount,
+                    paymentMethod: paymentTab,
+                    staffId: staffId,
+                    hasReceipt: true
+                });
+            }
+        });
+
+        // 4. Log Discount Absorption (Marketing Expense)
+        if (discount > 0) {
+            const discountTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(discountTxnRef, {
+                date: now,
+                description: `Marketing Expense: ${appliedDiscountCodes.join(', ')}`,
+                clientOrVendor: 'Internal',
+                clientId: selectedClientId,
+                type: 'expense',
+                context: 'Business',
+                category: 'Discounts',
+                amount: discount,
+                paymentMethod: 'Internal',
+                hasReceipt: false
+            });
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Checkout Successful", description: "Inventory updated and transactions recorded." });
+            setRetailItems([]);
+            setSelectedAppointmentIds(new Set());
+            setTipAmount(0);
+            setAppliedDiscountCodes([]);
+            setAppliedAdjustments(new Set());
+        } catch (e) {
+            console.error(e);
+            toast({ variant: 'destructive', title: 'Checkout Failed' });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const checkoutHubProps = {
         cart: retailItems, 
         onCartChange: setRetailItems,
@@ -441,7 +555,7 @@ function POSPageContent() {
         total, 
         tipAmount, 
         setTipAmount, 
-        onCheckout: () => {},
+        onCheckout: handleCheckout,
         appliedDiscountCodes, 
         setAppliedDiscountCodes, 
         discount, 
@@ -470,6 +584,8 @@ function POSPageContent() {
         return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
     }, [appointmentsFromInventory]);
 
+    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
             <AppHeader />
@@ -491,7 +607,7 @@ function POSPageContent() {
             {isMobile && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild><Button className="w-full h-14">View Cart</Button></SheetTrigger>
+                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${total.toFixed(2)})</Button></SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
                             <SheetHeader className="p-4 border-b">
                                 <SheetTitle>Current Sale</SheetTitle>

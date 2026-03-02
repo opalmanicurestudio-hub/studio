@@ -1,8 +1,7 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -11,8 +10,6 @@ import {
     CreditCard, 
     Scan, 
     Trash2, 
-    User, 
-    UserPlus, 
     DollarSign, 
     Award, 
     Loader, 
@@ -25,11 +22,10 @@ import {
     AlertTriangle, 
     QrCode, 
     ShieldCheck, 
-    KeyRound, 
-    Landmark, 
-    MessageSquare, 
-    ShieldAlert, 
-    Users 
+    Users,
+    MessageSquare,
+    Repeat,
+    Wallet
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -45,7 +41,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
@@ -331,8 +327,8 @@ export const CheckoutHub = ({
                 return completedCount === 0;
             }
 
+            const daysSince = selectedClient.lastAppointment ? differenceInDays(new Date(), parseISO(selectedClient.lastAppointment)) : 0;
             if (trigger === 're_engagement' && d.automation?.daysSinceLastVisit && selectedClient.lastAppointment) {
-                const daysSince = differenceInDays(new Date(), parseISO(selectedClient.lastAppointment));
                 return daysSince >= d.automation.daysSinceLastVisit;
             }
 
@@ -386,7 +382,7 @@ export const CheckoutHub = ({
                             }
                         }}
                     >
-                        <SelectTrigger className="h-10 md:h-11">
+                        <SelectTrigger className="h-10 md:h-11 border-2">
                             <SelectValue placeholder={isGroupCheckout ? "Select primary payer" : "Walk-in Customer"} />
                         </SelectTrigger>
                         <SelectContent>
@@ -468,7 +464,7 @@ export const CheckoutHub = ({
                                                 const { service, client, staff: provider } = data;
                                                 const itemPrice = getServicePrice(service, provider);
                                                 const isRedeemed = redeemedOffer?.id === service.id;
-                                                const additional = data.appointment.checkoutState?.additionalCharge || 0;
+                                                const additional = (data.appointment.checkoutState?.additionalCharge || 0);
                                                 const reviewNotes = data.appointment.checkoutState?.reviewNotes;
                                                 const isWaived = waivedAppointmentFees.has(data.appointment.id);
 
@@ -726,6 +722,7 @@ export const CheckoutHub = ({
                                                             type="number" 
                                                             value={allocation || ''} 
                                                             onChange={(e) => {}}
+                                                            readOnly
                                                             className="h-7 text-right text-[11px] pl-5 font-bold"
                                                         />
                                                     </div>
