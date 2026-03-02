@@ -44,6 +44,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
     const [isRunningOver, setIsRunningOver] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [minsRemaining, setMinsRemaining] = useState(0);
 
     const safeDate = (val: any): Date => {
         if (!val) return new Date();
@@ -76,6 +77,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
 
                 const elapsedMinutes = Math.floor(diffInSeconds / 60);
                 setIsRunningOver(elapsedMinutes > serviceDuration);
+                setMinsRemaining(Math.max(0, serviceDuration - elapsedMinutes));
 
                 if (serviceDuration > 0) {
                     setProgress(Math.min(100, (elapsedMinutes / serviceDuration) * 100));
@@ -130,7 +132,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
 
                                 return (
                                     <div key={tech.id} className={cn("flex items-center gap-2 p-1 rounded-lg border bg-background transition-opacity", isDone && "opacity-50 grayscale")}>
-                                        <Avatar className="h-6 w-6 border shadow-inner">
+                                        <Avatar className="h-6 w-6 border shadow-sm">
                                             <AvatarImage src={tech.avatarUrl} className="object-cover" />
                                             <AvatarFallback>{tech.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
@@ -142,7 +144,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                         ) : (
                                             <Badge variant="secondary" className="h-4 px-1 text-[8px] uppercase font-black bg-muted text-muted-foreground border-none">
                                                 <Hourglass className="w-2 h-2 mr-0.5" />
-                                                Queued
+                                                Starts in ~{minsRemaining}m
                                             </Badge>
                                         )}
                                     </div>

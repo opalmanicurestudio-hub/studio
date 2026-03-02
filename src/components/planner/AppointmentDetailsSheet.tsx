@@ -501,7 +501,9 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addonId)}><Trash2 className="w-3 h-3" /></Button>
+                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addonId)}>
+                                    <Trash2 className="w-3 h-3" />
+                                </Button>
                             </div>
                         </div>
                     );

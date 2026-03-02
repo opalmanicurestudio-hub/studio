@@ -21,8 +21,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle, Calculator, Clock, Send, Package, Info, MessageSquare, Repeat, Square, CheckCircle, Loader, Check } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState, getServicePrice } from '@/lib/data';
+import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare } from 'lucide-react';
+import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -34,11 +34,12 @@ import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '../ui/badge';
-import { useUser } from '@/firebase';
+import { useUser, useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { doc } from 'firebase/firestore';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -81,8 +82,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const { services: allServices, inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const { user: currentUser } = useUser();
+  const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
+  const { toast } = useToast();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
@@ -127,21 +130,21 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         });
         setServiceStaffOverrides(initialOverrides);
 
+        // Auto-select parts where current user is assigned
         const newlyCompleted = Object.entries(initialOverrides)
             .filter(([_, staffId]) => staffId === currentUser?.uid)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
+        // Auto-calculate duration from actualStartTime
         let durationToSet = checkoutState?.actualDuration;
-        if (!durationToSet) {
-            if (appointment.actualStartTime) {
-                const startTime = safeDate(appointment.actualStartTime);
-                const endTime = new Date(); 
-                durationToSet = Math.max(1, differenceInMinutes(endTime, startTime));
-            } else {
-                durationToSet = service.duration;
-            }
+        if (!durationToSet && appointment.actualStartTime) {
+            const startTime = safeDate(appointment.actualStartTime);
+            const endTime = new Date(); 
+            durationToSet = Math.max(1, differenceInMinutes(endTime, startTime));
+        } else if (!durationToSet) {
+            durationToSet = service.duration;
         }
         
         setActualDuration(durationToSet || 0);
@@ -153,6 +156,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       setCompletedServiceIds(prev => 
           prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId]
       );
+  };
+
+  const handleUpdateAddOns = (newAddOns: Service[]) => {
+    if (!firestore || !selectedTenant || !appointment) return;
+    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
+    const newIds = newAddOns.map(s => s.id);
+    updateDocumentNonBlocking(appointmentRef, { addOnIds: newIds });
+    setSelectedAddOns(newAddOns);
+    toast({ title: "Appointment Updated", description: "Extra parts added to the review." });
   };
 
   const allServiceIds = useMemo(() => {

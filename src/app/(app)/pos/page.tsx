@@ -146,8 +146,12 @@ function POSPageContent() {
 
     const subtotal = useMemo(() => {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
-            const mainPrice = getServicePrice(service, data.staff);
-            const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
+            const mainPrice = getServicePrice(data.service, data.staff);
+            const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => {
+                const addonStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[s.id] || data.appointment.staffId;
+                const addonStaff = staff.find(st => st.id === addonStaffId);
+                return sum + getServicePrice(s, addonStaff);
+            }, 0);
             
             const additional = (data.appointment.checkoutState?.additionalCharge || 0);
             const isWaived = waivedAppointmentFees.has(data.appointment.id);
@@ -165,7 +169,7 @@ function POSPageContent() {
         }, 0);
 
         return servicesSub + retailSub + adjustmentSub;
-    }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees]);
+    }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff]);
 
     const discount = useMemo(() => {
         return appliedDiscountCodes.reduce((acc, code) => {
@@ -574,7 +578,7 @@ function POSPageContent() {
         allowStacking: selectedTenant?.allowDiscountStacking || false, 
         showTitle: false,
         waivedAppointmentFees, 
-        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
+        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => setWaivedAppointmentFees(prev => { const next = new Map(prev); waive ? next.set(id, { authorizerId: authorizerId!, reason: reason! }) : next.delete(id); return next; }),
         tipAllocations,
     };
 

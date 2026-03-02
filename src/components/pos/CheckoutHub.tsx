@@ -236,7 +236,7 @@ export const CheckoutHub = ({
 
         const newAddOns = (data.appointment.addOnIds || []).filter(id => id !== addOnId);
         const newOverrides = { ...(data.appointment.checkoutState?.serviceStaffOverrides || {}) };
-        delete newOverrides[addonId];
+        delete newOverrides[addOnId];
 
         updateDocumentNonBlocking(appointmentRef, {
             addOnIds: newAddOns,
