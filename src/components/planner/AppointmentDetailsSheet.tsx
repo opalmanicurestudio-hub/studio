@@ -352,12 +352,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     if (!appointment || !firestore || !tenantId) return;
     
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-    const newAddOns = (appointment.addOnIds || []).filter(id => id !== addOnId);
-    
-    const newOverrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
+    const data = appointmentsData.find(a => a.appointment.id === appointment.id);
+    if (!data) return;
+
+    const newAddOns = (data.appointment.addOnIds || []).filter(id => id !== addOnId);
+    const newOverrides = { ...(data.appointment.checkoutState?.serviceStaffOverrides || {}) };
     delete newOverrides[addOnId];
 
-    const newConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).filter(id => id !== addOnId);
+    const newConcurrent = (data.appointment.checkoutState?.concurrentServiceIds || []).filter(id => id !== addOnId);
 
     updateDocumentNonBlocking(appointmentRef, {
         addOnIds: newAddOns,
