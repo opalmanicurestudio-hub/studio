@@ -303,7 +303,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                 </div>
                                 <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
                                     <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>)}</SelectContent>
+                                    <SelectContent>
+                                        {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
+                                            <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
+                                        ))}
+                                    </SelectContent>
                                 </Select>
                             </div>
                             {selectedAddOns.map(addon => (
@@ -318,7 +322,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     </div>
                                     <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
                                         <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
-                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>)}</SelectContent>
+                                        <SelectContent>
+                                            {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
+                                                <SelectItem key={s.id} value={s.id}>{s?.name?.split(' ')[0] || 'Tech'}</SelectItem>
+                                            ))}
+                                        </SelectContent>
                                     </Select>
                                 </div>
                             ))}

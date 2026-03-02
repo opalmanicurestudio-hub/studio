@@ -72,8 +72,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Separator } from '../ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice, Staff, AppointmentCheckoutState } from '@/lib/data';
@@ -475,8 +475,9 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     const provider = staff.find(s => s.id === providerId);
                     
                     const qualifiedStaff = staff.filter(s => 
-                        !addon.requiredSkills || addon.requiredSkills.length === 0 || 
-                        addon.requiredSkills.every(skill => (s.skillSet || []).includes(skill))
+                        ((s.active && !s.onBreak) || s.id === providerId) && 
+                        (!addon.requiredSkills || addon.requiredSkills.length === 0 || 
+                        addon.requiredSkills.every(skill => (s.skillSet || []).includes(skill)))
                     );
 
                     return (
