@@ -579,6 +579,85 @@ function POSPageContent() {
         }
     };
 
+    const handleSkip = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
+        
+        if (walkIn?.assignedStaffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
+            batch.update(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`), { status: 'cancelled', cancellationReason: 'no-show' });
+        }
+        
+        batch.commit().then(() => toast({ title: "Guest Skipped" }));
+    };
+
+    const handleReturnToQueue = (walkInId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
+            status: 'waiting', 
+            assignedStaffId: deleteField(),
+            notifiedTimestamp: deleteField()
+        });
+        
+        if (walkIn?.assignedStaffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { status: 'idle' }, { merge: true });
+            batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`));
+        }
+        
+        batch.commit().then(() => toast({ title: "Returned to Queue" }));
+    };
+
+    const handleRevertToReady = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const walkInId = appointmentId.replace('apt-walkin-', '');
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'confirmed', actualStartTime: deleteField() });
+        
+        const apt = appointments?.find(a => a.id === appointmentId);
+        if (apt?.staffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'idle' }, { merge: true });
+        }
+        
+        batch.commit().then(() => toast({ title: "Reverted to Ready" }));
+    };
+
+    const handleRevertToService = (appointmentId: string) => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { 
+            status: 'servicing', 
+            actualEndTime: deleteField() 
+        });
+        
+        const apt = appointments?.find(a => a.id === appointmentId);
+        if (apt?.staffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'busy' }, { merge: true });
+        }
+        
+        if (apt?.isWalkIn) {
+            const walkInId = appointmentId.replace('apt-walkin-', '');
+            batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing' });
+        }
+        
+        batch.commit().then(() => {
+            setSelectedAppointmentIds(prev => {
+                const next = new Set(prev);
+                next.delete(appointmentId);
+                return next;
+            });
+            toast({ title: "Reverted to In Service" });
+        });
+    };
+
     const handleResolve = (item: any) => {
         if (item.type === 'walk-in') {
             const ghostApt: Partial<Appointment> = { id: `walkin-resolve-${item.id}`, clientName: item.customerName, clientId: item.clientId || item.id, serviceId: item.serviceIds[0], status: 'confirmed', isWalkIn: true, isPotentialAlias: item.isPotentialAlias, matchedClientId: item.matchedClientId, startTime: item.checkInTime, endTime: item.checkInTime };

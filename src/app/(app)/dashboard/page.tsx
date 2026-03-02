@@ -283,7 +283,7 @@ const OwnerDashboard = ({
           </CardContent>
         </Card>
       </div>
-       <Card className="bg-primary/5 border-primary/20">
+       <Card className="bg-primary/5 border-primary/20 mt-4">
           <CardHeader className="pb-4">
             <CardTitle>End-of-Day Debrief</CardTitle>
             <CardDescription>Get an AI summary of your day's performance and inventory needs.</CardDescription>
@@ -743,9 +743,9 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  const isLoadingTotal = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
+  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
-  if(isLoadingTotal) {
+  if(isLoading) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />
@@ -767,7 +767,7 @@ export default function DashboardPage() {
             totalOutstandingDebt={totalOutstandingDebt}
             clientRetentionRate={clientRetentionRate}
             todayAppointments={todayAppointments}
-            isLoading={isLoadingTotal}
+            isLoading={isLoading}
             barChartData={barChartData}
             revenueBreakdown={revenueBreakdown}
             recentActivities={recentActivities}

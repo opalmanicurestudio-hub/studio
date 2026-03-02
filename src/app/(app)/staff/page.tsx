@@ -418,7 +418,7 @@ export default function StaffPage() {
 
         let totalMinutesWorked = 0;
         const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
-        const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
         
