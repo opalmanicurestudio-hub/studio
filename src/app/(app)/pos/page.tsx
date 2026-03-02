@@ -500,7 +500,7 @@ function POSPageContent() {
                 batch.update(clientDocRef, { lastAppointment: nowISO, lifetimeValue: increment(total - tax - tipAmount) });
             }
             await batch.commit();
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map()); setTipAllocations({});
+            onCartChange([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); onWaiveFeeToggle('', false);
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);

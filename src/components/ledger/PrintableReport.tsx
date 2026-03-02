@@ -1,7 +1,9 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { type Transaction } from '@/lib/financial-data';
+import { type Staff } from '@/lib/data';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import Image from 'next/image';
@@ -10,6 +12,7 @@ import { Paperclip } from 'lucide-react';
 
 interface PrintableReportProps {
   transactions: Transaction[];
+  staff: Staff[];
   financialSummary: {
     revenue: number;
     cogs: number;
@@ -20,7 +23,7 @@ interface PrintableReportProps {
   dateRange: DateRange | undefined;
 }
 
-export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportProps>(({ transactions, financialSummary, dateRange }, ref) => {
+export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportProps>(({ transactions, staff, financialSummary, dateRange }, ref) => {
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     useEffect(() => {
@@ -103,6 +106,7 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                         <tr>
                             <th className="py-2 px-3 text-left font-semibold">Date</th>
                             <th className="py-2 px-3 text-left font-semibold">Description</th>
+                            <th className="py-2 px-3 text-left font-semibold">Staff</th>
                             <th className="py-2 px-3 text-left font-semibold">Category</th>
                             <th className="py-2 px-3 text-left font-semibold">Context</th>
                             <th className="py-2 px-3 text-right font-semibold">Amount</th>
@@ -110,26 +114,30 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                         </tr>
                     </thead>
                     <tbody>
-                        {transactions.map(t => (
-                            <tr key={t.id} className={cn("border-b", t.type === 'expense' && 'bg-red-50')}>
-                                <td className="py-2 px-3">{format(new Date(t.date), 'MM/dd/yy')}</td>
-                                <td className="py-2 px-3">
-                                    <div>{t.description}</div>
-                                    <div className="text-xs text-gray-500">{t.clientOrVendor}</div>
-                                </td>
-                                <td className="py-2 px-3">{t.category}</td>
-                                <td className="py-2 px-3">{t.context}</td>
-                                <td className={cn('py-2 px-3 text-right font-mono', {
-                                    'text-green-600': t.type === 'income',
-                                    'text-red-600': t.type === 'expense',
-                                })}>
-                                    {t.type === 'income' ? '+' : '-'}${t.amount.toFixed(2)}
-                                </td>
-                                <td className="py-2 px-3 text-center text-gray-500">
-                                    {receiptMap.get(t.id) ? `#${receiptMap.get(t.id)}` : '—'}
-                                </td>
-                            </tr>
-                        ))}
+                        {transactions.map(t => {
+                            const staffMember = staff.find(s => s.id === t.staffId);
+                            return (
+                                <tr key={t.id} className={cn("border-b", t.type === 'expense' && 'bg-red-50')}>
+                                    <td className="py-2 px-3">{format(new Date(t.date), 'MM/dd/yy')}</td>
+                                    <td className="py-2 px-3">
+                                        <div>{t.description}</div>
+                                        <div className="text-xs text-gray-500">{t.clientOrVendor}</div>
+                                    </td>
+                                    <td className="py-2 px-3">{staffMember?.name || 'System'}</td>
+                                    <td className="py-2 px-3">{t.category}</td>
+                                    <td className="py-2 px-3">{t.context}</td>
+                                    <td className={cn('py-2 px-3 text-right font-mono', {
+                                        'text-green-600': t.type === 'income',
+                                        'text-red-600': t.type === 'expense',
+                                    })}>
+                                        {t.type === 'income' ? '+' : '-'}${t.amount.toFixed(2)}
+                                    </td>
+                                    <td className="py-2 px-3 text-center text-gray-500">
+                                        {receiptMap.get(t.id) ? `#${receiptMap.get(t.id)}` : '—'}
+                                    </td>
+                                </tr>
+                            )
+                        })}
                     </tbody>
                 </table>
             </section>

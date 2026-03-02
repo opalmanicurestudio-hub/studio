@@ -1,8 +1,7 @@
 
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +10,15 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -21,10 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar as CalendarIcon, DollarSign } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, User } from 'lucide-react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
 import { ScrollArea } from '../ui/scroll-area';
@@ -35,6 +43,7 @@ import { Calendar } from '../ui/calendar';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -47,6 +56,7 @@ const transactionSchema = z.object({
   date: z.date({ required_error: "A date is required." }),
   context: z.enum(['Business', 'Personal']),
   type: z.enum(['income', 'expense']),
+  staffId: z.string().optional(),
 });
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
@@ -54,10 +64,11 @@ type TransactionFormData = z.infer<typeof transactionSchema>;
 interface AddTransactionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  staff: Staff[];
   onConfirm: (transaction: Omit<Transaction, 'id'>) => void;
 }
 
-const AddTransactionForm = () => {
+const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
     const { control, formState: { errors } } = useFormContext<TransactionFormData>();
 
     return (
@@ -133,6 +144,34 @@ const AddTransactionForm = () => {
                 )}
             />
              <Controller
+                name="staffId"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                        <Label htmlFor="staff-select">Associated Staff (Optional)</Label>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <SelectTrigger id="staff-select">
+                                <SelectValue placeholder="Select staff member" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">None / Studio Wide</SelectItem>
+                                {staff.map(s => (
+                                    <SelectItem key={s.id} value={s.id}>
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="h-5 w-5 border shadow-inner">
+                                                <AvatarImage src={s.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="text-[8px]">{s.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span>{s.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+            />
+             <Controller
                 name="description"
                 control={control}
                 render={({ field }) => (
@@ -169,10 +208,14 @@ const AddTransactionForm = () => {
                         <div className="space-y-2">
                             <Label>Context</Label>
                             <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-2">
-                                <RadioGroupItem value="Business" id="business-add" className="peer sr-only" />
-                                <Label htmlFor="business-add" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
-                                <RadioGroupItem value="Personal" id="personal-add" className="peer sr-only" />
-                                <Label htmlFor="personal-add" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                                <div>
+                                    <RadioGroupItem value="Business" id="business-add" className="peer sr-only" />
+                                    <Label htmlFor="business-add" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Business</Label>
+                                </div>
+                                <div>
+                                    <RadioGroupItem value="Personal" id="personal-add" className="peer sr-only" />
+                                    <Label htmlFor="personal-add" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
+                                </div>
                             </RadioGroup>
                         </div>
                     )}
@@ -250,9 +293,9 @@ const AddTransactionForm = () => {
 export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   open,
   onOpenChange,
+  staff,
   onConfirm,
 }) => {
-  const isMobile = useIsMobile();
   const methods = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
@@ -283,10 +326,12 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   }, [open, reset]);
 
   const handleFormSubmit = (data: TransactionFormData) => {
+    const { staffId, ...rest } = data;
     const newTransaction: Omit<Transaction, 'id'> = {
-      ...data,
+      ...rest,
       date: data.date.toISOString(),
       hasReceipt: !!data.receiptUrl,
+      staffId: staffId === 'none' ? undefined : staffId,
     };
     onConfirm(newTransaction);
   };
@@ -304,7 +349,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                <AddTransactionForm />
+                <AddTransactionForm staff={staff} />
                 <DialogFooter className="pt-6 border-t">
                     <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
                     <Button type="submit" form={formId}>Log Transaction</Button>

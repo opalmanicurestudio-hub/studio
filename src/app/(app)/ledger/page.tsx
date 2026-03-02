@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -24,6 +25,7 @@ import {
   CreditCard,
   Trash2,
   Printer,
+  User,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -50,6 +52,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { type Transaction } from '@/lib/financial-data';
+import { type Staff } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -78,6 +81,7 @@ import { useToast } from '@/hooks/use-toast';
 import { PrintableReport } from '@/components/ledger/PrintableReport';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
@@ -220,7 +224,7 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transaction, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void }) => {
   return (
     <TableRow>
       <TableCell>
@@ -233,6 +237,17 @@ const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transacti
         </div>
       </TableCell>
       <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy p')}</TableCell>
+      <TableCell>
+        {staffMember ? (
+            <div className="flex items-center gap-2">
+                <Avatar className="h-6 w-6 border shadow-inner">
+                    <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
+                    <AvatarFallback className="text-[8px]">{staffMember.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <span className="text-xs font-medium">{staffMember.name.split(' ')[0]}</span>
+            </div>
+        ) : <span className="text-xs text-muted-foreground italic">System</span>}
+      </TableCell>
       <TableCell>
         <Badge
           variant={transaction.context === 'Business' ? 'secondary' : 'outline'}
@@ -281,7 +296,7 @@ const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transacti
   );
 };
 
-const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transaction, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void }) => {
     return (
         <Card>
             <CardContent className="p-4 space-y-4">
@@ -289,9 +304,15 @@ const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transact
                     <div className="p-2 bg-muted/50 rounded-full">
                         <TransactionIcon type={transaction.type} />
                     </div>
-                    <div className="flex-1 space-y-1">
-                        <p className="font-semibold">{transaction.description}</p>
-                        <p className="text-sm text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
+                    <div className="flex-1 space-y-1 min-w-0">
+                        <p className="font-semibold truncate">{transaction.description}</p>
+                        <p className="text-xs text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
+                        {staffMember && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                                <User className="w-3 h-3 text-primary" />
+                                <span className="text-[10px] font-black uppercase text-primary tracking-tight">Provider: {staffMember.name}</span>
+                            </div>
+                        )}
                     </div>
                     <div className='text-right'>
                         <p className={cn('font-bold font-mono text-lg', {
@@ -344,7 +365,7 @@ export default function LedgerPage() {
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const { transactions, isLoading: areTransactionsLoading } = useInventory();
+  const { transactions, staff, isLoading: areTransactionsLoading } = useInventory();
 
   const [date, setDate] = React.useState<DateRange | undefined>({
       from: new Date(new Date().getFullYear(), 0, 1),
@@ -471,6 +492,7 @@ export default function LedgerPage() {
                     <TableRow>
                       <TableHead>Description</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead>Staff</TableHead>
                       <TableHead>Context</TableHead>
                       <TableHead>Payment Method</TableHead>
                       <TableHead>Category</TableHead>
@@ -481,15 +503,20 @@ export default function LedgerPage() {
                   <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">Loading transactions...</TableCell>
+                            <TableCell colSpan={8} className="h-24 text-center">Loading transactions...</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
-                      <TransactionRow key={transaction.id} transaction={transaction} onRevertClick={() => setTransactionToRevert(transaction)} />
+                      <TransactionRow 
+                        key={transaction.id} 
+                        transaction={transaction} 
+                        staffMember={staff.find(s => s.id === transaction.staffId)}
+                        onRevertClick={() => setTransactionToRevert(transaction)} 
+                      />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">No transactions found matching your filters.</TableCell>
+                            <TableCell colSpan={8} className="h-24 text-center">No transactions found matching your filters.</TableCell>
                         </TableRow>
                     )}
                   </TableBody>
@@ -499,7 +526,12 @@ export default function LedgerPage() {
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">Loading transactions...</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard key={transaction.id} transaction={transaction} onRevertClick={() => setTransactionToRevert(transaction)} />
+                    <TransactionCard 
+                        key={transaction.id} 
+                        transaction={transaction} 
+                        staffMember={staff.find(s => s.id === transaction.staffId)}
+                        onRevertClick={() => setTransactionToRevert(transaction)} 
+                    />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
@@ -511,6 +543,7 @@ export default function LedgerPage() {
         <PrintableReport 
             ref={reportRef} 
             transactions={filteredTransactions} 
+            staff={staff || []}
             financialSummary={financialSummary} 
             dateRange={date} 
         />
@@ -533,6 +566,7 @@ export default function LedgerPage() {
     <AddTransactionDialog 
         open={isAddTxnOpen}
         onOpenChange={setIsAddTxnOpen}
+        staff={staff || []}
         onConfirm={handleAddTransaction}
     />
     
