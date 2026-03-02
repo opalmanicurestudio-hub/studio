@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -317,6 +318,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
+
+  const handleRemoveAddOn = async (appointmentId: string, addOnId: string) => {
+    if (!firestore || !tenantId) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    const newAddOns = (appointment.addOnIds || []).filter(id => id !== addOnId);
+    updateDocumentNonBlocking(appointmentRef, { addOnIds: newAddOns });
+    toast({ title: "Service Removed" });
+  };
 
   return (
     <>

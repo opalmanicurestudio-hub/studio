@@ -13,7 +13,22 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail, Trash2, KeyRound, Loader, RefreshCcw } from 'lucide-react';
+import { 
+  MoreHorizontal, 
+  PlusCircle, 
+  Users, 
+  Calendar as CalendarIcon, 
+  AlertTriangle, 
+  Clock, 
+  Coffee, 
+  ShieldAlert, 
+  Phone, 
+  Mail, 
+  Trash2, 
+  KeyRound, 
+  Loader, 
+  RefreshCcw 
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm, type PricingTier } from '@/lib/data';
+import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -33,7 +48,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
@@ -56,11 +70,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
-import { Input } from '@/components/ui/input';
-import { toast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { firebaseConfig } from '@/firebase/config';
@@ -79,7 +94,6 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    // Handle Firestore Timestamp like object { seconds, nanoseconds }
     if (typeof val === 'object' && 'seconds' in val) {
         return new Date(val.seconds * 1000);
     }
@@ -351,6 +365,7 @@ export default function StaffPage() {
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const canManage = role === 'owner' || role === 'admin';
+  const { toast: uiToast } = useToast();
   
   const {
     services,
@@ -567,7 +582,7 @@ export default function StaffPage() {
 
       await batch.commit();
       
-      toast({
+      uiToast({
         title: 'Staff Member Added',
         description: `${data.name} can now log in with their credentials.`,
       });
@@ -578,7 +593,7 @@ export default function StaffPage() {
       if (error.code === 'auth/email-already-in-use') {
         description = 'This email is already in use by another account.';
       }
-      toast({ variant: 'destructive', title: 'Failed to Add Staff', description });
+      uiToast({ variant: 'destructive', title: 'Failed to Add Staff', description });
     } finally {
       if (tempApp) await deleteApp(tempApp);
     }
@@ -635,9 +650,9 @@ export default function StaffPage() {
         setIsPinAuthOpen(false);
         setAuthPin('');
         setPendingStatusAction(null);
-        toast({ title: "Authorized", description: "Status updated successfully." });
+        uiToast({ title: "Authorized", description: "Status updated successfully." });
     } else {
-        toast({ variant: "destructive", title: "Invalid PIN", description: "The PIN entered is incorrect." });
+        uiToast({ variant: "destructive", title: "Invalid PIN", description: "The PIN entered is incorrect." });
     }
   };
 
@@ -656,21 +671,21 @@ export default function StaffPage() {
             batch.delete(tierRef);
         }
     });
-    batch.commit().then(() => { toast({ title: 'Pricing Tiers Saved!' }); }).catch((error) => { console.error("Error saving tiers:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' }); });
+    batch.commit().then(() => { uiToast({ title: 'Pricing Tiers Saved!' }); }).catch((error) => { console.error("Error saving tiers:", error); uiToast({ variant: 'destructive', title: 'Error', description: 'Could not save pricing tiers.' }); });
   };
   
   const handleDeleteTier = (tierId: string) => {
     if (!firestore || !tenantId) return;
     const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tierId);
     deleteDocumentNonBlocking(tierRef);
-    toast({ title: 'Tier Deleted', variant: 'destructive' });
+    uiToast({ title: 'Tier Deleted', variant: 'destructive' });
   };
 
   const handleForceIdle = (staffId: string) => {
     if (!firestore || !tenantId) return;
     const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
     updateDocumentNonBlocking(staffRef, { status: 'idle' });
-    toast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
+    uiToast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
   };
 
   const isLoadingTotal = staffLoading || pricingTiersLoading || isLoading;

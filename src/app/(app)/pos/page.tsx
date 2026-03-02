@@ -196,29 +196,6 @@ function POSPageContent() {
             }).filter((a): a is { id: string, appointment: Appointment, client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
     }, [todayAppointments, clients, services, staff]);
 
-    const handleApplyAdjustmentToggle = useCallback((id: string, apply: boolean) => {
-        setAppliedAdjustments(prev => {
-            const next = new Set(prev);
-            if (apply) next.add(id);
-            else next.delete(id);
-            return next;
-        });
-    }, []);
-
-    const handleAddToCart = useCallback((item: any) => {
-        setRetailItems(prev => {
-            const existing = prev.find(i => i.id === item.id);
-            if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-            let price = 0;
-            let type: 'product' | 'service' | 'membership' | 'package' = 'product';
-            if ('msrp' in item) { price = item.msrp || item.costPerUnit || 0; type = 'product'; }
-            else if ('duration' in item) { price = item.price || 0; type = 'service'; }
-            else if ('interval' in item) { price = item.price || 0; type = 'membership'; }
-            else if ('sessions' in item) { price = item.price || 0; type = 'package'; }
-            return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
-        });
-    }, []);
-
     const kpiData = useMemo(() => {
         const todayStart = startOfDay(new Date());
         const todayEnd = endOfDay(new Date());
@@ -259,6 +236,29 @@ function POSPageContent() {
             revenuePerServiceHour,
         };
     }, [walkIns, appointments, transactions, services]);
+
+    const handleApplyAdjustmentToggle = useCallback((id: string, apply: boolean) => {
+        setAppliedAdjustments(prev => {
+            const next = new Set(prev);
+            if (apply) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const handleAddToCart = useCallback((item: any) => {
+        setRetailItems(prev => {
+            const existing = prev.find(i => i.id === item.id);
+            if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+            let price = 0;
+            let type: 'product' | 'service' | 'membership' | 'package' = 'product';
+            if ('msrp' in item) { price = item.msrp || item.costPerUnit || 0; type = 'product'; }
+            else if ('duration' in item) { price = item.price || 0; type = 'service'; }
+            else if ('interval' in item) { price = item.price || 0; type = 'membership'; }
+            else if ('sessions' in item) { price = item.price || 0; type = 'package'; }
+            return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
+        });
+    }, []);
 
     const rawSubtotal = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
