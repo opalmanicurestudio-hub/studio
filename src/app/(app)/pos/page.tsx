@@ -149,7 +149,6 @@ function POSPageContent() {
             const mainPrice = getServicePrice(data.service, data.staff);
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
             
-            // Add additional charges (overages) unless absorbed by owner
             const additional = (data.appointment.checkoutState?.additionalCharge || 0);
             const isWaived = waivedAppointmentFees.has(data.appointment.id);
             const effectiveAdditional = isWaived ? 0 : additional;
@@ -393,13 +392,14 @@ function POSPageContent() {
 
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
+        const selectedClient = clients?.find(c => c.id === selectedClientId);
 
         // 1. Process Appointments
         for (const aptData of selectedAptsData) {
             const { appointment: apt, service, addOnServices, staff: tech } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
             
-            // Formula & Inventory Deduction (Accurate)
+            // Formula & Inventory Deduction (Accurate Ledger Integration)
             const formula = apt.checkoutState?.formula || [];
             formula.forEach(item => {
                 const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
@@ -411,6 +411,16 @@ function POSPageContent() {
                 } else {
                     batch.update(productRef, { totalStock: increment(-item.quantity) });
                 }
+
+                // Add to Inventory Ledger
+                const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                batch.set(scRef, {
+                    productId: item.id,
+                    date: now,
+                    change: -item.quantity,
+                    unit: item.unit || 'units',
+                    reason: `Appointment for ${selectedClient?.name || 'Guest'}`,
+                });
             });
 
             const mainPrice = getServicePrice(service, tech);
@@ -459,8 +469,19 @@ function POSPageContent() {
                 paymentMethod: paymentTab,
                 hasReceipt: true
             });
+            
             const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
             batch.update(productRef, { totalStock: increment(-item.quantity) });
+
+            // Add to Inventory Ledger for Retail Sale
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, {
+                productId: item.id,
+                date: now,
+                change: -item.quantity,
+                unit: 'units',
+                reason: `Retail Sale to ${selectedClient?.name || 'Guest'}`,
+            });
         });
 
         // 3. Log Tips (Accurate Allocation)
