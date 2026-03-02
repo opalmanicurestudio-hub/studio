@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { type Appointment, type Transaction, type Service, Staff, ActivityLog } from '@/lib/data';
+import { type Appointment, type Transaction, type Service, Staff, ActivityLog, AppointmentCheckoutState } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -78,6 +78,10 @@ const safeDate = (val: any): Date => {
         } catch {
             return new Date(val);
         }
+    }
+    // Handle Firestore Timestamp like object { seconds, nanoseconds }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
     }
     return new Date(val);
 };
@@ -402,6 +406,8 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
         return name.substring(0, 2).toUpperCase();
     };
 
+    const nextAppointment = upcomingAppointments?.find((apt: any) => apt.status === 'confirmed');
+
     return (
       <div className="space-y-6">
         <Card className="text-center">
@@ -476,7 +482,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                             </div>
                         </div>
                         <Button asChild className="w-full">
-                            <Link href={`/planner?view=staff&staffId=${user?.uid}`}>
+                            <Link href={`/planner?view=staff&staffId=${staffMember?.id}`}>
                                 View Details
                             </Link>
                         </Button>
@@ -561,7 +567,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 export default function DashboardPage() {
   const { firestore, user, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs } = useInventory();
+  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -668,7 +674,7 @@ export default function DashboardPage() {
         })).filter(activity => activity.client && activity.service);
   }, [allAppointments, clients, services]);
 
-  const staffMember = useMemo(() => (user && inventory.staff) ? inventory.staff.find(s => s.id === user.uid) : null, [user, inventory.staff]);
+  const staffMember = useMemo(() => (user && staff) ? staff.find(s => s.id === user.uid) : null, [user, staff]);
 
   const todayKpis = useMemo(() => {
     if (!allTransactions || !allAppointments || !staffMember || !dateRange) return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
@@ -702,7 +708,7 @@ export default function DashboardPage() {
       const result = await endOfDayDebrief({
         dailyRevenue: todaysRevenue,
         dailyExpenses: todaysExpenses,
-        inventoryLevels: inventory.inventory.filter(item => item.type === 'professional').slice(0, 5).reduce((acc, item) => { acc[item.name] = item.totalStock; return acc; }, {} as any),
+        inventoryLevels: inventory.filter(item => item.type === 'professional').slice(0, 5).reduce((acc, item) => { acc[item.name] = item.totalStock; return acc; }, {} as any),
         completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
       });
       setDebriefContent(result.summary);
@@ -745,7 +751,9 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  if(isUserLoading || isTenantLoading || isLoading) {
+  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading;
+
+  if(isLoading) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />

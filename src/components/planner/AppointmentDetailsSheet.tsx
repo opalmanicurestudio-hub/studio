@@ -76,7 +76,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice, Staff } from '@/lib/data';
+import { type Appointment, type Client, type Service, Resource, type Transaction, getServicePrice, Staff, AppointmentCheckoutState } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -102,6 +102,10 @@ const safeDate = (val: any): Date => {
         } catch {
             return new Date(val);
         }
+    }
+    // Handle Firestore Timestamp like object { seconds, nanoseconds }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
     }
     return new Date(val);
 };
