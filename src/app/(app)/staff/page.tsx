@@ -88,7 +88,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[] }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, canManage: boolean }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -146,11 +146,26 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                     })}>
                         {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                     </Badge>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1">
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => onViewActivity(member)}>Dashboard</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {canManage && (
+                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">Force Idle</DropdownMenuItem>
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </CardHeader>
             <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
                 <Avatar className="w-24 h-24 mx-auto mb-4">
-                    <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
+                    <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
                     <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
@@ -196,14 +211,6 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             </CardContent>
             <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
                 {renderActionButtons()}
-                <div className="grid grid-cols-2 gap-2 w-full">
-                    <Button variant="secondary" size="sm" onClick={() => onViewActivity(member)}>
-                        Dashboard
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={() => onEdit(member)}>
-                        Edit Profile
-                    </Button>
-                </div>
                  <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
                     <Link href={`/staff/${member.id}`}>View Public Profile</Link>
                 </Button>
@@ -340,8 +347,9 @@ export default function StaffPage() {
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
 
   const { firestore, user } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
+  const canManage = role === 'owner' || role === 'admin';
   
   const {
     services,
@@ -538,7 +546,8 @@ export default function StaffPage() {
         services: data.services || [],
         assignedFormIds: data.assignedFormIds || [],
         payStructure: data.payStructure || 'commission',
-        commissionRate: data.commissionRate || 0,
+        commissionRate: data.commissionRate || 40,
+        retailCommissionRate: data.retailCommissionRate || 10,
         hourlyRate: data.hourlyRate,
         pin: data.pin,
       };
@@ -656,6 +665,13 @@ export default function StaffPage() {
     toast({ title: 'Tier Deleted', variant: 'destructive' });
   };
 
+  const handleForceIdle = (staffId: string) => {
+    if (!firestore || !tenantId) return;
+    const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+    updateDocumentNonBlocking(staffRef, { status: 'idle' });
+    toast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
+  };
+
   const isLoadingTotal = staffLoading || pricingTiersLoading || isLoading;
 
   if (isLoadingTotal) {
@@ -735,7 +751,7 @@ export default function StaffPage() {
                 {(staff || []).length > 0 ? (
                     <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
                         {staffWithStats.map((member) => (
-                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} />
+                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} canManage={canManage} />
                         ))}
                     </div>
                     ) : (

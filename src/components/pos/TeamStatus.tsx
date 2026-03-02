@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service, type Resource } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCcw } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds, isSameDay, startOfDay } from 'date-fns';
 import { Reorder } from 'framer-motion';
@@ -30,6 +30,7 @@ interface TeamStatusProps {
   onReorder: (newOrder: Staff[]) => void;
   assignmentMode: 'fair_play' | 'ordered_list';
   onAssignmentModeChange: (mode: 'fair_play' | 'ordered_list') => void;
+  onForceIdle: (staffId: string) => void;
 }
 
 const StaffMemberCard = ({ 
@@ -41,7 +42,9 @@ const StaffMemberCard = ({
     isFirst, 
     isLast, 
     assignmentMode,
-    nextAppointment
+    nextAppointment,
+    onForceIdle,
+    canManage
 }: { 
     member: Staff & { availability?: { status: string } }, 
     isNextUp: boolean, 
@@ -51,7 +54,9 @@ const StaffMemberCard = ({
     isFirst: boolean,
     isLast: boolean,
     assignmentMode: 'fair_play' | 'ordered_list',
-    nextAppointment?: Appointment | null
+    nextAppointment?: Appointment | null,
+    onForceIdle: (id: string) => void,
+    canManage: boolean
 }) => {
     
     const getStatus = () => {
@@ -62,14 +67,6 @@ const StaffMemberCard = ({
     };
 
     const status = getStatus();
-
-    const safeDate = (val: any): Date => {
-        if (!val) return new Date();
-        if (val instanceof Date) return val;
-        if (typeof val?.toDate === 'function') return val.toDate();
-        if (typeof val === 'string') return parseISO(val);
-        return new Date(val);
-    };
 
     const checkInBadge = useMemo(() => {
         if (!nextAppointment) return null;
@@ -111,16 +108,33 @@ const StaffMemberCard = ({
                         <p className="text-[10px] text-muted-foreground font-medium truncate">{member.availability?.status}</p>
                     </div>
                 </div>
-                {assignmentMode === 'ordered_list' && member.active && (
-                    <div className="flex flex-col gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onMoveUp(member.id)} disabled={isFirst}>
-                            <ArrowUp className="h-5 w-5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onMoveDown(member.id)} disabled={isLast}>
-                            <ArrowDown className="h-5 w-5" />
-                        </Button>
-                    </div>
-                )}
+                <div className="flex items-center gap-1">
+                    {assignmentMode === 'ordered_list' && member.active && (
+                        <div className="flex flex-col gap-1">
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onMoveUp(member.id)} disabled={isFirst}>
+                                <ArrowUp className="h-5 w-5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onMoveDown(member.id)} disabled={isLast}>
+                                <ArrowDown className="h-5 w-5" />
+                            </Button>
+                        </div>
+                    )}
+                    {canManage && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => onForceIdle(member.id)}>
+                                    <RefreshCcw className="w-4 h-4 mr-2" />
+                                    Force Idle
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                </div>
             </CardContent>
             {isNextUp && (
                 <Badge className="absolute -top-2 right-4 bg-primary text-primary-foreground font-black uppercase text-[9px] tracking-widest px-2 shadow-sm">Next Up</Badge>
@@ -130,8 +144,10 @@ const StaffMemberCard = ({
 };
 
 
-export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, resources, onReorder, assignmentMode, onAssignmentModeChange }) => {
-    
+export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, resources, onReorder, assignmentMode, onAssignmentModeChange, onForceIdle }) => {
+    const { role } = useTenant();
+    const canManage = role === 'owner' || role === 'admin';
+
     const handleMove = (staffId: string, direction: 'up' | 'down') => {
         const staffList = staff || [];
         const index = staffList.findIndex(s => s.id === staffId);
@@ -164,8 +180,11 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             
             let nextFreeIn = null;
             if (isAtCapacity && occupiedBy.length > 0) {
-                const endTimes = occupiedBy.map(a => new Date(a.endTime));
-                const earliestEnd = new Date(Math.min(...endTimes.map(d => d.getTime())));
+                const endTimes = occupiedBy.map(a => {
+                    const d = a.endTime instanceof Date ? a.endTime : parseISO(a.endTime);
+                    return d.getTime();
+                });
+                const earliestEnd = new Date(Math.min(...endTimes));
                 nextFreeIn = Math.max(1, differenceInMinutes(earliestEnd, now));
             }
 
@@ -181,10 +200,10 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const { nextAvailableIn, hasIdleStaff } = useMemo(() => {
         if (!staff || !appointments) return { nextAvailableIn: null, hasIdleStaff: false };
 
-        const idleStaff = staff.some(s => s.active && !s.onBreak && s.status === 'idle');
+        const idleStaff = staff.some(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status));
 
         if (idleStaff) {
-            return { nextAvailableIn: 0, hasIdleStaff: true }; // Available now
+            return { nextAvailableIn: 0, hasIdleStaff: true };
         }
 
         const busyStaffEndTimes = staff
@@ -225,7 +244,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 
                 if (isCurrentlyBusy) {
                     if (currentAppointment) {
-                        const minutesRemaining = differenceInMinutes(new Date(currentAppointment.endTime), now);
+                        const d = currentAppointment.endTime instanceof Date ? currentAppointment.endTime : parseISO(currentAppointment.endTime);
+                        const minutesRemaining = differenceInMinutes(d, now);
                         availabilityStatus = minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining} min`;
                     } else {
                         availabilityStatus = "Busy";
@@ -253,7 +273,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const offDutyStaff = useMemo(() => enrichedStaff.filter(s => !s.active), [enrichedStaff]);
 
     const nextUpStaffId = useMemo(() => {
-        const candidates = activeStaff.filter(s => !s.onBreak && s.status === 'idle');
+        const candidates = activeStaff.filter(s => !s.onBreak && (s.status === 'idle' || !s.status));
         if (candidates.length === 0) return null;
 
         if (assignmentMode === 'fair_play') {
@@ -354,6 +374,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                                     isLast={index === activeStaff.length - 1}
                                     assignmentMode={assignmentMode}
                                     nextAppointment={member.nextApt}
+                                    onForceIdle={onForceIdle}
+                                    canManage={canManage}
                                 />
                             ))}
                             {activeStaff.length === 0 && (
@@ -377,6 +399,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                                         isFirst={false}
                                         isLast={false}
                                         assignmentMode={assignmentMode}
+                                        onForceIdle={onForceIdle}
+                                        canManage={canManage}
                                     />
                                 ))}
                             </div>

@@ -314,51 +314,10 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     return { revenue, breakEven, profit: revenue - breakEven, timeCost, productCost };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
-  const handleAddServicePart = async () => {
-    if (!appointment || !newAddOnId || !newAddOnStaffId || !firestore || !tenantId) return;
-    
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-    const existingAddOns = appointment.addOnIds || [];
-    const existingOverrides = appointment.checkoutState?.serviceStaffOverrides || {};
-    const existingConcurrent = appointment.checkoutState?.concurrentServiceIds || [];
-    
-    const updates: any = {
-        addOnIds: [...existingAddOns, newAddOnId],
-        'checkoutState.serviceStaffOverrides': {
-            ...existingOverrides,
-            [newAddOnId]: newAddOnStaffId
-        }
-    };
-
-    if (newAddOnTiming === 'immediate') {
-        const staffRef = doc(firestore, 'tenants', tenantId, 'staff', newAddOnStaffId);
-        updateDocumentNonBlocking(staffRef, { status: 'busy' });
-        updates['checkoutState.concurrentServiceIds'] = [...existingConcurrent, newAddOnId];
-    }
-
-    updateDocumentNonBlocking(appointmentRef, updates);
-    setIsSplitServiceOpen(false);
-    setNewAddOnId('');
-    setNewAddOnStaffId('');
-    toast({ 
-        title: "Service Part Added", 
-        description: newAddOnTiming === 'immediate' 
-            ? "Concurrent service started. Both providers marked busy." 
-            : "Sequential service queued. Provider notified." 
-    });
-  };
-
   if (!client || !service || !appointment) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
-
-  const idleQualifiedStaff = staff.filter(s => {
-      if (!s.active || s.onBreak || s.status === 'busy') return false;
-      const selectedAddOn = allServices.find(svc => svc.id === newAddOnId);
-      if (!selectedAddOn) return true;
-      return (selectedAddOn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill));
-  });
 
   return (
     <>
