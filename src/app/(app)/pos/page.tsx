@@ -74,6 +74,7 @@ function POSPageContent() {
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<any[]>([]);
     const [tipAmount, setTipAmount] = useState(0);
+    const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -345,6 +346,15 @@ function POSPageContent() {
         toast({ title: "Staff Reset", description: "Technician is now marked as idle." });
     };
 
+    const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
+        if (!firestore || !tenantId) return;
+        const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        const updates: any = { checkInStatus: status };
+        if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
+        updateDocumentNonBlocking(docRef, updates);
+        toast({ title: "Status Updated" });
+    };
+
     const handleResolve = (item: any) => {
         setSelectedAppointment(item);
         setIsDetailsOpen(true);
@@ -379,6 +389,39 @@ function POSPageContent() {
         if (waiting?.length && idle?.length) {
             handleAssignStaff(waiting[0], idle[0].id);
         }
+    };
+
+    const handleFinishService = (apt: Appointment) => {
+        setAppointmentToReview(apt);
+        setIsTechnicianReviewOpen(true);
+    };
+
+    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        if (!apt) return;
+
+        const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+        const completedIds = checkoutState.completedServiceIds || [];
+        const allComplete = completedIds.length >= totalServicesCount;
+
+        const batch = writeBatch(firestore);
+        if (allComplete) {
+            batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+        } else {
+            batch.update(appointmentRef, { checkoutState });
+        }
+
+        if (currentUser) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+        }
+
+        batch.commit().then(() => {
+            toast({ title: allComplete ? "Service Finished" : "Part Completed" });
+            setIsTechnicianReviewOpen(false);
+        });
     };
 
     const checkoutHubProps = {
@@ -526,7 +569,7 @@ function POSPageContent() {
                     setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
                     setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
                 } else toast({ variant: 'destructive', title: 'Invalid PIN' });
-            }}>Confirm</Button></DialogFooter></DialogContent></Dialog>
+            }}>Confirm</Button></DialogFooter></Content></Dialog>
             
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0">

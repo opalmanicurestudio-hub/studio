@@ -89,9 +89,6 @@ import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection, deleteField } from 'firebase/firestore';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
-/**
- * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
