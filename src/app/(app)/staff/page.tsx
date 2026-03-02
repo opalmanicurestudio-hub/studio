@@ -696,7 +696,7 @@ export default function StaffPage() {
                     >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {dateRange?.from ? (
-                        date.to ? (
+                        dateRange.to ? (
                             <>
                             {format(dateRange.from, "LLL dd, yyyy")} -{" "}
                             {format(dateRange.to, "LLL dd, yyyy")}

@@ -143,49 +143,6 @@ function POSPageContent() {
         toast({ title: "Status Updated" });
     };
 
-    const handleSkip = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'skipped' });
-        toast({ title: "Guest Skipped" });
-    };
-
-    const handleReturnToQueue = (walkInId: string) => {
-        if (!firestore || !tenantId) return;
-        const walkIn = walkIns?.find(w => w.id === walkInId);
-        const batch = writeBatch(firestore);
-        
-        batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { 
-            status: 'waiting', 
-            notifiedTimestamp: deleteField(), 
-            assignedStaffId: deleteField() 
-        });
-
-        if (walkIn?.assignedStaffId) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
-                status: 'idle' 
-            }, { merge: true });
-        }
-
-        const aptId = `apt-walkin-${walkInId}`;
-        batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', aptId));
-        
-        batch.commit().then(() => toast({ title: "Guest Returned to Queue" }));
-    };
-
-    const handleRevertToReady = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'confirmed' });
-        if (appointmentId.startsWith('apt-walkin-')) {
-            const walkInId = appointmentId.replace('apt-walkin-', '');
-            updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified' });
-        }
-    };
-
-    const handleRevertToService = (appointmentId: string) => {
-        if (!firestore || !tenantId) return;
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing' });
-    };
-
     const handleSelectAppointment = useCallback((id: string) => {
         setSelectedAppointmentIds(prev => {
             const next = new Set(prev);
@@ -559,12 +516,12 @@ function POSPageContent() {
       if (!appointment) return;
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
-      if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
+      if (appointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId }, { merge: true });
       if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
-          batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO });
+          batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO }, { merge: true });
       }
       batch.commit().then(() => toast({ title: "Service Started" }));
     };

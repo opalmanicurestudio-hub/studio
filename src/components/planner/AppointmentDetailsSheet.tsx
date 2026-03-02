@@ -348,29 +348,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     });
   };
 
-  const handleRemoveAddOn = (addOnId: string) => {
-    if (!appointment || !firestore || !tenantId) return;
-    
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-    const data = appointmentsData.find(a => a.appointment.id === appointment.id);
-    if (!data) return;
-
-    const newAddOns = (data.appointment.addOnIds || []).filter(id => id !== addOnId);
-    const newOverrides = { ...(data.appointment.checkoutState?.serviceStaffOverrides || {}) };
-    delete newOverrides[addOnId];
-
-    const newConcurrent = (data.appointment.checkoutState?.concurrentServiceIds || []).filter(id => id !== addOnId);
-
-    updateDocumentNonBlocking(appointmentRef, {
-        addOnIds: newAddOns,
-        'checkoutState.serviceStaffOverrides': newOverrides,
-        'checkoutState.concurrentServiceIds': newConcurrent
-    });
-    
-    toast({ title: "Service Removed" });
-  };
-
-  if (!appointment || !client || !service) return null;
+  if (!client || !service || !appointment) return null;
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
@@ -526,9 +504,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
-                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(addon.id)}>
-                                    <Trash2 className="w-3 h-3" />
-                                </Button>
                             </div>
                         </div>
                     ) : null;
@@ -640,79 +615,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
         </SheetFooter>
       </SheetContent>
     </Sheet>
-
-    <Dialog open={isSplitServiceOpen} onOpenChange={setIsSplitServiceOpen}>
-        <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-                <DialogTitle className="flex items-center gap-2"><PlusCircle className="w-5 h-5 text-primary" /> Add Service Part</DialogTitle>
-                <DialogDescription>Assign an additional add-on to a different provider who is currently available.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-6 py-4">
-                <div className="space-y-2">
-                    <Label>Select Add-on</Label>
-                    <Select value={newAddOnId} onValueChange={setNewAddOnId}>
-                        <SelectTrigger><SelectValue placeholder="Choose service..." /></SelectTrigger>
-                        <SelectContent>
-                            {allServices.filter(s => s.type === 'addon' && !(appointment.addOnIds || []).includes(s.id)).map(s => (
-                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.duration} min)</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="space-y-2">
-                    <Label>Assign Provider</Label>
-                    <p className="text-[10px] text-muted-foreground uppercase font-black mb-2">Showing Idle & Qualified Staff</p>
-                    <RadioGroup value={newAddOnStaffId} onValueChange={setNewAddOnStaffId} className="grid grid-cols-2 gap-2">
-                        {idleQualifiedStaff.map(s => (
-                            <label key={s.id} htmlFor={`assign-${s.id}`} className="flex items-center gap-2 p-2 border-2 rounded-xl cursor-pointer hover:bg-muted transition-all has-[:checked]:border-primary">
-                                <RadioGroupItem value={s.id} id={`assign-${s.id}`} className="sr-only" />
-                                <Avatar className="h-8 w-8 border shadow-sm"><AvatarImage src={s.avatarUrl} className="object-cover" /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar>
-                                <span className="text-xs font-bold truncate">{s.name.split(' ')[0]}</span>
-                            </label>
-                        ))}
-                        {idleQualifiedStaff.length === 0 && (
-                            <div className="col-span-2 p-4 text-center border-2 border-dashed rounded-xl bg-destructive/5 border-destructive/20">
-                                <p className="text-xs font-medium text-destructive">No providers currently idle.</p>
-                            </div>
-                        )}
-                    </RadioGroup>
-                </div>
-                <div className="space-y-2">
-                    <Label>Scheduling</Label>
-                    <RadioGroup value={newAddOnTiming} onValueChange={(v: any) => setNewAddOnTiming(v)} className="grid grid-cols-2 gap-2">
-                        <div>
-                            <RadioGroupItem value="immediate" id="timing-immediate" className="peer sr-only" />
-                            <Label htmlFor="timing-immediate" className="flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer hover:bg-muted peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5">
-                                <Clock className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-black uppercase">Immediate</span>
-                                <span className="text-[8px] text-muted-foreground">Concurrent</span>
-                            </Label>
-                        </div>
-                        <div>
-                            <RadioGroupItem value="sequential" id="timing-sequential" className="peer sr-only" />
-                            <Label htmlFor="timing-sequential" className="flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer hover:bg-muted peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5">
-                                <Repeat className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-black uppercase">Handoff</span>
-                                <span className="text-[8px] text-muted-foreground">After Previous</span>
-                            </Label>
-                        </div>
-                    </RadioGroup>
-                </div>
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => setIsSplitServiceOpen(false)}>Cancel</Button>
-                <Button onClick={handleAddServicePart} disabled={!newAddOnId || !newAddOnStaffId}>Assign Part</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-
-    <SelectAddOnsDialog 
-        open={isAddOnSelectorOpen} 
-        onOpenChange={setIsAddOnSelectorOpen} 
-        allAddOns={allServices.filter(s => s.type === 'addon')} 
-        initialSelected={[]} 
-        onSelect={(newAddOns) => {}} 
-    />
 
     <WaiveFeeDialog 
         open={isWaiveDialogOpen} 
