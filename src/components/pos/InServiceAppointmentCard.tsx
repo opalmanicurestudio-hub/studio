@@ -25,6 +25,7 @@ interface InServiceAppointmentCardProps {
     staff: Staff[] | null;
     onSendToCheckout: () => void;
     onRevertToReady: () => void;
+    onViewDetails: () => void;
 }
 
 export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> = ({ 
@@ -32,7 +33,8 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     services, 
     staff, 
     onSendToCheckout,
-    onRevertToReady
+    onRevertToReady,
+    onViewDetails
 }) => {
     const mainService = services?.find(s => s.id === appointment.serviceId);
     const addOnServices = (appointment.addOnIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s);
@@ -44,13 +46,19 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     const [isRunningOver, setIsRunningOver] = useState(false);
     const [progress, setProgress] = useState(0);
 
+    const safeDate = (val: any): Date => {
+        if (!val) return new Date();
+        if (val instanceof Date) return val;
+        if (typeof val?.toDate === 'function') return val.toDate();
+        if (typeof val === 'string') return parseISO(val);
+        return new Date(val);
+    };
+
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
 
         if (appointment.status === 'servicing' && appointment.actualStartTime) {
-            const startTime = appointment.actualStartTime instanceof Date
-                ? appointment.actualStartTime
-                : parseISO(appointment.actualStartTime as string);
+            const startTime = safeDate(appointment.actualStartTime);
 
             const updateTimer = () => {
                 const now = new Date();
@@ -95,8 +103,8 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     
     return (
         <Card className={cn("transition-all border-2", isReady ? "border-green-500 bg-green-500/[0.02]" : "", isRunningOver && "border-destructive ring-2 ring-destructive/50")}>
-            <CardContent className="p-4">
-                 <div className="flex justify-between items-start gap-2">
+            <CardContent className="p-4" onClick={onViewDetails}>
+                 <div className="flex justify-between items-start gap-2 cursor-pointer">
                     <div className="space-y-3 flex-1 min-w-0">
                         <p className="font-bold flex items-center gap-2 truncate text-sm"><User className="w-4 h-4 shrink-0"/>{appointment.clientName}</p>
                         
@@ -172,6 +180,10 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={onViewDetails}>
+                            <PlusCircle className="w-4 h-4 mr-2" />
+                            Add-ons / Assignments
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={onRevertToReady} className="text-muted-foreground">
                             <Undo2 className="w-4 h-4 mr-2" />
                             Revert to Notified

@@ -119,7 +119,7 @@ const OwnerDashboard = () => {
   
   const { firestore, user, isUserLoading } = useFirebase();
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant } = useTenant();
   
   const tenantId = selectedTenant?.id;
   
@@ -648,7 +648,7 @@ const StaffDashboardView = ({ role }: { role: string | null }) => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
+                isSameDay(safeDate(a.startTime), todayStart)
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
             .map(apt => ({
@@ -756,9 +756,26 @@ const StaffDashboardView = ({ role }: { role: string | null }) => {
         const completed = appointmentsToday.filter(a => a.status === 'completed').length;
         
         let earnings = 0;
-         if (staffMember.payStructure === 'commission') {
+        if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } 
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+            // Need to calculate hours worked from logs
+            const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && safeDate(log.timestamp) >= todayStart && safeDate(log.timestamp) <= todayEnd);
+            const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+            let totalMinutes = 0;
+            let clockInTime: Date | null = null;
+            let totalBreak = 0;
+            for (const log of sortedLogs) {
+                if (log.type === 'clock_in') clockInTime = safeDate(log.timestamp);
+                else if (log.type === 'clock_out' && clockInTime) {
+                    totalMinutes += Math.max(0, differenceInMinutes(safeDate(log.timestamp), clockInTime) - totalBreak);
+                    clockInTime = null;
+                    totalBreak = 0;
+                } else if (log.type === 'break_end' && log.durationMinutes) totalBreak += log.durationMinutes;
+            }
+            if(clockInTime) totalMinutes += differenceInMinutes(new Date(), clockInTime) - totalBreak;
+            earnings = (totalMinutes / 60) * staffMember.hourlyRate;
+        }
 
         const retailSales = transactionsToday
             .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -768,7 +785,7 @@ const StaffDashboardView = ({ role }: { role: string | null }) => {
         
         return { revenue: serviceRevenue, tips, completed, earnings };
 
-    }, [transactions, appointments, staffMember, todayRange]);
+    }, [transactions, appointments, staffMember, todayRange, activityLogs]);
 
     const staffMemberWithStats = useMemo(() => {
       if (!staffMember || !appointments || !services || !transactions || !activityLogs) return null;

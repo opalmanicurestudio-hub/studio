@@ -225,6 +225,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         staff={staff} 
                                         onSendToCheckout={() => onFinishService(apt)}
                                         onRevertToReady={() => onRevertToReady(apt.id)}
+                                        onViewDetails={() => onResolve(apt)}
                                     />
                                 ))
                             ) : (
