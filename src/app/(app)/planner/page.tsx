@@ -332,7 +332,7 @@ function PlannerPageContent() {
     const apt = appointments?.find(a => a.id === appointmentId);
     if (!apt) return;
 
-    const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+    const totalServicesCount = 1 + (apt.addOnIds || []).length;
     const completedIds = checkoutState.completedServiceIds || [];
     const allComplete = completedIds.length >= totalServicesCount;
 
@@ -347,18 +347,25 @@ function PlannerPageContent() {
         if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
     } else {
         batch.update(appointmentRef, { checkoutState });
+        
+        // Mark NEXT sequential technician as busy on hand-off
+        const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+        const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
+        const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''];
+        if (nextStaffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
+        }
     }
 
     if (currentUser) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid);
-        // CRITICAL: Use set with merge: true to avoid "No document to update" error
         batch.set(staffDocRef, { status: 'idle' }, { merge: true });
     }
 
     batch.commit().then(() => {
         toast({
             title: allComplete ? "Service Finished" : "Part Completed",
-            description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Mark as idle."
+            description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Hand-off complete."
         });
         setIsTechnicianReviewOpen(false);
         setIsDetailsOpen(false);
@@ -400,6 +407,17 @@ function PlannerPageContent() {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
         batch.set(staffDocRef, { status: 'busy' }, { merge: true });
     }
+
+    // Mark all concurrent technicians as busy immediately
+    const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
+    const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
+    concurrentIds.forEach(svcId => {
+        const assignedStaffId = overrides[svcId];
+        if (assignedStaffId) {
+            const assistantRef = doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId);
+            batch.set(assistantRef, { status: 'busy' }, { merge: true });
+        }
+    });
 
     if (appointment.isWalkIn) {
         const walkInId = id.replace('apt-walkin-', '');

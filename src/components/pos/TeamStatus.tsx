@@ -237,18 +237,46 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     }, [staff, appointments]);
 
     const enrichedStaff = useMemo(() => {
-        if (!staff) return [];
+        if (!staff || !appointments) return [];
+        const now = new Date();
+        const todayStart = startOfDay(now);
+
         return staff.map(member => {
             let availabilityStatus = member.active ? 'Idle' : 'Off Duty';
             let nextApt = null;
 
-            const currentAppointment = appointments?.find(apt => apt.staffId === member.id && apt.status === 'servicing');
+            // Check if member is working on ANY part of an active service
+            const currentAppointment = appointments.find(apt => {
+                if (apt.status !== 'servicing') return false;
+                
+                // Primary provider
+                if (apt.staffId === member.id) {
+                    // Still busy if the main service isn't done
+                    return !(apt.checkoutState?.completedServiceIds || []).includes(apt.serviceId);
+                }
+
+                // Assistant / Sequential provider
+                const overrides = apt.checkoutState?.serviceStaffOverrides || {};
+                const completedIds = apt.checkoutState?.completedServiceIds || [];
+                const concurrentIds = apt.checkoutState?.concurrentServiceIds || [];
+                const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+
+                return Object.entries(overrides).some(([svcId, sid]) => {
+                    if (sid !== member.id || completedIds.includes(svcId)) return false;
+
+                    // Concurrent assistants are always busy
+                    if (concurrentIds.includes(svcId)) return true;
+
+                    // Sequential turn check
+                    const myIndex = allPartIds.indexOf(svcId);
+                    const precedingSequential = allPartIds.slice(0, myIndex).filter(pid => !concurrentIds.includes(pid));
+                    return precedingSequential.every(pid => completedIds.includes(pid));
+                });
+            });
+
             const isCurrentlyBusy = !!currentAppointment || member.status === 'busy';
 
             if (member.active && !member.onBreak) {
-                const now = new Date();
-                const todayStart = startOfDay(now);
-                
                 if (isCurrentlyBusy) {
                     if (currentAppointment) {
                         const d = safeDate(currentAppointment.endTime);
@@ -259,7 +287,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                     }
                 }
 
-                nextApt = appointments?.find(apt => 
+                nextApt = appointments.find(apt => 
                     apt.staffId === member.id && 
                     apt.status === 'confirmed' && 
                     isSameDay(safeDate(apt.startTime), todayStart) &&
