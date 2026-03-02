@@ -405,6 +405,63 @@ function POSPageContent() {
         setIsTechnicianReviewOpen(true);
     };
 
+    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        
+        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        if (!apt) return;
+
+        const totalServicesCount = 1 + (apt.addOnIds || []).length;
+        const completedIds = checkoutState.completedServiceIds || [];
+        const allComplete = completedIds.length >= totalServicesCount;
+
+        const batch = writeBatch(firestore);
+        
+        if (allComplete) {
+            batch.update(appointmentRef, {
+                status: 'ready_for_checkout',
+                checkoutState,
+                actualEndTime: new Date().toISOString(),
+            });
+            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+            
+            // AUTO-IDLE: Mark ALL involved staff as idle when the whole appointment is done
+            const involvedIds = new Set<string>();
+            if (apt.staffId) involvedIds.add(apt.staffId);
+            if (checkoutState.serviceStaffOverrides) {
+                Object.values(checkoutState.serviceStaffOverrides).forEach(id => involvedIds.add(id));
+            }
+            involvedIds.forEach(sid => {
+                batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+            });
+        } else {
+            batch.update(appointmentRef, { checkoutState });
+            
+            // AUTO-IDLE: Mark current technician who finished their part as idle
+            if (currentUser) {
+                batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+            }
+
+            // Mark NEXT sequential technician as busy on hand-off
+            const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+            const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
+            const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''];
+            if (nextStaffId) {
+                batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
+            }
+        }
+
+        batch.commit().then(() => {
+            toast({
+                title: allComplete ? "Service Finished" : "Part Completed",
+                description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Hand-off complete."
+            });
+            setIsTechnicianReviewOpen(false);
+            setIsDetailsOpen(false);
+        });
+    };
+
     const handleCheckout = async () => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
@@ -471,6 +528,9 @@ function POSPageContent() {
                 appointmentId: apt.id,
                 hasReceipt: true
             });
+
+            // Mark lead tech as idle
+            if (tech.id) batch.set(doc(firestore, 'tenants', tenantId, 'staff', tech.id), { status: 'idle' }, { merge: true });
         }
 
         // 2. Process Retail Items

@@ -277,24 +277,18 @@ const AddAppointmentForm = ({
         let currentTime = earliestBookableTime;
 
         while (currentTime < dayEndWithBusinessHours) {
-            const potentialStartTime = currentTime;
-            const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-            
-            if (potentialEndTime > dayEndWithBusinessHours) {
-                break;
-            }
-            
+            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
+            if (potentialEnd > dayEndWithBusinessHours) break;
             const isOverlapping = busyIntervals.some((interval) =>
                 areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
+                    { start: currentTime, end: potentialEnd },
                     interval,
                     { inclusive: false }
                 )
             );
 
             if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
+                options.push(format(currentTime, 'HH:mm'));
             }
 
             currentTime = addMinutes(currentTime, bookingInterval);
@@ -448,7 +442,7 @@ const AddAppointmentForm = ({
                                                     <div className="flex items-center gap-2">
                                                         <Avatar className="w-6 h-6">
                                                             <AvatarImage src={s.avatarUrl} />
-                                                            <AvatarFallback>{(s?.name || 'S')?.charAt(0)}</AvatarFallback>
+                                                            <AvatarFallback>{(s?.name || 'S').charAt(0)}</AvatarFallback>
                                                         </Avatar>
                                                         <span>{s?.name || 'Unknown Staff'}</span>
                                                     </div>

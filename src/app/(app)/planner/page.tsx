@@ -345,9 +345,24 @@ function PlannerPageContent() {
             actualEndTime: new Date().toISOString(),
         });
         if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+        
+        // AUTO-IDLE: Mark ALL involved staff as idle when the whole appointment is done
+        const involvedIds = new Set<string>();
+        if (apt.staffId) involvedIds.add(apt.staffId);
+        if (checkoutState.serviceStaffOverrides) {
+            Object.values(checkoutState.serviceStaffOverrides).forEach(id => involvedIds.add(id));
+        }
+        involvedIds.forEach(sid => {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+        });
     } else {
         batch.update(appointmentRef, { checkoutState });
         
+        // AUTO-IDLE: Mark staff member who just completed their part as idle
+        if (currentUser) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+        }
+
         // Mark NEXT sequential technician as busy on hand-off
         const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
         const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
@@ -355,11 +370,6 @@ function PlannerPageContent() {
         if (nextStaffId) {
             batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
         }
-    }
-
-    if (currentUser) {
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid);
-        batch.set(staffDocRef, { status: 'idle' }, { merge: true });
     }
 
     batch.commit().then(() => {

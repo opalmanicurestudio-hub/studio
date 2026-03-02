@@ -140,7 +140,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
-        // Auto-calculate duration from actualStartTime
+        // AUTO-CALC: Auto-calculate duration from actualStartTime
         let durationToSet = checkoutState?.actualDuration;
         if (!durationToSet && appointment.actualStartTime) {
             const startTime = safeDate(appointment.actualStartTime);
@@ -482,10 +482,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </Button>
                 </div>
             </DialogFooter>
-        </ContentComponent>
-      </DialogComponent>
-      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
-      <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
+        </ScrollArea>
+        <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleUpdateAddOns} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
+        <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
+      </ContentComponent>
+    </DialogComponent>
     </>
   );
 };
