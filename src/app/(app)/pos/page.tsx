@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -626,7 +625,7 @@ function POSPageContent() {
     const handleForceIdle = (staffId: string) => {
         if (!firestore || !tenantId) return;
         const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        updateDocumentNonBlocking(staffRef, { status: 'idle' });
+        setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true });
         toast({ title: "Staff Reset", description: "Technician is now marked as idle." });
     };
 

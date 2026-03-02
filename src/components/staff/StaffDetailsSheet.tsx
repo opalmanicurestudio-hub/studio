@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -36,7 +34,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Sparkles, Loader } from 'lucide-react';
-import { PrintableStaffReport } from '../reports/PrintableReport';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -121,17 +118,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services) return [];
-    const staffSkillLevel = (staffMember as any).skillLevel || 'senior';
-    return services
-      .filter(s => staffMember.services?.includes(s.id))
-      .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => (t as any).level === staffSkillLevel)?.price;
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => (t as any).level === 'senior')?.price ?? service.price;
-        return {
-          ...service,
-          price: finalPrice,
-        };
-      });
+    return services.filter(s => staffMember.services?.includes(s.id));
   }, [staffMember, services]);
 
   useEffect(() => {
@@ -180,20 +167,20 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   }
   
   const performanceKpis = [
-      { label: "Utilization Rate", value: `${staffMember.stats.utilizationRate.toFixed(1)}%` },
-      { label: "Avg. Ticket Size", value: `$${staffMember.stats.avgSalePerAppointment.toFixed(2)}` },
-      { label: "Retail Attach Rate", value: `${staffMember.stats.retailAttachmentRate.toFixed(1)}%` },
-      { label: "Rebooking Rate", value: `${staffMember.stats.rebookingRate?.toFixed(1) || '0.0'}%` },
-      { label: "Avg Time Variance", value: `${staffMember.stats.avgVariance > 0 ? '+' : ''}${staffMember.stats.avgVariance.toFixed(1)} min` },
+      { label: "Utilization Rate", value: `${(staffMember.stats?.utilizationRate || 0).toFixed(1)}%` },
+      { label: "Avg. Ticket Size", value: `$${(staffMember.stats?.avgSalePerAppointment || 0).toFixed(2)}` },
+      { label: "Retail Attach Rate", value: `${(staffMember.stats?.retailAttachmentRate || 0).toFixed(1)}%` },
+      { label: "Rebooking Rate", value: `${(staffMember.stats?.rebookingRate || 0).toFixed(1)}%` },
+      { label: "Avg Time Variance", value: `${(staffMember.stats?.avgVariance || 0) > 0 ? '+' : ''}${(staffMember.stats?.avgVariance || 0).toFixed(1)} min` },
   ];
 
   const content = (
     <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</p></CardContent></Card>
-              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(staffMember.stats?.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(staffMember.stats?.tips || 0).toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{(staffMember.stats?.totalHours || 0).toFixed(1)}</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${(staffMember.stats?.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
            <Tabs defaultValue="activity" className="w-full">
               <ScrollArea>
@@ -234,7 +221,9 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                   }
                                   return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
                               })
-                          ) : (<div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>)}
+                          ) : (
+                            <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
+                          )}
                       </div>
                    </ScrollArea>
               </TabsContent>
@@ -304,7 +293,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                 </div>
             </ScrollArea>
             <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
-                <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+                <Button onClick={() => onOpenChange(false)} className="w-full h-12 text-lg font-bold">Close</Button>
             </SheetFooter>
         </div>
       </SheetContent>

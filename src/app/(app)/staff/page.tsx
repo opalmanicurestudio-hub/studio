@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -694,7 +693,7 @@ export default function StaffPage() {
     return (
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Staff Management" />
-        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+        <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8 justify-center items-center">
             <Loader className="h-8 w-8 animate-spin" />
         </main>
       </div>
