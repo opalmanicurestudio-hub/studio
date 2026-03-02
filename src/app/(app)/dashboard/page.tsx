@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -109,15 +108,8 @@ const pieChartConfig = {
 } satisfies ChartConfig;
 
 
-type Activity = {
-  apt: Appointment;
-  client: { name: string; avatarUrl: string; } | undefined;
-  service: { name: string; profit: number; } | undefined;
-};
-
 const OwnerDashboard = ({ 
   todaysRevenue, 
-  todaysExpenses, 
   profitPercentage, 
   totalOutstandingDebt, 
   clientRetentionRate, 
@@ -281,7 +273,7 @@ const OwnerDashboard = ({
                       </p>
                     </div>
                     <div className="ml-auto font-medium text-primary">
-                      +${service.profit.toFixed(2)}
+                      +${(service.price - (service.cost || 0)).toFixed(2)}
                     </div>
                   </div>
                 );
@@ -442,7 +434,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Completed Today</CardTitle><Calendar className="h-4 w-4 text-muted-foreground"/></CardHeader>
                 <CardContent><p className="text-2xl font-bold">{todayKpis.completed}</p><p className="text-xs text-muted-foreground">Completed appointments</p></CardContent>
-            </Card>
+            </div>
         </div>
         
         <Card>
@@ -567,7 +559,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 export default function DashboardPage() {
   const { firestore, user, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
+  const { staff, inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -617,13 +609,12 @@ export default function DashboardPage() {
   const { data: todayAppointments, isLoading: todayAppointmentsLoading } = useCollection<Appointment>(todayAppointmentsQuery);
   const { data: weeklyTransactions, isLoading: weeklyTransactionsLoading } = useCollection<Transaction>(weeklyTransactionsQuery);
 
-  const { todaysRevenue, todaysExpenses, profitPercentage } = useMemo(() => {
-    if (!todayTransactions) return { todaysRevenue: 0, todaysExpenses: 0, profitPercentage: 0 };
+  const { todaysRevenue, profitPercentage } = useMemo(() => {
+    if (!todayTransactions) return { todaysRevenue: 0, profitPercentage: 0 };
     const revenue = todayTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-    const expenses = todayTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
     const yesterdayRevenue = 812; 
     const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
-    return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
+    return { todaysRevenue: revenue, profitPercentage: percentage };
   }, [todayTransactions]);
 
   const barChartData = useMemo(() => {
@@ -707,7 +698,7 @@ export default function DashboardPage() {
     try {
       const result = await endOfDayDebrief({
         dailyRevenue: todaysRevenue,
-        dailyExpenses: todaysExpenses,
+        dailyExpenses: 0,
         inventoryLevels: inventory.filter(item => item.type === 'professional').slice(0, 5).reduce((acc, item) => { acc[item.name] = item.totalStock; return acc; }, {} as any),
         completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
       });
@@ -751,7 +742,7 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading;
+  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading;
 
   if(isLoading) {
     return (
@@ -771,7 +762,6 @@ export default function DashboardPage() {
         {role === 'owner' ? (
           <OwnerDashboard 
             todaysRevenue={todaysRevenue}
-            todaysExpenses={todaysExpenses}
             profitPercentage={profitPercentage}
             totalOutstandingDebt={totalOutstandingDebt}
             clientRetentionRate={clientRetentionRate}

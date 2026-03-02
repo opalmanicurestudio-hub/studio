@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -671,13 +670,6 @@ function POSPageContent() {
         redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
         tipAllocations,
-    };
-
-    const kpiData = {
-        avgWaitTime: 12,
-        walkInConversionRate: 85,
-        totalWalkIns: walkIns?.length || 0,
-        revenuePerServiceHour: 125.50
     };
 
     return (

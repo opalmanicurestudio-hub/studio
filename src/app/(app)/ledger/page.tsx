@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -231,12 +230,12 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
         <div className="flex items-center gap-3">
           <TransactionIcon type={transaction.type} />
           <div className='flex flex-col'>
-            <span className="font-medium">{transaction.description}</span>
-            <span className='text-xs text-muted-foreground'>{transaction.clientOrVendor}</span>
+            <span className="font-medium text-xs md:text-sm">{transaction.description}</span>
+            <span className='text-[10px] md:text-xs text-muted-foreground'>{transaction.clientOrVendor}</span>
           </div>
         </div>
       </TableCell>
-      <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy p')}</TableCell>
+      <TableCell className="text-xs">{format(new Date(transaction.date), 'MMM d, p')}</TableCell>
       <TableCell>
         {staffMember ? (
             <div className="flex items-center gap-2">
@@ -244,14 +243,14 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                     <AvatarFallback className="text-[8px]">{staffMember.name.charAt(0)}</AvatarFallback>
                 </Avatar>
-                <span className="text-xs font-medium">{staffMember.name.split(' ')[0]}</span>
+                <span className="text-[10px] md:text-xs font-medium">{staffMember.name.split(' ')[0]}</span>
             </div>
-        ) : <span className="text-xs text-muted-foreground italic">System</span>}
+        ) : <span className="text-[10px] text-muted-foreground italic">System</span>}
       </TableCell>
       <TableCell>
         <Badge
           variant={transaction.context === 'Business' ? 'secondary' : 'outline'}
-          className={cn({
+          className={cn("text-[9px] h-4", {
             'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': transaction.context === 'Business',
             'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': transaction.context === 'Personal'
           })}
@@ -259,17 +258,17 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
           {transaction.context}
         </Badge>
       </TableCell>
-      <TableCell>
+      <TableCell className="text-[10px] md:text-xs">
           <div className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-muted-foreground"/>
-            <span>{transaction.paymentMethod} {transaction.paymentMethodIdentifier && `(${transaction.paymentMethodIdentifier})`}</span>
+            <CreditCard className="w-3.5 h-3.5 text-muted-foreground"/>
+            <span>{transaction.paymentMethod}</span>
           </div>
       </TableCell>
-      <TableCell>{transaction.category}</TableCell>
+      <TableCell className="text-[10px] md:text-xs">{transaction.category}</TableCell>
       <TableCell className="text-right">
         <div className='flex items-center justify-end gap-2'>
-            {transaction.hasReceipt && <Paperclip className="h-4 w-4 text-muted-foreground" />}
-            <span className={cn('font-mono', {
+            {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />}
+            <span className={cn('font-mono text-xs md:text-sm font-bold', {
                 'text-green-600 dark:text-green-400': transaction.type === 'income',
                 'text-red-600 dark:text-red-400': transaction.type === 'expense',
                  'text-blue-600 dark:text-blue-400': transaction.type === 'payment',
@@ -305,8 +304,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         <TransactionIcon type={transaction.type} />
                     </div>
                     <div className="flex-1 space-y-1 min-w-0">
-                        <p className="font-semibold truncate">{transaction.description}</p>
-                        <p className="text-xs text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
+                        <p className="font-semibold truncate text-sm">{transaction.description}</p>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
                             <div className="flex items-center gap-1.5 mt-1">
                                 <User className="w-3 h-3 text-primary" />
@@ -315,7 +314,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         )}
                     </div>
                     <div className='text-right'>
-                        <p className={cn('font-bold font-mono text-lg', {
+                        <p className={cn('font-bold font-mono text-base', {
                             'text-green-600 dark:text-green-400': transaction.type === 'income',
                             'text-red-600 dark:text-red-400': transaction.type === 'expense',
                             'text-blue-600 dark:text-blue-400': transaction.type === 'payment',
@@ -323,21 +322,21 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         })}>
                            {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : transaction.type === 'reversal' ? '' : '+'}${transaction.amount.toFixed(2)}
                         </p>
-                        {transaction.hasReceipt && <Paperclip className="h-4 w-4 text-muted-foreground inline-block" />}
+                        {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-muted-foreground inline-block" />}
                     </div>
                 </div>
                  <div className="flex items-center justify-between text-sm">
                     <div className='flex items-center gap-2'>
                         <Badge
                             variant={transaction.context === 'Business' ? 'secondary' : 'outline'}
-                            className={cn({
+                            className={cn("text-[9px] h-4", {
                                 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': transaction.context === 'Business',
                                 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': transaction.context === 'Personal'
                             })}
                             >
                             {transaction.context}
                         </Badge>
-                        <Badge variant="outline">{transaction.category}</Badge>
+                        <Badge variant="outline" className="text-[9px] h-4">{transaction.category}</Badge>
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -350,8 +349,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-                 <div className="flex items-center text-sm text-muted-foreground pt-2 border-t mt-4">
-                    <CreditCard className="w-4 h-4 mr-2"/> Paid with {transaction.paymentMethod} {transaction.paymentMethodIdentifier && `(${transaction.paymentMethodIdentifier})`}
+                 <div className="flex items-center text-[10px] text-muted-foreground pt-2 border-t mt-4 font-bold uppercase tracking-wider">
+                    <CreditCard className="w-3.5 h-3.5 mr-2"/> {transaction.paymentMethod}
                 </div>
             </CardContent>
         </Card>
@@ -486,7 +485,7 @@ export default function LedgerPage() {
                 <Button onClick={() => setIsAddTxnOpen(true)}><PlusCircle className='mr-2' /> Add Transaction</Button>
             </div>
             <Card className="hidden md:block">
-              <CardContent className='p-0'>
+              <CardContent className='p-0 overflow-x-auto'>
                 <Table>
                   <TableHeader>
                     <TableRow>
