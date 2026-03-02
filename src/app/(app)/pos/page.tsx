@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -762,7 +761,11 @@ function POSPageContent() {
         });
 
         const servedWalkIns = walkInsToday.filter(w => w.serviceStartTime);
-        const waitTimes = servedWalkIns.map(w => differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime)));
+        const waitTimes = servedWalkIns.map(w => {
+            const startTime = w.serviceStartTime instanceof Date ? w.serviceStartTime : new Date(w.serviceStartTime!);
+            const checkInTime = parseISO(w.checkInTime);
+            return differenceInMinutes(startTime, checkInTime);
+        });
         const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
 
         const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
@@ -772,7 +775,9 @@ function POSPageContent() {
         const totalInServiceMinutes = appointments.reduce((total, apt) => {
             if (apt.status === 'completed' && isSameDay(new Date(apt.startTime), todayStart)) {
                 if (apt.actualStartTime && apt.actualEndTime) {
-                    return total + differenceInMinutes(parseISO(apt.actualEndTime as string), parseISO(apt.actualStartTime as string));
+                    const end = apt.actualEndTime instanceof Date ? apt.actualEndTime : new Date(apt.actualEndTime);
+                    const start = apt.actualStartTime instanceof Date ? apt.actualStartTime : new Date(apt.actualStartTime);
+                    return total + differenceInMinutes(end, start);
                 }
                 const service = services?.find(s => s.id === apt.serviceId);
                 return total + (service?.duration || 0);
@@ -843,7 +848,6 @@ function POSPageContent() {
                     </Sheet>
                 </div>
             )}
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden"><DialogHeader className="p-4"><DialogTitle>Scan Ticket</DialogTitle></DialogHeader><div className="p-4"><div id="qr-reader-pos" className="w-full aspect-square bg-muted" /></div></DialogContent></Dialog>
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             
             <AppointmentDetailsSheet 

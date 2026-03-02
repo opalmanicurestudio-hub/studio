@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -224,7 +223,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (appointment?.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
+      const startTime = appointment.actualStartTime instanceof Date ? appointment.actualStartTime : parseISO(appointment.actualStartTime as string);
       const interval = setInterval(() => {
         const now = new Date();
         const diffInSeconds = differenceInSeconds(now, startTime);
@@ -247,7 +246,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
       const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
       navigator.clipboard.writeText(link);
       toast({
-        title: "Link Copied",
+        title: "Link Passed",
         description: "The check-in link has been copied to your clipboard.",
       });
     }
@@ -275,8 +274,11 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
       return acc + (costPerUse * quantity);
     }, 0);
 
+    const start = appointment.actualStartTime instanceof Date ? appointment.actualStartTime : parseISO(appointment.actualStartTime as string);
+    const end = appointment.actualEndTime instanceof Date ? appointment.actualEndTime : parseISO(appointment.actualEndTime as string);
+
     const actualDuration = appointment.actualEndTime && appointment.actualStartTime
-        ? differenceInMinutes(new Date(appointment.actualEndTime), new Date(appointment.actualStartTime))
+        ? differenceInMinutes(end, start)
         : allServicesInApt.reduce((acc, s) => acc + (s?.duration || 0), 0);
     
     const timeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;

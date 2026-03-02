@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -116,9 +115,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
         if (!durationToSet) {
             if (appointment.actualStartTime) {
-                const startTime = typeof appointment.actualStartTime === 'string'
-                    ? parseISO(appointment.actualStartTime)
-                    : appointment.actualStartTime;
+                const startTime = appointment.actualStartTime instanceof Date
+                    ? appointment.actualStartTime
+                    : parseISO(appointment.actualStartTime as string);
                 
                 const endTime = new Date(); 
                 durationToSet = differenceInMinutes(endTime, startTime);

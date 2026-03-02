@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -518,7 +517,7 @@ export const CheckoutHub = ({
 
                                                             <div className="mt-2 space-y-1">
                                                                 {(data.appointment.addOnIds || []).map(addonId => {
-                                                                    const addon = services.find(s => s.id === addonId);
+                                                                    const addon = services?.find(s => s.id === addonId);
                                                                     if (!addon) return null;
                                                                     const providerId = data.appointment.checkoutState?.serviceStaffOverrides?.[addonId];
                                                                     const provider = staff.find(s => s.id === providerId);

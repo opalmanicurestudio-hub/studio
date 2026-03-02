@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -48,9 +47,9 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
         let timer: NodeJS.Timeout | undefined;
 
         if (appointment.status === 'servicing' && appointment.actualStartTime) {
-            const startTime = typeof appointment.actualStartTime === 'string'
-                ? parseISO(appointment.actualStartTime)
-                : appointment.actualStartTime;
+            const startTime = appointment.actualStartTime instanceof Date
+                ? appointment.actualStartTime
+                : parseISO(appointment.actualStartTime as string);
 
             const updateTimer = () => {
                 const now = new Date();
