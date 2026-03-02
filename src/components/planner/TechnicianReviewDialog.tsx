@@ -134,14 +134,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setServiceStaffOverrides(initialOverrides);
         setConcurrentServiceIds(alreadyConcurrent);
 
-        // Auto-select completed parts based on current user's role
         const newlyCompleted = Object.entries(initialOverrides)
             .filter(([_, staffId]) => staffId === currentUser?.uid)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
-        // AUTO-POPULATE ACTUAL MINUTES
         let durationToSet = checkoutState?.actualDuration;
         if (!durationToSet && appointment.actualStartTime) {
             const startTime = safeDate(appointment.actualStartTime);
@@ -167,7 +165,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           isConcurrent ? [...new Set([...prev, serviceId])] : prev.filter(id => id !== serviceId)
       );
 
-      // Trigger busy status if newly concurrent and active
       if (appointment?.status === 'servicing' && firestore && selectedTenant) {
           const assignedStaffId = serviceStaffOverrides[serviceId];
           if (assignedStaffId) {

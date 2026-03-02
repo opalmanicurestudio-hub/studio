@@ -333,7 +333,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const batch = writeBatch(firestore);
     batch.update(appointmentRef, { 'checkoutState.serviceStaffOverrides': overrides });
 
-    // Mark staff as busy immediately if the part is concurrent and the service is active
     const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(partId);
     if (appointment.status === 'servicing' && isConcurrent) {
         batch.set(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'busy' }, { merge: true });
@@ -358,7 +357,6 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
     const batch = writeBatch(firestore);
     batch.update(appointmentRef, { 'checkoutState.concurrentServiceIds': newConcurrent });
 
-    // Sync staff status based on new flow state
     const assignedStaffId = appointment.checkoutState?.serviceStaffOverrides?.[partId] || appointment.staffId;
     if (appointment.status === 'servicing' && assignedStaffId) {
         batch.set(doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId), { status: isConcurrent ? 'busy' : 'idle' }, { merge: true });
@@ -555,7 +553,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                                             <SelectItem key={s.id} value={s.id}>
                                                 <div className="flex items-center gap-2">
                                                     <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
-                                                    <span className="font-bold">{s?.name || 'Technician'}</span>
+                                                    <span className="font-bold">{s?.name?.split(' ')[0] || 'Tech'}</span>
                                                     <span className="text-[9px] text-muted-foreground opacity-60">({s.status === 'busy' ? 'Busy' : 'Idle'})</span>
                                                 </div>
                                             </SelectItem>

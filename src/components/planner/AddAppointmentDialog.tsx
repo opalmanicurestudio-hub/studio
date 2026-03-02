@@ -236,7 +236,6 @@ const AddAppointmentForm = ({
           .filter(apt => {
             if (!isSameDay(apt.startTime, date)) return false;
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            // FILTER: Only check appointments for the same staff member
             if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
             return true;
           })
@@ -254,7 +253,6 @@ const AddAppointmentForm = ({
           .filter(evt => {
             if (!isSameDay(evt.startTime, date)) return false;
             if (evt.type !== 'blocked') return false;
-            // FILTER: Only check events for the same staff member or "all"
             return !evt.staffId || evt.staffId === 'all' || (staffId !== 'any' && evt.staffId === staffId);
           })
           .forEach(evt => {
@@ -289,7 +287,7 @@ const AddAppointmentForm = ({
             );
 
             if (!isOverlapping) {
-                options.add(format(currentTime, 'HH:mm'));
+                options.push(format(currentTime, 'HH:mm'));
             }
 
             currentTime = addMinutes(currentTime, bookingInterval);
