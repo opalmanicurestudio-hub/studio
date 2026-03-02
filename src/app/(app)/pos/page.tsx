@@ -319,7 +319,7 @@ function POSPageContent() {
             if (data) {
                 if (data.appointment.staffId) ids.add(data.appointment.staffId);
                 const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
-                Object.values(overrides).forEach(sid => {
+                return Object.values(overrides).forEach(sid => {
                     if (sid) ids.add(sid);
                 });
             }
