@@ -9,7 +9,6 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -18,7 +17,6 @@ import {
   SheetTitle,
   SheetDescription,
   SheetFooter,
-  SheetTrigger,
 } from '@/components/ui/sheet';
 import {
   AlertDialog,
@@ -34,7 +32,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -339,7 +336,7 @@ const AddAppointmentForm = ({
 
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
-            if (evt.staffId && evt.staffId !== 'all' && staffId !== 'any' && evt.staffId !== staffId) return false;
+            if (evt.staffId && evt.staffId !== 'all' && staffId !== 'any' && evt.staffId === staffId) return false;
             
             return areIntervalsOverlapping(newInterval, { 
                 start: evt.startTime, 
@@ -365,8 +362,8 @@ const AddAppointmentForm = ({
         const service = services.find(s => s.id === data.serviceId);
         const endDateTime = addMinutes(startDateTime, service?.duration || 0);
         
-        const allServices = [service, ...selectedAddOns].filter((s): s is Service => !!s);
-        const allRequiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
+        const allServicesInApt = [service, ...selectedAddOns].filter((s): s is Service => !!s);
+        const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
 
         const newAppointment = {
             clientId: data.clientId,
@@ -419,7 +416,7 @@ const AddAppointmentForm = ({
                                             <SelectTrigger id="client">
                                                 {selectedClient ? (
                                                     <div className="flex items-center gap-2">
-                                                        <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback></Avatar>
+                                                        <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C').charAt(0)}</AvatarFallback></Avatar>
                                                         <span>{selectedClient.name}</span>
                                                     </div>
                                                 ) : (
@@ -427,12 +424,12 @@ const AddAppointmentForm = ({
                                                 )}
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{c.name.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C').charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     )}
                                 />
-                                <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
+                                <Button variant="outline" size="icon" type="button"><PlusCircle className="h-4 w-4" /></Button>
                             </div>
                         </div>
                         <div className="space-y-2">
@@ -443,10 +440,20 @@ const AddAppointmentForm = ({
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
                                         <SelectTrigger id="staff">
-                                            {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
+                                            {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => <SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>)}
+                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                    <div className="flex items-center gap-2">
+                                                        <Avatar className="w-6 h-6">
+                                                            <AvatarImage src={s.avatarUrl} />
+                                                            <AvatarFallback>{(s.name || 'S').charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span>{s.name}</span>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 )}
@@ -567,9 +574,14 @@ const AddAppointmentForm = ({
                                         <div className="space-y-2">
                                             <Label>End Date</Label>
                                             <Popover>
-                                                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
-                                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                                    {field.value ? format(field.value, 'PPP') : 'Pick end date'}
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant={"outline"}
+                                                        className={cn('w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}
+                                                    >
+                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                        {field.value ? format(field.value, 'PPP') : 'Pick end date'}
+                                                    </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
                                             </Popover>

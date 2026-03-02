@@ -713,7 +713,7 @@ export const CheckoutHub = ({
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         <Avatar className="h-6 w-6 border shadow-sm">
                                                             <AvatarImage src={member.avatarUrl} />
-                                                            <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
+                                                            <AvatarFallback>{(member.name || 'S').charAt(0)}</AvatarFallback>
                                                         </Avatar>
                                                         <span className="text-[11px] font-bold truncate">{member.name}</span>
                                                     </div>

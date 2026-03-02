@@ -121,18 +121,21 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         });
         setServiceStaffOverrides(initialOverrides);
 
+        // Auto-complete the services assigned to the CURRENT user
         const newlyCompleted = Object.entries(initialOverrides)
             .filter(([_, staffId]) => staffId === currentUser?.uid)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
+        // AUTO-POPULATE ACTUAL DURATION:
+        // Use logic from the "stopped clock" - difference between actualStartTime and now.
         let durationToSet = checkoutState?.actualDuration;
         if (!durationToSet) {
             if (appointment.actualStartTime) {
                 const startTime = safeDate(appointment.actualStartTime);
                 const endTime = new Date(); 
-                durationToSet = differenceInMinutes(endTime, startTime);
+                durationToSet = Math.max(1, differenceInMinutes(endTime, startTime));
             } else {
                 durationToSet = service.duration;
             }
@@ -271,32 +274,32 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card>
-                  <CardHeader><CardTitle>Service Components</CardTitle></CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Service Components</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-xl border-2 border-transparent has-[:checked]:border-primary transition-all">
                                 <div className="flex items-center gap-3">
                                     <Checkbox 
                                         id={`complete-${service.id}`} 
                                         checked={completedServiceIds.includes(service.id)} 
                                         onCheckedChange={() => toggleServiceComplete(service.id)}
                                     />
-                                    <Label htmlFor={`complete-${service.id}`} className="text-sm font-medium">{service.name}</Label>
+                                    <Label htmlFor={`complete-${service.id}`} className="text-sm font-bold">{service.name}</Label>
                                 </div>
-                                <span className="text-xs font-semibold text-muted-foreground">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name?.split(' ')[0] || 'Unassigned'}</span>
+                                <Badge variant="outline" className="h-5 text-[9px] uppercase font-black">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name?.split(' ')[0] || 'Unassigned'}</Badge>
                             </div>
                             {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-xl border-2 border-transparent has-[:checked]:border-primary transition-all">
                                     <div className="flex items-center gap-3 pl-4">
                                         <Checkbox 
                                             id={`complete-${addon.id}`} 
                                             checked={completedServiceIds.includes(addon.id)} 
                                             onCheckedChange={() => toggleServiceComplete(addon.id)}
                                         />
-                                        <Label htmlFor={`complete-${addon.id}`} className="text-sm text-muted-foreground">+ {addon.name}</Label>
+                                        <Label htmlFor={`complete-${addon.id}`} className="text-sm font-medium text-muted-foreground">+ {addon.name}</Label>
                                     </div>
                                     <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                        <SelectTrigger className="w-[120px] h-7 text-[10px]"><SelectValue placeholder="Staff" /></SelectTrigger>
+                                        <SelectTrigger className="w-[120px] h-7 text-[10px] font-bold"><SelectValue placeholder="Staff" /></SelectTrigger>
                                         <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
                                     </Select>
                                 </div>
@@ -308,7 +311,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <Card>
                     <CardHeader>
                         <CardTitle>Usage Actuals</CardTitle>
-                        <CardDescription>Adjust if the service took longer or used more product.</CardDescription>
+                        <CardDescription>Verify time and product formula used.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
@@ -318,6 +321,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                               type="number"
                               value={actualDuration}
                               onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                              className="h-12 text-lg font-bold"
                           />
                           {actualDuration > service.duration && (
                               <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md">
@@ -390,10 +394,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
               </div>
             </ScrollArea>
             <DialogFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
-                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12">Cancel</Button>
-                <Button onClick={handleCompleteMyPart} className="h-12 font-bold flex-1" disabled={completedServiceIds.length === 0}>
-                    {buttonLabel}
-                </Button>
+                <div className="grid grid-cols-2 gap-3 w-full">
+                    <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 font-bold">Cancel</Button>
+                    <Button onClick={handleCompleteMyPart} className="h-12 font-black uppercase tracking-tight shadow-lg shadow-primary/20" disabled={completedServiceIds.length === 0}>
+                        {buttonLabel}
+                    </Button>
+                </div>
             </DialogFooter>
         </ContentComponent>
       </DialogComponent>
