@@ -416,7 +416,7 @@ const AddAppointmentForm = ({
                                             <SelectTrigger id="client">
                                                 {selectedClient ? (
                                                     <div className="flex items-center gap-2">
-                                                        <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C').charAt(0)}</AvatarFallback></Avatar>
+                                                        <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback></Avatar>
                                                         <span>{selectedClient.name}</span>
                                                     </div>
                                                 ) : (
@@ -424,7 +424,7 @@ const AddAppointmentForm = ({
                                                 )}
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C').charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C')?.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     )}
@@ -440,7 +440,7 @@ const AddAppointmentForm = ({
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
                                         <SelectTrigger id="staff">
-                                            {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
+                                            {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
                                         <SelectContent>
                                             {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
@@ -448,7 +448,7 @@ const AddAppointmentForm = ({
                                                     <div className="flex items-center gap-2">
                                                         <Avatar className="w-6 h-6">
                                                             <AvatarImage src={s.avatarUrl} />
-                                                            <AvatarFallback>{(s.name || 'S').charAt(0)}</AvatarFallback>
+                                                            <AvatarFallback>{(s.name || 'S')?.charAt(0)}</AvatarFallback>
                                                         </Avatar>
                                                         <span>{s.name}</span>
                                                     </div>

@@ -311,6 +311,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
   const ticketId = appointment.id.slice(-6).toUpperCase();
   const shadowProfile = appointment.matchedClientId ? clients.find(c => c.id === appointment.matchedClientId) : null;
 
+  const handleUpdateAddOns = async (newAddOns: Service[]) => {
+    if (!firestore || !tenantId || !appointment) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const newIds = newAddOns.map(s => s.id);
+    updateDocumentNonBlocking(appointmentRef, { addOnIds: newIds });
+    toast({ title: "Appointment Updated", description: "New services have been added to the session." });
+  };
+
   const handleRemoveAddOn = async (appointmentId: string, addOnId: string) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
@@ -367,7 +375,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                     <Button onClick={() => onFinishService(appointment)} className="h-12" size="lg" variant="default">
                         <Square className="mr-2 h-4 w-4" /> Finish
                     </Button>
-                    <Button variant="outline" className="h-12" onClick={() => setIsSplitServiceOpen(true)}>
+                    <Button variant="outline" className="h-12" onClick={() => setIsAddOnSelectorOpen(true)}>
                         <PlusCircle className="mr-2 h-4 w-4" /> Add Part
                     </Button>
                 </div>
@@ -463,6 +471,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-bold text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</p>
+                                <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(appointment.id, addonId)}><Trash2 className="w-3 h-3" /></Button>
                             </div>
                         </div>
                     ) : null;
@@ -584,6 +593,14 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             onWaiveFee(appointment.id, authorizer, reason);
             setIsWaiveDialogOpen(false);
         }}
+    />
+
+    <SelectAddOnsDialog 
+        open={isAddOnSelectorOpen} 
+        onOpenChange={setIsAddOnSelectorOpen} 
+        allAddOns={allServices.filter(s => s.type === 'addon')} 
+        initialSelected={(appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter(Boolean) as Service[]} 
+        onSelect={handleUpdateAddOns}
     />
     </>
   );
