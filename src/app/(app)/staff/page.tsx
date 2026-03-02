@@ -26,7 +26,7 @@ import {
   Trash2, 
   KeyRound, 
   Loader, 
-  RefreshCcw 
+  RefreshCw 
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -170,7 +170,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             <DropdownMenuSeparator />
                             {canManage && (
                                 <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">
-                                    <RefreshCcw className="w-4 h-4 mr-2" />
+                                    <RefreshCw className="w-4 h-4 mr-2" />
                                     Force Idle
                                 </DropdownMenuItem>
                             )}
@@ -690,13 +690,11 @@ export default function StaffPage() {
     uiToast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
   };
 
-  const isLoadingTotal = staffLoading || pricingTiersLoading || isLoading;
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Staff Management" />
       <main className="flex-1 p-4 md:p-8">
-        {isLoadingTotal ? (
+        {isLoading || staffLoading || pricingTiersLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[400px]">
                 <Loader className="h-8 w-8 animate-spin" />
             </div>

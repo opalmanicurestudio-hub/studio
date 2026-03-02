@@ -79,8 +79,6 @@ function POSPageContent() {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     
-    const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
-
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
     const [isOverrideOpen, setIsOverrideOpen] = useState(false);
@@ -321,8 +319,15 @@ function POSPageContent() {
                 const service = services.find(s => s.id === apt.serviceId);
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
-                return { ...apt, client, service, addOnServices, staff: staffMember };
-            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+                return { 
+                    id: apt.id,
+                    appointment: apt,
+                    client, 
+                    service, 
+                    addOnServices, 
+                    staff: staffMember 
+                };
+            }).filter((a): a is any => !!(a.client && a.service));
     }, [appointmentsFromInventory, clients, services, staff]);
 
     const checkoutHubProps = {
@@ -371,6 +376,24 @@ function POSPageContent() {
         }
     };
 
+    const handleStaffReorder = (newOrder: Staff[]) => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        newOrder.forEach((s, idx) => {
+            batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx });
+        });
+        batch.commit();
+    };
+
+    const handleAssignNext = () => {
+        // Simple fair play auto-assign
+        const waiting = walkIns?.filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+        const idle = staff?.filter(s => s.active && !s.onBreak && s.status === 'idle');
+        if (waiting?.length && idle?.length) {
+            handleAssignStaff(waiting[0], idle[0].id);
+        }
+    };
+
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
             <AppHeader />
@@ -383,8 +406,8 @@ function POSPageContent() {
                         <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Rev per service hour." />
                     </div>
 
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={() => {}} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>

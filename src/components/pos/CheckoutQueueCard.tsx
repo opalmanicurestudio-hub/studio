@@ -39,6 +39,8 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
     onSelect,
     onRevertToService
 }) => {
+  if (!appointmentData || !appointmentData.appointment) return null;
+
   const { appointment: apt, client, service, addOnServices, staff } = appointmentData;
   const checkoutState = apt.checkoutState;
 
@@ -80,7 +82,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
             )}
         >
             <CardContent className="p-4 space-y-3">
-                <div className="flex items-start gap-4">
+                <div className="flex items-start justify-between gap-4">
                     <Checkbox
                         id={`apt-checkout-${apt.id}`}
                         checked={isSelected}
@@ -89,7 +91,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                     />
                     <div className="flex-1 space-y-1 min-w-0">
                         <div className="font-semibold flex items-center gap-2 truncate">
-                            {client.name}
+                            {client?.name || 'Walk-in'}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
                                     <Tooltip>
@@ -105,7 +107,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                                 )}
                             </TooltipProvider>
                         </div>
-                        <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                        <p className="text-sm text-muted-foreground">{apt.startTime ? format(new Date(apt.startTime), 'h:mm a') : 'Now'}</p>
                         <p className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded-md w-fit flex items-center gap-1 mt-1">
                             <TicketIcon className="w-2.5 h-2.5" />
                             {ticketId}
@@ -114,7 +116,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                     <div className="text-right flex flex-col items-end gap-2">
                          <Avatar className="w-8 h-8 border shadow-sm">
                             <AvatarImage src={staff?.avatarUrl} className="object-cover" />
-                            <AvatarFallback>{staff?.name.charAt(0)}</AvatarFallback>
+                            <AvatarFallback>{staff?.name?.charAt(0) || '?'}</AvatarFallback>
                         </Avatar>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
