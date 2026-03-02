@@ -13,7 +13,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, Timestamp } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -201,7 +201,7 @@ function POSPageContent() {
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
     const todayAppointments = useMemo(() => {
         const today = startOfDay(new Date());
-        return appointments.filter(apt => isSameDay(new Date(apt.startTime), today));
+        return appointments.filter(apt => isSameDay(safeDate(apt.startTime), today));
     }, [appointments]);
 
     const readyForCheckoutAppointments = useMemo(() => {
@@ -359,7 +359,10 @@ function POSPageContent() {
         }
         setIsSubmitting(true);
         const batch = writeBatch(firestore);
-        const nowISO = new Date().toISOString();
+        const now = new Date();
+        const nowTimestamp = Timestamp.fromDate(now);
+        const nowISO = now.toISOString();
+
         try {
             for (const id of Array.from(selectedAppointmentIds)) {
                 const data = readyForCheckoutAppointments.find(a => a.id === id);
@@ -389,7 +392,28 @@ function POSPageContent() {
                     const item = inventory.find(i => i.id === p.id);
                     if (item) {
                         const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-                        batch.update(productRef, { totalStock: increment(-Math.floor(p.quantity / (item.estimatedUses || item.size || 1))) });
+                        
+                        let newTotalStock = item.totalStock;
+                        let newPartialSize = item.partialContainerSize || 0;
+                        let newPartialUses = item.partialContainerUses || 0;
+
+                        if (item.costingMethod === 'size') {
+                            newPartialSize -= p.quantity;
+                            while (newPartialSize < 0 && newTotalStock > 0) {
+                                newTotalStock -= 1;
+                                newPartialSize += (item.size || 1);
+                            }
+                            batch.update(productRef, { totalStock: newTotalStock, partialContainerSize: Math.max(0, newPartialSize) });
+                        } else if (item.costingMethod === 'uses') {
+                            newPartialUses -= p.quantity;
+                            while (newPartialUses < 0 && newTotalStock > 0) {
+                                newTotalStock -= 1;
+                                newPartialUses += (item.estimatedUses || 1);
+                            }
+                            batch.update(productRef, { totalStock: newTotalStock, partialContainerUses: Math.max(0, newPartialUses) });
+                        } else {
+                            batch.update(productRef, { totalStock: increment(-p.quantity) });
+                        }
                         
                         const staffName = data.staff?.name || 'Unknown Staff';
                         const appointmentShortId = appointment.id.slice(-6).toUpperCase();
@@ -414,7 +438,7 @@ function POSPageContent() {
                             const svcPrice = getServicePrice(svc, performer);
                             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                             batch.set(txnRef, {
-                                date: nowISO,
+                                date: nowTimestamp,
                                 description: `Attributed: ${svc.name} for ${data.client.name}`,
                                 clientOrVendor: data.client.name,
                                 clientId: data.client.id,
@@ -432,7 +456,7 @@ function POSPageContent() {
                     const svcPrice = getServicePrice(data.service, data.staff) + data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
                     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                     batch.set(txnRef, {
-                        date: nowISO,
+                        date: nowTimestamp,
                         description: `Service: ${data.service.name} for ${data.client.name}`,
                         clientOrVendor: data.client.name,
                         clientId: data.client.id,
@@ -451,7 +475,7 @@ function POSPageContent() {
                 if (amount > 0) {
                     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                     batch.set(txnRef, {
-                        date: nowISO,
+                        date: nowTimestamp,
                         description: `Tip Allocation`,
                         clientOrVendor: 'Various',
                         type: 'income',
@@ -481,7 +505,7 @@ function POSPageContent() {
 
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
-                    date: nowISO,
+                    date: nowTimestamp,
                     description: `Retail: ${item.quantity}x ${item.name}`,
                     clientOrVendor: 'Walk-in',
                     type: 'income',
@@ -650,7 +674,9 @@ function POSPageContent() {
     const handleConfirmCancellation = async (data: any) => {
         if (!selectedAppointment || !firestore || !tenantId) return;
         const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
+        const now = new Date();
+        const nowTimestamp = Timestamp.fromDate(now);
+        const nowISO = now.toISOString();
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
         const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
 
@@ -666,6 +692,21 @@ function POSPageContent() {
                 batch.update(clientRef, {
                     unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: selectedAppointment.startTime, feeAmount: data.feeAmount, reason: `Late cancellation: ${data.reason}`, staffId: selectedAppointment.staffId }),
                     outstandingBalance: increment(data.feeAmount)
+                });
+            } else if (data.paymentMethod === 'card_on_file') {
+                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(txnRef, {
+                    date: nowTimestamp,
+                    description: `Cancellation Fee: ${selectedAppointment.clientName}`,
+                    clientOrVendor: selectedAppointment.clientName,
+                    clientId: selectedAppointment.clientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Cancellation Fee',
+                    amount: data.feeAmount,
+                    paymentMethod: 'Card on File',
+                    staffId: selectedAppointment.staffId,
+                    appointmentId: selectedAppointment.id,
                 });
             }
         }

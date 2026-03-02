@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -53,7 +54,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc, writeBatch } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format, startOfWeek, isPast, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow, isSameDay } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
@@ -79,6 +80,10 @@ const pieChartConfig = {
   retail: {
     label: 'Retail',
     color: 'hsl(var(--chart-2))',
+  },
+  tips: {
+    label: 'Tips',
+    color: 'hsl(var(--primary))',
   },
 } satisfies ChartConfig;
 
@@ -228,16 +233,21 @@ const OwnerDashboard = () => {
     if (!allTransactions) return [];
     
     const serviceRevenue = allTransactions
-        .filter(t => t.type === 'income' && t.category === 'Service')
+        .filter(t => t.type === 'income' && t.category === 'Service Revenue')
         .reduce((acc, t) => acc + t.amount, 0);
 
     const retailRevenue = allTransactions
         .filter(t => t.type === 'income' && t.category === 'Retail')
         .reduce((acc, t) => acc + t.amount, 0);
 
+    const tips = allTransactions
+        .filter(t => t.type === 'income' && t.category === 'Tips')
+        .reduce((acc, t) => acc + t.amount, 0);
+
     return [
       { name: 'services', value: serviceRevenue, fill: 'var(--color-services)' },
       { name: 'retail', value: retailRevenue, fill: 'var(--color-retail)' },
+      { name: 'tips', value: tips, fill: 'hsl(var(--primary))' },
     ];
   }, [allTransactions]);
 
@@ -245,7 +255,7 @@ const OwnerDashboard = () => {
   const recentActivities = useMemo(() => {
     if (!allAppointments) return [];
     return [...allAppointments]
-        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime())
         .slice(0, 5)
         .map((apt) => ({
           apt,
@@ -621,9 +631,9 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                a.startTime >= todayStart && a.startTime <= todayEnd
+                isSameDay(safeDate(a.startTime), todayStart)
             )
-            .sort((a, b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime())
+            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())
             .map(apt => ({
                 ...apt,
                 client: clients.find(c => c.id === apt.clientId),
@@ -655,7 +665,7 @@ const StaffDashboardView = () => {
                 case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
                 case 'break_end':
                     if (staffMember.breakStartTime) {
-                        const duration = differenceInMinutes(new Date(now), new Date(staffMember.breakStartTime));
+                        const duration = differenceInMinutes(new Date(now), safeDate(staffMember.breakStartTime));
                         logEntry.durationMinutes = duration;
                     }
                     staffUpdate = { onBreak: false, breakStartTime: undefined };
@@ -707,12 +717,11 @@ const StaffDashboardView = () => {
 
         const appointmentsToday = appointments.filter(apt => 
             apt.staffId === staffMember.id &&
-            new Date(apt.startTime) >= todayStart &&
-            new Date(apt.startTime) <= todayEnd
+            isSameDay(safeDate(apt.startTime), todayStart)
         );
 
         const transactionsToday = transactions.filter(t => {
-            const transactionDate = new Date(t.date);
+            const transactionDate = safeDate(t.date);
             return t.staffId === staffMember.id &&
                     transactionDate >= todayStart &&
                     transactionDate <= todayEnd;
@@ -722,7 +731,10 @@ const StaffDashboardView = () => {
             .filter(t => t.category === 'Service Revenue')
             .reduce((sum, t) => sum + t.amount, 0);
 
-        const tips = transactionsToday.reduce((sum, t) => sum + (t.tipAmount || 0), 0);
+        const tips = transactionsToday
+            .filter(t => t.category === 'Tips')
+            .reduce((sum, t) => sum + t.amount, 0);
+
         const completed = appointmentsToday.filter(a => a.status === 'completed').length;
         
         let earnings = 0;
@@ -752,7 +764,7 @@ const StaffDashboardView = () => {
           return true;
       };
   
-      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
       const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
       const completedAppointmentsCount = completedAppointments.length;
     
@@ -761,7 +773,7 @@ const StaffDashboardView = () => {
       completedAppointments.forEach(apt => {
           const service = services.find(s => s.id === apt.serviceId);
           if (apt.actualStartTime && apt.actualEndTime && service) {
-              const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+              const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
               totalMinutesVariance += actualDuration - service.duration;
               totalInServiceMinutes += actualDuration;
           }
@@ -770,25 +782,25 @@ const StaffDashboardView = () => {
       const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
       const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
     
-      const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(new Date(t.date)));
+      const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
       
       const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
       const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
       const totalSales = serviceRevenue + retailSales;
-      const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+      const tips = staffTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
       
       const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
       const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
       const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
       let totalMinutesWorked = 0;
-      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-      const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
+      const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
       
       let clockInTime: Date | null = null;
       let totalBreakMinutes = 0;
       for (const log of sortedLogs) {
-          const logTime = log.timestamp;
+          const logTime = safeDate(log.timestamp);
           if (log.type === 'clock_in') {
               if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
               clockInTime = logTime;
@@ -916,7 +928,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                             </div>
                             <div className="ml-auto text-right">
-                                <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
+                                <p className="font-bold">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
                             </div>
                         </div>
                         <Button asChild className="w-full">
@@ -943,7 +955,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground truncate">{apt.service?.name}</p>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
+                                    <p className="font-medium">{format(safeDate(apt.startTime), 'h:mm a')}</p>
                                     {apt.isWalkIn && <Badge variant="secondary" className="text-[9px] uppercase font-black">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (
