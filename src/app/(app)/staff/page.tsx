@@ -49,7 +49,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, deleteField } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
   AlertDialog,
@@ -125,6 +125,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
     }, [member.compliance?.licenseExpiry]);
     
     const getInitials = (name: string) => {
+        if (!name) return '?';
         const parts = name.split(' ');
         if (parts.length > 1) {
             return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
@@ -180,7 +181,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
                 <Avatar className="w-24 h-24 mx-auto mb-4">
                     <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
-                    <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+                    <AvatarFallback>{getInitials(member.name || '')}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
                 <div className="flex items-center justify-center gap-2">
@@ -634,7 +635,6 @@ export default function StaffPage() {
       }
       
       addDocumentNonBlocking(activityLogsRef, logEntry);
-      // CRITICAL: Use set with merge: true to avoid "No document to update" error
       setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
   };
   
@@ -686,104 +686,100 @@ export default function StaffPage() {
   const handleForceIdle = (staffId: string) => {
     if (!firestore || !tenantId) return;
     const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-    // CRITICAL: Use set with merge: true to avoid "No document to update" error
     setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true });
     uiToast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
   };
 
   const isLoadingTotal = staffLoading || pricingTiersLoading || isLoading;
 
-  if (isLoadingTotal) {
-    return (
-      <div className="flex min-h-screen w-full flex-col">
-        <AppHeader title="Staff Management" />
-        <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8 justify-center items-center">
-            <Loader className="w-8 h-8 animate-spin" />
-        </main>
-      </div>
-    );
-  }
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Staff Management" />
       <main className="flex-1 p-4 md:p-8">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Your Team</h1>
-            <p className="text-muted-foreground">Add, edit, and manage your staff members.</p>
-          </div>
-          <Button onClick={() => setIsAddStaffOpen(true)}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Staff Member
-          </Button>
-        </div>
-        
-        <div className="mb-6">
-            <Popover>
-                <PopoverTrigger asChild>
-                    <Button
-                        id="date"
-                        variant={"outline"}
-                        className={cn(
-                        "w-full md:w-[300px] justify-start text-left font-normal",
-                        !dateRange && "text-muted-foreground"
-                        )}
-                    >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateRange?.from ? (
-                        dateRange.to ? (
-                            <>
-                            {format(dateRange.from, "LLL dd, yyyy")} -{" "}
-                            {format(dateRange.to, "LLL dd, yyyy")}
-                            </>
-                        ) : (
-                            format(dateRange.from, "LLL dd, yyyy")
-                        )
-                        ) : (
-                        <span>Pick a date range</span>
-                        )}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        initialFocus
-                        mode="range"
-                        defaultMonth={dateRange?.from}
-                        selected={dateRange}
-                        onSelect={setDateRange}
-                        numberOfMonths={2}
-                    />
-                </PopoverContent>
-            </Popover>
-        </div>
-        
-         <div className="grid lg:grid-cols-3 gap-8 items-start">
-             <div className="lg:col-span-1 space-y-6">
-                <PricingTierCard 
-                    pricingTiers={pricingTiers || []}
-                    onSave={handleSaveTiers}
-                    onDelete={handleDeleteTier}
-                />
+        {isLoadingTotal ? (
+            <div className="flex flex-col items-center justify-center min-h-[400px]">
+                <Loader className="h-8 w-8 animate-spin" />
             </div>
-
-            <div className="lg:col-span-2">
-                {(staff || []).length > 0 ? (
-                    <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
-                        {staffWithStats.map((member) => (
-                        <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} canManage={canManage} />
-                        ))}
+        ) : (
+            <>
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+                <div>
+                    <h1 className="text-3xl font-bold">Your Team</h1>
+                    <p className="text-muted-foreground">Add, edit, and manage your staff members.</p>
+                </div>
+                <Button onClick={() => setIsAddStaffOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Add Staff Member
+                </Button>
+                </div>
+                
+                <div className="mb-6">
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                id="date"
+                                variant={"outline"}
+                                className={cn(
+                                "w-full md:w-[300px] justify-start text-left font-normal",
+                                !dateRange && "text-muted-foreground"
+                                )}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {dateRange?.from ? (
+                                dateRange.to ? (
+                                    <>
+                                    {format(dateRange.from, "LLL dd, yyyy")} -{" "}
+                                    {format(dateRange.to, "LLL dd, yyyy")}
+                                    </>
+                                ) : (
+                                    format(dateRange.from, "LLL dd, yyyy")
+                                )
+                                ) : (
+                                <span>Pick a date range</span>
+                                )}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                                initialFocus
+                                mode="range"
+                                defaultMonth={dateRange?.from}
+                                selected={dateRange}
+                                onSelect={setDateRange}
+                                numberOfMonths={2}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                </div>
+                
+                <div className="grid lg:grid-cols-3 gap-8 items-start">
+                    <div className="lg:col-span-1 space-y-6">
+                        <PricingTierCard 
+                            pricingTiers={pricingTiers || []}
+                            onSave={handleSaveTiers}
+                            onDelete={handleDeleteTier}
+                        />
                     </div>
-                    ) : (
-                    <Card>
-                        <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
-                            <Users className="w-16 h-16 mb-4"/>
-                        <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
-                        <p className="mb-4">Click the button to add your first team member.</p>
-                        </CardContent>
-                    </Card>
-                )}
-            </div>
-        </div>
+
+                    <div className="lg:col-span-2">
+                        {(staff || []).length > 0 ? (
+                            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+                                {staffWithStats.map((member) => (
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} canManage={canManage} />
+                                ))}
+                            </div>
+                            ) : (
+                            <Card>
+                                <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
+                                    <Users className="w-16 h-16 mb-4"/>
+                                <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
+                                <p className="mb-4">Click the button to add your first team member.</p>
+                                </CardContent>
+                            </Card>
+                        )}
+                    </div>
+                </div>
+            </>
+        )}
       </main>
       <AddStaffDialog 
         open={isAddStaffOpen} 

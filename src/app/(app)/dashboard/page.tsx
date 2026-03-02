@@ -556,7 +556,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 };
 
 export default function DashboardPage() {
-  const { firestore, user, isUserLoading } = useFirebase();
+  const { firestore, user } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
   const { staff, inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
@@ -741,9 +741,9 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  const loadingStatus = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
+  const isLoadingTotal = isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
-  if(loadingStatus) {
+  if(isLoadingTotal) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />
@@ -765,7 +765,7 @@ export default function DashboardPage() {
             totalOutstandingDebt={totalOutstandingDebt}
             clientRetentionRate={clientRetentionRate}
             todayAppointments={todayAppointments}
-            isLoading={loadingStatus}
+            isLoading={isLoadingTotal}
             barChartData={barChartData}
             revenueBreakdown={revenueBreakdown}
             recentActivities={recentActivities}

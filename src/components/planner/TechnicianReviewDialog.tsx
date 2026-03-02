@@ -142,9 +142,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     }
   }, [service, appointment, open, allServices, inventory]);
 
+  const isLastProvider = useMemo(() => {
+      if (!appointment || !currentUser) return true;
+      const othersWorking = Object.entries(serviceStaffOverrides).some(([svcId, staffId]) => {
+          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
+      });
+      return !othersWorking;
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, appointment]);
+
   const nextUpStaff = useMemo(() => {
       if (!appointment || !currentUser) return null;
-      // Identify if there are any parts of the service NOT assigned to the current user that aren't finished yet
       const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
           return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
       })?.[1];
@@ -249,7 +256,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
-                <DialogTitle>{nextUpStaff ? 'Complete Part & Hand-off' : 'Complete Service'}</DialogTitle>
+                <DialogTitle>{isLastProvider ? 'Complete Service' : 'Complete Part & Hand-off'}</DialogTitle>
                 <DialogDescription>Confirm actuals before moving the client forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
@@ -384,13 +391,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             <DialogFooter className="p-6 pt-4 border-t">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteMyPart} className="h-11 font-bold">
-                    {nextUpStaff ? (
+                    {isLastProvider ? (
                         <>
-                            <Repeat className="mr-2 h-4 w-4" /> Complete Part & Hand-off
+                            <Send className="mr-2 h-4 w-4" /> Complete Service & Send to Desk
                         </>
                     ) : (
                         <>
-                            <Send className="mr-2 h-4 w-4" /> Complete Service & Send to Desk
+                            <Repeat className="mr-2 h-4 w-4" /> Complete Part & Hand-off
                         </>
                     )}
                 </Button>

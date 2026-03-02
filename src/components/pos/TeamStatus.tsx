@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCcw } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds, isSameDay, startOfDay } from 'date-fns';
-import { Reorder } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
 import Link from 'next/link';
@@ -68,24 +67,15 @@ const StaffMemberCard = ({
 
     const status = getStatus();
 
-    const safeDate = (val: any): Date => {
-        if (!val) return new Date();
-        if (val instanceof Date) return val;
-        if (typeof val?.toDate === 'function') return val.toDate();
-        if (typeof val === 'string') return parseISO(val);
-        if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-        return new Date(val);
-    };
-
     const checkInBadge = useMemo(() => {
         if (!nextAppointment) return null;
         switch (nextAppointment.checkInStatus) {
             case 'arrived':
-                return <Badge className="bg-green-500 border-none text-[8px] h-4 px-1 uppercase font-black"><MapPin className="w-2 h-2 mr-0.5" /> Here</Badge>;
+                return <Badge className="bg-green-500 border-none text-[8px] h-4 px-1 uppercase font-black text-white"><MapPin className="w-2 h-2 mr-0.5 fill-current" /> Here</Badge>;
             case 'running_late':
-                return <Badge className="bg-amber-500 border-none text-[8px] h-4 px-1 uppercase font-black animate-pulse"><Clock className="w-2 h-2 mr-0.5" /> +{nextAppointment.lateTimeMinutes}m</Badge>;
+                return <Badge className="bg-amber-500 border-none text-[8px] h-4 px-1 uppercase font-black text-white animate-pulse"><Clock className="w-2 h-2 mr-0.5" /> +{nextAppointment.lateTimeMinutes}m</Badge>;
             case 'on_my_way':
-                return <Badge className="bg-blue-500 border-none text-[8px] h-4 px-1 uppercase font-black"><Car className="w-2 h-2 mr-0.5" /> Way</Badge>;
+                return <Badge className="bg-blue-500 border-none text-[8px] h-4 px-1 uppercase font-black text-white"><Car className="w-2 h-2 mr-0.5" /> Way</Badge>;
             default:
                 return null;
         }
@@ -104,12 +94,12 @@ const StaffMemberCard = ({
                     </div>
                 )}
                 <Avatar className="w-12 h-12 border shadow-inner">
-                    <AvatarImage src={member.avatarUrl} alt={member.name} className="object-cover" />
-                    <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+                    <AvatarImage src={member.avatarUrl} alt={member.name || 'Staff'} className="object-cover" />
+                    <AvatarFallback>{(member.name || '?').substring(0, 2)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                        <p className="font-bold truncate">{member.name}</p>
+                        <p className="font-bold truncate">{member.name || 'Unnamed Staff'}</p>
                         {checkInBadge}
                     </div>
                     <div className="flex items-center gap-2 mt-1">

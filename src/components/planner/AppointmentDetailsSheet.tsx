@@ -103,7 +103,6 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    // Handle Firestore Timestamp like object { seconds, nanoseconds }
     if (typeof val === 'object' && 'seconds' in val) {
         return new Date(val.seconds * 1000);
     }
