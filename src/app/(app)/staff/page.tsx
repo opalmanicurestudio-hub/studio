@@ -634,6 +634,7 @@ export default function StaffPage() {
       }
       
       addDocumentNonBlocking(activityLogsRef, logEntry);
+      // CRITICAL: Use set with merge: true to avoid "No document to update" error
       setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
   };
   
@@ -685,6 +686,7 @@ export default function StaffPage() {
   const handleForceIdle = (staffId: string) => {
     if (!firestore || !tenantId) return;
     const staffRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+    // CRITICAL: Use set with merge: true to avoid "No document to update" error
     setDocumentNonBlocking(staffRef, { status: 'idle' }, { merge: true });
     uiToast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
   };

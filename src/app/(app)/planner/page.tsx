@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -352,7 +351,8 @@ function PlannerPageContent() {
 
     if (currentUser) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid);
-        batch.update(staffDocRef, { status: 'idle' });
+        // CRITICAL: Use set with merge: true to avoid "No document to update" error
+        batch.set(staffDocRef, { status: 'idle' }, { merge: true });
     }
 
     batch.commit().then(() => {
@@ -398,7 +398,7 @@ function PlannerPageContent() {
 
     if (appointment.staffId) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-        batch.update(staffDocRef, { status: 'busy' });
+        batch.set(staffDocRef, { status: 'busy' }, { merge: true });
     }
 
     if (appointment.isWalkIn) {

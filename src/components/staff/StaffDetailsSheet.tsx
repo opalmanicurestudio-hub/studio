@@ -187,7 +187,6 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       { label: "Utilization Rate", value: `${(staffMember.stats?.utilizationRate || 0).toFixed(1)}%` },
       { label: "Avg. Ticket Size", value: `$${(staffMember.stats?.avgSalePerAppointment || 0).toFixed(2)}` },
       { label: "Retail Attach Rate", value: `${(staffMember.stats?.retailAttachmentRate || 0).toFixed(1)}%` },
-      { label: "Rebooking Rate", value: `${(staffMember.stats?.rebookingRate || 0).toFixed(1)}%` },
       { label: "Avg Time Variance", value: `${(staffMember.stats?.avgVariance || 0) > 0 ? '+' : ''}${(staffMember.stats?.avgVariance || 0).toFixed(1)} min` },
   ];
 

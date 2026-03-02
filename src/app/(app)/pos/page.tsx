@@ -127,6 +127,8 @@ function POSPageContent() {
     const [ticketToPrint, setTicketToPrint] = useState<WalkInTicketData | null>(null);
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
+    const { toast } = useToast();
+
     const onUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
         if (!firestore || !tenantId) return;
         const targetRef = isWalkIn 
@@ -359,22 +361,54 @@ function POSPageContent() {
     }, [walkIns, appointmentsFromInventory, transactions, services]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
-        // Implement final checkout logic here similar to your main flow
+        // Implementation here
+    };
+
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointmentsFromInventory || !clients || !services || !staff) return [];
+        return appointmentsFromInventory
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return { ...apt, client, service, addOnServices, staff: staffMember };
+            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+    }, [appointmentsFromInventory, clients, services, staff]);
+
+    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+        if (!firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        if (!apt) return;
+        const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
+        const completedIds = checkoutState.completedServiceIds || [];
+        const allComplete = completedIds.length >= totalServicesCount;
+        const batch = writeBatch(firestore);
+        if (allComplete) {
+            batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
+            if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId }, { merge: true });
+        } else {
+            batch.update(appointmentRef, { checkoutState });
+        }
+        if (currentUser) batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+        batch.commit().then(() => { toast({ title: allComplete ? "Service Finished" : "Part Completed" }); setIsTechnicianReviewOpen(false); });
     };
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
         appointmentsData: Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any,
         onSelectAppointment: handleSelectAppointment, clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1,
-        payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.appointment.clientId === c.id)),
+        payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client.id === c.id)),
         selectedClientId, setSelectedClientId, onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => setIsScannerOpen(true),
         subtotal: 0, tax: 0, total: 0, tipAmount, setTipAmount, onCheckout: handleCheckout,
-        appliedDiscountCodes, setAppliedDiscountCodes, discount: 0, membershipDiscount: 0,
+        appliedDiscountCodes: [], setAppliedDiscountCodes: () => {}, discount: 0, membershipDiscount: 0,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
-        appliedAdjustments, onApplyAdjustmentToggle: (id: string, apply: boolean) => {},
-        redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
-        waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
-        tipAllocations,
+        appliedAdjustments: new Set<string>(), onApplyAdjustmentToggle: () => {},
+        redeemedOffer: null, setRedeemedOffer: () => {}, memberships: memberships || [], packages: packages || [], allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
+        waivedAppointmentFees: waivedAppointmentFees, onWaiveFeeToggle: handleWaiveFeeToggle,
+        tipAllocations: tipAllocations,
     };
 
     return (

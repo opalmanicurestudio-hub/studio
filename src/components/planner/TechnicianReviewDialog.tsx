@@ -142,6 +142,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     }
   }, [service, appointment, open, allServices, inventory]);
 
+  const nextUpStaff = useMemo(() => {
+      if (!appointment || !currentUser) return null;
+      // Identify if there are any parts of the service NOT assigned to the current user that aren't finished yet
+      const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
+          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
+      })?.[1];
+      if (!nextStaffId) return null;
+      return staff.find(s => s.id === nextStaffId);
+  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment]);
+
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
@@ -174,15 +184,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     const productOverage = Math.max(0, currentCost - standardCost);
     return timeOverage + productOverage;
   }, [actualDuration, service, tmhr, editableFormula, inventory]);
-
-  const nextUpStaff = useMemo(() => {
-      if (!appointment || !currentUser) return null;
-      const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
-          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
-      })?.[1];
-      if (!nextStaffId) return null;
-      return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
