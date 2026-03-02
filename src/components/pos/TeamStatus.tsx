@@ -81,7 +81,7 @@ const StaffMemberCard = ({
         }
     }, [nextAppointment]);
 
-    const initials = (member.name || '?').substring(0, 2);
+    const initials = (member.name || 'Staff').substring(0, 2).toUpperCase();
 
     return (
         <Card className={cn(

@@ -24,7 +24,6 @@ import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Pl
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { cn } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -150,7 +149,7 @@ function POSPageContent() {
             const mainPrice = getServicePrice(data.service, data.staff);
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => sum + getServicePrice(s, data.staff), 0);
             
-            // Add additional charges (overages) unless waived
+            // Add additional charges (overages) unless absorbed by owner
             const additional = (data.appointment.checkoutState?.additionalCharge || 0);
             const isWaived = waivedAppointmentFees.has(data.appointment.id);
             const effectiveAdditional = isWaived ? 0 : additional;
@@ -388,34 +387,6 @@ function POSPageContent() {
         setIsTechnicianReviewOpen(true);
     };
 
-    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
-        if (!apt) return;
-
-        const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
-        const completedIds = checkoutState.completedServiceIds || [];
-        const allComplete = completedIds.length >= totalServicesCount;
-
-        const batch = writeBatch(firestore);
-        if (allComplete) {
-            batch.update(appointmentRef, { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
-        } else {
-            batch.update(appointmentRef, { checkoutState });
-        }
-
-        if (currentUser) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
-        }
-
-        batch.commit().then(() => {
-            toast({ title: allComplete ? "Service Finished" : "Part Completed" });
-            setIsTechnicianReviewOpen(false);
-        });
-    };
-
     const handleCheckout = async () => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
@@ -428,11 +399,18 @@ function POSPageContent() {
             const { appointment: apt, service, addOnServices, staff: tech } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
             
-            // Formula & Inventory Deduction
+            // Formula & Inventory Deduction (Accurate)
             const formula = apt.checkoutState?.formula || [];
             formula.forEach(item => {
                 const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
-                batch.update(productRef, { totalStock: increment(-1) }); // Simplification for prototype
+                const product = inventory.find(p => p.id === item.id);
+                if (product?.costingMethod === 'uses') {
+                    batch.update(productRef, { partialContainerUses: increment(-item.quantity) });
+                } else if (product?.costingMethod === 'size') {
+                    batch.update(productRef, { partialContainerSize: increment(-item.quantity) });
+                } else {
+                    batch.update(productRef, { totalStock: increment(-item.quantity) });
+                }
             });
 
             const mainPrice = getServicePrice(service, tech);
@@ -448,7 +426,7 @@ function POSPageContent() {
 
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
             
-            // Log Service Revenue
+            // Log Service Revenue (Per Staff)
             const serviceTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(serviceTxnRef, {
                 date: now,
@@ -485,7 +463,7 @@ function POSPageContent() {
             batch.update(productRef, { totalStock: increment(-item.quantity) });
         });
 
-        // 3. Log Tips
+        // 3. Log Tips (Accurate Allocation)
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
             if (amount > 0) {
                 const tipTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
