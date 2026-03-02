@@ -65,6 +65,23 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+/**
+ * Utility to safely convert Firestore/API values to Date objects.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    return new Date(val);
+};
+
 const barChartConfig = {
   profit: {
     label: 'Profit',
@@ -631,7 +648,7 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                isSameDay(safeDate(a.startTime), todayStart)
+                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())
             .map(apt => ({
@@ -717,7 +734,8 @@ const StaffDashboardView = () => {
 
         const appointmentsToday = appointments.filter(apt => 
             apt.staffId === staffMember.id &&
-            isSameDay(safeDate(apt.startTime), todayStart)
+            safeDate(apt.startTime) >= todayStart &&
+            safeDate(apt.startTime) <= todayEnd
         );
 
         const transactionsToday = transactions.filter(t => {
@@ -740,7 +758,10 @@ const StaffDashboardView = () => {
         let earnings = 0;
          if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } 
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+            // Need actual hours worked for precision, using a rough estimate if no logs
+            earnings = 0; // Simplified for this KPI card
+        }
 
         const retailSales = transactionsToday
             .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
