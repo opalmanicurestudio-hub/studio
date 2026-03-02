@@ -38,20 +38,11 @@ import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDia
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 
-/**
- * Utility to safely convert Firestore/API values to Date objects.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
     return new Date(val);
 };
 
@@ -202,7 +193,7 @@ function POSPageContent() {
                 }
             }
         }
-    }, [searchParams, clients, toast]);
+    }, [searchParams, clients, toast, handleSelectAppointment]);
 
     const appointments = useMemo(() => appointmentsFromInventory || [], [appointmentsFromInventory]);
     const todayAppointments = useMemo(() => {
@@ -307,8 +298,8 @@ function POSPageContent() {
             }
         });
 
-        const membership = selectedClientId ? clients.find(c => c.id === selectedClientId)?.activeMembershipId : null;
-        const activeMem = membership ? memberships.find(m => m.id === membership) : null;
+        const membershipId = selectedClientId ? clients.find(c => c.id === selectedClientId)?.activeMembershipId : null;
+        const activeMem = membershipId ? memberships.find(m => m.id === membershipId) : null;
         if (activeMem?.retailDiscount) {
             const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
             mVal = retailSub * (activeMem.retailDiscount / 100);
@@ -500,7 +491,7 @@ function POSPageContent() {
                 batch.update(clientDocRef, { lastAppointment: nowISO, lifetimeValue: increment(total - tax - tipAmount) });
             }
             await batch.commit();
-            onCartChange([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); onWaiveFeeToggle('', false);
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); onWaiveFeeToggle('', false);
             toast({ title: 'Sale Complete!' });
         } catch (e) {
             console.error(e);

@@ -37,6 +37,7 @@ export const DayTimeline = ({
     onFinishService,
     onBookNewForClient,
     onDeleteEvent,
+    onDeleteAppointment: onDelete,
     onViewDetails,
     walkIns,
     clients,
@@ -106,18 +107,15 @@ export const DayTimeline = ({
         
         for (const column of columns) {
             const columnId = column.id;
-            
             const primaryItems = itemsByColumn.get(columnId) || [];
-            
             const secondaryItems = activeView === 'staff' ? allItemsOnDate.filter(item => {
-                if (item.staffId === columnId) return false;
-                const overrides = (item as Appointment).checkoutState?.serviceStaffOverrides || {};
+                if ('staffId' in item && item.staffId === columnId) return false;
+                const overrides = (item as any).checkoutState?.serviceStaffOverrides || {};
                 return Object.values(overrides).includes(columnId);
             }) : [];
 
             const combinedItems = [...primaryItems, ...secondaryItems.map(item => ({ ...item, isSecondary: true }))];
-            
-            let layoutInfo = combinedItems.map(item => ({ ...item, layout: { cols: 0, col: 0 } }));
+            let layoutInfo = combinedItems.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
             
             function positionCluster(cluster: any[]) {
                 cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
@@ -164,7 +162,7 @@ export const DayTimeline = ({
             <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-2 z-10", item.isSecondary && "opacity-80")} style={style}>
                 <AppointmentCard
                     appointment={item} client={client} service={service} style={{ height: '100%'}}
-                    tmhr={tmhr} onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
+                    tmhr={tmhr} onUpdateStatus={onUpdateStatus} onDelete={onDelete}
                     onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
                     onStartService={onStartService} onFinishService={onFinishService}
@@ -207,14 +205,6 @@ export const DayTimeline = ({
                                 <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
                                     <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
                                         <div className="flex items-center justify-center gap-2 h-full w-full">
-                                            {'avatarUrl' in column ? (
-                                                <Avatar className="w-8 h-8">
-                                                    <AvatarImage src={(column as Staff).avatarUrl} />
-                                                    <AvatarFallback>{column.name.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                            ) : (
-                                                (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
-                                            )}
                                             <SelectValue />
                                         </div>
                                     </SelectTrigger>
@@ -252,7 +242,7 @@ export const DayTimeline = ({
                     {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r">
                             {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed" />))}
-                            {(positionedItemsByColumn.get(column.id) || []).map(item => (item.itemType === 'appointment' ? renderAppointment(item) : renderEvent(item)))}
+                            {(positionedItemsByColumn.get(column.id) || []).map(item => (item.type === 'personal' || item.type === 'business' || item.type === 'blocked' ? renderEvent(item) : renderAppointment(item)))}
                         </div>
                     ))}
                     {isToday(date) && (

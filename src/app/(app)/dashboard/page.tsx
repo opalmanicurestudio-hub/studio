@@ -65,9 +65,6 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/**
- * Utility to safely convert Firestore/API values to Date objects.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -648,7 +645,7 @@ const StaffDashboardView = () => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
+                isSameDay(safeDate(a.startTime), todayStart)
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())
             .map(apt => ({
@@ -946,7 +943,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground">{nextAppointment.service?.name}</p>
                             </div>
                             <div className="ml-auto text-right">
-                                <p className="font-bold">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
+                                <p className="font-bold">{format(new Date(nextAppointment.startTime), 'h:mm a')}</p>
                             </div>
                         </div>
                         <Button asChild className="w-full">
@@ -973,7 +970,7 @@ const StaffDashboardView = () => {
                                 <p className="text-sm text-muted-foreground truncate">{apt.service?.name}</p>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="font-medium">{format(safeDate(apt.startTime), 'h:mm a')}</p>
+                                    <p className="font-medium">{format(new Date(apt.startTime), 'h:mm a')}</p>
                                     {apt.isWalkIn && <Badge variant="secondary" className="text-[9px] uppercase font-black">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (
