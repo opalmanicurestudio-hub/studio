@@ -183,8 +183,14 @@ function POSPageContent() {
     };
 
     useEffect(() => {
+        const checkoutId = searchParams.get('checkout_id');
         const payerId = searchParams.get('payer_id');
         const action = searchParams.get('action');
+        
+        if (checkoutId) {
+            handleSelectAppointment(checkoutId);
+        }
+        
         if (payerId && clients && clients.length > 0) {
             const client = clients.find(c => c.id === payerId);
             if (client) {
@@ -384,9 +390,8 @@ function POSPageContent() {
                 }
 
                 batch.update(appointmentRef, updatePayload);
-                if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
+                if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed' });
                 
-                // Deduct formula products (Professional Inventory)
                 const formula = appointment.checkoutState?.formula || [];
                 formula.forEach((p: any) => {
                     const item = inventory.find(i => i.id === p.id);
@@ -429,46 +434,20 @@ function POSPageContent() {
                     }
                 });
 
-                const checkoutState = appointment.checkoutState;
-                if (checkoutState?.serviceStaffOverrides) {
-                    Object.entries(checkoutState.serviceStaffOverrides).forEach(([svcId, staffId]) => {
-                        const svc = services?.find(s => s.id === svcId);
-                        const performer = staff?.find(s => s.id === staffId);
-                        if (svc && performer) {
-                            const svcPrice = getServicePrice(svc, performer);
-                            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                            batch.set(txnRef, {
-                                date: nowTimestamp,
-                                description: `Attributed: ${svc.name} for ${data.client.name}`,
-                                clientOrVendor: data.client.name,
-                                clientId: data.client.id,
-                                type: 'income',
-                                context: 'Business',
-                                category: 'Service Revenue',
-                                amount: svcPrice,
-                                paymentMethod: paymentDetails.paymentMethod,
-                                staffId: staffId,
-                                appointmentId: appointment.id,
-                            });
-                        }
-                    });
-                } else {
-                    const svcPrice = getServicePrice(data.service, data.staff) + data.addOnServices.reduce((sum, s) => sum + getServicePrice(s, data.staff), 0);
-                    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                    batch.set(txnRef, {
-                        date: nowTimestamp,
-                        description: `Service: ${data.service.name} for ${data.client.name}`,
-                        clientOrVendor: data.client.name,
-                        clientId: data.client.id,
-                        type: 'income',
-                        context: 'Business',
-                        category: 'Service Revenue',
-                        amount: svcPrice,
-                        paymentMethod: paymentDetails.paymentMethod,
-                        staffId: data.staff.id,
-                        appointmentId: appointment.id,
-                    });
-                }
+                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(txnRef, {
+                    date: nowTimestamp,
+                    description: `Service: ${data.service.name} for ${data.client.name}`,
+                    clientOrVendor: data.client.name,
+                    clientId: data.client.id,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Service Revenue',
+                    amount: updatePayload.revenue,
+                    paymentMethod: paymentDetails.paymentMethod,
+                    staffId: data.staff.id,
+                    appointmentId: appointment.id,
+                });
             }
 
             Object.entries(tipAllocations).forEach(([staffId, amount]) => {
@@ -538,7 +517,7 @@ function POSPageContent() {
       batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing', actualStartTime: nowISO });
       
       if (appointment.checkInToken) {
-          batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+          batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
       }
       
       if (appointment.staffId) {
@@ -573,7 +552,7 @@ function POSPageContent() {
             
             if (allComplete) {
                 batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-                if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+                if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout' });
             } else {
                 batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { checkoutState });
             }
@@ -893,6 +872,56 @@ function POSPageContent() {
         };
     }, [walkIns, appointments, transactions, services]);
 
+    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
+    useEffect(() => {
+        if (staff) {
+            const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+            setOrderedStaff(sorted);
+        }
+    }, [staff]);
+
+    const enrichedOrderedStaff = useMemo(() => {
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        return orderedStaff.map(member => {
+            const staffTransactionsToday = (transactions || []).filter(t => {
+                if (t.staffId !== member.id) return false;
+                const transactionDate = safeDate(t.date);
+                return transactionDate >= todayStart && transactionDate <= todayEnd;
+            });
+
+            const serviceRevenue = staffTransactionsToday
+                .filter(t => t.category === 'Service Revenue')
+                .reduce((acc, t) => acc + t.amount, 0);
+
+            const retailSales = staffTransactionsToday
+                .filter(t => t.category === 'Retail')
+                .reduce((acc, t) => acc + t.amount, 0);
+
+            const tips = staffTransactionsToday
+                .filter(t => t.category === 'Tips')
+                .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+            
+            let earnings = 0;
+            if (member.payStructure === 'commission') {
+                earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
+            } 
+
+            const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
+            earnings += tips + retailCommission;
+
+            return {
+                ...member,
+                stats: {
+                    totalSales: serviceRevenue + retailSales,
+                    tips,
+                    earnings,
+                }
+            };
+        });
+    }, [orderedStaff, transactions]);
+
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
         appointmentsData: Array.from(selectedAppointmentIds).map(id => readyForCheckoutAppointments.find(a => a.id === id)).filter(Boolean) as any,
@@ -920,8 +949,8 @@ function POSPageContent() {
                         <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Rev per service hour." />
                     </div>
 
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} min-h-[300px] onAssignmentModeChange={setAssignmentMode} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                    <TeamStatus staff={enrichedOrderedStaff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
+                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={enrichedOrderedStaff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                     <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>

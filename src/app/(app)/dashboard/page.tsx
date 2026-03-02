@@ -195,7 +195,7 @@ const OwnerDashboard = () => {
     }
 
     weeklyTransactions.forEach(t => {
-        const dayKey = format(new Date(t.date), 'yyyy-MM-dd');
+        const dayKey = format(safeDate(t.date), 'yyyy-MM-dd');
         if (dailyData[dayKey]) {
             if (t.type === 'income') dailyData[dayKey].revenue += t.amount;
             if (t.type === 'expense') dailyData[dayKey].expense += t.amount;
@@ -219,12 +219,12 @@ const OwnerDashboard = () => {
     const clientsWithAppointmentsThisWeek = new Set<string>();
 
     allAppointments
-      .filter(apt => new Date(apt.startTime) >= startOfWeekDate)
+      .filter(apt => safeDate(apt.startTime) >= startOfWeekDate)
       .forEach(apt => clientsWithAppointmentsThisWeek.add(apt.clientId));
 
     clientsWithAppointmentsThisWeek.forEach(clientId => {
       const clientAppointments = allAppointments.filter(apt => apt.clientId === clientId);
-      if (clientAppointments.length === 1 && new Date(clientAppointments[0].startTime) >= startOfWeekDate) {
+      if (clientAppointments.length === 1 && safeDate(clientAppointments[0].startTime) >= startOfWeekDate) {
         newClientCount++;
       }
     });
@@ -272,7 +272,7 @@ const OwnerDashboard = () => {
   const recentActivities = useMemo(() => {
     if (!allAppointments) return [];
     return [...allAppointments]
-        .sort((a, b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime())
+        .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime())
         .slice(0, 5)
         .map((apt) => ({
           apt,
@@ -756,12 +756,9 @@ const StaffDashboardView = () => {
         const completed = appointmentsToday.filter(a => a.status === 'completed').length;
         
         let earnings = 0;
-         if (staffMember.payStructure === 'commission') {
+        if (staffMember.payStructure === 'commission') {
             earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            // Need actual hours worked for precision, using a rough estimate if no logs
-            earnings = 0; // Simplified for this KPI card
-        }
+        } 
 
         const retailSales = transactionsToday
             .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -816,12 +813,12 @@ const StaffDashboardView = () => {
 
       let totalMinutesWorked = 0;
       const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
-      const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+      const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       
       let clockInTime: Date | null = null;
       let totalBreakMinutes = 0;
       for (const log of sortedLogs) {
-          const logTime = safeDate(log.timestamp);
+          const logTime = log.timestamp;
           if (log.type === 'clock_in') {
               if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
               clockInTime = logTime;
