@@ -132,7 +132,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                     <div key={tech.id} className={cn("flex items-center gap-2 p-1 rounded-lg border bg-background transition-opacity", isDone && "opacity-50 grayscale")}>
                                         <Avatar className="h-6 w-6 border shadow-inner">
                                             <AvatarImage src={tech.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="text-[8px]">{tech.name.charAt(0)}</AvatarFallback>
+                                            <AvatarFallback>{tech.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
                                         <span className="text-[11px] font-bold truncate flex-1">{tech.name.split(' ')[0]}</span>
                                         {isDone ? (

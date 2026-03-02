@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -5,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { type Staff, type Appointment, type Service } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Resource } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car } from 'lucide-react';
+import { Clock, Coffee, GripVertical, Mail, Phone, ShieldAlert, ChevronDown, MoreHorizontal, TrendingUp, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differenceInSeconds, isSameDay, startOfDay } from 'date-fns';
 import { Reorder } from 'framer-motion';
@@ -25,6 +26,7 @@ interface TeamStatusProps {
   onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void;
   appointments: Appointment[] | null;
   services: Service[] | null;
+  resources: Resource[];
   onReorder: (newOrder: Staff[]) => void;
   assignmentMode: 'fair_play' | 'ordered_list';
   onAssignmentModeChange: (mode: 'fair_play' | 'ordered_list') => void;
@@ -60,6 +62,14 @@ const StaffMemberCard = ({
     };
 
     const status = getStatus();
+
+    const safeDate = (val: any): Date => {
+        if (!val) return new Date();
+        if (val instanceof Date) return val;
+        if (typeof val?.toDate === 'function') return val.toDate();
+        if (typeof val === 'string') return parseISO(val);
+        return new Date(val);
+    };
 
     const checkInBadge = useMemo(() => {
         if (!nextAppointment) return null;
@@ -120,7 +130,7 @@ const StaffMemberCard = ({
 };
 
 
-export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, onReorder, assignmentMode, onAssignmentModeChange }) => {
+export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, appointments, services, resources, onReorder, assignmentMode, onAssignmentModeChange }) => {
     
     const handleMove = (staffId: string, direction: 'up' | 'down') => {
         const staffList = staff || [];
@@ -138,6 +148,35 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
 
     const handleMoveUp = (staffId: string) => handleMove(staffId, 'up');
     const handleMoveDown = (staffId: string) => handleMove(staffId, 'down');
+
+    const resourcePulse = useMemo(() => {
+        if (!resources || !appointments) return [];
+        const now = new Date();
+        
+        return resources.map(res => {
+            const occupiedBy = appointments.filter(a => 
+                a.status === 'servicing' && 
+                a.requiredResourceIds?.includes(res.id)
+            );
+            
+            const currentOccupancy = occupiedBy.length;
+            const isAtCapacity = currentOccupancy >= (res.capacity || 1);
+            
+            let nextFreeIn = null;
+            if (isAtCapacity && occupiedBy.length > 0) {
+                const endTimes = occupiedBy.map(a => new Date(a.endTime));
+                const earliestEnd = new Date(Math.min(...endTimes.map(d => d.getTime())));
+                nextFreeIn = Math.max(1, differenceInMinutes(earliestEnd, now));
+            }
+
+            return {
+                ...res,
+                currentOccupancy,
+                isAtCapacity,
+                nextFreeIn
+            };
+        });
+    }, [resources, appointments]);
 
     const { nextAvailableIn, hasIdleStaff } = useMemo(() => {
         if (!staff || !appointments) return { nextAvailableIn: null, hasIdleStaff: false };
@@ -218,11 +257,9 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
         if (candidates.length === 0) return null;
 
         if (assignmentMode === 'fair_play') {
-            // Sort candidates by idle time (earliest last served first)
             const sorted = [...candidates].sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
             return sorted[0].id;
         } else {
-            // Respect the fixed rotation order (turnOrder)
             const sorted = [...candidates].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
             return sorted[0].id;
         }
@@ -252,14 +289,50 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 </div>
             </CardHeader>
             <CardContent className="space-y-6">
-                <div className="p-6 bg-primary/5 border-2 border-primary/10 rounded-2xl text-center">
-                    <p className="text-[10px] font-black uppercase text-primary tracking-widest mb-1">Next Available Provider</p>
-                    <p className="text-4xl font-black text-primary tracking-tighter">
-                        {hasIdleStaff ? "Available Now" : 
-                         nextAvailableIn !== null ? `~${nextAvailableIn} min` : 
-                         "None on Duty"
-                        }
-                    </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-6 bg-primary/5 border-2 border-primary/10 rounded-2xl text-center flex flex-col justify-center">
+                        <p className="text-[10px] font-black uppercase text-primary tracking-widest mb-1">Next Available Provider</p>
+                        <p className="text-4xl font-black text-primary tracking-tighter">
+                            {hasIdleStaff ? "Available Now" : 
+                            nextAvailableIn !== null ? `~${nextAvailableIn} min` : 
+                            "None on Duty"
+                            }
+                        </p>
+                    </div>
+                    
+                    <Card className="border-2 border-indigo-500/10 bg-indigo-500/5">
+                        <CardHeader className="p-4 pb-2">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest text-indigo-700 flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5" />
+                                Resource Pulse
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            <ScrollArea className="h-[100px]">
+                                <div className="space-y-2 pr-3">
+                                    {resourcePulse.map(res => (
+                                        <div key={res.id} className="flex items-center justify-between gap-3 text-xs bg-background p-2 rounded-lg border shadow-sm">
+                                            <div className="flex items-center gap-2 truncate">
+                                                {res.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                                                <span className="font-bold truncate">{res.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {res.isAtCapacity ? (
+                                                    <Badge variant="destructive" className="h-5 text-[9px] font-black uppercase tracking-tighter border-none animate-pulse">
+                                                        Busy ({res.nextFreeIn}m)
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="secondary" className="h-5 text-[9px] font-black uppercase tracking-tighter bg-green-500/10 text-green-700 border-none">
+                                                        Open ({res.capacity! - res.currentOccupancy}/{res.capacity})
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </CardContent>
+                    </Card>
                 </div>
 
                 <div className="space-y-4">

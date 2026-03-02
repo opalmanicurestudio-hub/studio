@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection, type InventoryItem } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection, type InventoryItem, type Resource } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -71,7 +71,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 function POSPageContent() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, discounts, memberships, packages, resources } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -355,7 +355,6 @@ function POSPageContent() {
         const nowTimestamp = Timestamp.fromDate(now);
         const nowISO = now.toISOString();
 
-        // Aggregated inventory updates
         const inventoryUpdates = new Map<string, { 
             totalStockChange: number, 
             partialSizeChange: number, 
@@ -475,7 +474,6 @@ function POSPageContent() {
                 });
             });
 
-            // Apply aggregated inventory updates
             inventoryUpdates.forEach((changes, productId) => {
                 const item = inventory.find(i => i.id === productId)!;
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
@@ -510,29 +508,17 @@ function POSPageContent() {
 
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointments) return;
-      
-      // Robust lookup: handle raw IDs or prefixed walk-in IDs
       const appointment = appointments.find(a => a.id === appointmentId) || appointments.find(a => a.id === `apt-walkin-${appointmentId}`);
       if (!appointment) return;
-
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
       batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
-      
-      if (appointment.checkInToken) {
-          batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing' });
-      }
-      
-      if (appointment.staffId) {
-          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-          batch.update(staffDocRef, { status: 'busy' });
-      }
-
+      if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+      if (appointment.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' });
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO });
       }
-
       batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
@@ -544,49 +530,35 @@ function POSPageContent() {
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
         if (!firestore || !tenantId || !currentUser) return;
         const batch = writeBatch(firestore);
-        
         batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' });
-        
         const apt = appointments.find(a => a.id === appointmentId);
         if (apt) {
             const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
             const completedIds = checkoutState.completedServiceIds || [];
             const allComplete = completedIds.length >= totalServicesCount;
-            
             if (allComplete) {
                 batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'ready_for_checkout', checkoutState, actualEndTime: new Date().toISOString() });
-                if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout' });
+                if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
             } else {
                 batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { checkoutState });
             }
         }
-
         batch.commit().then(() => { setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); toast({ title: "Status Updated" }); });
     };
 
     const handleStaffReorder = (newOrder: Staff[]) => {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
-        newOrder.forEach((s, i) => {
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: i });
-        });
-        batch.commit().catch(err => {
-            console.error("Failed to save staff order:", err);
-            toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
-        });
+        newOrder.forEach((s, i) => { batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: i }); });
+        batch.commit().catch(err => { toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." }); });
     };
 
     const handleReorderWalkIns = (newOrder: WalkIn[]) => {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
         const now = Date.now();
-        newOrder.forEach((w, i) => {
-            batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', w.id), { queueOrder: now + i });
-        });
-        batch.commit().catch(err => {
-            console.error("Failed to reorder queue:", err);
-            toast({ variant: 'destructive', title: "Error", description: "Could not save new queue order." });
-        });
+        newOrder.forEach((w, i) => { batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', w.id), { queueOrder: now + i }); });
+        batch.commit().catch(err => { toast({ variant: 'destructive', title: "Error", description: "Could not save new queue order." }); });
     };
 
     const handlePrintTicket = (walkInId: string) => {
@@ -605,44 +577,21 @@ function POSPageContent() {
 
     const handleResolve = (item: any) => {
         if (item.type === 'walk-in') {
-            const ghostApt: Partial<Appointment> = {
-                id: `walkin-resolve-${item.id}`,
-                clientName: item.customerName,
-                clientId: item.clientId || item.id,
-                serviceId: item.serviceIds[0],
-                status: 'confirmed',
-                isWalkIn: true,
-                isPotentialAlias: item.isPotentialAlias,
-                matchedClientId: item.matchedClientId,
-                startTime: item.checkInTime,
-                endTime: item.checkInTime,
-            };
+            const ghostApt: Partial<Appointment> = { id: `walkin-resolve-${item.id}`, clientName: item.customerName, clientId: item.clientId || item.id, serviceId: item.serviceIds[0], status: 'confirmed', isWalkIn: true, isPotentialAlias: item.isPotentialAlias, matchedClientId: item.matchedClientId, startTime: item.checkInTime, endTime: item.checkInTime };
             setSelectedAppointment(ghostApt as Appointment);
             setIsDetailsOpen(true);
-        } else {
-            setSelectedAppointment(item);
-            setIsDetailsOpen(true);
-        }
+        } else { setSelectedAppointment(item); setIsDetailsOpen(true); }
     };
 
     const handleCancelAppointment = (id: string) => {
         const apt = appointments.find(a => a.id === id);
-        if (apt) {
-            setSelectedAppointment(apt);
-            setIsCancelDialogOpen(true);
-        }
+        if (apt) { setSelectedAppointment(apt); setIsCancelDialogOpen(true); }
     };
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
-        if (!isWalkIn) {
-            handleCancelAppointment(id);
-            return;
-        }
-        
+        if (!isWalkIn) { handleCancelAppointment(id); return; }
         setConfirmation({
-            isOpen: true,
-            title: 'Are you sure?',
-            description: 'This will remove the guest from the queue. This action cannot be undone.',
+            isOpen: true, title: 'Are you sure?', description: 'This will remove the guest from the queue. This action cannot be undone.',
             onConfirm: async () => {
                 if (!firestore || !tenantId) return;
                 const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', id);
@@ -661,269 +610,48 @@ function POSPageContent() {
         const nowISO = now.toISOString();
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
         const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
-
-        batch.update(appointmentRef, {
-            status: 'cancelled',
-            cancellationReason: data.reason,
-            cancellationFeeApplied: data.feeAmount,
-            cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid')
-        });
-
+        batch.update(appointmentRef, { status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') });
         if (data.chargeFee && data.feeAmount > 0) {
-            if (data.paymentMethod === 'add_to_balance') {
-                batch.update(clientRef, {
-                    unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: selectedAppointment.startTime, feeAmount: data.feeAmount, reason: `Late cancellation: ${data.reason}`, staffId: selectedAppointment.staffId }),
-                    outstandingBalance: increment(data.feeAmount)
-                });
-            } else if (data.paymentMethod === 'card_on_file') {
-                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                batch.set(txnRef, {
-                    date: nowTimestamp,
-                    description: `Cancellation Fee: ${selectedAppointment.clientName}`,
-                    clientOrVendor: selectedAppointment.clientName,
-                    clientId: selectedAppointment.clientId,
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Cancellation Fee',
-                    amount: data.feeAmount,
-                    paymentMethod: 'Card on File',
-                    staffId: selectedAppointment.staffId,
-                    appointmentId: selectedAppointment.id,
-                });
-            }
+            if (data.paymentMethod === 'add_to_balance') { batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: selectedAppointment.startTime, feeAmount: data.feeAmount, reason: `Late cancellation: ${data.reason}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) }); }
+            else if (data.paymentMethod === 'card_on_file') { const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`)); batch.set(txnRef, { date: nowTimestamp, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName, clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', staffId: selectedAppointment.staffId, appointmentId: selectedAppointment.id }); }
         }
-
-        try {
-            await batch.commit();
-            setIsCancelDialogOpen(false);
-            setIsDetailsOpen(false);
-            toast({ title: "Appointment Cancelled" });
-        } catch (e) {
-            toast({ variant: 'destructive', title: 'Cancellation Failed' });
-        }
-    };
-
-    const handleWaiveFee = (id: string, authorizer: Staff, reason: string) => {
-        if (!firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
-        updateDocumentNonBlocking(appointmentRef, { cancellationFeeWaived: true, waivedBy: authorizer.id, waivedReason: reason, waivedAt: new Date().toISOString() });
-        toast({ title: "Fee Waived" });
-    };
-
-    const handleOverrideConfirm = async (staffId: string, reason: string) => {
-        if (!selectedAppointment || !firestore || !tenantId) return;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-        updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: reason, overriddenBy: staffId });
-        setIsOverrideOpen(false);
-        setIsDetailsOpen(false);
-        toast({ title: "Override Complete" });
+        try { await batch.commit(); setIsCancelDialogOpen(false); setIsDetailsOpen(false); toast({ title: "Appointment Cancelled" }); }
+        catch (e) { toast({ variant: 'destructive', title: 'Cancellation Failed' }); }
     };
 
     const handleAssignStaff = (walkIn: WalkIn, staffId: string) => {
       if (!firestore || !tenantId || !services) return;
-      
       const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
       updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
-      
       const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
       const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
-
       const appointmentId = `apt-walkin-${walkIn.id}`;
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-      
       const now = new Date();
-
-      const appointmentData = {
-          id: appointmentId,
-          tenantId: tenantId,
-          clientId: walkIn.clientId || walkIn.id,
-          clientName: walkIn.customerName,
-          serviceId: walkIn.serviceIds[0],
-          staffId: staffId,
-          status: 'confirmed' as const,
-          source: 'walk-in' as const,
-          isWalkIn: true,
-          startTime: now.toISOString(),
-          endTime: addMinutes(now, duration).toISOString(),
-      };
-      setDocumentNonBlocking(appointmentRef, appointmentData, {});
-        
-      toast({ title: "Staff Assigned", description: "The client has been notified and an appointment is on the planner." });
+      setDocumentNonBlocking(appointmentRef, { id: appointmentId, tenantId: tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId: staffId, status: 'confirmed' as const, source: 'walk-in' as const, isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, duration).toISOString() }, {});
+      toast({ title: "Staff Assigned" });
     };
 
     const handleAssignNext = () => {
-        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
-    
+        if (!staff || !walkIns || !services) { toast({ title: "Data not loaded" }); return; }
         const notifiedStaffIds = new Set(walkIns.filter(w => w.status === 'notified').map(w => w.assignedStaffId));
-
-        const idleStaff = staff
-            .filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !notifiedStaffIds.has(s.id))
-            .sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
-        
-        if (idleStaff.length === 0) {
-          toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or already assigned.' });
-          return;
-        }
-        
-        const waitingClients = (walkIns || [])
-            .filter(w => w.status === 'waiting')
-            .sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
-        
-        if (waitingClients.length === 0) {
-          toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
-          return;
-        }
-    
+        const idleStaff = staff.filter(s => s.active && !s.onBreak && (s.status === 'idle' || !s.status) && !notifiedStaffIds.has(s.id)).sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
+        if (idleStaff.length === 0) { toast({ variant: 'destructive', title: 'No Staff Available' }); return; }
+        const waitingClients = (walkIns || []).filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+        if (waitingClients.length === 0) { toast({ title: 'No Clients Waiting' }); return; }
         for (const staffMember of idleStaff) {
             for (const client of waitingClients) {
                 const allServiceIds = client.serviceIds;
                 const allRequiredSkills = [...new Set(services?.filter(s => allServiceIds.includes(s.id)).flatMap(s => s.requiredSkills || []))];
                 const staffSkills = staffMember.skillSet || [];
-                const canPerformService = allRequiredSkills.every(skill => staffSkills.includes(skill));
-
-                if (canPerformService) {
+                if (allRequiredSkills.every(skill => staffSkills.includes(skill))) {
                     handleAssignStaff(client, staffMember.id);
-                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
                     return;
                 }
             }
         }
-    
-        toast({ variant: 'destructive', title: 'No Match', description: "Found available providers, but none have the required skills for the next clients in line." });
+        toast({ variant: 'destructive', title: 'No Match' });
     };
-
-    const handleVerifyPin = () => {
-        if (!pendingStatusAction || !staff || !firestore || !tenantId) return;
-        const targetStaff = staff.find(s => s.pin === authPin);
-        if (targetStaff && targetStaff.pin === authPin) {
-            const { staffId, action } = pendingStatusAction;
-            const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-            const now = new Date().toISOString();
-            let staffUpdate: Partial<Staff> = {};
-            let logEntry: any = { staffId, type: action, timestamp: now };
-            switch (action) {
-                case 'clock_in': staffUpdate = { active: true }; break;
-                case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-                case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-                case 'break_end':
-                    if (targetStaff.breakStartTime) {
-                        const duration = differenceInMinutes(new Date(now), safeDate(targetStaff.breakStartTime));
-                        logEntry.durationMinutes = duration;
-                    }
-                    staffUpdate = { onBreak: false, breakStartTime: undefined };
-                    break;
-            }
-            addDocumentNonBlocking(activityLogsRef, logEntry);
-            updateDocumentNonBlocking(staffDocRef, staffUpdate);
-            
-            setIsPinAuthOpen(false);
-            setAuthPin('');
-            setPendingStatusAction(null);
-            toast({ title: "Authorized", description: "Status updated successfully." });
-        } else {
-            toast({ variant: "destructive", title: "Invalid PIN" });
-        }
-    };
-
-    const kpiData = useMemo(() => {
-        const todayStart = startOfDay(new Date());
-        const todayEnd = endOfDay(new Date());
-
-        const walkInsToday = (walkIns || []).filter(w => {
-            const checkInDate = parseISO(w.checkInTime);
-            return checkInDate >= todayStart && checkInDate <= todayEnd;
-        });
-
-        const servedWalkIns = walkInsToday.filter(w => w.serviceStartTime);
-        const waitTimes = servedWalkIns.map(w => {
-            const startTime = safeDate(w.serviceStartTime);
-            const checkInTime = parseISO(w.checkInTime);
-            return differenceInMinutes(startTime, checkInTime);
-        });
-        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
-
-        const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
-        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed');
-        const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
-
-        const totalInServiceMinutes = appointments.reduce((total, apt) => {
-            if (apt.status === 'completed' && isSameDay(safeDate(apt.startTime), todayStart)) {
-                if (apt.actualStartTime && apt.actualEndTime) {
-                    const end = safeDate(apt.actualEndTime);
-                    const start = safeDate(apt.actualStartTime);
-                    return total + differenceInMinutes(end, start);
-                }
-                const service = services?.find(s => s.id === apt.serviceId);
-                return total + (service?.duration || 0);
-            }
-            return total;
-        }, 0);
-
-        const totalServiceRevenue = (transactions || []).filter(t => {
-            const transactionDate = safeDate(t.date);
-            return t.category === 'Service Revenue' && transactionDate >= todayStart && transactionDate <= todayEnd;
-        }).reduce((acc, t) => acc + t.amount, 0);
-
-        const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
-
-        return {
-            avgWaitTime,
-            walkInConversionRate: conversionRate,
-            totalWalkIns: walkInsToday.length,
-            revenuePerServiceHour,
-        };
-    }, [walkIns, appointments, transactions, services]);
-
-    const [orderedStaff, setOrderedStaff] = useState<Staff[]>([]);
-    useEffect(() => {
-        if (staff) {
-            const sorted = [...staff].sort((a, b) => (a.turnOrder || 0) - (b.turnOrder || 0));
-            setOrderedStaff(sorted);
-        }
-    }, [staff]);
-
-    const enrichedOrderedStaff = useMemo(() => {
-        const todayStart = startOfDay(new Date());
-        const todayEnd = endOfDay(new Date());
-
-        return orderedStaff.map(member => {
-            const staffTransactionsToday = (transactions || []).filter(t => {
-                if (t.staffId !== member.id) return false;
-                const transactionDate = safeDate(t.date);
-                return transactionDate >= todayStart && transactionDate <= todayEnd;
-            });
-
-            const serviceRevenue = staffTransactionsToday
-                .filter(t => t.category === 'Service Revenue')
-                .reduce((acc, t) => acc + t.amount, 0);
-
-            const retailSales = staffTransactionsToday
-                .filter(t => t.category === 'Retail')
-                .reduce((acc, t) => acc + t.amount, 0);
-
-            const tips = staffTransactionsToday
-                .filter(t => t.category === 'Tips')
-                .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
-            
-            let earnings = 0;
-            if (member.payStructure === 'commission') {
-                earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
-            } 
-
-            const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
-            earnings += tips + retailCommission;
-
-            return {
-                ...member,
-                stats: {
-                    totalSales: serviceRevenue + retailSales,
-                    tips,
-                    earnings,
-                }
-            };
-        });
-    }, [orderedStaff, transactions]);
 
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
@@ -952,9 +680,9 @@ function POSPageContent() {
                         <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Rev per service hour." />
                     </div>
 
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
+                    <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} resources={resources || []} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} />
                     <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
-                    <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
+                    <RetailCatalog services={services || []} inventory={inventory.inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
             </div>
@@ -990,7 +718,7 @@ function POSPageContent() {
                 onBookNewForClient={() => {}}
                 onPrintTicket={() => {}}
                 onOverride={() => setIsOverrideOpen(true)}
-                onWaiveFee={handleWaiveFee}
+                onWaiveFee={() => {}}
             />
 
             {selectedAppointment && (
@@ -1007,36 +735,56 @@ function POSPageContent() {
                 open={isOverrideOpen}
                 onOpenChange={setIsOverrideOpen}
                 staff={staff || []}
-                onConfirm={handleOverrideConfirm}
+                onConfirm={async (sid, res) => {
+                    const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id);
+                    updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid });
+                    setIsOverrideOpen(false);
+                    setIsDetailsOpen(false);
+                }}
             />
 
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
-            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Authorize Action</DialogTitle></DialogHeader><div className="py-6 flex flex-col items-center gap-4"><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-3xl font-black h-16 w-48" /></div><DialogFooter><Button onClick={handleVerifyPin}>Confirm</Button></DialogFooter></DialogContent></Dialog>
+            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Authorize Action</DialogTitle></DialogHeader><div className="py-6 flex flex-col items-center gap-4"><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-3xl font-black h-16 w-48" /></div><DialogFooter><Button onClick={() => {
+                const target = staff?.find(s => s.pin === authPin);
+                if (target && pendingStatusAction) {
+                    const { staffId, action } = pendingStatusAction;
+                    const activityLogsRef = collection(firestore!, 'tenants', tenantId!, 'activityLogs');
+                    const staffDocRef = doc(firestore!, 'tenants', tenantId!, 'staff', staffId);
+                    const now = new Date().toISOString();
+                    let staffUpdate: Partial<Staff> = {};
+                    let logEntry: any = { staffId, type: action, timestamp: now };
+                    switch (action) {
+                        case 'clock_in': staffUpdate = { active: true }; break;
+                        case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
+                        case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
+                        case 'break_end': staffUpdate = { onBreak: false, breakStartTime: undefined }; break;
+                    }
+                    addDocumentNonBlocking(activityLogsRef, logEntry);
+                    updateDocumentNonBlocking(staffDocRef, staffUpdate);
+                    setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
+                } else toast({ variant: 'destructive', title: 'Invalid PIN' });
+            }}>Confirm</Button></DialogFooter></DialogContent></Dialog>
             
-            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-                <DialogContent className="max-w-sm print:hidden">
-                    <DialogHeader>
-                        <DialogTitle>Walk-in Ticket</DialogTitle>
-                    </DialogHeader>
-                    <div id="print-ticket-area">
-                        {ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsPrintDialogOpen(false)}>Close</Button>
-                        <Button onClick={() => window.print()}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Print
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
+            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+              <DialogContent className="sm:max-w-md p-0">
+                <DialogHeader className="p-4 pb-0"><DialogTitle>Scan QR Code</DialogTitle></DialogHeader>
+                <div className="p-4 relative">
+                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
+                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
+                </div>
+                <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button></DialogFooter>
+              </DialogContent>
             </Dialog>
-
-            <AlertDialog open={confirmation?.isOpen} onOpenChange={(val) => !val && setConfirmation(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>{confirmation?.title}</AlertDialogTitle><AlertDialogDescription>{confirmation?.description}</AlertDialogDescription></AlertDialogHeader>
-                    <AlertDialogFooter><AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmation?.onConfirm}>Confirm</AlertDialogAction></AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            <div className="hidden print:block print-only">
+                <div id="printable-ticket-pos">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div>
+            </div>
+            <style jsx global>{`
+                @media print {
+                    body > *:not(.print-only) { display: none !important; }
+                    .print-only, .print-only * { display: block !important; visibility: visible !important; }
+                    .print-only { position: absolute; left: 0; top: 0; }
+                }
+            `}</style>
         </div>
     );
 }

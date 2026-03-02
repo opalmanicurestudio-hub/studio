@@ -111,210 +111,19 @@ type Activity = {
   service: { name: string; profit: number; } | undefined;
 };
 
-const OwnerDashboard = () => {
-  const [isDebriefDialogOpen, setIsDebriefDialogOpen] = useState(false);
-  const [debriefContent, setDebriefContent] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const { toast } = useToast();
-  
-  const { firestore, user, isUserLoading } = useFirebase();
-  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
-  
-  const tenantId = selectedTenant?.id;
-  
-  const [dateRange, setDateRange] = useState<{todayStart: Date, todayEnd: Date, weekStart: Date} | null>(null);
-
-  useEffect(() => {
-    const now = new Date();
-    setDateRange({
-        todayStart: startOfDay(now),
-        todayEnd: endOfDay(now),
-        weekStart: startOfWeek(now, { weekStartsOn: 0 }),
-    });
-  }, []);
-
-  const todayTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange || !tenantId) return null;
-    return query(
-      collection(firestore, 'tenants', tenantId, 'transactions'),
-      where('date', '>=', Timestamp.fromDate(dateRange.todayStart)),
-      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
-    );
-  }, [firestore, user, dateRange, tenantId]);
-
-  const todayAppointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange || !tenantId) return null;
-    return query(
-      collection(firestore, 'tenants', tenantId, 'appointments'),
-      where('startTime', '>=', Timestamp.fromDate(dateRange.todayStart)),
-      where('startTime', '<=', Timestamp.fromDate(dateRange.todayEnd))
-    );
-  }, [firestore, user, dateRange, tenantId]);
-  
-  const weeklyTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange || !tenantId) return null;
-    return query(
-      collection(firestore, 'tenants', tenantId, 'transactions'),
-      where('date', '>=', Timestamp.fromDate(dateRange.weekStart)),
-      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
-    );
-  }, [firestore, user, dateRange, tenantId]);
-
-
-  const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(todayTransactionsQuery);
-  const { data: todayAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(todayAppointmentsQuery);
-  const { data: weeklyTransactions, isLoading: weeklyTransactionsLoading } = useCollection<Transaction>(weeklyTransactionsQuery);
-
-  const { todaysRevenue, todaysExpenses, profitPercentage } = useMemo(() => {
-    if (!todayTransactions) return { todaysRevenue: 0, todaysExpenses: 0, profitPercentage: 0 };
-    
-    const revenue = todayTransactions
-      .filter(t => t.type === 'income')
-      .reduce((acc, t) => acc + t.amount, 0);
-      
-    const expenses = todayTransactions
-      .filter(t => t.type === 'expense')
-      .reduce((acc, t) => acc + t.amount, 0);
-
-    const yesterdayRevenue = 812; 
-    const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
-
-    return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
-  }, [todayTransactions]);
-  
-  const barChartData = useMemo(() => {
-    if (!weeklyTransactions) return [];
-    
-    const dailyData: { [key: string]: { revenue: number, expense: number } } = {};
-    const now = new Date();
-    for (let i = 0; i < 7; i++) {
-        const day = subDays(now, i);
-        const dayKey = format(day, 'yyyy-MM-dd');
-        dailyData[dayKey] = { revenue: 0, expense: 0 };
-    }
-
-    weeklyTransactions.forEach(t => {
-        const dayKey = format(safeDate(t.date), 'yyyy-MM-dd');
-        if (dailyData[dayKey]) {
-            if (t.type === 'income') dailyData[dayKey].revenue += t.amount;
-            if (t.type === 'expense') dailyData[dayKey].expense += t.amount;
-        }
-    });
-
-    return Object.entries(dailyData)
-        .map(([date, { revenue, expense }]) => ({
-            day: format(new Date(date), 'EEE'),
-            profit: revenue - expense,
-        }))
-        .reverse();
-
-  }, [weeklyTransactions]);
-  
-   const newClientsThisWeek = useMemo(() => {
-    if (!allAppointments || !clients || !dateRange) return 0;
-
-    const startOfWeekDate = dateRange.weekStart;
-    let newClientCount = 0;
-    const clientsWithAppointmentsThisWeek = new Set<string>();
-
-    allAppointments
-      .filter(apt => safeDate(apt.startTime) >= startOfWeekDate)
-      .forEach(apt => clientsWithAppointmentsThisWeek.add(apt.clientId));
-
-    clientsWithAppointmentsThisWeek.forEach(clientId => {
-      const clientAppointments = allAppointments.filter(apt => apt.clientId === clientId);
-      if (clientAppointments.length === 1 && safeDate(clientAppointments[0].startTime) >= startOfWeekDate) {
-        newClientCount++;
-      }
-    });
-
-    return newClientCount;
-  }, [allAppointments, clients, dateRange]);
-  
-   const clientRetentionRate = useMemo(() => {
-    if (!clients || clients.length === 0 || !allAppointments) return 0;
-    const returningClients = clients.filter(client => {
-      return allAppointments.filter(apt => apt.clientId === client.id).length > 1;
-    }).length;
-
-    return (returningClients / clients.length) * 100;
-  }, [clients, allAppointments]);
-
-  const totalOutstandingDebt = useMemo(() => {
-      if (!clients) return 0;
-      return clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
-  }, [clients]);
-
-  const revenueBreakdown = useMemo(() => {
-    if (!allTransactions) return [];
-    
-    const serviceRevenue = allTransactions
-        .filter(t => t.type === 'income' && t.category === 'Service Revenue')
-        .reduce((acc, t) => acc + t.amount, 0);
-
-    const retailRevenue = allTransactions
-        .filter(t => t.type === 'income' && t.category === 'Retail')
-        .reduce((acc, t) => acc + t.amount, 0);
-
-    const tips = allTransactions
-        .filter(t => t.type === 'income' && t.category === 'Tips')
-        .reduce((acc, t) => acc + t.amount, 0);
-
-    return [
-      { name: 'services', value: serviceRevenue, fill: 'var(--color-services)' },
-      { name: 'retail', value: retailRevenue, fill: 'var(--color-retail)' },
-      { name: 'tips', value: tips, fill: 'hsl(var(--primary))' },
-    ];
-  }, [allTransactions]);
-
-
-  const recentActivities = useMemo(() => {
-    if (!allAppointments) return [];
-    return [...allAppointments]
-        .sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime())
-        .slice(0, 5)
-        .map((apt) => ({
-          apt,
-          client: clients.find((c) => c.id === apt.clientId),
-          service: services.find((s) => s.id === apt.serviceId),
-        }))
-        .filter(activity => activity.client && activity.service) as Activity[];
-  }, [allAppointments, clients, services]);
-
-  const handleGenerateDebrief = async () => {
-    setIsGenerating(true);
-    setDebriefContent('');
-    try {
-      const inventoryLevels = inventory
-        .filter(item => item.type === 'professional')
-        .slice(0, 5)
-        .reduce((acc, item) => {
-          acc[item.name] = item.totalStock;
-          return acc;
-        }, {} as Record<string, number>);
-
-      const result = await endOfDayDebrief({
-        dailyRevenue: todaysRevenue,
-        dailyExpenses: todaysExpenses,
-        inventoryLevels: inventoryLevels,
-        completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
-      });
-      setDebriefContent(result.summary);
-    } catch (error) {
-      console.error('Error generating debrief:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to generate end-of-day debrief.',
-      });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const isLoading = isUserLoading || isTenantLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
-
+const OwnerDashboard = ({ 
+  todaysRevenue, 
+  todaysExpenses, 
+  profitPercentage, 
+  totalOutstandingDebt, 
+  clientRetentionRate, 
+  todayAppointments, 
+  isLoading,
+  barChartData,
+  revenueBreakdown,
+  recentActivities,
+  onGenerateDebrief 
+}: any) => {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -327,7 +136,7 @@ const OwnerDashboard = () => {
           </CardHeader>
           <CardContent>
             {isLoading ? <Skeleton className="h-8 w-32"/> : <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>}
-            {isLoading ? <Skeleton className="h-4 w-24 mt-1"/> : <p className="text-xs text-muted-foreground">
+            {!isLoading && <p className="text-xs text-muted-foreground">
               {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
             </p>}
           </CardContent>
@@ -343,7 +152,7 @@ const OwnerDashboard = () => {
             <div className="text-2xl font-bold">
               {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length || 0}
             </div>
-             {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
+             {!isLoading && <p className="text-xs text-muted-foreground">{todayAppointments?.filter((a: any) => a.status === 'completed').length || 0} completed, {todayAppointments?.filter((a: any) => a.status !== 'completed').length || 0} upcoming</p>}
           </CardContent>
         </Card>
         <Card className={cn(totalOutstandingDebt > 0 && "border-destructive/50 bg-destructive/[0.02]")}>
@@ -419,7 +228,7 @@ const OwnerDashboard = () => {
                     content={<ChartTooltipContent hideLabel />}
                   />
                   <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
-                    {revenueBreakdown.map((entry, index) => (
+                    {revenueBreakdown.map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
@@ -449,14 +258,14 @@ const OwnerDashboard = () => {
                 </div>
               ))
             ) : (
-              recentActivities.map(({ apt, client, service }) => {
+              recentActivities.map(({ apt, client, service }: any) => {
                 if (!client || !service) return null;
                 return (
                   <div key={apt.id} className="flex items-center gap-4">
                     <Avatar className="hidden h-9 w-9 sm:flex">
                       <AvatarImage src={client.avatarUrl || undefined} alt="Avatar" />
                       <AvatarFallback>
-                        {client.name.split(' ').map(n => n[0]).join('').substring(0,2)}
+                        {client.name.split(' ').map((n: string) => n[0]).join('').substring(0,2)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid gap-1">
@@ -486,179 +295,24 @@ const OwnerDashboard = () => {
             <Button
               size="sm"
               className="w-full sm:w-auto"
-              onClick={() => {
-                setIsDebriefDialogOpen(true);
-                handleGenerateDebrief();
-              }}
+              onClick={onGenerateDebrief}
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate Today's Debrief
             </Button>
           </CardContent>
         </Card>
-        <Dialog
-        open={isDebriefDialogOpen}
-        onOpenChange={setIsDebriefDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>End-of-Day Debrief</DialogTitle>
-            <DialogDescription>
-              Here is your AI-powered summary for today's performance.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {isGenerating && (
-              <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                <Loader className="h-5 w-5 animate-spin" />
-                <span>Generating your summary...</span>
-              </div>
-            )}
-            {debriefContent && (
-              <p className="text-sm leading-relaxed">{debriefContent}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsDebriefDialogOpen(false)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 };
 
-const StaffDashboardView = () => {
-    const { user, isUserLoading } = useUser();
-    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onViewActivity }: any) => {
     const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
     const { toast } = useToast();
-    const { clients, services, staff, appointments, transactions, activityLogs, isLoading: isInventoryLoading } = useInventory();
-    const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
-    
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
     const [authPin, setAuthPin] = useState('');
     const [pendingAction, setPendingAction] = useState<'clock_in' | 'clock_out' | 'break_start' | 'break_end' | null>(null);
-
-    const staffMember = useMemo(() => {
-        if (!user || !staff) return null;
-        return staff.find(s => s.id === user.uid);
-    }, [user, staff]);
-    
-    const { start: periodStart, end: periodEnd, periodName } = useMemo(() => {
-        const now = new Date();
-        if (staffMember?.payStructure === 'commission' && staffMember.payoutFrequency === 'bi-weekly') {
-            const epoch = new Date('2024-01-07T00:00:00.000Z'); 
-            const diffDays = differenceInDays(now, epoch);
-            const periodIndex = Math.floor(diffDays / 14);
-            const start = addDays(epoch, periodIndex * 14);
-            return { start: startOfDay(start), end: endOfDay(addDays(start, 13)), periodName: 'Pay Period' };
-        }
-        return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfDay(now), periodName: 'This Week' };
-    }, [staffMember]);
-
-    const [todayRange, setTodayRange] = useState<{todayStart: Date, todayEnd: Date} | null>(null);
-
-    useEffect(() => {
-        const now = new Date();
-        setTodayRange({
-            todayStart: startOfDay(now),
-            todayEnd: endOfDay(now),
-        });
-    }, []);
-
-    const handleStartService = (appointmentId: string) => {
-      if (!firestore || !selectedTenant?.id || !appointments) return;
-      const tenantId = selectedTenant.id;
-      const appointment = appointments.find(a => a.id === appointmentId);
-      if (!appointment) return;
-
-      const nowISO = new Date().toISOString();
-      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-      
-      const batch = writeBatch(firestore);
-      batch.update(appointmentRef, {
-          status: 'servicing',
-          actualStartTime: nowISO
-      });
-
-      if (appointment.checkInToken) {
-          const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-          batch.update(checkInRef, { status: 'servicing' });
-      }
-      
-      if (appointment.staffId) {
-          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-          batch.update(staffDocRef, { status: 'busy' });
-      }
-      
-      if(appointment.isWalkIn) {
-          const walkInId = appointment.id.replace('apt-walkin-', '');
-          const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-          batch.update(walkInRef, {
-              status: 'servicing',
-              serviceStartTime: nowISO,
-          });
-      }
-
-      batch.commit().then(() => {
-          toast({ title: "Service Started" });
-      });
-    };
-
-    const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-        if (!firestore || !selectedTenant?.id) return;
-        const tenantId = selectedTenant.id;
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-        
-        const batch = writeBatch(firestore);
-        batch.update(appointmentRef, {
-            status: 'ready_for_checkout',
-            checkoutState,
-            actualEndTime: new Date().toISOString(),
-        });
-        
-        const appointment = appointments?.find(a => a.id === appointmentId);
-        if (appointment?.checkInToken) {
-            const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-            batch.update(checkInRef, { status: 'ready_for_checkout' });
-        }
-
-        if (appointment?.staffId) {
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId);
-            batch.update(staffDocRef, { status: 'idle' });
-        }
-
-        batch.commit().then(() => {
-            toast({ title: "Service Finished", description: "Client sent to front desk." });
-            setIsDetailsSheetOpen(false);
-        });
-    };
-
-    const upcomingAppointments = useMemo(() => {
-        if (!appointments || !user || !clients || !services || !todayRange) return [];
-        const { todayStart, todayEnd } = todayRange;
-        
-        return appointments
-            .filter(a => 
-                a.staffId === user.uid && 
-                (a.status === 'confirmed' || a.status === 'servicing') && 
-                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
-            )
-            .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
-            .map(apt => ({
-                ...apt,
-                client: clients.find(c => c.id === apt.clientId),
-                service: services.find(s => s.id === apt.serviceId),
-            }));
-    }, [appointments, user, clients, services, todayRange]);
-
-    const nextAppointment = upcomingAppointments?.find(apt => apt.status === 'confirmed');
 
     const handleStatusChangeInitiate = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
         setPendingAction(action);
@@ -674,7 +328,7 @@ const StaffDashboardView = () => {
             const now = new Date().toISOString();
         
             let staffUpdate: Partial<Staff> = {};
-            let logEntry: Omit<ActivityLog, 'id'> = { staffId: staffMember.id, type: pendingAction, timestamp: now };
+            let logEntry: any = { staffId: staffMember.id, type: pendingAction, timestamp: now };
         
             switch (pendingAction) {
                 case 'clock_in': staffUpdate = { active: true }; break;
@@ -701,6 +355,28 @@ const StaffDashboardView = () => {
         }
     };
 
+    const handleStartService = (appointmentId: string) => {
+      if (!firestore || !selectedTenant?.id) return;
+      const tenantId = selectedTenant.id;
+      const nowISO = new Date().toISOString();
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+      
+      const batch = writeBatch(firestore);
+      batch.update(appointmentRef, {
+          status: 'servicing',
+          actualStartTime: nowISO
+      });
+
+      if (staffMember?.id) {
+          const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffMember.id);
+          batch.update(staffDocRef, { status: 'busy' });
+      }
+
+      batch.commit().then(() => {
+          toast({ title: "Service Started" });
+      });
+    };
+
     const renderActionButtons = () => {
         if (!staffMember) return null;
         if (!staffMember.active) {
@@ -716,7 +392,7 @@ const StaffDashboardView = () => {
           </div>
         );
       };
-      
+
     const getInitials = (name?: string | null): string => {
         if (!name) return '?';
         const parts = name.split(' ');
@@ -726,156 +402,6 @@ const StaffDashboardView = () => {
         return name.substring(0, 2).toUpperCase();
     };
 
-    const todayKpis = useMemo(() => {
-        if (!transactions || !appointments || !staffMember || !todayRange) {
-            return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
-        }
-        const { todayStart, todayEnd } = todayRange;
-
-        const appointmentsToday = appointments.filter(apt => 
-            apt.staffId === staffMember.id &&
-            safeDate(apt.startTime) >= todayStart &&
-            safeDate(apt.startTime) <= todayEnd
-        );
-
-        const transactionsToday = transactions.filter(t => {
-            const transactionDate = safeDate(t.date);
-            return t.staffId === staffMember.id &&
-                    transactionDate >= todayStart &&
-                    transactionDate <= todayEnd;
-        });
-        
-        const serviceRevenue = transactionsToday
-            .filter(t => t.category === 'Service Revenue')
-            .reduce((sum, t) => sum + t.amount, 0);
-
-        const tips = transactionsToday
-            .filter(t => t.category === 'Tips')
-            .reduce((sum, t) => sum + t.amount, 0);
-
-        const completed = appointmentsToday.filter(a => a.status === 'completed').length;
-        
-        let earnings = 0;
-        if (staffMember.payStructure === 'commission') {
-            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-        } 
-
-        const retailSales = transactionsToday
-            .filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        earnings += tips + retailCommission;
-        
-        return { revenue: serviceRevenue, tips, completed, earnings };
-
-    }, [transactions, appointments, staffMember, todayRange]);
-
-    const staffMemberWithStats = useMemo(() => {
-      if (!staffMember || !appointments || !services || !transactions || !activityLogs) return null;
-  
-      const fromDate = subDays(new Date(), 29);
-      const toDate = new Date();
-  
-      const filterByDate = (date: Date) => {
-          if (fromDate && date < fromDate) return false;
-          if (toDate && date > toDate) return false;
-          return true;
-      };
-  
-      const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
-      const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
-      const completedAppointmentsCount = completedAppointments.length;
-    
-      let totalMinutesVariance = 0;
-      let totalInServiceMinutes = 0;
-      completedAppointments.forEach(apt => {
-          const service = services.find(s => s.id === apt.serviceId);
-          if (apt.actualStartTime && apt.actualEndTime && service) {
-              const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
-              totalMinutesVariance += actualDuration - service.duration;
-              totalInServiceMinutes += actualDuration;
-          }
-      });
-    
-      const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
-      const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
-    
-      const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
-      
-      const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
-      const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-      const totalSales = serviceRevenue + retailSales;
-      const tips = staffTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
-      
-      const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
-      const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
-      const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
-
-      let totalMinutesWorked = 0;
-      const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-      const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-      
-      let clockInTime: Date | null = null;
-      let totalBreakMinutes = 0;
-      for (const log of sortedLogs) {
-          const logTime = safeDate(log.timestamp);
-          if (log.type === 'clock_in') {
-              if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-              clockInTime = logTime;
-              totalBreakMinutes = 0;
-          } else if (log.type === 'clock_out' && clockInTime) {
-              let sessionEnd = logTime;
-              if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-              totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-              clockInTime = null;
-          } else if (log.type === 'break_end' && log.durationMinutes) {
-              totalBreakMinutes += log.durationMinutes;
-          }
-      }
-      if(clockInTime && (!toDate || clockInTime < toDate)) {
-          const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-          totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
-      }
-
-      const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
-      
-      let wages = 0;
-      if (staffMember.payStructure === 'commission') {
-          wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
-      } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-          const hoursWorked = totalMinutesWorked / 60;
-          wages = hoursWorked * staffMember.hourlyRate;
-      }
-
-      const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-      const totalPay = wages + tips + retailCommission;
-      
-      return {
-          ...staffMember,
-          stats: {
-              totalSales,
-              tips,
-              earnings: totalPay,
-              consumptionValue: 0,
-              totalHours: totalMinutesWorked / 60,
-              utilizationRate,
-              avgSalePerAppointment,
-              retailAttachmentRate,
-              avgVariance,
-          }
-      };
-
-    }, [staffMember, appointments, services, transactions, activityLogs]);
-
-
-    const handleViewActivity = () => {
-        setIsDetailsSheetOpen(true);
-    };
-
-    if (isUserLoading || isInventoryLoading) {
-        return <Loader className="animate-spin" />;
-    }
-  
     return (
       <div className="space-y-6">
         <Card className="text-center">
@@ -894,7 +420,7 @@ const StaffDashboardView = () => {
             {renderActionButtons()}
           </CardContent>
           <CardFooter>
-            <Button variant="secondary" className="w-full" onClick={handleViewActivity}>View My Activity</Button>
+            <Button variant="secondary" className="w-full" onClick={onViewActivity}>View My Activity</Button>
           </CardFooter>
         </Card>
   
@@ -958,7 +484,7 @@ const StaffDashboardView = () => {
                 )}
                 {upcomingAppointments.length > 0 ? (
                     <div className="space-y-2">
-                        {upcomingAppointments.map((apt) => (
+                        {upcomingAppointments.map((apt: any) => (
                             <div key={apt.id} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50">
                                 <Avatar className="h-10 w-10">
                                     <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} />
@@ -998,19 +524,6 @@ const StaffDashboardView = () => {
                 )}
             </CardContent>
         </Card>
-        {staffMemberWithStats && (
-            <StaffDetailsSheet
-                open={isDetailsSheetOpen}
-                onOpenChange={setIsDetailsSheetOpen}
-                staffMember={staffMemberWithStats}
-                dateRange={todayRange ? { from: todayRange.todayStart, to: todayRange.todayEnd } : undefined}
-                transactions={transactions || []}
-                services={services || []}
-                appointments={appointments || []}
-                activityLogs={activityLogs || []}
-                consentForms={[]}
-            />
-        )}
 
         <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
             <DialogContent className="sm:max-w-md">
@@ -1046,9 +559,193 @@ const StaffDashboardView = () => {
 };
 
 export default function DashboardPage() {
-  const { role, isLoading } = useTenant();
+  const { firestore, user, isUserLoading } = useFirebase();
+  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions, activityLogs } = useInventory();
+  const tenantId = selectedTenant?.id;
+  const { toast } = useToast();
 
-  if(isLoading) {
+  const [dateRange, setDateRange] = useState<{todayStart: Date, todayEnd: Date, weekStart: Date} | null>(null);
+  const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
+  const [isDebriefDialogOpen, setIsDebriefDialogOpen] = useState(false);
+  const [debriefContent, setDebriefContent] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    const now = new Date();
+    setDateRange({
+        todayStart: startOfDay(now),
+        todayEnd: endOfDay(now),
+        weekStart: startOfWeek(now, { weekStartsOn: 0 }),
+    });
+  }, []);
+
+  const todayTransactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user || !dateRange || !tenantId) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'transactions'),
+      where('date', '>=', Timestamp.fromDate(dateRange.todayStart)),
+      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
+    );
+  }, [firestore, user, dateRange, tenantId]);
+
+  const todayAppointmentsQuery = useMemoFirebase(() => {
+    if (!firestore || !user || !dateRange || !tenantId) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'appointments'),
+      where('startTime', '>=', Timestamp.fromDate(dateRange.todayStart)),
+      where('startTime', '<=', Timestamp.fromDate(dateRange.todayEnd))
+    );
+  }, [firestore, user, dateRange, tenantId]);
+  
+  const weeklyTransactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user || !dateRange || !tenantId) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'transactions'),
+      where('date', '>=', Timestamp.fromDate(dateRange.weekStart)),
+      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
+    );
+  }, [firestore, user, dateRange, tenantId]);
+
+  const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(todayTransactionsQuery);
+  const { data: todayAppointments, isLoading: todayAppointmentsLoading } = useCollection<Appointment>(todayAppointmentsQuery);
+  const { data: weeklyTransactions, isLoading: weeklyTransactionsLoading } = useCollection<Transaction>(weeklyTransactionsQuery);
+
+  const { todaysRevenue, todaysExpenses, profitPercentage } = useMemo(() => {
+    if (!todayTransactions) return { todaysRevenue: 0, todaysExpenses: 0, profitPercentage: 0 };
+    const revenue = todayTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const expenses = todayTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    const yesterdayRevenue = 812; 
+    const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
+    return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
+  }, [todayTransactions]);
+
+  const barChartData = useMemo(() => {
+    if (!weeklyTransactions) return [];
+    const dailyData: { [key: string]: { revenue: number, expense: number } } = {};
+    const now = new Date();
+    for (let i = 0; i < 7; i++) {
+        const day = subDays(now, i);
+        const dayKey = format(day, 'yyyy-MM-dd');
+        dailyData[dayKey] = { revenue: 0, expense: 0 };
+    }
+    weeklyTransactions.forEach(t => {
+        const dayKey = format(safeDate(t.date), 'yyyy-MM-dd');
+        if (dailyData[dayKey]) {
+            if (t.type === 'income') dailyData[dayKey].revenue += t.amount;
+            if (t.type === 'expense') dailyData[dayKey].expense += t.amount;
+        }
+    });
+    return Object.entries(dailyData).map(([date, { revenue, expense }]) => ({ day: format(new Date(date), 'EEE'), profit: revenue - expense })).reverse();
+  }, [weeklyTransactions]);
+
+  const clientRetentionRate = useMemo(() => {
+    if (!clients || clients.length === 0 || !allAppointments) return 0;
+    const returningClients = clients.filter(client => allAppointments.filter(apt => apt.clientId === client.id).length > 1).length;
+    return (returningClients / clients.length) * 100;
+  }, [clients, allAppointments]);
+
+  const totalOutstandingDebt = useMemo(() => (clients || []).reduce((acc, c) => acc + (c.outstandingBalance || 0), 0), [clients]);
+
+  const revenueBreakdown = useMemo(() => {
+    if (!allTransactions) return [];
+    const serviceRevenue = allTransactions.filter(t => t.type === 'income' && t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+    const retailRevenue = allTransactions.filter(t => t.type === 'income' && t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+    const tips = allTransactions.filter(t => t.type === 'income' && t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+    return [
+      { name: 'services', value: serviceRevenue, fill: 'var(--color-services)' },
+      { name: 'retail', value: retailRevenue, fill: 'var(--color-retail)' },
+      { name: 'tips', value: tips, fill: 'hsl(var(--primary))' },
+    ];
+  }, [allTransactions]);
+
+  const recentActivities = useMemo(() => {
+    if (!allAppointments) return [];
+    return [...allAppointments].sort((a, b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime()).slice(0, 5).map((apt) => ({
+          apt,
+          client: clients.find((c) => c.id === apt.clientId),
+          service: services.find((s) => s.id === apt.serviceId),
+        })).filter(activity => activity.client && activity.service);
+  }, [allAppointments, clients, services]);
+
+  const staffMember = useMemo(() => (user && inventory.staff) ? inventory.staff.find(s => s.id === user.uid) : null, [user, inventory.staff]);
+
+  const todayKpis = useMemo(() => {
+    if (!allTransactions || !allAppointments || !staffMember || !dateRange) return { revenue: 0, tips: 0, completed: 0, earnings: 0 };
+    const { todayStart, todayEnd } = dateRange;
+    const staffAppointmentsToday = allAppointments.filter(apt => apt.staffId === staffMember.id && safeDate(apt.startTime) >= todayStart && safeDate(apt.startTime) <= todayEnd);
+    const transactionsToday = allTransactions.filter(t => {
+        const d = safeDate(t.date);
+        return t.staffId === staffMember.id && d >= todayStart && d <= todayEnd;
+    });
+    const serviceRevenue = transactionsToday.filter(t => t.category === 'Service Revenue').reduce((sum, t) => sum + t.amount, 0);
+    const tips = transactionsToday.filter(t => t.category === 'Tips').reduce((sum, t) => sum + t.amount, 0);
+    const completed = staffAppointmentsToday.filter(a => a.status === 'completed').length;
+    let earnings = (staffMember.payStructure === 'commission') ? (serviceRevenue * ((staffMember.commissionRate || 0) / 100)) : 0;
+    const retailSales = transactionsToday.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+    earnings += tips + (retailSales * ((staffMember.retailCommissionRate || 0) / 100));
+    return { revenue: serviceRevenue, tips, completed, earnings };
+  }, [allTransactions, allAppointments, staffMember, dateRange]);
+
+  const upcomingAppointments = useMemo(() => {
+    if (!allAppointments || !user || !clients || !services || !dateRange) return [];
+    const { todayStart, todayEnd } = dateRange;
+    return allAppointments.filter(a => a.staffId === user.uid && (a.status === 'confirmed' || a.status === 'servicing') && safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd)
+        .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())
+        .map(apt => ({ ...apt, client: clients.find(c => c.id === apt.clientId), service: services.find(s => s.id === apt.serviceId) }));
+  }, [allAppointments, user, clients, services, dateRange]);
+
+  const handleGenerateDebrief = async () => {
+    setIsGenerating(true);
+    setDebriefContent('');
+    try {
+      const result = await endOfDayDebrief({
+        dailyRevenue: todaysRevenue,
+        dailyExpenses: todaysExpenses,
+        inventoryLevels: inventory.inventory.filter(item => item.type === 'professional').slice(0, 5).reduce((acc, item) => { acc[item.name] = item.totalStock; return acc; }, {} as any),
+        completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
+      });
+      setDebriefContent(result.summary);
+      setIsDebriefDialogOpen(true);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to generate debrief.' });
+    } finally { setIsGenerating(false); }
+  };
+
+  const staffMemberWithStats = useMemo(() => {
+    if (!staffMember || !allAppointments || !services || !allTransactions || !activityLogs) return null;
+    const fromDate = subDays(new Date(), 29);
+    const toDate = new Date();
+    const filterByDate = (d: Date) => d >= fromDate && d <= toDate;
+    const staffAppointments = allAppointments.filter(apt => apt.staffId === staffMember.id && filterByDate(safeDate(apt.startTime)));
+    const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
+    let totalInServiceMinutes = 0;
+    completedAppointments.forEach(apt => {
+        const s = services.find(sv => sv.id === apt.serviceId);
+        if (apt.actualStartTime && apt.actualEndTime) totalInServiceMinutes += differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
+        else if (s) totalInServiceMinutes += s.duration;
+    });
+    const staffTransactions = allTransactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
+    const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+    const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+    const tips = staffTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+    let totalMinutesWorked = 0;
+    const sortedLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp))).sort((a,b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+    let clockInTime: Date | null = null;
+    let totalBreakMinutes = 0;
+    for (const log of sortedLogs) {
+        const logTime = safeDate(log.timestamp);
+        if (log.type === 'clock_in') { if (clockInTime) totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes; clockInTime = logTime; totalBreakMinutes = 0; }
+        else if (log.type === 'clock_out' && clockInTime) { totalMinutesWorked += differenceInMinutes(logTime, clockInTime) - totalBreakMinutes; clockInTime = null; }
+        else if (log.type === 'break_end' && log.durationMinutes) totalBreakMinutes += log.durationMinutes;
+    }
+    if(clockInTime) totalMinutesWorked += differenceInMinutes(new Date(), clockInTime) - totalBreakMinutes;
+    let wages = (staffMember.payStructure === 'commission') ? (serviceRevenue * ((staffMember.commissionRate || 0) / 100)) : (staffMember.payStructure === 'hourly' && staffMember.hourlyRate ? (totalMinutesWorked / 60) * staffMember.hourlyRate : 0);
+    const earnings = wages + tips + (retailSales * ((staffMember.retailCommissionRate || 0) / 100));
+    return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
+  }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
+
+  if(isUserLoading || isTenantLoading || isLoading) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />
@@ -1063,8 +760,59 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView />}
+        {role === 'owner' ? (
+          <OwnerDashboard 
+            todaysRevenue={todaysRevenue}
+            todaysExpenses={todaysExpenses}
+            profitPercentage={profitPercentage}
+            totalOutstandingDebt={totalOutstandingDebt}
+            clientRetentionRate={clientRetentionRate}
+            todayAppointments={todayAppointments}
+            isLoading={isLoading}
+            barChartData={barChartData}
+            revenueBreakdown={revenueBreakdown}
+            recentActivities={recentActivities}
+            onGenerateDebrief={handleGenerateDebrief}
+          />
+        ) : (
+          <StaffDashboardView 
+            staffMember={staffMemberWithStats}
+            upcomingAppointments={upcomingAppointments}
+            todayKpis={todayKpis}
+            onViewActivity={() => setIsDetailsSheetOpen(true)}
+          />
+        )}
       </main>
+      {staffMemberWithStats && (
+          <StaffDetailsSheet
+              open={isDetailsSheetOpen}
+              onOpenChange={setIsDetailsSheetOpen}
+              staffMember={staffMemberWithStats}
+              dateRange={dateRange ? { from: dateRange.todayStart, to: dateRange.todayEnd } : undefined}
+              transactions={allTransactions || []}
+              services={services || []}
+              appointments={allAppointments || []}
+              activityLogs={activityLogs || []}
+              consentForms={[]}
+          />
+      )}
+      <Dialog open={isDebriefDialogOpen} onOpenChange={setIsDebriefDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>End-of-Day Debrief</DialogTitle>
+            <DialogDescription>Your AI-powered summary for today's performance.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {isGenerating ? (
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader className="h-5 w-5 animate-spin" />
+                <span>Generating your summary...</span>
+              </div>
+            ) : <p className="text-sm leading-relaxed">{debriefContent}</p>}
+          </div>
+          <DialogFooter><Button type="button" variant="secondary" onClick={() => setIsDebriefDialogOpen(false)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
