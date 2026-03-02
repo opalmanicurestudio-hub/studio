@@ -81,6 +81,8 @@ const StaffMemberCard = ({
         }
     }, [nextAppointment]);
 
+    const initials = (member.name || '?').substring(0, 2);
+
     return (
         <Card className={cn(
             "relative transition-all",
@@ -95,7 +97,7 @@ const StaffMemberCard = ({
                 )}
                 <Avatar className="w-12 h-12 border shadow-inner">
                     <AvatarImage src={member.avatarUrl} alt={member.name || 'Staff'} className="object-cover" />
-                    <AvatarFallback>{(member.name || '?').substring(0, 2)}</AvatarFallback>
+                    <AvatarFallback>{initials}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

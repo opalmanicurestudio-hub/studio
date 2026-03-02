@@ -183,20 +183,22 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     return null;
   }
   
+  const stats = staffMember.stats || {};
+
   const performanceKpis = [
-      { label: "Utilization Rate", value: `${(staffMember.stats?.utilizationRate || 0).toFixed(1)}%` },
-      { label: "Avg. Ticket Size", value: `$${(staffMember.stats?.avgSalePerAppointment || 0).toFixed(2)}` },
-      { label: "Retail Attach Rate", value: `${(staffMember.stats?.retailAttachmentRate || 0).toFixed(1)}%` },
-      { label: "Avg Time Variance", value: `${(staffMember.stats?.avgVariance || 0) > 0 ? '+' : ''}${(staffMember.stats?.avgVariance || 0).toFixed(1)} min` },
+      { label: "Utilization Rate", value: `${(stats.utilizationRate || 0).toFixed(1)}%` },
+      { label: "Avg. Ticket Size", value: `$${(stats.avgSalePerAppointment || 0).toFixed(2)}` },
+      { label: "Retail Attach Rate", value: `${(stats.retailAttachmentRate || 0).toFixed(1)}%` },
+      { label: "Avg Time Variance", value: `${(stats.avgVariance || 0) > 0 ? '+' : ''}${(stats.avgVariance || 0).toFixed(1)} min` },
   ];
 
   const content = (
     <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(staffMember.stats?.totalSales || 0).toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(staffMember.stats?.tips || 0).toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{(staffMember.stats?.totalHours || 0).toFixed(1)}</p></CardContent></Card>
-              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${(staffMember.stats?.earnings || 0).toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(stats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(stats.tips || 0).toFixed(2)}</p></CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{(stats.totalHours || 0).toFixed(1)}</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${(stats.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
            <Tabs defaultValue="activity" className="w-full">
               <ScrollArea>

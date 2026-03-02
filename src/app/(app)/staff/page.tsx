@@ -124,7 +124,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
         }
     }, [member.compliance?.licenseExpiry]);
     
-    const getInitials = (name: string) => {
+    const getInitials = (name?: string | null) => {
         if (!name) return '?';
         const parts = name.split(' ');
         if (parts.length > 1) {
@@ -181,7 +181,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
                 <Avatar className="w-24 h-24 mx-auto mb-4">
                     <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
-                    <AvatarFallback>{getInitials(member.name || '')}</AvatarFallback>
+                    <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
                 <div className="flex items-center justify-center gap-2">

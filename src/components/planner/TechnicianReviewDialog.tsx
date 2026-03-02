@@ -43,6 +43,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -116,10 +117,23 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             .map(id => allServices.find(s => s.id === id))
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
-        setCompletedServiceIds(checkoutState?.completedServiceIds || []);
+        
+        // Auto-check services assigned to current user, plus whatever was already done
+        const alreadyDone = checkoutState?.completedServiceIds || [];
+        const initialOverrides: Record<string, string> = {};
+        initialOverrides[service.id] = appointment.staffId || '';
+        initialAddons.forEach(addon => {
+            initialOverrides[addon.id] = checkoutState?.serviceStaffOverrides?.[addon.id] || appointment.staffId || '';
+        });
+        setServiceStaffOverrides(initialOverrides);
+
+        const newlyCompleted = Object.entries(initialOverrides)
+            .filter(([_, staffId]) => staffId === currentUser?.uid)
+            .map(([svcId]) => svcId);
+        
+        setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
         let durationToSet = checkoutState?.actualDuration;
-
         if (!durationToSet) {
             if (appointment.actualStartTime) {
                 const startTime = safeDate(appointment.actualStartTime);
@@ -132,32 +146,23 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         
         setActualDuration(durationToSet || 0);
         setReviewNotes(checkoutState?.reviewNotes || '');
-        
-        const initialOverrides: Record<string, string> = {};
-        initialOverrides[service.id] = appointment.staffId || '';
-        initialAddons.forEach(addon => {
-            initialOverrides[addon.id] = checkoutState?.serviceStaffOverrides?.[addon.id] || appointment.staffId || '';
-        });
-        setServiceStaffOverrides(initialOverrides);
     }
-  }, [service, appointment, open, allServices, inventory]);
+  }, [service, appointment, open, allServices, inventory, currentUser]);
+
+  const toggleServiceComplete = (serviceId: string) => {
+      setCompletedServiceIds(prev => 
+          prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId]
+      );
+  };
+
+  const allServiceIds = useMemo(() => {
+      if (!service) return [];
+      return [service.id, ...selectedAddOns.map(a => a.id)];
+  }, [service, selectedAddOns]);
 
   const isLastProvider = useMemo(() => {
-      if (!appointment || !currentUser) return true;
-      const othersWorking = Object.entries(serviceStaffOverrides).some(([svcId, staffId]) => {
-          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
-      });
-      return !othersWorking;
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, appointment]);
-
-  const nextUpStaff = useMemo(() => {
-      if (!appointment || !currentUser) return null;
-      const nextStaffId = Object.entries(serviceStaffOverrides).find(([svcId, staffId]) => {
-          return staffId !== currentUser.uid && !completedServiceIds.includes(svcId);
-      })?.[1];
-      if (!nextStaffId) return null;
-      return staff.find(s => s.id === nextStaffId);
-  }, [serviceStaffOverrides, completedServiceIds, currentUser, staff, appointment]);
+      return allServiceIds.every(id => completedServiceIds.includes(id));
+  }, [allServiceIds, completedServiceIds]);
 
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
@@ -224,12 +229,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const handleCompleteMyPart = () => {
     if (!client || !service || !appointment || !currentUser) return;
 
-    const myServiceIds = Object.entries(serviceStaffOverrides)
-        .filter(([_, staffId]) => staffId === currentUser.uid)
-        .map(([svcId]) => svcId);
-
-    const newCompletedIds = [...new Set([...completedServiceIds, ...myServiceIds])];
-
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
         retailItems: appointment.checkoutState?.retailItems || [],
@@ -237,7 +236,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         actualDuration,
         reviewNotes,
         serviceStaffOverrides,
-        completedServiceIds: newCompletedIds,
+        completedServiceIds: completedServiceIds,
         absorbedCost: appointment.checkoutState?.absorbedCost || 0, 
         tipAmount: appointment.checkoutState?.tipAmount || 0, 
         tipAllocations: appointment.checkoutState?.tipAllocations || {}, 
@@ -251,13 +250,16 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const DialogComponent = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
+  const titleText = isLastProvider ? 'Complete Service' : 'Service Hand-off';
+  const buttonLabel = isLastProvider ? 'Complete Service & Send to Desk' : 'Complete Part & Hand-off';
+
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left">
-                <DialogTitle>{isLastProvider ? 'Complete Service' : 'Complete Part & Hand-off'}</DialogTitle>
-                <DialogDescription>Confirm actuals before moving the client forward.</DialogDescription>
+                <DialogTitle>{titleText}</DialogTitle>
+                <DialogDescription>Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4 space-y-6">
@@ -275,9 +277,44 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card>
+                  <CardHeader><CardTitle>Service Components</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                <div className="flex items-center gap-3">
+                                    <Checkbox 
+                                        id={`complete-${service.id}`} 
+                                        checked={completedServiceIds.includes(service.id)} 
+                                        onCheckedChange={() => toggleServiceComplete(service.id)}
+                                    />
+                                    <Label htmlFor={`complete-${service.id}`} className="text-sm font-medium">{service.name}</Label>
+                                </div>
+                                <span className="text-xs font-semibold text-muted-foreground">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name?.split(' ')[0] || 'Unassigned'}</span>
+                            </div>
+                            {selectedAddOns.map(addon => (
+                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                    <div className="flex items-center gap-3 pl-4">
+                                        <Checkbox 
+                                            id={`complete-${addon.id}`} 
+                                            checked={completedServiceIds.includes(addon.id)} 
+                                            onCheckedChange={() => toggleServiceComplete(addon.id)}
+                                        />
+                                        <Label htmlFor={`complete-${addon.id}`} className="text-sm text-muted-foreground">+ {addon.name}</Label>
+                                    </div>
+                                    <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                        <SelectTrigger className="w-[120px] h-7 text-[10px]"><SelectValue placeholder="Staff" /></SelectTrigger>
+                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                    </Select>
+                                </div>
+                            ))}
+                        </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
                     <CardHeader>
-                        <CardTitle>Service Actuals</CardTitle>
-                        <CardDescription>Note any deviations from scheduled time or formula.</CardDescription>
+                        <CardTitle>Usage Actuals</CardTitle>
+                        <CardDescription>Adjust if the service took longer or used more product.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm">
                         <div className="space-y-2">
@@ -296,15 +333,15 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </div>
                         <Separator />
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h4 className="font-medium flex items-center gap-2"><Package className="w-4 h-4"/> Product Formula</h4>
+                            <h4 className="font-medium flex items-center gap-2"><Package className="w-4 h-4"/> Formula Review</h4>
                             {(client.customFormulas && client.customFormulas.length > 0) && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula} defaultValue="default">
                                     <SelectTrigger className="h-8 text-xs">
-                                        <SelectValue placeholder="Load a formula..." />
+                                        <SelectValue placeholder="Load client formula..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="default">Default Service Formula</SelectItem>
+                                        <SelectItem value="default">Standard Formula</SelectItem>
                                         {client.customFormulas.map(formula => (
                                             <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
                                         ))}
@@ -330,76 +367,38 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                     />
                                     <span className="text-xs text-muted-foreground w-10 truncate">{item.unit}</span>
                                     <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}>
-                                        <Trash2 className="h-4 w-4" />
+                                        <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </div>
                             </div>
                             ))}
                         </div>
-                        <div className='flex gap-2'>
-                            <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
-                        </div>
+                        <Button variant="outline" size="sm" type="button" className="w-full border-dashed" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Extra Product</Button>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
+                        <CardTitle className="flex items-center gap-2 text-sm">
                             <MessageSquare className="w-4 h-4 text-primary" />
-                            Review Notes
+                            Provider Notes
                         </CardTitle>
-                        <CardDescription>Provide context for the front desk (e.g. "Client requested extra length").</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <Textarea 
-                            placeholder="e.g., Arrived with severe matting, requested extra density..." 
+                            placeholder="Add internal notes for the front desk or next technician..." 
                             value={reviewNotes}
                             onChange={(e) => setReviewNotes(e.target.value)}
                             rows={3}
                         />
                     </CardContent>
                 </Card>
-                
-                <Card>
-                  <CardHeader><CardTitle>Assigned Providers</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                <span className="text-sm font-medium">{service.name}</span>
-                                <div className="flex items-center gap-2">
-                                    {completedServiceIds.includes(service.id) && <CheckCircle className="w-4 h-4 text-green-500" />}
-                                    <span className="text-sm font-semibold">{staff.find(s => s.id === serviceStaffOverrides[service.id])?.name || 'Unassigned'}</span>
-                                </div>
-                            </div>
-                            {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                    <span className="text-sm pl-4">+ {addon.name}</span>
-                                    <div className="flex items-center gap-2">
-                                        {completedServiceIds.includes(addon.id) && <CheckCircle className="w-4 h-4 text-green-500" />}
-                                        <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                            <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                            <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                  </CardContent>
-                </Card>
               </div>
             </ScrollArea>
-            <DialogFooter className="p-6 pt-4 border-t">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleCompleteMyPart} className="h-11 font-bold">
-                    {isLastProvider ? (
-                        <>
-                            <Send className="mr-2 h-4 w-4" /> Complete Service & Send to Desk
-                        </>
-                    ) : (
-                        <>
-                            <Repeat className="mr-2 h-4 w-4" /> Complete Part & Hand-off
-                        </>
-                    )}
+            <DialogFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
+                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12">Cancel</Button>
+                <Button onClick={handleCompleteMyPart} className="h-12 font-bold flex-1" disabled={completedServiceIds.length === 0}>
+                    {buttonLabel}
                 </Button>
             </DialogFooter>
         </ContentComponent>
