@@ -245,7 +245,7 @@ const OwnerDashboard = ({
           <CardContent className="grid gap-6">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="flex items-center gap-4">
+                <div key={index} className="flex items-center gap-4" key={`skeleton-${index}`}>
                   <Skeleton className="h-9 w-9 rounded-full" />
                   <div className="grid gap-1 flex-1">
                     <Skeleton className="h-4 w-24" />
@@ -409,7 +409,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
             {staffMember && (
                  <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto", {
                     'bg-green-100 text-green-800 dark:bg-green-900/50': staffMember.active && !staffMember.onBreak,
-                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': staffMember.active && staffMember.onBreak,
+                    'bg-yellow-100 text-yellow-800 dark:bg-green-900/50': staffMember.active && staffMember.onBreak,
                  })}>
                     {staffMember.active ? (staffMember.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                 </Badge>
@@ -743,9 +743,9 @@ export default function DashboardPage() {
     return { ...staffMember, stats: { totalSales: serviceRevenue + retailSales, tips, earnings, totalHours: totalMinutesWorked / 60, utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0 } };
   }, [staffMember, allAppointments, services, allTransactions, activityLogs]);
 
-  const isLoading = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading;
+  const isLoadingTotal = isUserLoading || isTenantLoading || isInventoryLoading || transactionsLoading || todayAppointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
-  if(isLoading) {
+  if(isLoadingTotal) {
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader />
@@ -767,7 +767,7 @@ export default function DashboardPage() {
             totalOutstandingDebt={totalOutstandingDebt}
             clientRetentionRate={clientRetentionRate}
             todayAppointments={todayAppointments}
-            isLoading={isLoading}
+            isLoading={isLoadingTotal}
             barChartData={barChartData}
             revenueBreakdown={revenueBreakdown}
             recentActivities={recentActivities}

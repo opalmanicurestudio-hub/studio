@@ -262,6 +262,47 @@ function POSPageContent() {
         });
     }, []);
 
+    const kpiData = useMemo(() => {
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        const walkInsToday = (walkIns || []).filter(w => {
+            const checkInDate = safeDate(w.checkInTime);
+            return checkInDate >= todayStart && checkInDate <= todayEnd;
+        });
+
+        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
+        const waitTimes = completedWalkIns.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
+        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
+
+        const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
+        const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
+
+        const totalInServiceMinutes = (appointments || []).filter(apt => 
+            isSameDay(safeDate(apt.startTime), new Date()) && apt.status === 'completed'
+        ).reduce((acc, apt) => {
+             if (apt.actualStartTime && apt.actualEndTime) {
+                return acc + differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
+             }
+             const service = services?.find(s => s.id === apt.serviceId);
+             return acc + (service?.duration || 0);
+        }, 0);
+
+        const totalServiceRevenue = (transactions || []).filter(t => {
+            const transactionDate = safeDate(t.date);
+            return t.category === 'Service Revenue' && isSameDay(transactionDate, new Date());
+        }).reduce((acc, t) => acc + t.amount, 0);
+
+        const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
+
+        return {
+            avgWaitTime,
+            walkInConversionRate: conversionRate,
+            totalWalkIns: walkInsToday.length,
+            revenuePerServiceHour,
+        };
+    }, [walkIns, appointments, transactions, services]);
+
     const rawSubtotal = useMemo(() => {
         const selectedApts = Array.from(selectedAppointmentIds)
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
@@ -346,47 +387,6 @@ function POSPageContent() {
             setTipAllocations({});
         }
     }, [tipAmount, allInvolvedStaffIds]);
-
-    const kpiData = useMemo(() => {
-        const todayStart = startOfDay(new Date());
-        const todayEnd = endOfDay(new Date());
-
-        const walkInsToday = (walkIns || []).filter(w => {
-            const checkInDate = safeDate(w.checkInTime);
-            return checkInDate >= todayStart && checkInDate <= todayEnd;
-        });
-
-        const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
-        const waitTimes = completedWalkIns.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
-        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
-
-        const terminalWalkIns = walkInsToday.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status));
-        const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
-
-        const totalInServiceMinutes = (appointments || []).filter(apt => 
-            isSameDay(safeDate(apt.startTime), new Date()) && apt.status === 'completed'
-        ).reduce((acc, apt) => {
-             if (apt.actualStartTime && apt.actualEndTime) {
-                return acc + differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
-             }
-             const service = services?.find(s => s.id === apt.serviceId);
-             return acc + (service?.duration || 0);
-        }, 0);
-
-        const totalServiceRevenue = (transactions || []).filter(t => {
-            const transactionDate = safeDate(t.date);
-            return t.category === 'Service Revenue' && isSameDay(transactionDate, new Date());
-        }).reduce((acc, t) => acc + t.amount, 0);
-
-        const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
-
-        return {
-            avgWaitTime,
-            walkInConversionRate: conversionRate,
-            totalWalkIns: walkInsToday.length,
-            revenuePerServiceHour,
-        };
-    }, [walkIns, appointments, transactions, services]);
 
     const handleCheckout = async (paymentDetails: { paymentMethod: string; amountTendered?: number }) => {
         if (!firestore || !tenantId) return;

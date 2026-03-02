@@ -34,7 +34,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { cn } from '@/lib/utils';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -403,7 +402,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                         </>
                     ) : (
                         <>
-                            <Send className="mr-2 h-4 w-4" /> Complete My Part & Send to Desk
+                            <Send className="mr-2 h-4 w-4" /> Complete Service & Send to Desk
                         </>
                     )}
                 </Button>
