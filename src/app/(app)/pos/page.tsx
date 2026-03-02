@@ -438,7 +438,7 @@ function POSPageContent() {
                         }
                         const update = inventoryUpdates.get(item.id)!;
                         if (item.costingMethod === 'size') update.partialSizeChange -= p.quantity;
-                        else if (item.costingMethod === 'uses') update.partialUsesChange -= p.quantity;
+                        else if (item.costingMethod === 'uses' && item.partialContainerUses !== undefined) update.partialUsesChange -= p.quantity;
                         else update.totalStockChange -= p.quantity;
                         
                         const staffName = data.staff?.name || 'Unknown Staff';
@@ -727,7 +727,7 @@ function POSPageContent() {
 
                     <TeamStatus staff={staff} onStatusChange={(id, act) => { setPendingStatusAction({ staffId: id, action: act }); setIsPinAuthOpen(true); }} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} />
                     <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={handleReorderWalkIns} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={onUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
-                    <RetailCatalog services={services || []} inventory={inventory.inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
+                    <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
                 </main>
                 <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
             </div>

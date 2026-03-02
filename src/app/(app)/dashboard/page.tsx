@@ -291,7 +291,7 @@ const OwnerDashboard = ({
             <Button
               size="sm"
               className="w-full sm:w-auto"
-              onClick={handleGenerateDebrief}
+              onClick={onGenerateDebrief}
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate Today's Debrief
