@@ -292,8 +292,8 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
       return acc + (costPerUse * quantity);
     }, 0);
 
-    const start = appointment.actualStartTime ? safeDate(appointment.actualStartTime) : safeDate(appointment.startTime);
-    const end = appointment.actualEndTime ? safeDate(appointment.actualEndTime) : safeDate(appointment.endTime);
+    const start = safeDate(appointment.actualStartTime || appointment.startTime);
+    const end = safeDate(appointment.actualEndTime || appointment.endTime);
 
     const actualDuration = appointment.actualEndTime && appointment.actualStartTime
         ? differenceInMinutes(end, start)
@@ -628,7 +628,7 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
             </div>
           </div>
         </ScrollArea>
-        <SheetFooter className="p-6 border-t bg-background">
+        <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12">Close</Button>
         </SheetFooter>
       </SheetContent>

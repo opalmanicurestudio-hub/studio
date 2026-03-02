@@ -119,7 +119,7 @@ const OwnerDashboard = () => {
   
   const { firestore, user, isUserLoading } = useFirebase();
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
   
   const tenantId = selectedTenant?.id;
   
@@ -533,7 +533,7 @@ const OwnerDashboard = () => {
   );
 };
 
-const StaffDashboardView = ({ role }: { role: string | null }) => {
+const StaffDashboardView = () => {
     const { user, isUserLoading } = useUser();
     const { selectedTenant } = useTenant();
     const { firestore } = useFirebase();
@@ -648,7 +648,7 @@ const StaffDashboardView = ({ role }: { role: string | null }) => {
             .filter(a => 
                 a.staffId === user.uid && 
                 (a.status === 'confirmed' || a.status === 'servicing') && 
-                isSameDay(safeDate(a.startTime), todayStart)
+                safeDate(a.startTime) >= todayStart && safeDate(a.startTime) <= todayEnd
             )
             .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(a.startTime).getTime())
             .map(apt => ({
@@ -1080,7 +1080,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView role={role} />}
+        {role === 'owner' ? <OwnerDashboard /> : <StaffDashboardView />}
       </main>
     </div>
   );
