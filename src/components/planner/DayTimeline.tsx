@@ -1,3 +1,4 @@
+
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
@@ -215,14 +216,19 @@ export const DayTimeline = ({
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
                                                     {'avatarUrl' in c ? (
-                                                        <Avatar className="w-6 h-6">
-                                                            <AvatarImage src={(c as Staff).avatarUrl} />
-                                                            <AvatarFallback>{c.name.charAt(0)}</AvatarFallback>
-                                                        </Avatar>
+                                                        <div className="flex items-center gap-2">
+                                                            <Avatar className="w-6 h-6">
+                                                                <AvatarImage src={(c as Staff).avatarUrl} />
+                                                                <AvatarFallback>{c.name.charAt(0)}</AvatarFallback>
+                                                            </Avatar>
+                                                            <span>{c.name}</span>
+                                                        </div>
                                                     ) : (
-                                                        (c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />
+                                                        <div className="flex items-center gap-2">
+                                                            {(c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />}
+                                                            <span>{c.name}</span>
+                                                        </div>
                                                     )}
-                                                    <span>{c.name}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}

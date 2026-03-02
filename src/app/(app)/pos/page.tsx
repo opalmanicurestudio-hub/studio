@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -160,9 +161,9 @@ function POSPageContent() {
         });
 
         if (walkIn?.assignedStaffId) {
-            batch.update(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId), { 
                 status: 'idle' 
-            });
+            }, { merge: true });
         }
 
         const aptId = `apt-walkin-${walkInId}`;
@@ -559,7 +560,7 @@ function POSPageContent() {
       const batch = writeBatch(firestore);
       batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
       if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
-      if (appointment.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' });
+      if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
       if (appointment.isWalkIn) {
           const walkInId = appointment.id.replace('apt-walkin-', '');
           batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'servicing', serviceStartTime: nowISO });
@@ -575,7 +576,7 @@ function POSPageContent() {
     const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
         if (!firestore || !tenantId || !currentUser) return;
         const batch = writeBatch(firestore);
-        batch.update(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' });
+        batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
         const apt = appointments.find(a => a.id === appointmentId);
         if (apt) {
             const totalServicesCount = 1 + (apt.addOnIds?.length || 0);
@@ -594,7 +595,7 @@ function POSPageContent() {
     const handleStaffReorder = (newOrder: Staff[]) => {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
-        newOrder.forEach((s, i) => { batch.update(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: i }); });
+        newOrder.forEach((s, i) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: i }, { merge: true }); });
         batch.commit().catch(err => { toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." }); });
     };
 
@@ -805,7 +806,7 @@ function POSPageContent() {
                         case 'break_end': staffUpdate = { onBreak: false, breakStartTime: undefined }; break;
                     }
                     addDocumentNonBlocking(activityLogsRef, logEntry);
-                    updateDocumentNonBlocking(staffDocRef, staffUpdate);
+                    setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
                     setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
                 } else toast({ variant: 'destructive', title: 'Invalid PIN' });
             }}>Confirm</Button></DialogFooter></DialogContent></Dialog>

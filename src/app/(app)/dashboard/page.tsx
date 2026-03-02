@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -51,7 +52,7 @@ import {
 import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, useUser, useDoc, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc, writeBatch } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format, startOfWeek, isSameDay, parseISO, differenceInMinutes, addDays, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
@@ -340,7 +341,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
             }
         
             addDocumentNonBlocking(activityLogsRef, logEntry);
-            updateDocumentNonBlocking(staffDocRef, staffUpdate);
+            setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
             
             setIsPinAuthOpen(false);
             setAuthPin('');
@@ -365,7 +366,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 
       if (staffMember?.id) {
           const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffMember.id);
-          batch.update(staffDocRef, { status: 'busy' });
+          batch.set(staffDocRef, { status: 'busy' }, { merge: true });
       }
 
       batch.commit().then(() => {
