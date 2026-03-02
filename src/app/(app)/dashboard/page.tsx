@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -13,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import {
   Users,
-  Calendar,
+  Calendar as CalendarIcon,
   DollarSign,
   ArrowUp,
   Sparkles,
@@ -143,7 +142,7 @@ const OwnerDashboard = ({
             <CardTitle className="text-sm font-medium">
               Today's Appointments
             </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">

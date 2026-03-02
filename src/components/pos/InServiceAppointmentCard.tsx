@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -51,10 +50,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
         if (val instanceof Date) return val;
         if (typeof val?.toDate === 'function') return val.toDate();
         if (typeof val === 'string') return parseISO(val);
-        // Handle Firestore Timestamp like object { seconds, nanoseconds }
-        if (typeof val === 'object' && 'seconds' in val) {
-            return new Date(val.seconds * 1000);
-        }
+        if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
         return new Date(val);
     };
 

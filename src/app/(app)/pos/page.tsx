@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -788,7 +787,7 @@ function POSPageContent() {
                         case 'clock_in': staffUpdate = { active: true }; break;
                         case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
                         case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-                        case 'break_end': staffUpdate = { onBreak: false, breakStartTime: undefined }; break;
+                        case 'break_end': if(target.breakStartTime) logEntry.durationMinutes = differenceInMinutes(parseISO(now), parseISO(target.breakStartTime)); staffUpdate = { onBreak: false, breakStartTime: deleteField() as any }; break;
                     }
                     addDocumentNonBlocking(activityLogsRef, logEntry);
                     setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });

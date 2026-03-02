@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -157,7 +156,10 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {canManage && (
-                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">Force Idle</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">
+                                    <RefreshCcw className="w-4 h-4 mr-2" />
+                                    Force Idle
+                                </DropdownMenuItem>
                             )}
                         </DropdownMenuContent>
                     </DropdownMenu>

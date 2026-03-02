@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -20,6 +19,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 import { Label } from '../ui/label';
+import { useTenant } from '@/context/TenantContext';
 
 interface TeamStatusProps {
   staff: (Staff & { stats?: any, availability?: { status: string } })[] | null;
@@ -67,6 +67,15 @@ const StaffMemberCard = ({
     };
 
     const status = getStatus();
+
+    const safeDate = (val: any): Date => {
+        if (!val) return new Date();
+        if (val instanceof Date) return val;
+        if (typeof val?.toDate === 'function') return val.toDate();
+        if (typeof val === 'string') return parseISO(val);
+        if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+        return new Date(val);
+    };
 
     const checkInBadge = useMemo(() => {
         if (!nextAppointment) return null;
@@ -148,6 +157,15 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
     const { role } = useTenant();
     const canManage = role === 'owner' || role === 'admin';
 
+    const safeDate = (val: any): Date => {
+        if (!val) return new Date();
+        if (val instanceof Date) return val;
+        if (typeof val?.toDate === 'function') return val.toDate();
+        if (typeof val === 'string') return parseISO(val);
+        if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+        return new Date(val);
+    };
+
     const handleMove = (staffId: string, direction: 'up' | 'down') => {
         const staffList = staff || [];
         const index = staffList.findIndex(s => s.id === staffId);
@@ -180,10 +198,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
             
             let nextFreeIn = null;
             if (isAtCapacity && occupiedBy.length > 0) {
-                const endTimes = occupiedBy.map(a => {
-                    const d = a.endTime instanceof Date ? a.endTime : parseISO(a.endTime);
-                    return d.getTime();
-                });
+                const endTimes = occupiedBy.map(a => safeDate(a.endTime).getTime());
                 const earliestEnd = new Date(Math.min(...endTimes));
                 nextFreeIn = Math.max(1, differenceInMinutes(earliestEnd, now));
             }
@@ -213,9 +228,9 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 const currentAppointment = appointments.find(apt => 
                     apt.staffId === s.id && 
                     apt.status === 'servicing' &&
-                    new Date(apt.endTime) > now
+                    safeDate(apt.endTime) > now
                 );
-                return currentAppointment ? new Date(currentAppointment.endTime) : null;
+                return currentAppointment ? safeDate(currentAppointment.endTime) : null;
             })
             .filter((endTime): endTime is Date => endTime !== null);
         
@@ -244,7 +259,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 
                 if (isCurrentlyBusy) {
                     if (currentAppointment) {
-                        const d = currentAppointment.endTime instanceof Date ? currentAppointment.endTime : parseISO(currentAppointment.endTime);
+                        const d = safeDate(currentAppointment.endTime);
                         const minutesRemaining = differenceInMinutes(d, now);
                         availabilityStatus = minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining} min`;
                     } else {
@@ -255,8 +270,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                 nextApt = appointments?.find(apt => 
                     apt.staffId === member.id && 
                     apt.status === 'confirmed' && 
-                    isSameDay(new Date(apt.startTime), todayStart) &&
-                    new Date(apt.startTime) > now
+                    isSameDay(safeDate(apt.startTime), todayStart) &&
+                    safeDate(apt.startTime) > now
                 );
             }
 
