@@ -23,7 +23,7 @@ import {
   MessageSquare,
   Send,
   User as UserIcon,
-  Calendar,
+  Calendar as CalendarIcon,
   FileText as TicketIcon,
   Users,
   Play,
