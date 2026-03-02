@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -36,6 +37,23 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+
+/**
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val?.toDate === 'function') return val.toDate();
+    return new Date(val);
+};
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card>
@@ -365,6 +383,25 @@ function POSPageContent() {
                 batch.update(appointmentRef, updatePayload);
                 if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'completed', tenantId });
                 
+                // Deduct formula products (Professional Inventory)
+                const formula = appointment.checkoutState?.formula || [];
+                formula.forEach((p: any) => {
+                    const item = inventory.find(i => i.id === p.id);
+                    if (item) {
+                        const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+                        batch.update(productRef, { totalStock: increment(-Math.floor(p.quantity / (item.estimatedUses || item.size || 1))) });
+                        
+                        const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                        batch.set(correctionRef, {
+                            productId: item.id,
+                            date: nowISO,
+                            change: -p.quantity,
+                            unit: item.unit || 'units',
+                            reason: `Appointment #${appointment.id.slice(-6).toUpperCase()} usage`
+                        });
+                    }
+                });
+
                 const checkoutState = appointment.checkoutState;
                 if (checkoutState?.serviceStaffOverrides) {
                     Object.entries(checkoutState.serviceStaffOverrides).forEach(([svcId, staffId]) => {
@@ -428,6 +465,16 @@ function POSPageContent() {
             retailItems.forEach(item => {
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
                 batch.update(productRef, { totalStock: increment(-item.quantity) });
+                
+                const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                batch.set(correctionRef, {
+                    productId: item.id,
+                    date: nowISO,
+                    change: -item.quantity,
+                    unit: 'units',
+                    reason: `Retail Sale`
+                });
+
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
                     date: nowISO,
@@ -443,7 +490,7 @@ function POSPageContent() {
 
             if (selectedClientId && clients.find(c => c.id === selectedClientId)) {
                 const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClientId);
-                batch.update(clientDocRef, { lastAppointment: nowISO });
+                batch.update(clientDocRef, { lastAppointment: nowISO, lifetimeValue: increment(total - tax - tipAmount) });
             }
             await batch.commit();
             setRetailItems([]); setSelectedAppointmentIds(new Set()); setSelectedClientId(null); setTipAmount(0); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setRedeemedOffer(null); setWaivedAppointmentFees(new Map()); setTipAllocations({});
@@ -734,7 +781,7 @@ function POSPageContent() {
                 case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
                 case 'break_end':
                     if (targetStaff.breakStartTime) {
-                        const duration = differenceInMinutes(new Date(now), new Date(targetStaff.breakStartTime));
+                        const duration = differenceInMinutes(new Date(now), safeDate(targetStaff.breakStartTime));
                         logEntry.durationMinutes = duration;
                     }
                     staffUpdate = { onBreak: false, breakStartTime: undefined };
@@ -762,7 +809,7 @@ function POSPageContent() {
 
         const servedWalkIns = walkInsToday.filter(w => w.serviceStartTime);
         const waitTimes = servedWalkIns.map(w => {
-            const startTime = w.serviceStartTime instanceof Date ? w.serviceStartTime : new Date(w.serviceStartTime!);
+            const startTime = safeDate(w.serviceStartTime);
             const checkInTime = parseISO(w.checkInTime);
             return differenceInMinutes(startTime, checkInTime);
         });
@@ -773,10 +820,10 @@ function POSPageContent() {
         const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
 
         const totalInServiceMinutes = appointments.reduce((total, apt) => {
-            if (apt.status === 'completed' && isSameDay(new Date(apt.startTime), todayStart)) {
+            if (apt.status === 'completed' && isSameDay(safeDate(apt.startTime), todayStart)) {
                 if (apt.actualStartTime && apt.actualEndTime) {
-                    const end = apt.actualEndTime instanceof Date ? apt.actualEndTime : new Date(apt.actualEndTime);
-                    const start = apt.actualStartTime instanceof Date ? apt.actualStartTime : new Date(apt.actualStartTime);
+                    const end = safeDate(apt.actualEndTime);
+                    const start = safeDate(apt.actualStartTime);
                     return total + differenceInMinutes(end, start);
                 }
                 const service = services?.find(s => s.id === apt.serviceId);
@@ -786,7 +833,7 @@ function POSPageContent() {
         }, 0);
 
         const totalServiceRevenue = (transactions || []).filter(t => {
-            const transactionDate = new Date(t.date);
+            const transactionDate = safeDate(t.date);
             return t.category === 'Service Revenue' && transactionDate >= todayStart && transactionDate <= todayEnd;
         }).reduce((acc, t) => acc + t.amount, 0);
 

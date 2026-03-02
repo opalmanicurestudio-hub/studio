@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -510,8 +511,8 @@ export const AppointmentDetailsSheet: React.FC<AppointmentDetailsSheetProps> = (
                   })}
                 </div>
                 <div className='flex flex-col p-3 rounded-lg border bg-muted/30'>
-                  <span className='font-bold text-foreground'>{format(new Date(appointment.startTime), 'EEEE, MMMM d, yyyy')}</span>
-                  <span className="text-xs">{format(new Date(appointment.startTime), 'h:mm a')} - {format(new Date(appointment.endTime), 'h:mm a')}</span>
+                  <span className='font-bold text-foreground'>{format(safeDate(appointment.startTime), 'EEEE, MMMM d, yyyy')}</span>
+                  <span className="text-xs">{format(safeDate(appointment.startTime), 'h:mm a')} - {format(safeDate(appointment.endTime), 'h:mm a')}</span>
                 </div>
               </div>
             </div>

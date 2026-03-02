@@ -63,6 +63,22 @@ import { Textarea } from '@/components/ui/textarea';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 
+/**
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val?.toDate === 'function') return val.toDate();
+    return new Date(val);
+};
 
 function PlannerPageContent() {
   const searchParams = useSearchParams();
@@ -164,11 +180,11 @@ function PlannerPageContent() {
     const map = new Map<string, (Appointment | Event)[]>();
     const cols = activeView === 'staff' ? staff : resources;
     (cols || []).forEach(c => map.set(c.id, []));
-    appointments?.filter(a => isSameDay(new Date(a.startTime), currentDate)).forEach(a => {
+    appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
-    map.forEach(items => items.sort((a,b) => new Date(a.startTime).getTime() - new Date(a.startTime).getTime()));
+    map.forEach(items => items.sort((a,b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime()));
     return map;
   }, [currentDate, appointments, staff, resources, activeView]);
 
@@ -181,7 +197,7 @@ function PlannerPageContent() {
     const end = endOfDay(addDays(start, 6));
 
     const weeklyTransactions = transactions.filter(t => {
-      const d = new Date(t.date);
+      const d = safeDate(t.date);
       return d >= start && d <= end;
     });
 
@@ -195,14 +211,14 @@ function PlannerPageContent() {
     
     const waivedTotal = appointments
         .filter(a => {
-            const d = new Date(a.startTime);
+            const d = safeDate(a.startTime);
             return d >= start && d <= end && a.cancellationFeeWaived;
         })
         .reduce((acc, a) => acc + (a.cancellationFeeApplied || 0), 0);
 
     const projected = appointments
       .filter(a => {
-        const d = new Date(a.startTime);
+        const d = safeDate(a.startTime);
         return d >= start && d <= end && (a.status === 'confirmed' || a.status === 'deposit_pending');
       })
       .reduce((acc, a) => {
@@ -296,7 +312,7 @@ function PlannerPageContent() {
             const feeEntry = {
                 feeId,
                 appointmentId: selectedAppointment.id,
-                appointmentDate: selectedAppointment.startTime.toISOString ? selectedAppointment.startTime.toISOString() : selectedAppointment.startTime,
+                appointmentDate: safeDate(selectedAppointment.startTime).toISOString(),
                 feeAmount: data.feeAmount,
                 reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`,
                 staffId: selectedAppointment.staffId,
@@ -441,7 +457,7 @@ function PlannerPageContent() {
     const waiverEntry = {
         feeId: nanoid(),
         appointmentId: id,
-        appointmentDate: apt.startTime.toISOString ? apt.startTime.toISOString() : apt.startTime,
+        appointmentDate: safeDate(apt.startTime).toISOString(),
         feeAmount: feeAmount,
         reason: reason,
         waivedBy: authorizer.id,
@@ -557,7 +573,7 @@ function PlannerPageContent() {
                         <Button size="sm" className="hidden lg:flex h-8" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                     </div>
                 </div>
-                <ScrollArea className="w-full">
+                <ScrollArea>
                     <div className="flex w-full px-4 md:px-0">
                         {weekDays.map(day => (
                             <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 text-center md:p-3 transition-colors hover:bg-muted/50 rounded-md", isSameDay(day, currentDate) && "bg-muted")}>
@@ -583,7 +599,7 @@ function PlannerPageContent() {
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onPrintReceipt={() => {}} onPrintTicket={() => {}} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}
-                dailyTransactions={transactions?.filter(t => isSameDay(new Date(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
+                dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={handleStartService}
                 onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
