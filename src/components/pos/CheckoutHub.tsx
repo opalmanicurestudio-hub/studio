@@ -26,7 +26,8 @@ import {
     MessageSquare,
     Repeat,
     Wallet,
-    UserPlus
+    UserPlus,
+    Cake
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -42,7 +43,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
@@ -262,6 +263,11 @@ export const CheckoutHub = ({
         return clients.find((c: Client) => c.id === selectedClientId);
     }, [selectedClientId, clients]);
 
+    const isBirthdayToday = useMemo(() => {
+        if (!selectedClient?.birthday) return false;
+        return isToday(safeDate(selectedClient.birthday));
+    }, [selectedClient]);
+
     const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
         if (newQuantity <= 0) {
             onCartChange(cart.filter(item => item.id !== itemId));
@@ -436,8 +442,15 @@ export const CheckoutHub = ({
                     </TooltipProvider>
                 </div>
                 {selectedClient && (
-                    <div className="mt-1 text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                        Account: <span className="text-foreground">{selectedClient.name}</span>
+                    <div className="mt-1.5 flex items-center justify-between">
+                        <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                            Account: <span className="text-foreground">{selectedClient.name}</span>
+                        </div>
+                        {isBirthdayToday && (
+                            <Badge className="bg-pink-500 text-white border-none animate-bounce h-5 px-1.5 text-[9px] font-black uppercase">
+                                <Cake className="w-2.5 h-2.5 mr-1" /> Birthday Today
+                            </Badge>
+                        )}
                     </div>
                 )}
             </div>

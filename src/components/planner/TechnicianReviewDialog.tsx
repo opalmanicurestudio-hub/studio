@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -294,7 +293,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
-            <DialogHeader className="p-6 pb-0 text-left">
+            <DialogHeader className="p-6 pb-0 text-left flex-shrink-0">
                 <DialogTitle>{titleText}</DialogTitle>
                 <DialogDescription>Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
@@ -314,7 +313,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
 
                 <Card className="border-2 border-primary/10">
-                  <CardHeader className="pb-3"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
+                  <CardHeader className="pb-3 flex-shrink-0"><CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground">Flow Control</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                         <div className="space-y-3">
                             <div className="space-y-2 p-3 bg-muted/20 rounded-2xl border-2 transition-all has-[:checked]:border-primary">

@@ -129,15 +129,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -612,7 +603,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         }
       });
       
-      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const allItems fullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
       const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
 
       let newStatus: Order['status'] = orderToReceive.status;
@@ -1066,7 +1057,7 @@ export default function InventoryPage() {
   };
 
   const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
-    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+    if (!firestore || !tenantId || !inventory) return { success: boolean, message: 'Firestore not available' };
 
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };

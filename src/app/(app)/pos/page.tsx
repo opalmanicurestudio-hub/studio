@@ -515,7 +515,7 @@ function POSPageContent() {
 
                 batch.update(productRef, updateData);
 
-                // Add to Inventory Ledger (with Appointment and Staff IDs)
+                // Add to Inventory Ledger (Standardized Format)
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(scRef, {
                     productId: item.id,

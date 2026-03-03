@@ -350,7 +350,7 @@ function PlannerPageContent() {
         const involvedIds = new Set<string>();
         if (apt.staffId) involvedIds.add(apt.staffId);
         if (checkoutState.serviceStaffOverrides) {
-            Object.values(checkoutState.serviceStaffOverrides).forEach(id => involvedIds.add(id));
+            Object.values(checkoutState.serviceStaffOverrides).forEach(id => staffIds.add(id));
         }
         involvedIds.forEach(sid => {
             batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
