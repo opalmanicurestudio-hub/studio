@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -99,7 +100,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, canManage: boolean }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -169,10 +170,16 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {canManage && (
-                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">
-                                    <RefreshCw className="w-4 h-4 mr-2" />
-                                    Force Idle
-                                </DropdownMenuItem>
+                                <>
+                                    <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">
+                                        <RefreshCw className="w-4 h-4 mr-2" />
+                                        Force Idle
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onDelete(member)} className="text-destructive">
+                                        <Trash2 className="w-4 h-4 mr-2" />
+                                        Delete Profile
+                                    </DropdownMenuItem>
+                                </>
                             )}
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -360,6 +367,7 @@ export default function StaffPage() {
   const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
   const [authPin, setAuthPin] = useState('');
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
+  const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
 
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
@@ -666,6 +674,31 @@ export default function StaffPage() {
     uiToast({ title: "Staff Reset", description: "Technician status has been forced to idle." });
   };
 
+  const handleDeleteStaffClick = (member: Staff) => {
+    setStaffToDelete(member);
+  };
+
+  const confirmDeleteStaff = async () => {
+    if (!staffToDelete || !firestore || !tenantId) return;
+
+    const batch = writeBatch(firestore);
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToDelete.id);
+    const directoryDocRef = doc(firestore, 'staffDirectory', staffToDelete.id);
+
+    batch.delete(staffDocRef);
+    batch.delete(directoryDocRef);
+
+    try {
+        await batch.commit();
+        uiToast({ title: "Profile Deleted", description: `${staffToDelete.name} has been removed from the system.` });
+    } catch (e) {
+        console.error("Error deleting staff:", e);
+        uiToast({ variant: 'destructive', title: "Error", description: "Failed to delete staff profile." });
+    } finally {
+        setStaffToDelete(null);
+    }
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Staff Management" />
@@ -738,7 +771,7 @@ export default function StaffPage() {
                         {(staff || []).length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
                                 {staffWithStats.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -817,6 +850,24 @@ export default function StaffPage() {
             </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!staffToDelete} onOpenChange={() => setStaffToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will permanently delete the staff profile for <strong>{staffToDelete?.name}</strong>. 
+                    This action cannot be undone and they will no longer be able to log in.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmDeleteStaff} className={buttonVariants({ variant: "destructive" })}>
+                    Delete Profile
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
