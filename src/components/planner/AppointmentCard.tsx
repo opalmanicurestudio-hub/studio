@@ -35,6 +35,20 @@ import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    return new Date(val);
+};
+
 interface AppointmentCardProps {
   appointment: Appointment;
   client: Client;
@@ -76,12 +90,20 @@ export function AppointmentCard({
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (appointment.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
+      const startTime = safeDate(appointment.actualStartTime);
       timer = setInterval(() => {
         const now = new Date();
         const diff = differenceInSeconds(now, startTime);
         const mins = Math.floor(diff / 60);
-        setElapsedTime(`${String(Math.floor(diff / 60)).padStart(2, '0')}:${String(diff % 60).padStart(2, '0')}`);
+        const hours = Math.floor(mins / 60);
+        const displayMins = mins % 60;
+        const displaySecs = diff % 60;
+        
+        const timeStr = hours > 0 
+            ? `${String(hours).padStart(2, '0')}:${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`
+            : `${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`;
+            
+        setElapsedTime(timeStr);
         setIsRunningOver(mins > service.duration);
       }, 1000);
     } else { setElapsedTime(null); setIsRunningOver(false); }
@@ -89,15 +111,16 @@ export function AppointmentCard({
   }, [appointment.status, appointment.actualStartTime, service.duration]);
 
   const scheduledDuration = useMemo(() => {
-    const start = typeof appointment.startTime === 'string' ? parseISO(appointment.startTime) : appointment.startTime;
-    const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
+    const start = safeDate(appointment.startTime);
+    const end = safeDate(appointment.endTime);
     return differenceInMinutes(end, start);
   }, [appointment.startTime, appointment.endTime]);
 
   const isBirthday = useMemo(() => {
     if (!client?.birthday) return false;
-    const aptDate = typeof appointment.startTime === 'string' ? parseISO(appointment.startTime) : appointment.startTime;
-    return format(aptDate, 'MM-dd') === format(parseISO(client.birthday), 'MM-dd');
+    const aptDate = safeDate(appointment.startTime);
+    const birthDate = safeDate(client.birthday);
+    return format(aptDate, 'MM-dd') === format(birthDate, 'MM-dd');
   }, [client?.birthday, appointment.startTime]);
 
   const handleCopyCheckInLink = (e: React.MouseEvent) => {
@@ -214,7 +237,7 @@ export function AppointmentCard({
           </div>
           {appointment.status === 'servicing' && elapsedTime && <div className="flex-1 flex items-center justify-center"><p className="text-2xl font-black font-mono tracking-tighter">{elapsedTime}</p></div>}
           <div className="flex items-end justify-between mt-1">
-            <p className="text-[10px] text-muted-foreground font-bold">{format(appointment.startTime, 'h:mm a')}</p>
+            <p className="text-[10px] text-muted-foreground font-bold">{format(safeDate(appointment.startTime), 'h:mm a')}</p>
             {appointment.status === 'ready_for_checkout' && <Button size="xs" className="h-6 px-2 bg-orange-500 text-white hover:bg-orange-600" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>Checkout</Button>}
           </div>
         </div>

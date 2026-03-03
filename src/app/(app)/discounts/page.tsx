@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -103,7 +102,9 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                     {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
                 </p>
                 <p className="text-sm text-muted-foreground">{triggerText[discount.automation?.trigger || 'none']}</p>
-                <div className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></div>
+                <div className="text-xs text-muted-foreground pt-2 border-t flex items-center gap-2">
+                    Associated code: <Badge variant="outline">{discount.code}</Badge>
+                </div>
             </CardContent>
         </Card>
     );
@@ -286,7 +287,7 @@ export default function DiscountsPage() {
     
         return {
           kpiData: {
-            totalDiscountsValue,
+            totalGrossDiscountsValue: totalDiscountsValue,
             promoRetentionRate,
             mostPopularCode,
             totalRedemptions,
@@ -336,7 +337,7 @@ export default function DiscountsPage() {
                             <Percent className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-destructive">-${kpiData.totalDiscountsValue.toFixed(2)}</div>
+                            <div className="text-2xl font-bold text-destructive">-${kpiData.totalGrossDiscountsValue.toFixed(2)}</div>
                             <p className="text-xs text-muted-foreground">Total direct cost of promotions.</p>
                         </CardContent>
                     </Card>

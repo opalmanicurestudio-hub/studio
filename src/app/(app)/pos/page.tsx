@@ -20,7 +20,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -809,7 +809,7 @@ function POSPageContent() {
                     setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
                     setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
                 } else toast({ variant: 'destructive', title: 'Invalid PIN' });
-            }}>Confirm</Button></DialogFooter></Content></Dialog>
+            }}>Confirm</Button></DialogFooter></DialogContent></Dialog>
             
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0">

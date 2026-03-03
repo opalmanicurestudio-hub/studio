@@ -46,9 +46,24 @@ import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'dat
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
+import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    return new Date(val);
+};
 
 interface WaiveFeeDialogProps {
     open: boolean;
@@ -203,7 +218,7 @@ export const CheckoutHub = ({
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments, staff, services } = useInventory();
+    const { appointments: allAppointments, staff, services, inventory } = useInventory();
     const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
     const { firestore } = useFirebase();
@@ -317,7 +332,7 @@ export const CheckoutHub = ({
             const trigger = d.automation?.trigger;
 
             if (trigger === 'birthday' && selectedClient.birthday) {
-                return isSameMonth(new Date(), parseISO(selectedClient.birthday));
+                return isSameMonth(new Date(), safeDate(selectedClient.birthday));
             }
 
             if (trigger === 'loyalty' && d.automation?.appointmentThreshold) {
@@ -328,8 +343,9 @@ export const CheckoutHub = ({
                 return completedCount === 0;
             }
 
-            const daysSince = selectedClient.lastAppointment ? differenceInDays(new Date(), parseISO(selectedClient.lastAppointment)) : 0;
-            if (trigger === 're_engagement' && d.automation?.daysSinceLastVisit && selectedClient.lastAppointment) {
+            const lastAptDate = selectedClient.lastAppointment ? safeDate(selectedClient.lastAppointment) : null;
+            const daysSince = lastAptDate ? differenceInDays(new Date(), lastAptDate) : 0;
+            if (trigger === 're_engagement' && d.automation?.daysSinceLastVisit && lastAptDate) {
                 return daysSince >= d.automation.daysSinceLastVisit;
             }
 
@@ -474,7 +490,7 @@ export const CheckoutHub = ({
                                                 
                                                 const currentPerkUsage = client.subscription?.perkUsage?.[service.id] || 0;
                                                 const isUsedInThisCycle = client.subscription?.nextBillingDate ? (
-                                                    isAfter(parseISO(client.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(client.subscription.nextBillingDate), 1))
+                                                    isAfter(safeDate(client.subscription.perkLastUsed || '1970-01-01'), subMonths(parseISO(client.subscription.nextBillingDate), 1))
                                                 ) : false;
 
                                                 const effectiveUsageCount = isUsedInThisCycle ? currentPerkUsage : 0;
@@ -517,7 +533,7 @@ export const CheckoutHub = ({
                                                                 {(data.appointment.addOnIds || []).map(addonId => {
                                                                     const addon = services?.find(s => s.id === addonId);
                                                                     if (!addon) return null;
-                                                                    const providerId = data.appointment.checkoutState?.serviceStaffOverrides?.[addonId];
+                                                                    const providerId = data.appointment.checkoutState?.serviceStaffOverrides?.[addonId] || data.appointment.staffId;
                                                                     const provider = staff.find(s => s.id === providerId);
                                                                     return (
                                                                         <div key={addonId} className="flex justify-between items-center bg-muted/30 p-1.5 rounded-lg border border-border/50 group">
@@ -773,7 +789,7 @@ export const CheckoutHub = ({
                 onOpenChange={setIsWaiveAuthOpen} 
                 feeAmount={appointmentsData.find(a => a.appointment.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} 
                 staff={staff}
-                onConfirm={handleConfirmWaive}
+                onConfirm={handleConfirmWay}
             />
         </div>
     );
