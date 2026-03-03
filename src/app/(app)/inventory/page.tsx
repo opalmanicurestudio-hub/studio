@@ -47,8 +47,8 @@ import {
   SlidersHorizontal,
   Store,
   Trash2,
-  TrendingDown,
   TrendingUp,
+  TrendingDown,
   Truck,
   Warehouse,
   X,
@@ -74,6 +74,7 @@ import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -1062,7 +1063,7 @@ export default function InventoryPage() {
     setIsWriteOffOpen(true);
   };
 
-  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
+  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
 
     const product = inventory.find(p => p.id === productId);
@@ -1112,7 +1113,9 @@ export default function InventoryPage() {
       category: 'Spoilage',
       amount: lossAmount,
       paymentMethod: 'Internal',
-      hasReceipt: false,
+      hasReceipt: !!imageUrl,
+      receiptUrl: imageUrl,
+      notes: notes,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
 
@@ -1143,7 +1146,7 @@ export default function InventoryPage() {
         const usesPerContainer = product.estimatedUses || 1;
         
         currentUses -= quantity;
-        while (currentUses < 0 && currentStock > 0) {
+        while (currentUses <= 0 && currentStock > 0) {
             currentStock -= 1;
             currentUses += usesPerContainer;
         }
@@ -1158,7 +1161,7 @@ export default function InventoryPage() {
         const sizePerContainer = product.size || 1;
 
         currentSize -= quantity;
-        while (currentSize < 0 && currentStock > 0) {
+        while (currentSize <= 0 && currentStock > 0) {
             currentStock -= 1;
             currentSize += sizePerContainer;
         }

@@ -478,17 +478,43 @@ function POSPageContent() {
             // Formula & Inventory Deduction (Accurate Ledger Integration)
             const formula = apt.checkoutState?.formula || [];
             formula.forEach(item => {
-                const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
                 const product = inventory.find(p => p.id === item.id);
-                if (product?.costingMethod === 'uses') {
-                    batch.update(productRef, { partialContainerUses: increment(-item.quantity) });
-                } else if (product?.costingMethod === 'size') {
-                    batch.update(productRef, { partialContainerSize: increment(-item.quantity) });
+                if (!product) return;
+
+                const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
+                const updateData: any = {};
+
+                if (product.costingMethod === 'uses') {
+                    let currentUses = product.partialContainerUses || 0;
+                    let currentStock = product.totalStock;
+                    const usesPerContainer = product.estimatedUses || 1;
+                    
+                    currentUses -= item.quantity;
+                    while (currentUses <= 0 && currentStock > 0) {
+                        currentStock -= 1;
+                        currentUses += usesPerContainer;
+                    }
+                    updateData.totalStock = currentStock;
+                    updateData.partialContainerUses = currentUses;
+                } else if (product.costingMethod === 'size') {
+                    let currentSize = product.partialContainerSize || 0;
+                    let currentStock = product.totalStock;
+                    const sizePerContainer = product.size || 1;
+
+                    currentSize -= item.quantity;
+                    while (currentSize <= 0 && currentStock > 0) {
+                        currentStock -= 1;
+                        currentSize += sizePerContainer;
+                    }
+                    updateData.totalStock = currentStock;
+                    updateData.partialContainerSize = currentSize;
                 } else {
-                    batch.update(productRef, { totalStock: increment(-item.quantity) });
+                    updateData.totalStock = (product.totalStock || 0) - item.quantity;
                 }
 
-                // Add to Inventory Ledger
+                batch.update(productRef, updateData);
+
+                // Add to Inventory Ledger (with Appointment and Staff IDs)
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(scRef, {
                     productId: item.id,
@@ -496,6 +522,8 @@ function POSPageContent() {
                     change: -item.quantity,
                     unit: item.unit || 'units',
                     reason: `Appointment for ${selectedClient?.name || 'Guest'}`,
+                    appointmentId: apt.id,
+                    staffId: tech.id,
                 });
             });
 
@@ -616,14 +644,17 @@ function POSPageContent() {
         }
     };
 
+    const isGroupCheckout = selectedAppointmentIds.size > 1;
+    const payerOptions = (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id));
+
     const checkoutHubProps = {
         cart: retailItems, 
         onCartChange: setRetailItems,
         appointmentsData: selectedAptsData,
         onSelectAppointment: handleSelectAppointment, 
         clients: clients || [], 
-        isGroupCheckout: selectedAppointmentIds.size > 1,
-        payerOptions: (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id)),
+        isGroupCheckout,
+        payerOptions,
         selectedClientId, 
         setSelectedClientId, 
         onAddClientClick: () => setIsAddClientOpen(true), 
@@ -653,7 +684,7 @@ function POSPageContent() {
         allowStacking: selectedTenant?.allowDiscountStacking || false, 
         showTitle: false,
         waivedAppointmentFees, 
-        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => setWaivedAppointmentFees(prev => { const next = new Map(prev); waive ? next.set(id, { authorizerId: authorizerId!, reason: reason! }) : next.delete(id); return next; }),
+        onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
         tipAllocations,
     };
 
