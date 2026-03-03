@@ -265,7 +265,8 @@ function POSPageContent() {
       concurrentIds.forEach(svcId => {
           const assignedStaffId = overrides[svcId];
           if (assignedStaffId) {
-              batch.set(doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId), { status: 'busy' }, { merge: true });
+              const assistantRef = doc(firestore, 'tenants', tenantId, 'staff', assignedStaffId);
+              batch.set(assistantRef, { status: 'busy' }, { merge: true });
           }
       });
 
@@ -438,7 +439,7 @@ function POSPageContent() {
         } else {
             batch.update(appointmentRef, { checkoutState });
             
-            // AUTO-IDLE: Mark current technician who finished their part as idle
+            // AUTO-IDLE: Mark staff member who just completed their part as idle
             if (currentUser) {
                 batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
             }
@@ -521,7 +522,7 @@ function POSPageContent() {
                     date: now,
                     change: -item.quantity,
                     unit: item.unit || 'units',
-                    reason: `Appointment for ${selectedClient?.name || 'Guest'}`,
+                    reason: `Service: ${service.name} (#${apt.id.slice(-6).toUpperCase()}) for ${selectedClient?.name || 'Guest'} by ${tech.name}`,
                     appointmentId: apt.id,
                     staffId: tech.id,
                 });
@@ -587,7 +588,7 @@ function POSPageContent() {
                 date: now,
                 change: -item.quantity,
                 unit: 'units',
-                reason: `Retail Sale to ${selectedClient?.name || 'Guest'}`,
+                reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'} by ${currentUser?.displayName || 'Staff'}`,
             });
         });
 
@@ -644,8 +645,8 @@ function POSPageContent() {
         }
     };
 
-    const isGroupCheckout = selectedAppointmentIds.size > 1;
-    const payerOptions = (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id));
+    const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
+    const payerOptionsList = (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id));
 
     const checkoutHubProps = {
         cart: retailItems, 
@@ -653,8 +654,8 @@ function POSPageContent() {
         appointmentsData: selectedAptsData,
         onSelectAppointment: handleSelectAppointment, 
         clients: clients || [], 
-        isGroupCheckout,
-        payerOptions,
+        isGroupCheckout: isGroupCheckoutValue,
+        payerOptions: payerOptionsList,
         selectedClientId, 
         setSelectedClientId, 
         onAddClientClick: () => setIsAddClientOpen(true), 
@@ -676,7 +677,7 @@ function POSPageContent() {
         amountTendered, 
         setAmountTendered,
         appliedAdjustments, 
-        onApplyAdjustmentToggle: (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; }),
+        onApplyAdjustmentToggle: (id: string, apply: boolean) => onApplyAdjustmentToggle(id, apply),
         redeemedOffer, 
         setRedeemedOffer, 
         memberships: memberships || [], 
@@ -688,12 +689,26 @@ function POSPageContent() {
         tipAllocations,
     };
 
+    const onApplyAdjustmentToggle = (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; });
+
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => {
+        setWaivedAppointmentFees(prev => {
+            const next = new Map(prev);
+            if (waive && authorizerId && reason) {
+                next.set(id, { authorizerId, reason });
+            } else {
+                next.delete(id);
+            }
+            return next;
+        });
+    };
+
     const todayAppointments = useMemo(() => {
         const today = startOfDay(new Date());
         return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
     }, [appointmentsFromInventory]);
 
-    const selectedClient = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+    const selectedClientObj = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">

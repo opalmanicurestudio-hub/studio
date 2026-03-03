@@ -773,11 +773,12 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
+    staff,
     isLoading: isInventoryLoading
   } = useInventory();
   
   const { toast } = useToast();
-  const { firestore, user } = useFirebase();
+  const { firestore, user: currentUser } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   
@@ -1096,12 +1097,13 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: product.unit || 'units',
-      reason: `Write-off: ${reason}`,
+      reason: `Write-off: ${reason} by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1125,7 +1127,7 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  }, [inventory, firestore, tenantId, toast]);
+  }, [inventory, firestore, tenantId, toast, currentUser, staff]);
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1182,12 +1184,13 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const newCorrection: Omit<StockCorrection, 'id'> = {
         productId: productId,
         date: new Date().toISOString(),
         change: -quantity,
         unit: unit,
-        reason: notes || 'Manual Use Log',
+        reason: notes || `Manual Use Log by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
@@ -1223,12 +1226,13 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: 'Manual Retail Sale',
+      reason: `Manual Retail Sale by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
