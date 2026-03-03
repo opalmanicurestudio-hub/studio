@@ -25,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
     <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
         <h3 className="text-2xl font-semibold">Create Your First Discount</h3>
-        <p className="text-muted-foreground max-w-sm mx-auto mt-2 mb-6">
+        <p className="text-muted-foreground max-sm mx-auto mt-2 mb-6">
             Offer special deals to attract new clients or reward your loyal customers.
         </p>
         <Button onClick={onAdd}>
@@ -103,7 +103,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                     {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
                 </p>
                 <p className="text-sm text-muted-foreground">{triggerText[discount.automation?.trigger || 'none']}</p>
-                <p className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></p>
+                <div className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></div>
             </CardContent>
         </Card>
     );
