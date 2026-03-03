@@ -530,7 +530,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             const statusMatch = statusFilter === 'all' || order.status === statusFilter;
 
             return searchTermMatch && statusMatch;
-        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+        }).sort((a,b) => parseISO(a.orderDate).getTime() - parseISO(b.orderDate).getTime());
     }, [orders, searchTerm, statusFilter]);
     
     const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
@@ -603,7 +603,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         }
       });
       
-      const allItems fullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
       const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
 
       let newStatus: Order['status'] = orderToReceive.status;
@@ -1057,7 +1057,7 @@ export default function InventoryPage() {
   };
 
   const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
-    if (!firestore || !tenantId || !inventory) return { success: boolean, message: 'Firestore not available' };
+    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
 
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
