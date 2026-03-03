@@ -7,8 +7,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { AlertTriangle, FlaskConical, TicketIcon, MoreHorizontal, Undo2 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { AlertTriangle, FlaskConical, TicketIcon, MoreHorizontal, Undo2, Cake } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -18,6 +18,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    return new Date(val);
+};
 
 interface CheckoutQueueCardProps {
   appointmentData: {
@@ -43,6 +52,13 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
 
   const { appointment: apt, client, service, addOnServices, staff } = appointmentData;
   const checkoutState = apt.checkoutState;
+
+  const isBirthdayToday = useMemo(() => {
+    if (!client?.birthday) return false;
+    const birth = safeDate(client.birthday);
+    const today = new Date();
+    return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+  }, [client]);
 
   const hasAdditionalCharges = useMemo(() => {
     if (!service || !checkoutState?.actualDuration) return false;
@@ -92,6 +108,7 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                     <div className="flex-1 space-y-1 min-w-0">
                         <div className="font-semibold flex items-center gap-2 truncate text-sm">
                             {client?.name || 'Walk-in'}
+                            {isBirthdayToday && <Cake className="w-3.5 h-3.5 text-pink-500 animate-pulse" />}
                             <TooltipProvider>
                                 {hasAdditionalCharges && (
                                     <Tooltip>
@@ -134,7 +151,10 @@ export const CheckoutQueueCard: React.FC<CheckoutQueueCardProps> = ({
                     </div>
                 </div>
                  <div className="flex items-end justify-between pt-3 border-t">
-                    <p className="text-xs text-muted-foreground truncate max-w-[150px]">{staff?.name}</p>
+                    <div className="min-w-0">
+                        <p className="text-xs text-muted-foreground truncate max-w-[120px]">{staff?.name}</p>
+                        {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 px-1 uppercase font-black">Birthday</Badge>}
+                    </div>
                     <p className="text-xl font-black text-primary tracking-tighter">${totalPrice.toFixed(2)}</p>
                 </div>
             </CardContent>

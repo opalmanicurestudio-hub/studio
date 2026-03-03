@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO, addMinutes, differenceInSeconds } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow } from 'lucide-react';
+import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
+import { useInventory } from '@/context/InventoryContext';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    return new Date(val);
+};
 
 interface InServiceAppointmentCardProps {
     appointment: Appointment;
@@ -35,6 +45,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     onRevertToReady,
     onViewDetails
 }) => {
+    const { clients } = useInventory();
     const mainService = services?.find(s => s.id === appointment.serviceId);
     const addOnServices = (appointment.addOnIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s);
     const allServices = [mainService, ...addOnServices].filter((s): s is Service => !!s);
@@ -46,14 +57,13 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     const [progress, setProgress] = useState(0);
     const [minsRemaining, setMinsRemaining] = useState(0);
 
-    const safeDate = (val: any): Date => {
-        if (!val) return new Date();
-        if (val instanceof Date) return val;
-        if (typeof val?.toDate === 'function') return val.toDate();
-        if (typeof val === 'string') return parseISO(val);
-        if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-        return new Date(val);
-    };
+    const isBirthdayToday = useMemo(() => {
+        const client = clients?.find(c => c.id === appointment.clientId);
+        if (!client?.birthday) return false;
+        const birth = safeDate(client.birthday);
+        const today = new Date();
+        return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+    }, [appointment.clientId, clients]);
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
@@ -108,7 +118,10 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
             <CardContent className="p-4" onClick={onViewDetails}>
                  <div className="flex justify-between items-start gap-2 cursor-pointer">
                     <div className="space-y-3 flex-1 min-w-0">
-                        <p className="font-bold flex items-center gap-2 truncate text-sm"><User className="w-4 h-4 shrink-0"/>{appointment.clientName}</p>
+                        <div className="flex items-center gap-2">
+                            <p className="font-bold truncate text-sm flex items-center gap-2"><User className="w-4 h-4 shrink-0"/>{appointment.clientName}</p>
+                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 px-1 uppercase font-black shadow-sm animate-bounce"><Cake className="w-2 h-2 mr-0.5" /> Birthday</Badge>}
+                        </div>
                         
                         <div className="space-y-1.5">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Live Sequence</p>
@@ -146,7 +159,7 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
                                             <p className="text-[11px] font-bold truncate leading-tight">{tech.name.split(' ')[0]}</p>
                                             <div className="flex items-center gap-1">
                                                 {techServices.map(sid => {
-                                                    const svc = allServices.find(s => s.id === sid);
+                                                    const svc = services?.find(s => s.id === sid);
                                                     const isPartConcurrent = concurrentIds.includes(sid);
                                                     return (
                                                         <TooltipProvider key={sid}>

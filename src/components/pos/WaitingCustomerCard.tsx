@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format, differenceInMinutes } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint } from 'lucide-react';
+import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint, Cake } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
@@ -21,6 +21,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { useInventory } from '@/context/InventoryContext';
 
 interface WaitingCustomerCardProps {
     item: (WalkIn | Appointment) & { type: 'walk-in' | 'appointment' };
@@ -49,10 +50,12 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
 export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
+    const { clients } = useInventory();
     const isWalkIn = item.type === 'walk-in';
     const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
     const serviceIds = isWalkIn ? (item as WalkIn).serviceIds : [(item as Appointment).serviceId];
@@ -69,6 +72,15 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
     
     const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
     const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
+
+    const isBirthdayToday = useMemo(() => {
+        const clientId = isWalkIn ? (item as WalkIn).clientId : (item as Appointment).clientId;
+        const client = clients?.find(c => c.id === clientId);
+        if (!client?.birthday) return false;
+        const birth = safeDate(client.birthday);
+        const today = new Date();
+        return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+    }, [item, clients, isWalkIn]);
 
     const handleLateConfirm = () => {
         onUpdateStatus(item.id, isWalkIn, 'running_late', parseInt(tempLateMinutes) || 0);
@@ -87,10 +99,13 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                     <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
                             <div className="min-w-0">
-                                <p className="font-bold truncate flex items-center gap-2 text-sm text-foreground">
-                                    {!isWalkIn && <Clock className="w-3 h-3 text-primary shrink-0" />}
-                                    {customerName}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="font-bold truncate flex items-center gap-2 text-sm text-foreground">
+                                        {!isWalkIn && <Clock className="w-3 h-3 text-primary shrink-0" />}
+                                        {customerName}
+                                    </p>
+                                    {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 px-1 uppercase font-black shadow-sm animate-bounce"><Cake className="w-2 h-2 mr-0.5" /> Birthday</Badge>}
+                                </div>
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5 font-bold uppercase tracking-wider">
                                     <Clock className="w-3 h-3"/>
                                     {isWalkIn ? `Waiting ${waitTime}` : `SCHEDULED ${waitTime}`}

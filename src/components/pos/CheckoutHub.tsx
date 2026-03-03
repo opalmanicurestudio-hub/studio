@@ -43,7 +43,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday, format } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
@@ -265,7 +265,9 @@ export const CheckoutHub = ({
 
     const isBirthdayToday = useMemo(() => {
         if (!selectedClient?.birthday) return false;
-        return isToday(safeDate(selectedClient.birthday));
+        const birth = safeDate(selectedClient.birthday);
+        const today = new Date();
+        return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
     }, [selectedClient]);
 
     const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
