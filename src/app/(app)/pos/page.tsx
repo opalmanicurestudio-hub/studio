@@ -68,7 +68,6 @@ function POSPageContent() {
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<any[]>([]);
     const [tipAmount, setTipAmount] = useState(0);
-    const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -707,8 +706,6 @@ function POSPageContent() {
         const today = startOfDay(new Date());
         return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
     }, [appointmentsFromInventory]);
-
-    const selectedClientObj = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
     return (
         <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">

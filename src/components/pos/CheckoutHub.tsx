@@ -62,6 +62,9 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
     return new Date(val);
 };
 
@@ -544,7 +547,7 @@ export const CheckoutHub = ({
                                                                             <div className="flex items-center gap-2">
                                                                                 <span className="text-[10px] font-black text-muted-foreground">${getServicePrice(addon, provider).toFixed(2)}</span>
                                                                                 <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoveAddOn(data.appointment.id, addonId)}>
-                                                                                    <Trash2 className="w-3 h-3" />
+                                                                                    <Trash2 className="w-3.5 h-3.5" />
                                                                                 </Button>
                                                                             </div>
                                                                         </div>
@@ -789,7 +792,7 @@ export const CheckoutHub = ({
                 onOpenChange={setIsWaiveAuthOpen} 
                 feeAmount={appointmentsData.find(a => a.appointment.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} 
                 staff={staff}
-                onConfirm={handleConfirmWay}
+                onConfirm={handleConfirmWaive}
             />
         </div>
     );
