@@ -102,9 +102,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                     {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
                 </p>
                 <p className="text-sm text-muted-foreground">{triggerText[discount.automation?.trigger || 'none']}</p>
-                <div className="text-xs text-muted-foreground pt-2 border-t flex items-center gap-2">
-                    Associated code: <Badge variant="outline">{discount.code}</Badge>
-                </div>
+                <div className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></div>
             </CardContent>
         </Card>
     );

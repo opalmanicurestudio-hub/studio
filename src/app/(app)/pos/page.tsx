@@ -68,6 +68,7 @@ function POSPageContent() {
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [retailItems, setRetailItems] = useState<any[]>([]);
     const [tipAmount, setTipAmount] = useState(0);
+    const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
     const [paymentTab, setPaymentTab] = useState('card');
     const [amountTendered, setAmountTendered] = useState<number>(0);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -686,6 +687,7 @@ function POSPageContent() {
         waivedAppointmentFees, 
         onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
         tipAllocations,
+        setTipAllocations,
     };
 
     const onApplyAdjustmentToggle = (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; });

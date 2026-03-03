@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,16 +55,8 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -178,6 +170,7 @@ export const CheckoutHub = ({
     waivedAppointmentFees,
     onWaiveFeeToggle,
     tipAllocations,
+    setTipAllocations,
 }: { 
     cart: any[], 
     onCartChange: (cart: any[]) => void,
@@ -217,11 +210,12 @@ export const CheckoutHub = ({
     waivedAppointmentFees: Map<string, { authorizerId: string; reason: string }>;
     onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => void;
     tipAllocations: Record<string, number>;
+    setTipAllocations: (allocations: Record<string, number>) => void;
 }) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-    const { appointments: allAppointments, staff, services, inventory } = useInventory();
+    const { appointments: allAppointments, staff, services } = useInventory();
     const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
     const { firestore } = useFirebase();
@@ -381,6 +375,12 @@ export const CheckoutHub = ({
         });
         return staff.filter(s => staffIds.has(s.id));
     }, [appointmentsData, staff]);
+
+    useEffect(() => {
+        if (allInvolvedStaff.length === 1 && tipAmount > 0) {
+            setTipAllocations({ [allInvolvedStaff[0].id]: tipAmount });
+        }
+    }, [tipAmount, allInvolvedStaff, setTipAllocations]);
 
     return (
         <div className="flex flex-col h-full max-h-full">
