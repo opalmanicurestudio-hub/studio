@@ -12,8 +12,8 @@ export const BookingTeam = ({ tenantId, staff }: { tenantId: string; staff: Staf
     return null;
   }
 
-  const getInitials = (name?: string) => {
-    if (!name) return '??';
+  const getInitials = (name?: string | null) => {
+    if (!name || name.length < 2) return '??';
     return name.substring(0, 2).toUpperCase();
   };
 

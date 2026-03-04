@@ -598,7 +598,11 @@ export default function WalkInPage() {
         const allDocs = snapshots.flatMap(s => s.docs);
 
         if (allDocs.length > 0) {
-            const matchedClient = allDocs[0].data() as Client;
+            const matchedClientDoc = allDocs[0];
+            const matchedClientData = matchedClientDoc.data() as Client;
+            const matchedClientId = matchedClientDoc.id;
+            const matchedClient = { ...matchedClientData, id: matchedClientId };
+
             if (matchedClient.status === 'banned') {
                 setBannedClient(matchedClient);
                 setExistingClientWithBalance(null);
@@ -613,7 +617,7 @@ export default function WalkInPage() {
                 
                 // Search for TODAY'S active appointment
                 const aptsRef = collection(firestore, 'tenants', tenantId, 'appointments');
-                const aptSnap = await getDocs(query(aptsRef, where("clientId", "==", matchedClient.id), where("status", "==", "confirmed")));
+                const aptSnap = await getDocs(query(aptsRef, where("clientId", "==", matchedClientId), where("status", "==", "confirmed")));
                 const todayApt = aptSnap.docs
                     .map(d => ({ ...d.data(), id: d.id } as Appointment))
                     .find(a => isSameDay(safeDate(a.startTime), new Date()));

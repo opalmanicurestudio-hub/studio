@@ -354,6 +354,13 @@ function POSPageContent() {
             return t.category === 'Service Revenue' && isSameDay(transactionDate, new Date());
         }).reduce((acc, t) => acc + t.amount, 0);
 
+        const totalRetailRevenue = (transactions || []).filter(t => {
+            const transactionDate = safeDate(t.date);
+            return t.category === 'Retail' && isSameDay(transactionDate, new Date());
+        }).reduce((acc, t) => acc + t.amount, 0);
+
+        const totalDailyGrossRevenue = totalServiceRevenue + totalRetailRevenue;
+
         const revenuePerServiceHour = totalInServiceMinutes > 0 ? (totalServiceRevenue / (totalInServiceMinutes / 60)) : 0;
 
         return {
@@ -361,6 +368,7 @@ function POSPageContent() {
             walkInConversionRate: conversionRate,
             totalWalkIns: walkInsToday.length,
             revenuePerServiceHour,
+            totalDailyGrossRevenue
         };
     }, [walkIns, appointmentsFromInventory, transactions, services]);
 
@@ -609,8 +617,8 @@ function POSPageContent() {
 
         // Update Client LTV & Last Appointment
         if (selectedClient) {
-            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
-            batch.update(clientRef, {
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
+            batch.update(clientDocRef, {
                 lifetimeValue: increment(totalLtvIncrease),
                 lastAppointment: now
             });
@@ -742,7 +750,7 @@ function POSPageContent() {
                         <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
                         <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Check-in to chair rate." />
                         <KpiCard title="Today's Volume" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total check-ins today." />
-                        <KpiCard title="Revenue / Hour" value={`$${kpiData.revenuePerServiceHour.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Rev per service hour." />
+                        <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Gross rev today." />
                     </div>
 
                     <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />

@@ -249,7 +249,7 @@ export default function NewCampaignPage() {
             const text = textarea.value;
             const newText = text.substring(0, start) + placeholder + text.substring(end);
             
-            setValue('body', newText, { shouldDirty: true });
+            setValue('body', newText, { shouldDirty: true, shouldValidate: true });
 
             // We need to wait for the re-render to complete before setting cursor
             setTimeout(() => {
@@ -262,11 +262,11 @@ export default function NewCampaignPage() {
     const handleTemplateSelect = (templateName: string) => {
         const template = premadeCampaigns.find(t => t.name === templateName);
         if (template) {
-            setValue('name', template.name, { shouldDirty: true });
-            setValue('type', template.type as 'email' | 'sms', { shouldDirty: true });
-            setValue('subject', template.subject, { shouldDirty: true });
-            setValue('body', template.body, { shouldDirty: true });
-            setValue('targetAudience', template.targetAudience as any, { shouldDirty: true });
+            setValue('name', template.name, { shouldDirty: true, shouldValidate: true });
+            setValue('type', template.type as 'email' | 'sms', { shouldDirty: true, shouldValidate: true });
+            setValue('subject', template.subject, { shouldDirty: true, shouldValidate: true });
+            setValue('body', template.body, { shouldDirty: true, shouldValidate: true });
+            setValue('targetAudience', template.targetAudience as any, { shouldDirty: true, shouldValidate: true });
             
             toast({
                 title: "Template Applied",
