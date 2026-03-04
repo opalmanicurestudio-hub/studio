@@ -336,6 +336,8 @@ export default function NewCampaignPage() {
         setIsSendingTest(false);
     };
 
+    const { ref: bodyRef, ...bodyRegister } = register('body');
+
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader title="New Campaign" />
@@ -457,8 +459,11 @@ export default function NewCampaignPage() {
                                 <Textarea
                                     id="body"
                                     placeholder="Hi {{clientName}}, ..."
-                                    {...register('body')}
-                                    ref={bodyTextareaRef}
+                                    {...bodyRegister}
+                                    ref={(e) => {
+                                        bodyRef(e);
+                                        bodyTextareaRef.current = e;
+                                    }}
                                     rows={8}
                                 />
                                 <p className="text-xs text-muted-foreground">Use {'{{clientName}}'} to personalize your message.</p>
