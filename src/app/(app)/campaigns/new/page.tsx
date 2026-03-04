@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -22,11 +22,12 @@ import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
-import { type Campaign, type Client } from '@/lib/data';
+import { type Campaign, type Client, type Service } from '@/lib/data';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
@@ -211,7 +212,7 @@ export default function NewCampaignPage() {
     const { selectedTenant } = useTenant();
     const router = useRouter();
     const { toast } = useToast();
-    const { discounts, clients } = useInventory();
+    const { discounts, clients, services } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [isSendingTest, setIsSendingTest] = useState(false);
@@ -445,11 +446,25 @@ export default function NewCampaignPage() {
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <Label htmlFor="body">Message Body</Label>
-                                    <div className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" size="sm" className="h-7 text-[10px] font-black uppercase">
+                                                    Insert Service <ChevronDown className="ml-1 h-3 w-3" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-56 max-h-64 overflow-y-auto">
+                                                {services.map(s => (
+                                                    <DropdownMenuItem key={s.id} onClick={() => handleInsertPlaceholder(s.name)}>
+                                                        {s.name}
+                                                    </DropdownMenuItem>
+                                                ))}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                         <Button
                                             type="button"
                                             variant="link"
-                                            className="p-1 h-auto"
+                                            className="p-1 h-auto text-[10px] uppercase font-black"
                                             onClick={() => handleInsertPlaceholder('{{clientName}}')}
                                         >
                                             Insert Client Name
@@ -539,11 +554,11 @@ export default function NewCampaignPage() {
             />
             <Dialog open={isTestSendDialogOpen} onOpenChange={setIsTestSendDialogOpen}>
                 <DialogContent className="sm:max-w-md">
-                    <DialogHeader className="text-left">
+                    <DialogHeader className="p-6 pb-4 text-left">
                         <DialogTitle>Send Test Campaign</DialogTitle>
                         <DialogDescription>Enter the email address to receive this test.</DialogDescription>
                     </DialogHeader>
-                    <div className="py-4 space-y-2">
+                    <div className="p-6 pt-0 space-y-2">
                         <Label htmlFor="test-email">Email Address</Label>
                         <Input
                             id="test-email"
@@ -553,7 +568,7 @@ export default function NewCampaignPage() {
                             placeholder="test@example.com"
                         />
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="p-6 pt-0">
                         <Button variant="outline" onClick={() => setIsTestSendDialogOpen(false)}>Cancel</Button>
                         <Button onClick={handleConfirmSendTest}>Send Test</Button>
                     </DialogFooter>
