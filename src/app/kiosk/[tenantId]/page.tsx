@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -51,7 +50,7 @@ import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
-import { Alert, AlertTitle, AlertDescription } from '@/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
@@ -111,14 +110,14 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full" key="party-type-selection">
         <h2 className="text-2xl md:text-6xl font-black tracking-tighter text-center mb-8 px-4 uppercase">Who's joining us?</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-10">
-            <div className="rounded-3xl border-2 bg-card shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('individual')}>
+            <div className="rounded-3xl border-2 bg-white shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('individual')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
                     <User className="w-12 h-12 md:w-16 md:h-16 mb-4 md:mb-6 text-primary group-hover:scale-110 transition-transform" />
                     <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">Solo Arrival</h3>
                     <p className="text-muted-foreground mt-2 text-xs md:text-base font-medium">Single guest check-in</p>
                 </div>
             </div>
-             <div className="rounded-3xl border-2 bg-card shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('group')}>
+             <div className="rounded-3xl border-2 bg-white shadow-xl transition-all hover:shadow-primary/20 hover:-translate-y-1 hover:border-primary cursor-pointer group" onClick={() => onSelect('group')}>
                 <div className="p-8 md:p-16 flex flex-col items-center justify-center text-center">
                     <Users className="w-12 h-12 md:w-16 md:h-16 mb-4 md:mb-6 text-primary group-hover:scale-110 transition-transform" />
                     <h3 className="text-xl md:text-3xl font-black tracking-tight uppercase">My Group</h3>
@@ -161,7 +160,7 @@ const StepDetails = ({
                     <User className="w-3.5 h-3.5 text-primary"/>
                     <span>Full Name</span>
                 </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-input bg-background px-4 py-2 text-lg md:text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary transition-all"/>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-input bg-white px-4 py-2 text-lg md:text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary transition-all shadow-sm"/>
             </div>
             {isGroup && !member.isPrimary && ( 
                 <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10">
@@ -181,7 +180,7 @@ const StepDetails = ({
                         onChange={(value) => onUpdate({ phone: value || '' })}
                         inputComponent={Input}
                         placeholder="(555) 000-0000"
-                        className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-input bg-background px-4 py-2 text-lg md:text-xl focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0"
+                        className="flex h-12 md:h-14 w-full rounded-2xl border-2 border-input bg-white px-4 py-2 text-lg md:text-xl focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 shadow-sm"
                     />
                 </div>
             </div>
@@ -190,7 +189,7 @@ const StepDetails = ({
                     <Mail className="w-3.5 h-3.5 text-primary"/>
                     <span>Email Address</span>
                 </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-14 text-lg md:text-xl rounded-2xl border-2 bg-background focus-visible:ring-primary"/>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-14 text-lg md:text-xl rounded-2xl border-2 bg-white focus-visible:ring-primary shadow-sm"/>
             </div>
 
             <AnimatePresence>
@@ -209,7 +208,7 @@ const StepDetails = ({
                             <div className="flex-1 min-w-0">
                                 <h4 className="font-black text-foreground uppercase tracking-tight text-sm">Welcome back, {member.name.split(' ')[0]}!</h4>
                                 <p className="text-xs text-muted-foreground font-medium">We found your appointment today:</p>
-                                <div className="mt-2 p-2 bg-background rounded-lg border border-primary/20">
+                                <div className="mt-2 p-2 bg-white rounded-lg border border-primary/20">
                                     <p className="font-bold text-primary text-xs uppercase truncate">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</p>
                                     <p className="text-[10px] text-muted-foreground font-bold uppercase">{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</p>
                                 </div>
@@ -295,7 +294,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
         <div 
             className={cn(
                 "block cursor-pointer rounded-2xl border-2 transition-all hover:shadow-lg h-full overflow-hidden",
-                isSelected ? "border-primary ring-2 ring-primary bg-primary/5 shadow-primary/10" : "bg-card"
+                isSelected ? "border-primary ring-2 ring-primary bg-primary/5 shadow-primary/10" : "bg-white"
             )}
             onClick={(e) => {
                 e.preventDefault();
@@ -332,7 +331,7 @@ const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: Pa
     const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
     
     if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-10 text-xl md:text-3xl font-black rounded-[2rem] border-2 bg-card hover:border-primary hover:bg-primary/5 transition-all shadow-xl uppercase tracking-tighter" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+        return ( <div className="grid grid-cols-1 gap-3 md:gap-4" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-6 md:p-10 text-xl md:text-3xl font-black rounded-[2rem] border-2 bg-white hover:border-primary hover:bg-primary/5 transition-all shadow-xl uppercase tracking-tighter" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
     }
     
     return (
@@ -376,7 +375,7 @@ const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMem
 const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
     <div className="space-y-6 md:space-y-8" key="consent-step">
         {requiredForms.map(form => (
-            <div key={form.id} className="space-y-4 md:space-y-6 p-4 md:p-8 rounded-[2rem] border-2 bg-card shadow-2xl">
+            <div key={form.id} className="space-y-4 md:space-y-6 p-4 md:p-8 rounded-[2rem] border-2 bg-white shadow-2xl">
                 <h3 className="text-xl md:text-3xl font-black flex items-center gap-3 uppercase tracking-tighter"><FileSignature className="w-6 h-6 md:w-8 md:h-8 text-primary" /> {form.title}</h3>
                 <div className="space-y-6 md:space-y-10">
                     {form.fields?.map(field => (
@@ -536,7 +535,7 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
             {confirmedParty.map(ticket => (
-                <Card key={ticket.id} className="bg-card border-2 rounded-[2rem] text-left shadow-xl">
+                <Card key={ticket.id} className="bg-white border-2 rounded-[2rem] text-left shadow-xl">
                     <CardContent className="p-5 md:p-8 flex justify-between items-center">
                         <div>
                             <p className="font-black text-base md:text-2xl uppercase tracking-tighter">{ticket.name}</p>
