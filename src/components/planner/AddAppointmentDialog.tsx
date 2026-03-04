@@ -384,205 +384,207 @@ const AddAppointmentForm = ({
     
     return (
         <>
-            <div className="space-y-6">
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Client & Service</h3>
-                    {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
-                        <Alert variant="destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Outstanding Balance</AlertTitle>
-                            <AlertDescription>
-                                This client has an outstanding balance of ${selectedClient.outstandingBalance.toFixed(2)}.
-                            </AlertDescription>
-                        </Alert>
-                    )}
-                    <div className="space-y-2">
-                        <Label htmlFor="client">Client</Label>
-                        <div className="flex gap-2">
+            <form id="add-appointment-form" onSubmit={handleSubmit(handleSaveAttempt)}>
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Client & Service</h3>
+                        {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
+                            <Alert variant="destructive">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Outstanding Balance</AlertTitle>
+                                <AlertDescription>
+                                    This client has an outstanding balance of ${selectedClient.outstandingBalance.toFixed(2)}.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="client">Client</Label>
+                            <div className="flex gap-2">
+                                <Controller
+                                    name="clientId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <SelectTrigger id="client">
+                                                {selectedClient ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback></Avatar>
+                                                        <span>{selectedClient.name}</span>
+                                                    </div>
+                                                ) : (
+                                                    <SelectValue placeholder="Select a client" />
+                                                )}
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C')?.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                />
+                                <Button variant="outline" size="icon" type="button"><PlusCircle className="h-4 w-4" /></Button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="staff">Staff Member</Label>
                             <Controller
-                                name="clientId"
+                                name="staffId"
                                 control={control}
                                 render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger id="client">
-                                            {selectedClient ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback></Avatar>
-                                                    <span>{selectedClient.name}</span>
-                                                </div>
-                                            ) : (
-                                                <SelectValue placeholder="Select a client" />
-                                            )}
+                                    <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
+                                        <SelectTrigger id="staff">
+                                            {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C')?.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                    <div className="flex items-center gap-2">
+                                                        <Avatar className="w-6 h-6">
+                                                            <AvatarImage src={s.avatarUrl} />
+                                                            <AvatarFallback>{(s?.name || 'S')?.charAt(0) || '?'}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span>{s?.name || 'Unknown Staff'}</span>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 )}
                             />
-                            <Button variant="outline" size="icon" type="button"><PlusCircle className="h-4 w-4" /></Button>
                         </div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="staff">Staff Member</Label>
-                        <Controller
-                            name="staffId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
-                                    <SelectTrigger id="staff">
-                                        {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
-                                            <SelectItem key={s.id} value={s.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6">
-                                                        <AvatarImage src={s.avatarUrl} />
-                                                        <AvatarFallback>{(s?.name || 'S')?.charAt(0) || '?'}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span>{s?.name || 'Unknown Staff'}</span>
-                                                </div>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="service">Service</Label>
-                        <Controller
-                            name="serviceId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger id="service"><SelectValue placeholder="Select a service" /></SelectTrigger>
-                                    <SelectContent>
-                                        {(services || []).filter(s => s.type === 'service').map(s => {
-                                            const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
-                                            return (
-                                                <SelectItem key={s.id} value={s.id}>
-                                                    <div className="flex items-center w-full gap-2">
-                                                      <span className="flex-1">{s.name}</span>
-                                                      {isMembershipPerk && (
-                                                        <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
-                                                            <Award className="mr-1 h-3 w-3" />
-                                                            Membership Perk
-                                                        </Badge>
-                                                      )}
-                                                    </div>
-                                                </SelectItem>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        />
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Add-on Services</h3>
-                    {selectedAddOns.length > 0 ? (
-                        <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
-                    ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
-                </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Date & Time</h3>
-                    <div className="rounded-lg border space-y-4 p-4">
-                        <div className="flex items-center justify-between">
-                            <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
-                            <span className="font-semibold text-center">{format(date, 'MMMM yyyy')}</span>
-                            <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
-                        </div>
-                        <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Start Time</Label>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                            {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
-                            {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-8">No available slots for this day.</div>)}
-                        </div>
-                    </div>
-                    {isOverlapping && (
-                        <Alert variant="destructive" className="mt-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Potential Double Booking</AlertTitle>
-                            <AlertDescription className="space-y-1">
-                                <p>This time slot overlaps with an existing item.</p>
-                                {clashingItem && (
-                                    <div className="pt-1 mt-1 border-t border-destructive/20">
-                                        <p className="font-bold">Clashes with: {clashingItem.details}</p>
-                                        <p className="text-xs opacity-80">{clashingItem.time}</p>
-                                    </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="service">Service</Label>
+                            <Controller
+                                name="serviceId"
+                                control={control}
+                                render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger id="service"><SelectValue placeholder="Select a service" /></SelectTrigger>
+                                        <SelectContent>
+                                            {(services || []).filter(s => s.type === 'service').map(s => {
+                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
+                                                return (
+                                                    <SelectItem key={s.id} value={s.id}>
+                                                        <div className="flex items-center w-full gap-2">
+                                                        <span className="flex-1">{s.name}</span>
+                                                        {isMembershipPerk && (
+                                                            <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                                                                <Award className="mr-1 h-3 w-3" />
+                                                                Membership Perk
+                                                            </Badge>
+                                                        )}
+                                                        </div>
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
                                 )}
-                            </AlertDescription>
-                        </Alert>
-                    )}
-                </div>
-                 <div className="space-y-4">
-                    <Controller
-                        name="isRecurring"
-                        control={control}
-                        render={({ field }) => (
-                            <div className="flex items-center justify-between p-4 border rounded-lg">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="is-recurring" className="text-base">Recurring Appointment</Label>
-                                    <p className="text-sm text-muted-foreground">Set up a repeating schedule for this client.</p>
-                                </div>
-                                <Switch id="is-recurring" checked={field.value} onCheckedChange={field.onChange} />
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Add-on Services</h3>
+                        {selectedAddOns.length > 0 ? (
+                            <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
+                        ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
+                        <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Date & Time</h3>
+                        <div className="rounded-lg border space-y-4 p-4">
+                            <div className="flex items-center justify-between">
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                <span className="font-semibold text-center">{format(date, 'MMMM yyyy')}</span>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
                             </div>
+                            <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Start Time</Label>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
+                                {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-8">No available slots for this day.</div>)}
+                            </div>
+                        </div>
+                        {isOverlapping && (
+                            <Alert variant="destructive" className="mt-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Potential Double Booking</AlertTitle>
+                                <AlertDescription className="space-y-1">
+                                    <p>This time slot overlaps with an existing item.</p>
+                                    {clashingItem && (
+                                        <div className="pt-1 mt-1 border-t border-destructive/20">
+                                            <p className="font-bold">Clashes with: {clashingItem.details}</p>
+                                            <p className="text-xs opacity-80">{clashingItem.time}</p>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
                         )}
-                    />
-                     {watch('isRecurring') && (
-                        <Card className="bg-muted/50"><CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Controller
-                                name="recurrence.frequency"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                        <Label>Frequency</Label>
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger><SelectValue placeholder="Select frequency" /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="weekly">Weekly</SelectItem>
-                                                <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
-                                                <SelectItem value="every-3-weeks">Every 3 Weeks</SelectItem>
-                                                <SelectItem value="every-4-weeks">Every 4 Weeks</SelectItem>
-                                                <SelectItem value="monthly">Monthly</SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                    </div>
+                    <div className="space-y-4">
+                        <Controller
+                            name="isRecurring"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="flex items-center justify-between p-4 border rounded-lg">
+                                    <div className="space-y-0.5">
+                                        <Label htmlFor="is-recurring" className="text-base">Recurring Appointment</Label>
+                                        <p className="text-sm text-muted-foreground">Set up a repeating schedule for this client.</p>
                                     </div>
-                                )}
-                            />
-                            <Controller
-                                name="recurrence.endDate"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                        <Label>End Date</Label>
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant={"outline"}
-                                                    className={cn('w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}
-                                                >
-                                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                                    {field.value ? format(field.value, 'PPP') : 'Pick end date'}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                                        </Popover>
-                                    </div>
-                                )}
-                            />
-                        </CardContent></Card>
-                     )}
+                                    <Switch id="is-recurring" checked={field.value} onCheckedChange={field.onChange} />
+                                </div>
+                            )}
+                        />
+                        {watch('isRecurring') && (
+                            <Card className="bg-muted/50"><CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Controller
+                                    name="recurrence.frequency"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <div className="space-y-2">
+                                            <Label>Frequency</Label>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <SelectTrigger><SelectValue placeholder="Select frequency" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="weekly">Weekly</SelectItem>
+                                                    <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
+                                                    <SelectItem value="every-3-weeks">Every 3 Weeks</SelectItem>
+                                                    <SelectItem value="every-4-weeks">Every 4 Weeks</SelectItem>
+                                                    <SelectItem value="monthly">Monthly</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
+                                />
+                                <Controller
+                                    name="recurrence.endDate"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <div className="space-y-2">
+                                            <Label>End Date</Label>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant={"outline"}
+                                                        className={cn('w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}
+                                                    >
+                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                        {field.value ? format(field.value, 'PPP') : 'Pick end date'}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
+                                            </Popover>
+                                        </div>
+                                    )}
+                                />
+                            </CardContent></Card>
+                        )}
+                    </div>
                 </div>
-            </div>
+            </form>
             <SelectAddOnsDialog 
                 open={isAddOnSelectorOpen} 
                 onOpenChange={setIsAddOnSelectorOpen} 
