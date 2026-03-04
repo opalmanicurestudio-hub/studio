@@ -15,11 +15,11 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, addDocumentNonBlocking, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier } from '@/lib/data';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -27,7 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, getDay, parseISO, parse } from 'date-fns';
+import { format, getDay, parseISO, parse, isSameDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -54,6 +54,14 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') return parseISO(val);
+    return new Date(val);
+};
 
 const isBusinessOpen = (date: Date, schedule: any) => {
     if (!schedule || !schedule.week) return { open: true };
@@ -127,7 +135,10 @@ const StepDetails = ({
     isGroup, 
     bannedClient, 
     existingClientWithBalance,
-    isResolvingIdentity
+    isResolvingIdentity,
+    matchedAppointment,
+    onAppointmentCheckIn,
+    services
 }: { 
     member: PartyMember; 
     onUpdate: (updates: Partial<PartyMember>) => void; 
@@ -136,8 +147,12 @@ const StepDetails = ({
     bannedClient: Client | null;
     existingClientWithBalance: Client | null;
     isResolvingIdentity: boolean;
+    matchedAppointment: Appointment | null;
+    onAppointmentCheckIn: (apt: Appointment) => void;
+    services: Service[];
 }) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
+    
     return (
         <div className="space-y-6">
             <div className="space-y-2">
@@ -183,6 +198,28 @@ const StepDetails = ({
                         <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
                     </motion.div>
                 )}
+                
+                {matchedAppointment && !bannedClient && !existingClientWithBalance && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 rounded-2xl border-2 border-primary bg-primary/10 shadow-lg shadow-primary/10">
+                        <div className="flex items-start gap-4">
+                            <div className="p-2 bg-primary rounded-full mt-1">
+                                <CalendarCheck className="w-5 h-5 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="font-black text-white uppercase tracking-tight text-sm">Welcome back, {member.name.split(' ')[0]}!</h4>
+                                <p className="text-xs text-slate-300 font-medium">We found your appointment today:</p>
+                                <div className="mt-2 p-2 bg-slate-900/50 rounded-lg border border-primary/20">
+                                    <p className="font-bold text-primary text-xs uppercase truncate">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</p>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</p>
+                                </div>
+                                <Button className="w-full mt-4 h-12 text-base font-black uppercase shadow-xl" onClick={() => onAppointmentCheckIn(matchedAppointment)}>
+                                    Check In Now
+                                </Button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
                 {bannedClient && (
                     <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                         <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2 rounded-2xl">
@@ -369,7 +406,9 @@ const MemberSetup = ({
     isSubmitting,
     bannedClient,
     existingClientWithBalance,
-    isResolvingIdentity
+    isResolvingIdentity,
+    matchedAppointment,
+    onAppointmentCheckIn
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-5 md:h-5" /> },
@@ -421,6 +460,9 @@ const MemberSetup = ({
                                 bannedClient={bannedClient}
                                 existingClientWithBalance={existingClientWithBalance}
                                 isResolvingIdentity={isResolvingIdentity}
+                                matchedAppointment={matchedAppointment}
+                                onAppointmentCheckIn={onAppointmentCheckIn}
+                                services={services}
                             />
                         )}
                         {memberSubStep === 'services' && <StepServices key="step-services" member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
@@ -540,6 +582,7 @@ export default function WalkInPage() {
   const [existingClientWithBalance, setExistingClientWithBalance] = useState<Client | null>(null);
   const [bannedClient, setBannedClient] = useState<Client | null>(null);
   const [isResolvingIdentity, setIsResolvingIdentity] = useState(false);
+  const [matchedAppointment, setMatchedAppointment] = useState<Appointment | null>(null);
 
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
     if (!firestore || !tenantId || (!email && !phone)) return;
@@ -559,16 +602,28 @@ export default function WalkInPage() {
             if (matchedClient.status === 'banned') {
                 setBannedClient(matchedClient);
                 setExistingClientWithBalance(null);
+                setMatchedAppointment(null);
             } else if (matchedClient.outstandingBalance && matchedClient.outstandingBalance > 0) {
                 setExistingClientWithBalance(matchedClient);
                 setBannedClient(null);
+                setMatchedAppointment(null);
             } else {
                 setBannedClient(null);
                 setExistingClientWithBalance(null);
+                
+                // Search for TODAY'S active appointment
+                const aptsRef = collection(firestore, 'tenants', tenantId, 'appointments');
+                const aptSnap = await getDocs(query(aptsRef, where("clientId", "==", matchedClient.id), where("status", "==", "confirmed")));
+                const todayApt = aptSnap.docs
+                    .map(d => ({ ...d.data(), id: d.id } as Appointment))
+                    .find(a => isSameDay(safeDate(a.startTime), new Date()));
+                
+                setMatchedAppointment(todayApt || null);
             }
         } else {
             setBannedClient(null);
             setExistingClientWithBalance(null);
+            setMatchedAppointment(null);
         }
     } catch (e) {
         console.error("Identity resolution failed", e);
@@ -637,6 +692,51 @@ export default function WalkInPage() {
         const currentIndex = subSteps.indexOf(memberSubStep);
         setMemberSubStep(subSteps[currentIndex - 1]);
     }
+  };
+
+  const handleAppointmentCheckIn = async (apt: Appointment) => {
+      if (isSubmitting || !firestore || !tenantId) return;
+      setIsSubmitting(true);
+      const batch = writeBatch(firestore);
+      
+      try {
+          const aptRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
+          batch.update(aptRef, { checkInStatus: 'arrived' });
+          
+          if (apt.checkInToken) {
+              const checkInRef = doc(firestore, 'appointmentCheckIns', apt.checkInToken);
+              batch.update(checkInRef, { checkInStatus: 'arrived', tenantId: tenantId });
+          }
+
+          // Notify staff
+          if (apt.staffId) {
+              const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+              batch.set(notificationRef, {
+                  userId: apt.staffId,
+                  type: 'client_movement',
+                  message: `${apt.clientName || 'Your guest'} has checked in at the kiosk.`,
+                  link: '/planner',
+                  createdAt: new Date().toISOString(),
+                  read: false,
+              });
+          }
+
+          await batch.commit();
+          const ticketData: WalkInTicketData = {
+              id: apt.id,
+              name: apt.clientName || 'Guest',
+              services: services?.filter(s => s.id === apt.serviceId) || [],
+              queuePosition: 0, // Not applicable for appointments
+              checkInTime: new Date().toISOString(),
+          };
+          setConfirmedParty([ticketData]);
+          setStep('confirmation');
+      } catch (e) {
+          console.error(e);
+          toast({ variant: 'destructive', title: 'Check-in Error' });
+      } finally {
+          setIsSubmitting(false);
+      }
   };
 
   const handleSubmit = async () => {
@@ -750,9 +850,11 @@ export default function WalkInPage() {
                             bannedClient={bannedClient}
                             existingClientWithBalance={existingClientWithBalance}
                             isResolvingIdentity={isResolvingIdentity}
+                            matchedAppointment={matchedAppointment}
+                            onAppointmentCheckIn={handleAppointmentCheckIn}
                         />
                     )}
-                    {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); }} />}
+                    {step === 'confirmation' && <ConfirmationScreen confirmedParty={confirmedParty} onPrint={(t) => { setTicketToPrint(t); setIsPrintDialogOpen(true); }} onDone={() => { setEntered(false); setStep('partyType'); setPartyMembers([]); setFormAnswers({}); setMatchedAppointment(null); }} />}
                 </motion.div>
             )}
         </AnimatePresence>
