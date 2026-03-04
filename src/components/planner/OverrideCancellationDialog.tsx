@@ -81,12 +81,12 @@ export const OverrideCancellationDialog: React.FC<OverrideCancellationDialogProp
         </DialogHeader>
         <div className="space-y-6 py-4">
           <div className="space-y-2 text-center">
-            <Label htmlFor="pin" className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin PIN</Label>
+            <Label htmlFor="pin-auth" className="text-sm font-black uppercase tracking-widest text-muted-foreground">Admin PIN</Label>
             <div className="flex justify-center">
                 <div className="relative w-40">
                     <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        id="pin"
+                        id="pin-auth"
                         type="password"
                         placeholder="••••"
                         maxLength={4}
@@ -99,9 +99,9 @@ export const OverrideCancellationDialog: React.FC<OverrideCancellationDialogProp
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="reason" className="text-xs font-bold uppercase tracking-wider">Reason for Override</Label>
+            <Label htmlFor="reason-auth" className="text-xs font-bold uppercase tracking-wider">Reason for Override</Label>
             <Textarea
-              id="reason"
+              id="reason-auth"
               placeholder="e.g., Accommodating VIP client, traffic delay verified..."
               className="resize-none"
               rows={3}

@@ -72,7 +72,7 @@ import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Locations } from '@/components/inventory/Locations';
 import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
-import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
@@ -151,6 +151,7 @@ import {
   LocationType,
   Order,
   StockCorrection,
+  Staff,
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
@@ -596,11 +597,11 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         }
       });
       
-      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const allItemsFullyOrReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
       const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
 
       let newStatus: Order['status'] = orderToReceive.status;
-      if (allItemsFullyOrPartiallyReceived) {
+      if (allItemsFullyOrReceived) {
         newStatus = 'Received';
       } else if (someItemsReceived) {
         newStatus = 'Partially Received';
@@ -1028,10 +1029,9 @@ export default function InventoryPage() {
   };
 
 
-  const handleOpenLogUse = (item: InventoryItem | string) => {
+  const handleOpenLogUse = (item: InventoryItem) => {
     setLogUseDialogType('product');
-    const targetItem = typeof item === 'string' ? inventory.find(i => i.id === item) : item;
-    setSelectedProduct(targetItem || null);
+    setSelectedProduct(item);
     setIsLogUseOpen(true);
   }
 
@@ -1176,7 +1176,7 @@ export default function InventoryPage() {
         date: new Date().toISOString(),
         change: -quantity,
         unit: unit,
-        reason: notes || `Manual Use Log by ${currentStaff?.name || 'Staff'}`,
+        reason: `${notes || 'Manual Use Log'} by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     

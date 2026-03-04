@@ -55,11 +55,12 @@ import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 /**
- * Utility to safely convert potential strings or Date objects into valid Date instances.
+ * Utility to safely convert potential strings, JS dates, or Timestamp objects into valid Date instances.
  */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') {
         try {
             return parseISO(val);
@@ -67,7 +68,9 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
     return new Date(val);
 };
 

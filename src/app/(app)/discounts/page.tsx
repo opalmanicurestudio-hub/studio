@@ -224,7 +224,7 @@ export default function DiscountsPage() {
     const { kpiData, savingsByCode } = useMemo(() => {
         if (!transactions || !discounts || !appointments) {
           return {
-            kpiData: { totalDiscountsValue: 0, promoRetentionRate: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
+            kpiData: { totalGrossDiscountsValue: 0, promoRetentionRate: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
             savingsByCode: {} as Record<string, number>
           };
         }

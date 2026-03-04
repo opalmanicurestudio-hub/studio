@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { format, differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
+import { format, differenceInMinutes, parseISO, differenceInSeconds, isSameMonth } from 'date-fns';
 import {
   Award,
   MoreHorizontal,
@@ -124,7 +124,7 @@ export function AppointmentCard({
     if (!client?.birthday) return false;
     const birth = safeDate(client.birthday);
     const today = new Date();
-    return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+    return isSameMonth(today, birth) && birth.getDate() === today.getDate();
   }, [client?.birthday]);
 
   const handleCopyCheckInLink = (e: React.MouseEvent) => {

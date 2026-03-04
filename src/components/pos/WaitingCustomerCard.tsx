@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
-import { formatDistanceToNow, parseISO, format, differenceInMinutes } from 'date-fns';
+import { formatDistanceToNow, parseISO, format, differenceInMinutes, isSameMonth } from 'date-fns';
 import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint, Cake } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -49,8 +50,17 @@ const statusOptions = [
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
     return new Date(val);
 };
 
@@ -79,7 +89,7 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
         if (!client?.birthday) return false;
         const birth = safeDate(client.birthday);
         const today = new Date();
-        return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+        return isSameMonth(today, birth) && birth.getDate() === today.getDate();
     }, [item, clients, isWalkIn]);
 
     const handleLateConfirm = () => {

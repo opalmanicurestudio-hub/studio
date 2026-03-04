@@ -1,10 +1,10 @@
 
 'use client';
 
-import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay } from 'date-fns';
+import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO } from 'date-fns';
 import { type Staff, type Appointment, type Service, type Resource, type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { type ReceiptData } from './PrintReceipt';
@@ -13,6 +13,23 @@ import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Building, HardHat, Lock, Users } from 'lucide-react';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 export const DayTimeline = ({ 
     date, 
@@ -118,12 +135,12 @@ export const DayTimeline = ({
             let layoutInfo = combinedItems.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
             
             function positionCluster(cluster: any[]) {
-                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                cluster.sort((a,b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
                 const cols: any[][] = [];
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < cols.length; i++) {
-                        if (!cols[i].some(ex => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: ex.startTime, end: ex.endTime }, { inclusive: false }))) {
+                        if (!cols[i].some(ex => areIntervalsOverlapping({ start: safeDate(item.startTime), end: safeDate(item.endTime) }, { start: safeDate(ex.startTime), end: safeDate(ex.endTime) }, { inclusive: false }))) {
                             cols[i].push(item); item.layout.col = i; placed = true; break;
                         }
                     }
@@ -135,12 +152,12 @@ export const DayTimeline = ({
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
-                if (lastEventEnd !== null && item.startTime.getTime() >= lastEventEnd.getTime()) { 
+                if (lastEventEnd !== null && safeDate(item.startTime).getTime() >= lastEventEnd.getTime()) { 
                     positionCluster(currentCluster); 
                     currentCluster = []; 
                 }
                 currentCluster.push(item);
-                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, safeDate(item.endTime).getTime()));
             }
             if (currentCluster.length > 0) positionCluster(currentCluster);
             map.set(columnId, layoutInfo.map(item => ({ ...item, layout: { width: `${100 / item.layout.cols}%`, left: `${(100 / item.layout.cols) * item.layout.col}%` } })));
@@ -155,9 +172,11 @@ export const DayTimeline = ({
         if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' } as any;
         if (!client || !service) return null;
 
+        const startTime = safeDate(item.startTime);
+        const endTime = safeDate(item.endTime);
         const padBefore = service.padBefore || 0;
-        const totalDuration = differenceInMinutes(item.endTime, item.startTime) + padBefore + (service.padAfter || 0);
-        const top = differenceInMinutes(subMinutes(item.startTime, padBefore), dayStart) * (160/60);
+        const totalDuration = differenceInMinutes(endTime, startTime) + padBefore + (service.padAfter || 0);
+        const top = differenceInMinutes(subMinutes(startTime, padBefore), dayStart) * (160/60);
         const height = totalDuration * (160/60);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
        
@@ -178,9 +197,11 @@ export const DayTimeline = ({
 
     const renderEvent = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const mins = differenceInMinutes(item.startTime, dayStart);
+        const startTime = safeDate(item.startTime);
+        const endTime = safeDate(item.endTime);
+        const mins = differenceInMinutes(startTime, dayStart);
         if (mins < 0) return null;
-        const style = { top: `${mins * (160/60)}px`, height: `${differenceInMinutes(item.endTime, item.startTime) * (160/60)}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        const style = { top: `${mins * (160/60)}px`, height: `${differenceInMinutes(endTime, startTime) * (160/60)}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         return (
              <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <EventCard event={item} transactions={dailyTransactions?.filter(t => t.relatedEventId === item.id) || []} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} onDeleteEvent={onDeleteEvent} />
