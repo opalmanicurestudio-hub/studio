@@ -141,6 +141,7 @@ import {
   useCollection,
   useFirebase,
   useMemoFirebase,
+  useUser,
 } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -740,7 +741,7 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
             </div>
         </div>
         <h3 className="text-xl font-semibold mb-2">Your Inventory is Empty</h3>
-        <p className="text-muted-foreground max-w-sm mx-auto mb-6">
+        <p className="text-muted-foreground max-sm mx-auto mb-6">
             Get started by adding your first product, piece of equipment, or overhead supply.
         </p>
          <Button onClick={onAddFirstItem}>

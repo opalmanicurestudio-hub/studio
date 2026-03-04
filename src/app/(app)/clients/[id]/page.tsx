@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -45,14 +46,13 @@ import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
+import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment, updateDoc, deleteField } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event, Discount, Staff, WaivedFee, Tenant } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 /**
  * Utility to safely convert potential strings or Date objects into valid Date instances.
@@ -194,9 +194,13 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
 
     const threshold = loyaltyDiscount.automation?.appointmentThreshold || 5;
     const completedAppointmentsCount = appointments.filter(apt => apt.status === 'completed').length;
-    const progress = (completedAppointmentsCount % threshold) / threshold * 100;
-    const visitsRemaining = threshold - (completedAppointmentsCount % threshold);
+    const currentCycleVisits = completedAppointmentsCount % threshold;
+    const progress = (currentCycleVisits / threshold) * 100;
+    const visitsRemaining = threshold - currentCycleVisits;
     
+    // If the remainder is 0 and they have completed appointments, they hit the exact threshold
+    const milestoneReached = currentCycleVisits === 0 && completedAppointmentsCount > 0;
+
     const rewardValue = loyaltyDiscount.type === 'percentage' 
         ? `${loyaltyDiscount.value}% off` 
         : `$${loyaltyDiscount.value.toFixed(2)} off`;
@@ -208,27 +212,19 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="text-center">
-                    {visitsRemaining === threshold && completedAppointmentsCount > 0 && (
-                        <p>Reward earned on last visit!</p>
-                    )
-                    }
-                    {visitsRemaining === threshold && completedAppointmentsCount === 0 && (
-                         <p>Their next visit is their first towards a reward!</p>
-                    )
-                    }
-                    {visitsRemaining === 1 && (
-                        <p>Just <span className="font-bold text-primary text-lg">1</span> more visit until the next reward!</p>
-                    )
-                    }
-                    {visitsRemaining > 1 && (
-                         <p><span className="font-bold text-primary text-lg">{visitsRemaining}</span> more visits until the next reward!</p>
+                    {milestoneReached ? (
+                        <p className="font-bold text-green-600 flex items-center justify-center gap-2">
+                            <CheckCircle className="w-5 h-5" /> Reward Milestone Reached!
+                        </p>
+                    ) : (
+                        <p>Just <span className="font-bold text-primary text-lg">{visitsRemaining}</span> more visit{visitsRemaining > 1 ? 's' : ''} until the next reward!</p>
                     )}
                 </div>
-                <Progress value={progress} />
+                <Progress value={milestoneReached ? 100 : progress} className={cn(milestoneReached && "[&>div]:bg-green-500")} />
                 <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                        <span className="text-muted-foreground">Completed Visits (cycle)</span>
-                        <span className="font-medium">{(completedAppointmentsCount % threshold)} / {threshold}</span>
+                        <span className="text-muted-foreground">Visits this cycle</span>
+                        <span className="font-medium">{milestoneReached ? threshold : currentCycleVisits} / {threshold}</span>
                     </div>
                      <div className="flex justify-between">
                         <span className="text-muted-foreground">Total Lifetime Visits</span>
@@ -870,7 +866,8 @@ export default function ClientDetailPage() {
                                       </Button>
                                   </CardFooter>
                                </Card>
-                               <LoyaltyStatusCard client={client} appointments={pastAppointments} discounts={discounts || []} />
+                               {/* Use all client appointments for loyalty tracking to include today's completed ones */}
+                               <LoyaltyStatusCard client={client} appointments={appointmentsForThisClient} discounts={discounts || []} />
                            </div>
                       </div>
                   </TabsContent>

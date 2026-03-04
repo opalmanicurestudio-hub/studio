@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -45,6 +46,9 @@ const safeDate = (val: any): Date => {
         } catch {
             return new Date(val);
         }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
     }
     return new Date(val);
 };
