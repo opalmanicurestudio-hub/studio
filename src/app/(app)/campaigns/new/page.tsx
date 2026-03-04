@@ -252,7 +252,6 @@ export default function NewCampaignPage() {
             
             setValue('body', newText, { shouldDirty: true, shouldValidate: true });
 
-            // We need to wait for the re-render to complete before setting cursor
             setTimeout(() => {
                 textarea.selectionStart = textarea.selectionEnd = start + placeholder.length;
                 textarea.focus();
@@ -282,14 +281,10 @@ export default function NewCampaignPage() {
         if (status === 'draft') setIsSaving(true);
         else setIsSending(true);
 
-        const newCampaign: Omit<Campaign, 'id' | 'sentAt'> = {
-            ...data,
-            status,
-        };
-
         const finalCampaign = {
-            ...newCampaign,
+            ...data,
             id: nanoid(),
+            status,
             sentAt: status === 'sent' ? new Date().toISOString() : undefined,
         }
         
@@ -327,7 +322,6 @@ export default function NewCampaignPage() {
         setIsSendingTest(true);
         setIsTestSendDialogOpen(false);
     
-        // This is a simulation, as we don't have a mailer service integrated.
         await new Promise(resolve => setTimeout(resolve, 1500));
     
         toast({
@@ -405,8 +399,8 @@ export default function NewCampaignPage() {
                                     <div className="space-y-2">
                                         <Label>Campaign Type</Label>
                                         <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                            <div><RadioGroupItem value="email" id="email" className="peer sr-only" /><Label htmlFor="email" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"><Mail className="w-6 h-6 mb-2"/>Email</Label></div>
-                                            <div><RadioGroupItem value="sms" id="sms" className="peer sr-only" /><Label htmlFor="sms" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"><MessageSquare className="w-6 h-6 mb-2"/>SMS</Label></div>
+                                            <div><RadioGroupItem value="email" id="email" className="peer sr-only" /><Label htmlFor="email" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"><Mail className="w-6 h-6 mb-2"/>Email</Label></div>
+                                            <div><RadioGroupItem value="sms" id="sms" className="peer sr-only" /><Label htmlFor="sms" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"><MessageSquare className="w-6 h-6 mb-2"/>SMS</Label></div>
                                         </RadioGroup>
                                     </div>
                                 )}

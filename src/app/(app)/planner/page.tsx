@@ -348,7 +348,6 @@ function PlannerPageContent() {
         });
         if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
         
-        // AUTO-IDLE: Mark ALL involved staff as idle when the whole appointment is done
         const involvedIds = new Set<string>();
         if (apt.staffId) involvedIds.add(apt.staffId);
         if (checkoutState.serviceStaffOverrides) {
@@ -360,12 +359,10 @@ function PlannerPageContent() {
     } else {
         batch.update(appointmentRef, { checkoutState });
         
-        // AUTO-IDLE: Mark staff member who just completed their part as idle
         if (currentUser) {
             batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
         }
 
-        // Mark NEXT sequential technician as busy on hand-off
         const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
         const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
         const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''];
@@ -420,7 +417,6 @@ function PlannerPageContent() {
         batch.set(staffDocRef, { status: 'busy' }, { merge: true });
     }
 
-    // Mark all concurrent technicians as busy immediately
     const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
     const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
     concurrentIds.forEach(svcId => {
