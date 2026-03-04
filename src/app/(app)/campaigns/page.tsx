@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon, FlaskConical } from 'lucide-react';
+import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon, FlaskConical, Gift } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -40,7 +40,7 @@ const audienceText: Record<Campaign['targetAudience'], string> = {
     birthday: 'Birthday Month',
 };
 
-const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign & { recipientCount?: number }, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
+const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex justify-between items-start gap-4">
@@ -79,7 +79,7 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign & { r
             </div>
              <div className="flex items-center text-sm text-muted-foreground">
                 <Users className="w-4 h-4 mr-2"/>
-                <span>{campaign.status === 'sent' ? (campaign.recipientCount || 150) : 'N/A'} Recipients</span>
+                <span>{campaign.status === 'sent' ? (campaign.recipientCount || 0) : 'N/A'} Recipients</span>
             </div>
              <div className="flex items-center justify-between text-sm pt-3 border-t">
                 <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
@@ -141,18 +141,31 @@ export default function CampaignsPage() {
   const sortedCampaigns = useMemo(() => {
     if (!campaigns) return [];
     return [...campaigns].sort((a,b) => {
-        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
-        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
+        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : 0;
         return bDate - aDate;
     })
   }, [campaigns]);
 
-  const kpiData = {
-    totalCampaigns: campaigns?.length || 0,
-    totalRecipients: 1253,
-    avgOpenRate: 28.3,
-    totalRevenue: 1874.50,
-  };
+  const kpiData = useMemo(() => {
+    if (!campaigns) return { totalCampaigns: 0, totalRecipients: 0, avgOpenRate: 0, totalRevenue: 0 };
+    
+    const sentCampaigns = campaigns.filter(c => c.status === 'sent');
+    const totalRecipients = sentCampaigns.reduce((sum, c) => sum + (c.recipientCount || 0), 0);
+    const totalRevenue = sentCampaigns.reduce((sum, c) => sum + (c.generatedRevenue || 0), 0);
+    
+    const campaignsWithOpenRate = sentCampaigns.filter(c => typeof c.openRate === 'number');
+    const avgOpenRate = campaignsWithOpenRate.length > 0
+      ? campaignsWithOpenRate.reduce((sum, c) => sum + (c.openRate || 0), 0) / campaignsWithOpenRate.length
+      : 0;
+
+    return {
+      totalCampaigns: campaigns.length,
+      totalRecipients,
+      avgOpenRate: parseFloat(avgOpenRate.toFixed(1)),
+      totalRevenue,
+    };
+  }, [campaigns]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -228,7 +241,7 @@ export default function CampaignsPage() {
                                             <span>{audienceText[campaign.targetAudience]} {campaign.targetAudience === 'specific' ? `(${campaign.targetClientIds?.length || 0})` : ''}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell>{campaign.status === 'sent' ? (campaign.recipientCount || '150') : 'N/A'}</TableCell>
+                                    <TableCell>{campaign.status === 'sent' ? (campaign.recipientCount || '0') : 'N/A'}</TableCell>
                                     <TableCell>
                                         <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
                                     </TableCell>
@@ -255,7 +268,7 @@ export default function CampaignsPage() {
                 </div>
                 <div className="md:hidden space-y-4">
                     {sortedCampaigns.map(campaign => (
-                        <CampaignCard key={campaign.id} campaign={campaign as Campaign & { recipientCount?: number }} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
+                        <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
                     ))}
                 </div>
               </>
