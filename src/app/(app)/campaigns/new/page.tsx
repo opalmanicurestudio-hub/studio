@@ -17,17 +17,15 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
-import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { nanoid } from 'nanoid';
 import { type Campaign, type Client } from '@/lib/data';
-import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
@@ -81,7 +79,6 @@ const premadeCampaigns = [
   },
 ];
 
-
 const CampaignPreviewDialog = ({
   previewData,
   onOpenChange,
@@ -92,12 +89,12 @@ const CampaignPreviewDialog = ({
   if (!previewData) return null;
 
   const sampleClientName = 'Jane Doe';
-  const bodyWithPlaceholders = previewData.body.replace('{{clientName}}', sampleClientName);
+  const bodyWithPlaceholders = previewData.body.replace(/{{clientName}}/g, sampleClientName);
 
   return (
     <Dialog open={!!previewData} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl p-0">
-        <DialogHeader className="p-6 pb-2">
+        <DialogHeader className="p-6 pb-2 text-left">
           <DialogTitle>Campaign Preview</DialogTitle>
         </DialogHeader>
         <ScrollArea className="max-h-[80vh]">
@@ -182,7 +179,7 @@ const ClientSelectorDialog = ({
                     <DialogTitle>Select Clients</DialogTitle>
                     <DialogDescription>Choose specific clients to receive this campaign.</DialogDescription>
                 </DialogHeader>
-                <div className="py-4 space-y-4">
+                <div className="py-4 space-y-4 text-left">
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input placeholder="Search clients..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9" />
@@ -223,7 +220,6 @@ export default function NewCampaignPage() {
     const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
     const [isTestSendDialogOpen, setIsTestSendDialogOpen] = useState(false);
     const [testEmail, setTestEmail] = useState('');
-
 
     const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
@@ -269,6 +265,11 @@ export default function NewCampaignPage() {
             setValue('subject', template.subject, { shouldDirty: true });
             setValue('body', template.body, { shouldDirty: true });
             setValue('targetAudience', template.targetAudience as any, { shouldDirty: true });
+            
+            toast({
+                title: "Template Applied",
+                description: `Script for "${template.name}" has been loaded.`,
+            });
         }
     };
 
@@ -365,18 +366,18 @@ export default function NewCampaignPage() {
                         </Button>
                     </div>
                      <Card>
-                        <CardHeader>
+                        <CardHeader className="text-left">
                             <CardTitle>Compose Your Campaign</CardTitle>
                              <div className="pt-4">
                                 <Select onValueChange={handleTemplateSelect}>
-                                    <SelectTrigger className="w-full md:w-1/2">
-                                        <SelectValue placeholder="✨ Start from a template..." />
+                                    <SelectTrigger className="w-full md:w-1/2 border-primary/50 ring-primary/20">
+                                        <SelectValue placeholder="✨ Start from a template script..." />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {premadeCampaigns.map(template => (
                                             <SelectItem key={template.name} value={template.name}>
                                                 <div className="flex items-center gap-2">
-                                                    <template.icon className="h-4 w-4" />
+                                                    <template.icon className="h-4 w-4 text-primary" />
                                                     <span>{template.name}</span>
                                                 </div>
                                             </SelectItem>
@@ -385,7 +386,7 @@ export default function NewCampaignPage() {
                                 </Select>
                             </div>
                         </CardHeader>
-                        <CardContent className="space-y-6">
+                        <CardContent className="space-y-6 text-left">
                             <div className="space-y-2">
                                 <Label htmlFor="name">Campaign Name (Internal)</Label>
                                 <Input id="name" placeholder="e.g., July Summer Special" {...register('name')} />
@@ -532,7 +533,7 @@ export default function NewCampaignPage() {
             />
             <Dialog open={isTestSendDialogOpen} onOpenChange={setIsTestSendDialogOpen}>
                 <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
+                    <DialogHeader className="text-left">
                         <DialogTitle>Send Test Campaign</DialogTitle>
                         <DialogDescription>Enter the email address to receive this test.</DialogDescription>
                     </DialogHeader>
