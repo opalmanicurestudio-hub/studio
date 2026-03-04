@@ -160,6 +160,14 @@ import {
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
 import { cn } from '@/lib/utils';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -530,7 +538,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
             const statusMatch = statusFilter === 'all' || order.status === statusFilter;
 
             return searchTermMatch && statusMatch;
-        }).sort((a,b) => parseISO(a.orderDate).getTime() - parseISO(b.orderDate).getTime());
+        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
     }, [orders, searchTerm, statusFilter]);
     
     const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
@@ -1035,9 +1043,10 @@ export default function InventoryPage() {
   };
 
 
-  const handleOpenLogUse = (item: InventoryItem) => {
+  const handleOpenLogUse = (item: InventoryItem | string) => {
     setLogUseDialogType('product');
-    setSelectedProduct(item);
+    const targetItem = typeof item === 'string' ? inventory.find(i => i.id === item) : item;
+    setSelectedProduct(targetItem || null);
     setIsLogUseOpen(true);
   }
 
@@ -1224,7 +1233,7 @@ export default function InventoryPage() {
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: `Manual Retail Sale by ${currentStaff?.name || 'Staff'}`,
+      reason: `Manual Retail Sale: ${product.name} for Guest by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 

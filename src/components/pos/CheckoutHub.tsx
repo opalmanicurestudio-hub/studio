@@ -56,7 +56,13 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
     if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
@@ -450,7 +456,7 @@ export const CheckoutHub = ({
                         </div>
                         {isBirthdayToday && (
                             <Badge className="bg-pink-500 text-white border-none animate-bounce h-5 px-1.5 text-[9px] font-black uppercase">
-                                <Cake className="w-2.5 h-2.5 mr-1" /> Birthday Today
+                                <Cake className="w-2 h-2 mr-1" /> Birthday Today
                             </Badge>
                         )}
                     </div>

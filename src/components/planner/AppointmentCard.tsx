@@ -116,12 +116,12 @@ export function AppointmentCard({
     return differenceInMinutes(end, start);
   }, [appointment.startTime, appointment.endTime]);
 
-  const isBirthday = useMemo(() => {
+  const isBirthdayToday = useMemo(() => {
     if (!client?.birthday) return false;
-    const aptDate = safeDate(appointment.startTime);
-    const birthDate = safeDate(client.birthday);
-    return format(aptDate, 'MM-dd') === format(birthDate, 'MM-dd');
-  }, [client?.birthday, appointment.startTime]);
+    const birth = safeDate(client.birthday);
+    const today = new Date();
+    return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
+  }, [client?.birthday]);
 
   const handleCopyCheckInLink = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -211,7 +211,7 @@ export function AppointmentCard({
                 {checkInIndicator}
                 {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
                 {client.activeMembershipId && <Award className="w-3 h-3 text-indigo-500" />}
-                {isBirthday && <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-3 w-3 text-pink-500" /></TooltipTrigger><TooltipContent>Birthday!</TooltipContent></Tooltip></TooltipProvider>}
+                {isBirthdayToday && <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-3 w-3 text-pink-500" /></TooltipTrigger><TooltipContent>Birthday!</TooltipContent></Tooltip></TooltipProvider>}
               </div>
               <p className="font-bold text-xs leading-tight truncate">
                 {client.name}
