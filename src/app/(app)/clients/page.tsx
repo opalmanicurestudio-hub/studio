@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -245,7 +246,7 @@ export default function ClientsPage() {
   const hasFilteredClients = filteredClients.length > 0;
 
   const handleMergeConfirm = (primaryClientId: string, clientIdsToDelete: string[]) => {
-    // Firestore logic needed here
+    // Firestore logic handled in MergeClientsDialog confirmation
   };
 
   const handleExport = () => {
@@ -420,6 +421,7 @@ export default function ClientsPage() {
 
                           {/* Row 3: Reorganized Toggles */}
                           <div className="p-4 bg-muted/30 rounded-xl border-2 border-dashed border-border/50 flex flex-wrap items-center gap-x-8 gap-y-4">
+                              <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest w-full mb-1">View Settings</h4>
                               <div className="flex items-center space-x-3">
                                   <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
                                   <Label htmlFor="show-archived" className="text-xs font-bold uppercase tracking-tight cursor-pointer">Archived</Label>

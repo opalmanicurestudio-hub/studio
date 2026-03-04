@@ -1,3 +1,4 @@
+
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -75,11 +76,9 @@ import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialo
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
-import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,7 +91,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
 import {
   Card,
   CardContent,
@@ -143,33 +141,18 @@ import {
   useCollection,
   useFirebase,
   useMemoFirebase,
-  useUser,
 } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Appointment,
   Batch,
-  Client,
   InventoryItem,
   Location,
   LocationType,
   Order,
-  Service,
-  SpoilageItem,
   StockCorrection,
-  Staff
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
-import { cn } from '@/lib/utils';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {

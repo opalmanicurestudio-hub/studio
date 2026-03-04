@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -471,6 +472,8 @@ function POSPageContent() {
         const now = new Date().toISOString();
         const selectedClient = clients?.find(c => c.id === selectedClientId);
 
+        let totalLtvIncrease = 0;
+
         // 1. Process Appointments
         for (const aptData of selectedAptsData) {
             const { appointment: apt, service, addOnServices, staff: tech } = aptData;
@@ -532,6 +535,8 @@ function POSPageContent() {
             const addOnsPrice = addOnServices.reduce((sum, s) => sum + getServicePrice(s, tech), 0);
             const additional = !waivedAppointmentFees.has(apt.id) ? (apt.checkoutState?.additionalCharge || 0) : 0;
             const itemRevenue = mainPrice + addOnsPrice + additional;
+            
+            totalLtvIncrease += itemRevenue;
 
             batch.update(appointmentRef, { 
                 status: 'completed', 
@@ -564,6 +569,9 @@ function POSPageContent() {
 
         // 2. Process Retail Items
         retailItems.forEach(item => {
+            const retailAmount = item.price * item.quantity;
+            totalLtvIncrease += retailAmount;
+
             const retailTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(retailTxnRef, {
                 date: now,
@@ -573,7 +581,7 @@ function POSPageContent() {
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
-                amount: item.price * item.quantity,
+                amount: retailAmount,
                 paymentMethod: paymentTab,
                 hasReceipt: true
             });
@@ -591,6 +599,15 @@ function POSPageContent() {
                 reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'} by ${currentUser?.displayName || 'Staff'}`,
             });
         });
+
+        // Update Client LTV & Last Appointment
+        if (selectedClient) {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
+            batch.update(clientRef, {
+                lifetimeValue: increment(totalLtvIncrease),
+                lastAppointment: now
+            });
+        }
 
         // 3. Log Tips (Accurate Allocation)
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
@@ -705,8 +722,8 @@ function POSPageContent() {
     };
 
     const todayAppointments = useMemo(() => {
-        const today = startOfDay(new Date());
-        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), today));
+        const todayStart = startOfDay(new Date());
+        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), todayStart));
     }, [appointmentsFromInventory]);
 
     return (
