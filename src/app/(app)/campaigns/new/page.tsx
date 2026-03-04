@@ -239,9 +239,9 @@ export default function NewCampaignPage() {
 
     useEffect(() => {
         if (isTestSendDialogOpen && user?.email) {
-            setTestEmail(user.email);
+            testEmail || setTestEmail(user.email);
         }
-    }, [isTestSendDialogOpen, user]);
+    }, [isTestSendDialogOpen, user, testEmail]);
 
     const handleInsertPlaceholder = (placeholder: string) => {
         const textarea = bodyTextareaRef.current;
@@ -264,11 +264,11 @@ export default function NewCampaignPage() {
     const handleTemplateSelect = (templateName: string) => {
         const template = premadeCampaigns.find(t => t.name === templateName);
         if (template) {
-            setValue('name', template.name);
-            setValue('type', template.type as 'email' | 'sms');
-            setValue('subject', template.subject);
-            setValue('body', template.body);
-            setValue('targetAudience', template.targetAudience as any);
+            setValue('name', template.name, { shouldDirty: true });
+            setValue('type', template.type as 'email' | 'sms', { shouldDirty: true });
+            setValue('subject', template.subject, { shouldDirty: true });
+            setValue('body', template.body, { shouldDirty: true });
+            setValue('targetAudience', template.targetAudience as any, { shouldDirty: true });
         }
     };
 
