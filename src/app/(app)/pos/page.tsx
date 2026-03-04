@@ -476,7 +476,7 @@ function POSPageContent() {
             const { appointment: apt, service, addOnServices, staff: tech } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
             
-            // Formula & Inventory Deduction (Accurate Ledger Integration)
+            // Formula & Inventory Deduction (Intelligent Rollover)
             const formula = apt.checkoutState?.formula || [];
             formula.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
@@ -515,7 +515,7 @@ function POSPageContent() {
 
                 batch.update(productRef, updateData);
 
-                // Add to Inventory Ledger (Standardized Format)
+                // Add to Inventory Ledger (Professional Format)
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(scRef, {
                     productId: item.id,

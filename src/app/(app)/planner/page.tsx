@@ -67,6 +67,7 @@ const safeDate = (val: any): Date => {
     if (val instanceof Date) return val;
     if (typeof val === 'string') return parseISO(val);
     if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -196,7 +197,7 @@ function PlannerPageContent() {
       .reduce((acc, t) => acc + t.amount, 0);
 
     const absorbed = weeklyTransactions
-      .filter(t => t.type === 'expense' && t.category === 'Discounts')
+      .filter(t => t.type === 'expense' && t.category === 'Discounts' && (!start || t.date >= start.toISOString()) && (!end || t.date <= end.toISOString()))
       .reduce((acc, t) => acc + t.amount, 0);
     
     const waivedTotal = appointments
@@ -350,7 +351,7 @@ function PlannerPageContent() {
         const involvedIds = new Set<string>();
         if (apt.staffId) involvedIds.add(apt.staffId);
         if (checkoutState.serviceStaffOverrides) {
-            Object.values(checkoutState.serviceStaffOverrides).forEach(id => staffIds.add(id));
+            Object.values(checkoutState.serviceStaffOverrides).forEach(id => involvedIds.add(id));
         }
         involvedIds.forEach(sid => {
             batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });

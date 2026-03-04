@@ -31,6 +31,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -375,11 +376,10 @@ export default function ClientsPage() {
         <main className="flex-1 p-4 md:p-8">
           <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
               <div className="space-y-6">
-                  <div>
-                  </div>
                   <Card>
-                      <CardHeader>
-                          <div className="flex flex-col sm:flex-row items-center gap-4">
+                      <CardHeader className="space-y-6">
+                          {/* Row 1: Search & Filter */}
+                          <div className="flex flex-col md:flex-row items-center gap-4">
                               <div className="relative w-full sm:max-w-xs">
                                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                   <Input 
@@ -401,28 +401,39 @@ export default function ClientsPage() {
                                       <option value="180">Over 180 days ago</option>
                                   </select>
                               </div>
-                              <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
-                                  <Button variant="outline" className='w-full sm:w-auto' onClick={() => setIsMergeClientsOpen(true)}>
-                                      <Merge className="mr-2 h-4 w-4"/>Merge Duplicates
-                                  </Button>
-                                  <Button variant="outline" className='w-full sm:w-auto' onClick={handleExport}>
-                                      <FileDown className="mr-2 h-4 w-4"/>Export List
-                                  </Button>
-                                  <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
-                              </div>
                           </div>
-                          <div className="flex items-center space-x-6 pt-4 flex-wrap gap-y-4">
-                              <div className="flex items-center space-x-2">
-                                <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
-                                <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+
+                          {/* Row 2: Actions */}
+                          <div className="flex flex-wrap items-center gap-2">
+                              <Button variant="outline" size="sm" className='flex-1 sm:flex-none' onClick={() => setIsMergeClientsOpen(true)}>
+                                  <Merge className="mr-2 h-4 w-4"/>Merge Duplicates
+                              </Button>
+                              <Button variant="outline" size="sm" className='flex-1 sm:flex-none' onClick={handleExport}>
+                                  <FileDown className="mr-2 h-4 w-4"/>Export List
+                              </Button>
+                              <Button size="sm" className='w-full sm:w-auto ml-auto' onClick={() => setIsAddClientOpen(true)}>
+                                  <UserPlus className="mr-2 h-4 w-4" /> New Client
+                              </Button>
+                          </div>
+
+                          <Separator />
+
+                          {/* Row 3: Reorganized Toggles */}
+                          <div className="p-4 bg-muted/30 rounded-xl border-2 border-dashed border-border/50 flex flex-wrap items-center gap-x-8 gap-y-4">
+                              <div className="flex items-center space-x-3">
+                                  <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
+                                  <Label htmlFor="show-archived" className="text-xs font-bold uppercase tracking-tight cursor-pointer">Archived</Label>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
-                                <Label htmlFor="show-banned" className="text-destructive">{showBanned ? "Viewing Banned" : "Show Banned"}</Label>
+                              <div className="flex items-center space-x-3">
+                                  <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
+                                  <Label htmlFor="show-banned" className="text-xs font-bold uppercase tracking-tight text-destructive cursor-pointer">Banned</Label>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
-                                <Label htmlFor="owes-balance" className="flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5 text-destructive" /> Owes Balance Only</Label>
+                              <div className="flex items-center space-x-3">
+                                  <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
+                                  <Label htmlFor="owes-balance" className="flex items-center gap-2 text-xs font-bold uppercase tracking-tight cursor-pointer">
+                                      <Wallet className="w-3.5 h-3.5 text-destructive" /> 
+                                      Debt Only
+                                  </Label>
                               </div>
                           </div>
                       </CardHeader>

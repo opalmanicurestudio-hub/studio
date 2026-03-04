@@ -157,6 +157,7 @@ import {
   Service,
   SpoilageItem,
   StockCorrection,
+  Staff
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
 import { cn } from '@/lib/utils';
@@ -1233,7 +1234,7 @@ export default function InventoryPage() {
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: `Manual Retail Sale: ${product.name} for Guest by ${currentStaff?.name || 'Staff'}`,
+      reason: `Manual Retail Sale by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
