@@ -12,14 +12,15 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { useInventory } from '@/context/InventoryContext';
 import { useFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Campaign, type Client } from '@/lib/data';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -36,7 +37,7 @@ const campaignSchema = z.object({
   targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific', 'birthday']),
   targetClientIds: z.array(z.string()).optional(),
   discountId: z.string().optional(),
-  imageUrl: z.string().url().optional(),
+  imageUrl: z.string().optional(),
 }).refine(data => data.type !== 'email' || (data.subject && data.subject.length > 0), {
     message: "Subject is required for email campaigns.",
     path: ["subject"],
