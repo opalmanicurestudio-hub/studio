@@ -53,8 +53,8 @@ const premadeCampaigns = [
     icon: HandHeart,
     targetAudience: 'new',
     type: 'email',
-    subject: "Welcome! A special thank you for your first visit.",
-    body: "Hi {{clientName}},\n\nIt was a pleasure to see you recently! As a thank you for choosing us, we'd like to offer you 15% off your next service. We can't wait to see you again.\n\nBest,\nThe Team",
+    subject: "Welcome to the family! A special gift inside 💖",
+    body: "Hi {{clientName}},\n\nIt was such a pleasure meeting you at the studio! We're so glad you chose us for your service.\n\nTo say thank you, we've added a special welcome gift to your profile: 15% OFF your next visit. Whether you're coming back for a fresh look or just a touch-up, we can't wait to see you again.\n\nWarmly,\nThe Team",
   },
   {
     name: "Re-engage Inactive Client",
@@ -62,23 +62,23 @@ const premadeCampaigns = [
     targetAudience: 'inactive_90',
     type: 'sms',
     subject: "",
-    body: "Hi {{clientName}}, we miss you! Come back and enjoy $10 off your next service. We look forward to seeing you soon!",
+    body: "Hi {{clientName}}, we miss you! It's been a while since your last visit. Come back this week and enjoy $10 off your next service as a 'welcome back' gift. Book your spot here: [Link]",
   },
   {
     name: "Birthday Special",
     icon: PartyPopper,
     targetAudience: 'birthday',
     type: 'email',
-    subject: "Happy Birthday from all of us!",
-    body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! To celebrate, we're giving you a special gift of 20% off your next visit. Treat yourself!\n\nWarmly,\nThe Team",
+    subject: "Happy Birthday! Time for a celebratory treat 🎂",
+    body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! We believe you deserve to be pampered on your special day.\n\nAs a birthday gift from us, please enjoy 20% OFF any service this month. Treat yourself to that look you've been eyeing—you've earned it!\n\nWarmly,\nThe Team",
   },
     {
     name: "Promote New Service",
     icon: Wand2,
     targetAudience: 'all',
     type: 'email',
-    subject: "✨ Something New is Here! ✨",
-    body: "Hi {{clientName}},\n\nWe're excited to announce our brand new service: [Service Name]! It's designed to [briefly describe benefit].\n\nBe one of the first to try it and get an exclusive 10% off. Book your appointment today!\n\nCheers,\nThe Team",
+    subject: "✨ BIG NEWS: Our newest treatment is here! ✨",
+    body: "Hi {{clientName}},\n\nWe've been working on something special, and it's finally here! We are excited to introduce our new [Service Name] to the menu.\n\nThis treatment is perfect for achieving that healthy, radiant glow we know you love. Be among the first to experience it and get 10% off when you book in the next 7 days.\n\nSee you in the chair,\nThe Team",
   },
 ];
 
@@ -556,5 +556,3 @@ export default function NewCampaignPage() {
         </div>
     );
 }
-
-    
