@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React from 'react';
@@ -8,8 +6,10 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { TrendingUp, DollarSign } from 'lucide-react';
 
-interface PrintableReportProps {
+interface PrintableStaffReportProps {
   dateRange: DateRange | undefined;
   kpiData: any;
   payrollData: any[];
@@ -21,7 +21,7 @@ interface PrintableReportProps {
   servicePerformanceData: any[];
 }
 
-export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportProps>(({ 
+export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableStaffReportProps>(({ 
     dateRange, 
     kpiData, 
     payrollData, 
@@ -65,43 +65,23 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                 <div className="grid grid-cols-4 gap-4">
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Avg. Ticket Size</h3>
-                        <p className="text-2xl font-bold">${kpiData.avgTicket.toFixed(2)}</p>
+                        <p className="text-2xl font-bold">${kpiData.avgSalePerAppointment?.toFixed(2) || '0.00'}</p>
                         <p className="text-[10px] text-gray-400">Avg. revenue per completed appointment.</p>
                     </div>
                      <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Utilization Rate</h3>
-                        <p className="text-2xl font-bold">{kpiData.utilizationRate.toFixed(1)}%</p>
+                        <p className="text-2xl font-bold">{kpiData.utilizationRate?.toFixed(1) || '0.0'}%</p>
                         <p className="text-[10px] text-gray-400">% of clocked-in time spent in-service.</p>
                     </div>
                      <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Retail Attachment</h3>
-                        <p className="text-2xl font-bold">{kpiData.retailAttachmentRate.toFixed(1)}%</p>
+                        <p className="text-2xl font-bold">{kpiData.retailAttachmentRate?.toFixed(1) || '0.0'}%</p>
                         <p className="text-[10px] text-gray-400">% of appointments with a retail sale.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Cancellation Rate</h3>
-                        <p className="text-2xl font-bold">{kpiData.cancellationRate.toFixed(1)}%</p>
+                        <p className="text-2xl font-bold">{kpiData.cancellationRate?.toFixed(1) || '0.0'}%</p>
                         <p className="text-[10px] text-gray-400">% of appointments marked as cancelled.</p>
-                    </div>
-                    <div className="border p-3 rounded-md">
-                        <h3 className="text-xs text-gray-500">Revenue/Service Hr</h3>
-                        <p className="text-2xl font-bold">${kpiData.revenuePerServiceHour.toFixed(2)}</p>
-                        <p className="text-[10px] text-gray-400">Revenue for every hour of active service.</p>
-                    </div>
-                    <div className="border p-3 rounded-md">
-                        <h3 className="text-xs text-gray-500">Rebooking Rate</h3>
-                        <p className="text-2xl font-bold">{kpiData.rebookingRate.toFixed(1)}%</p>
-                        <p className="text-[10px] text-gray-400">% of clients who booked a future appt.</p>
-                    </div>
-                    <div className="border p-3 rounded-md">
-                        <h3 className="text-xs text-gray-500">Walk-in Conversion</h3>
-                        <p className="text-2xl font-bold">{kpiData.walkInConversionRate.toFixed(1)}%</p>
-                        <p className="text-[10px] text-gray-400">% of walk-ins resulting in a service.</p>
-                    </div>
-                    <div className="border p-3 rounded-md">
-                        <h3 className="text-xs text-gray-500">New Client Rate</h3>
-                        <p className="text-2xl font-bold">{kpiData.newClientRate.toFixed(1)}%</p>
-                        <p className="text-[10px] text-gray-400">% of new clients this period.</p>
                     </div>
                 </div>
             </section>
@@ -152,32 +132,9 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                     </TableBody>
                      <TableFooter>
                           <TableRow><TableCell colSpan={6} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Total revenue from all sales before any costs.</TableCell></TableRow>
-                          
-                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-red-600">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500 pl-8">Direct costs of products used in services.</TableCell></TableRow>
-
                           <TableRow className="font-bold border-t"><TableCell colSpan={6}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Profit after subtracting the direct cost of services.</TableCell></TableRow>
-
-                          <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
-                          
-                          <TableRow><TableCell colSpan={6} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Day-to-day costs of running the business.</TableCell></TableRow>
-
                           <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
-                          
-                          <TableRow className="font-bold border-t"><TableCell colSpan={6}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Profit after payroll and direct service costs.</TableCell></TableRow>
-
-                          <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
-                          
-                          <TableRow><TableCell colSpan={6} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-red-600">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                           <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Your fixed business and personal costs for the period.</TableCell></TableRow>
-
                           <TableRow className="font-bold text-lg bg-gray-100"><TableCell colSpan={6}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-green-600' : 'text-red-600')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">The final profit after all costs and overhead.</TableCell></TableRow>
                     </TableFooter>
                 </Table>
             </section>
@@ -196,34 +153,6 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                             </TableRow>
                         ))}
                     </TableBody>
-                </Table>
-            </section>
-
-             <section className="break-before-page">
-                <h2 className="text-xl font-semibold border-b pb-2 mb-4">Stylist Effectiveness</h2>
-                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Staff Member</TableHead>
-                      <TableHead className="text-right">Utilization</TableHead>
-                      <TableHead className="text-right">Avg. Ticket</TableHead>
-                      <TableHead className="text-right">Retail Attach</TableHead>
-                      <TableHead className="text-right">Time Variance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payrollData.map(data => (
-                      <TableRow key={data.id}>
-                        <TableCell className="font-medium">{data.name}</TableCell>
-                        <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
-                        <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
-                        <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-red-600' : 'text-green-600')}>
-                          {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
                 </Table>
             </section>
         </div>
