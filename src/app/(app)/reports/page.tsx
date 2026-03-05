@@ -453,11 +453,19 @@ export default function ReportsPage() {
         ];
     }, [appointments]);
 
+  if (isLoading) {
+      return (
+          <div className="flex h-screen w-full items-center justify-center">
+              <Loader className="animate-spin h-8 w-8 text-primary" />
+          </div>
+      );
+  }
+
   return (
     <>
-      <div className="no-print flex min-h-screen w-full flex-col bg-white">
+      <div className="no-print flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
         <AppHeader title="Reports & Analytics" />
-        <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8">
+        <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 max-w-full overflow-hidden">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="space-y-1">
               <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Studio Reports</h1>
