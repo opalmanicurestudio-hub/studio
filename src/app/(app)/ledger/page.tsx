@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -10,7 +10,7 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   MoreHorizontal,
   PlusCircle,
@@ -24,8 +24,6 @@ import {
   CreditCard,
   Trash2,
   Printer,
-  User,
-  SlidersHorizontal,
   Filter,
 } from 'lucide-react';
 import {
@@ -336,7 +334,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                             <div className="flex items-center gap-1.5 mt-2">
                                 <Avatar className="h-5 w-5 border shadow-sm">
                                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                                    <AvatarFallback className="text-[8px]">{staffMember.name.charAt(0)}</AvatarFallback>
+                                    <AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <span className="text-[9px] font-black uppercase text-primary tracking-tight">{staffMember.name}</span>
                             </div>
@@ -389,7 +387,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
 };
 
 export default function LedgerPage() {
-  const { firestore, user: currentUser } = useFirebase();
+  const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const isMobile = useIsMobile();

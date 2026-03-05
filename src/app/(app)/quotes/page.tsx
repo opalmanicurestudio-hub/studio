@@ -47,7 +47,7 @@ import { type Quote as QuoteType, type Client } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -258,7 +258,8 @@ const KpiCards = ({ kpiData }: { kpiData: any }) => (
 
 
 export default function QuotesPage() {
-    const { firestore, user } = useFirebase();
+    const { firestore } = useFirebase();
+    const { user } = useFirebase();
     const { clients, isLoading: isInventoryLoading } = useInventory();
     const { toast } = useToast();
     const router = useRouter();
@@ -402,14 +403,14 @@ export default function QuotesPage() {
                             </TableHeader>
                             <TableBody>
                                 {sortedQuotes.map((quote) => (
-                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
+                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
                                 ))}
                             </TableBody>
                             </Table>
                         </div>
                         <div className="grid gap-4 md:hidden">
                             {sortedQuotes.map((quote) => (
-                                <QuoteCard key={quote.id} quote={quote} clients={clients} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
+                                <QuoteCard key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
                             ))}
                         </div>
                     </>

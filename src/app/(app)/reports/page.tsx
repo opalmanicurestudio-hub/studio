@@ -101,7 +101,7 @@ export default function ReportsPage() {
       const activeLifestyleProfile = lifestyleProfiles?.find((p: any) => p.isActive);
       if (activeLifestyleProfile?.categories) {
           totalOverhead += activeLifestyleProfile.categories.reduce((total: number, category: any) => {
-              return total + (category.bills || []).reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
+              return total + (category.bills || []).map((bill: any) => bill.amount || 0).reduce((acc: number, val: number) => acc + val, 0);
           }, 0);
       }
       return totalOverhead;
