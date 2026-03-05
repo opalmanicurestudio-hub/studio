@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -91,12 +90,12 @@ const ClosedView = ({ schedule }: { schedule: any }) => (
         <div className="inline-block p-6 bg-white/50 rounded-full border border-white/30 mb-4 shadow-inner">
             <Clock className="w-12 h-12 text-primary" />
         </div>
-        <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter">Closed</h1>
-        <p className="text-sm md:text-base text-muted-foreground font-medium leading-relaxed">Our kiosk is only available during business hours. Please come back during our scheduled times or book online.</p>
+        <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">Closed</h1>
+        <p className="text-sm md:text-base text-slate-600 font-medium leading-relaxed">Our kiosk is only available during business hours. Please come back during our scheduled times or book online.</p>
         {schedule && (
             <div className="p-4 rounded-2xl bg-white/60 border border-white/40 text-sm shadow-sm">
                 <p className="font-black text-primary mb-2 uppercase tracking-widest text-[10px]">Today's Hours</p>
-                <p className="text-lg font-black">{isBusinessOpen(new Date(), schedule).hours || 'Closed'}</p>
+                <p className="text-lg font-black text-slate-900">{isBusinessOpen(new Date(), schedule).hours || 'Closed'}</p>
             </div>
         )}
         <Button asChild className="w-full h-14 rounded-2xl shadow-xl text-lg font-black uppercase tracking-tight">
@@ -163,10 +162,10 @@ const StepDetails = ({
                     <User className="w-3.5 h-3.5 text-primary"/>
                     <span>Full Name</span>
                 </Label>
-                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner"/>
+                <input id={`name-${member.id}`} value={member.name} onChange={(e) => onUpdate({ name: e.target.value })} placeholder={member.isPrimary ? "Enter your name" : "Guest's name"} className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 focus-visible:border-primary transition-all shadow-inner text-slate-900 placeholder:text-slate-300"/>
             </div>
             {isGroup && !member.isPrimary && ( 
-                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 border-white/40 bg-white/40 backdrop-blur-sm">
+                <Button variant="outline" size="sm" onClick={usePrimaryContact} className="w-full rounded-xl h-10 border-white/40 bg-white/40 backdrop-blur-sm text-slate-600 font-bold">
                     Same as {primaryMember?.name.split(' ')[0] || 'first guest'}
                 </Button> 
             )}
@@ -183,7 +182,7 @@ const StepDetails = ({
                         onChange={(value) => onUpdate({ phone: value || '' })}
                         inputComponent={Input}
                         placeholder="(555) 000-0000"
-                        className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-within:ring-4 focus-within:ring-primary/20 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner"
+                        className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-within:ring-4 focus-within:ring-primary/20 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
                     />
                 </div>
             </div>
@@ -192,7 +191,7 @@ const StepDetails = ({
                     <Mail className="w-3.5 h-3.5 text-primary"/>
                     <span>Email Address</span>
                 </Label>
-                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-16 text-lg md:text-2xl font-bold rounded-2xl border-2 border-white/50 bg-white/80 focus-visible:ring-primary shadow-inner"/>
+                <Input id={`email-${member.id}`} type="email" value={member.email || ''} onChange={(e) => onUpdate({ email: e.target.value })} placeholder="jane@example.com" className="h-12 md:h-16 text-lg md:text-2xl font-bold rounded-2xl border-2 border-white/50 bg-white/80 focus-visible:ring-primary shadow-inner text-slate-900"/>
             </div>
 
             <AnimatePresence>
@@ -260,6 +259,37 @@ const StepDetails = ({
     );
 };
 
+const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const handleServiceToggle = (serviceId: string) => { 
+        onUpdate({ serviceIds: [serviceId] }); 
+    };
+    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+    
+    if (!selectedCategory) {
+        return ( <div className="grid grid-cols-1 gap-4 md:gap-6" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 md:p-14 text-2xl md:text-5xl font-black rounded-[2.5rem] border-4 border-white/50 bg-white/60 backdrop-blur-xl hover:border-primary hover:bg-primary/5 transition-all shadow-2xl uppercase tracking-tighter text-slate-800" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+    }
+    
+    return (
+        <div className="space-y-6" key="service-selection-list">
+            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-black uppercase tracking-widest p-3 transition-all hover:bg-primary/10 rounded-xl flex items-center gap-2 text-xs md:text-sm">
+                <ArrowLeft className="h-5 w-5"/> Change Category
+            </button>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6">
+                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
+                    <ServiceSelectionCard 
+                        key={service.id} 
+                        service={service} 
+                        isSelected={member.serviceIds.includes(service.id)} 
+                        onToggle={() => handleServiceToggle(service.id)} 
+                        pricingTiers={pricingTiers}
+                    /> 
+                ))}
+            </div>
+        </div>
+    );
+};
+
 const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
     const { priceText, durationText } = useMemo(() => {
         let finalDuration = service.duration;
@@ -319,37 +349,6 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                         <span className="text-[10px] md:text-xs text-muted-foreground font-black uppercase opacity-60">{durationText}</span>
                     </div>
                 </div>
-            </div>
-        </div>
-    );
-};
-
-const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-    const handleServiceToggle = (serviceId: string) => { 
-        onUpdate({ serviceIds: [serviceId] }); 
-    };
-    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
-    
-    if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-4 md:gap-6" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 md:p-14 text-2xl md:text-5xl font-black rounded-[2.5rem] border-4 border-white/50 bg-white/60 backdrop-blur-xl hover:border-primary hover:bg-primary/5 transition-all shadow-2xl uppercase tracking-tighter text-slate-800" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
-    }
-    
-    return (
-        <div className="space-y-6" key="service-selection-list">
-            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-black uppercase tracking-widest p-3 transition-all hover:bg-primary/10 rounded-xl flex items-center gap-2 text-xs md:text-sm">
-                <ArrowLeft className="h-5 w-5"/> Change Category
-            </button>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6">
-                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
-                    <ServiceSelectionCard 
-                        key={service.id} 
-                        service={service} 
-                        isSelected={member.serviceIds.includes(service.id)} 
-                        onToggle={() => handleServiceToggle(service.id)} 
-                        pricingTiers={pricingTiers}
-                    /> 
-                ))}
             </div>
         </div>
     );
@@ -502,7 +501,7 @@ const MemberSetup = ({
             </div>
 
             <div className="p-8 md:p-16 pt-0 flex flex-col sm:flex-row gap-4 md:gap-6 mt-4">
-                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-16 md:h-24 text-lg md:text-3xl font-black rounded-3xl uppercase tracking-tighter">Back</Button>
+                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-16 md:h-24 text-lg md:text-3xl font-black rounded-3xl uppercase tracking-tighter">Back</Button>
                 <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
@@ -848,10 +847,15 @@ export default function WalkInPage() {
   if (isClosed) return <div className="h-screen flex items-center justify-center bg-background p-4"><ClosedView schedule={scheduleProfiles?.[0]} /></div>;
 
   return (
-    <div className="min-h-screen bg-[conic-gradient(at_top_left,_var(--tw-gradient-stops))] from-blue-100 via-white to-purple-100 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative">
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/20 blur-[120px] rounded-full animate-pulse" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/20 blur-[120px] rounded-full animate-pulse" />
+        </div>
+
         <AnimatePresence mode="wait">
             {!entered ? (
-                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group" onClick={() => setEntered(true)}>
+                <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center cursor-pointer p-4 group z-10" onClick={() => setEntered(true)}>
                     <div className="inline-block p-10 md:p-16 bg-white/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_rgba(8,_112,_184,_0.1)] mb-12 md:mb-20 border-2 border-white/50 group-hover:border-primary group-hover:shadow-primary/20 transition-all duration-700 active:scale-95"><ClarityFlowLogo className="w-16 h-16 md:w-32 md:h-32" /></div>
                     <h1 className="text-5xl md:text-8xl lg:text-[10rem] font-black tracking-tighter mb-8 uppercase text-slate-900 drop-shadow-sm">Welcome</h1>
                     <p className="text-primary text-sm md:text-4xl font-black tracking-[0.3em] uppercase animate-pulse drop-shadow-sm">Tap to Begin</p>
@@ -860,7 +864,7 @@ export default function WalkInPage() {
                     </motion.div>
                 </motion.div>
             ) : (
-                <motion.div key="content" className="w-full max-w-5xl mx-auto bg-white/60 border-4 border-white/50 rounded-[3rem] md:rounded-[5rem] shadow-[0_32px_64px_rgba(0,0,0,0.1)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20">
+                <motion.div key="content" className="w-full max-w-5xl mx-auto bg-white/60 border-4 border-white/50 rounded-[3rem] md:rounded-[5rem] shadow-[0_32px_64px_rgba(0,0,0,0.1)] overflow-hidden backdrop-blur-3xl ring-1 ring-white/20 z-10">
                     {step === 'partyType' && <PartyTypeSelection onSelect={handlePartyTypeSelect} />}
                     {step === 'memberSetup' && partyMembers[currentMemberIndex] && (
                         <MemberSetup 
@@ -890,7 +894,7 @@ export default function WalkInPage() {
             )}
         </AnimatePresence>
         <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-sm rounded-3xl"><DialogHeader><DialogTitle className="text-xl font-black uppercase text-center">Ticket Ready</DialogTitle></DialogHeader><div className="flex justify-center p-4">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter><Button className="w-full h-14 rounded-2xl text-xl font-black uppercase" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Print & Close</Button></DialogFooter></DialogContent>
+            <DialogContent className="max-w-sm rounded-3xl"><DialogHeader><DialogTitle className="text-xl font-black uppercase text-center text-slate-900">Ticket Ready</DialogTitle></DialogHeader><div className="flex justify-center p-4">{ticketToPrint && <PrintWalkInTicket data={ticketToPrint} />}</div><DialogFooter><Button className="w-full h-14 rounded-2xl text-xl font-black uppercase shadow-xl" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Print & Close</Button></DialogFooter></DialogContent>
         </Dialog>
     </div>
   );

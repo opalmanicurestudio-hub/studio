@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -25,7 +24,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 /**
- * Utility to safely convert potential strings or Date objects into valid Date instances.
+ * Utility to safely convert potential strings, timestamps, or Date objects into valid Date instances.
  */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -96,8 +95,8 @@ export default function ReportsPage() {
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return staff.map(staffMember => {
-        const filterByDate = (date: Date) => {
-            const d = date;
+        const filterByDate = (date: any) => {
+            const d = safeDate(date);
             if (fromDate && d < fromDate) return false;
             if (toDate && d > toDate) return false;
             return true;
@@ -122,7 +121,7 @@ export default function ReportsPage() {
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
         const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
       
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
         
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -134,13 +133,13 @@ export default function ReportsPage() {
         const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
-        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
+        const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
         
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
         for (const log of sortedLogs) {
-            const logTime = log.timestamp;
+            const logTime = safeDate(log.timestamp);
             if (log.type === 'clock_in') {
                 if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
                 clockInTime = logTime;
@@ -214,13 +213,11 @@ export default function ReportsPage() {
     const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
     const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
     
-    // Total Debt across entire client base
     const outstandingDebt = clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
 
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    // Fees waived in period
     const waivedFeesInRange = clients.flatMap(c => c.waivedFees || []).filter(w => {
         const d = safeDate(w.waivedAt);
         return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
@@ -228,15 +225,13 @@ export default function ReportsPage() {
     const waivedTotal = waivedFeesInRange.reduce((acc, w) => acc + w.feeAmount, 0);
     
     const discountsValue = transactions
-        .filter(t => t.type === 'expense' && t.category === 'Discounts' && (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate))
+        .filter(t => t.type === 'expense' && t.category === 'Discounts' && (!fromDate || safeDate(t.date) >= fromDate) && (!toDate || safeDate(t.date) <= toDate))
         .reduce((acc, t) => acc + t.amount, 0);
 
-    // Total fees generated (Charged) vs recovered (Collected)
     const collectedFees = transactions
-        .filter(t => t.type === 'income' && t.category === 'Cancellation Fee' && (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate))
+        .filter(t => t.type === 'income' && t.category === 'Cancellation Fee' && (!fromDate || safeDate(t.date) >= fromDate) && (!toDate || safeDate(t.date) <= toDate))
         .reduce((acc, t) => acc + t.amount, 0);
     
-    // "Charged" is whatever was collected + whatever is currently pending/unpaid
     const pendingFeesInRange = clients.flatMap(c => c.unpaidFees || []).filter(f => {
         const d = safeDate(f.appointmentDate);
         return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
@@ -263,7 +258,7 @@ export default function ReportsPage() {
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     const appointmentsInRange = appointments.filter(apt => {
-        const aptDate = apt.startTime;
+        const aptDate = safeDate(apt.startTime);
         if (fromDate && aptDate < fromDate) return false;
         if (toDate && aptDate > toDate) return false;
         return true;
@@ -274,7 +269,7 @@ export default function ReportsPage() {
 
     const totalRevenue = transactions
         .filter(t => {
-            const tDate = t.date;
+            const tDate = safeDate(t.date);
             if (fromDate && tDate < fromDate) return false;
             if (toDate && tDate > toDate) return false;
             return t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail');
@@ -291,7 +286,7 @@ export default function ReportsPage() {
     let rebookedClients = 0;
     if (toDate) {
       clientsInPeriod.forEach(clientId => {
-        const hasFutureBooking = appointments.some(apt => apt.clientId === clientId && apt.startTime > toDate);
+        const hasFutureBooking = appointments.some(apt => apt.clientId === clientId && safeDate(apt.startTime) > toDate);
         if (hasFutureBooking) {
           rebookedClients++;
         }
@@ -319,8 +314,9 @@ export default function ReportsPage() {
             const clientAppointments = appointments.filter(apt => apt.clientId === clientId);
             if (clientAppointments.length > 0) {
                 const firstAppointmentDate = clientAppointments.reduce((earliest, current) => {
-                    return current.startTime < earliest ? current.startTime : earliest;
-                }, clientAppointments[0].startTime);
+                    const d = safeDate(current.startTime);
+                    return d < earliest ? d : earliest;
+                }, safeDate(clientAppointments[0].startTime));
                 if (firstAppointmentDate >= fromDate) {
                     newClientsInPeriod++;
                 }
@@ -410,7 +406,7 @@ export default function ReportsPage() {
         .map(service => {
             const serviceAppointments = appointments.filter(apt => {
                 if (apt.serviceId !== service.id || apt.status !== 'completed') return false;
-                const aptDate = apt.startTime;
+                const aptDate = safeDate(apt.startTime);
                 if(fromDate && aptDate < fromDate) return false;
                 if(toDate && aptDate > toDate) return false;
                 return true;
@@ -554,7 +550,7 @@ export default function ReportsPage() {
                                   <div className="flex items-center gap-3">
                                       <Avatar className="h-8 w-8">
                                           <AvatarImage src={client.avatarUrl} />
-                                          <AvatarFallback>{client.name.substring(0,2)}</AvatarFallback>
+                                          <AvatarFallback>{(client.name || 'C').substring(0,2)}</AvatarFallback>
                                       </Avatar>
                                       <span className="font-bold text-sm">{client.name}</span>
                                   </div>
@@ -593,10 +589,10 @@ export default function ReportsPage() {
                                   <TableCell>
                                       <Avatar className="h-9 w-9">
                                           <AvatarImage src={data.avatarUrl} alt={data.name} />
-                                          <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
+                                          <AvatarFallback>{(data.name || 'S').substring(0, 2)}</AvatarFallback>
                                       </Avatar>
                                   </TableCell>
-                                  <TableCell className="font-medium">{data.name}</TableCell>
+                                  <TableCell className="font-medium">{data.name || 'Unknown Staff'}</TableCell>
                                   <TableCell>
                                       <div className="font-medium capitalize">{data.payStructure}</div>
                                       {data.payStructure === 'commission' && data.commissionRate !== undefined && (
