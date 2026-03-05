@@ -465,7 +465,7 @@ export default function ReportsPage() {
     <>
       <div className="no-print flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
         <AppHeader title="Reports & Analytics" />
-        <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 w-full max-w-full min-w-0">
+        <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 w-full max-w-full min-w-0 overflow-hidden">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="space-y-1">
               <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Studio Reports</h1>
@@ -481,7 +481,7 @@ export default function ReportsPage() {
                           variant={"outline"}
                           className={cn( "w-full sm:w-[300px] h-11 border-2 justify-start text-left font-normal shadow-sm", !dateRange && "text-muted-foreground" )}>
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, yyyy")} -{" "} {format(dateRange.to, "LLL dd, yyyy")} </> ) : ( format(dateRange.from, "LLL dd, yyyy") ) ) : ( <span>Pick a date range</span> )}
+                          {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, yyyy")} -{" "} {format(dateRange.to, "LLL dd, yyyy")} </> ) : ( format(dateRange.from, "LLL dd, yyyy") ) ) : ( <span>Pick a date range</span> ) }
                       </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="end">

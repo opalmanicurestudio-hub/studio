@@ -51,6 +51,9 @@ import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
+type Step = 'partyType' | 'memberSetup' | 'confirmation';
+type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
+
 /**
  * Utility to safely convert potential strings or Date objects into valid Date instances.
  */
@@ -466,7 +469,7 @@ const MemberSetup = ({
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} key={`member-setup-wrapper-${member.id}`}>
             <div className="p-8 md:p-16 pb-4">
-                <div className="flex items-center justify-between gap-4 mb-2">
+                <div className="flex items-center justify-between gap-4 mb-2 text-left">
                     <h2 className="text-3xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{isGroup ? `Guest ${member.index + 1}` : 'Guest Check-in'}</h2>
                     {isGroup && <Badge className="bg-primary text-white border-none font-black px-4 py-1.5 rounded-2xl text-sm md:text-xl shadow-lg shadow-primary/20">{member.index + 1} / {partyMembers.length}</Badge>}
                 </div>
@@ -476,7 +479,7 @@ const MemberSetup = ({
                 <div className="pt-8 md:pt-12"><Progress value={progress} className="h-2 md:h-3 rounded-full bg-white/20" /></div>
             </div>
 
-            <div className="p-8 md:p-16 pt-4 md:pt-8">
+            <div className="p-8 md:p-16 pt-4 md:pt-8 text-left">
                 <AnimatePresence mode="wait">
                     <motion.div key={memberSubStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                         {memberSubStep === 'details' && (
