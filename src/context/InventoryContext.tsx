@@ -117,17 +117,18 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
     
-    // Sanitize titles to create safe segment IDs by stripping non-alphanumeric chars
+    const sanitizeId = (title: string) => title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+
     const profileBills = [
         ...(activeL?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
             ...b, 
-            id: `bill-${b.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-personal`, 
+            id: `bill-${sanitizeId(b.title)}-personal`, 
             context: 'Personal', 
             category: c.name 
         }))),
         ...(activeB?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
             ...b, 
-            id: `bill-${b.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-business`, 
+            id: `bill-${sanitizeId(b.title)}-business`, 
             context: 'Business', 
             category: c.name 
         })))

@@ -122,8 +122,8 @@ const PartyTypeSelection = ({ onSelect }: { onSelect: (type: 'individual' | 'gro
                     <div className="p-6 bg-primary/10 rounded-full mb-6 group-hover:bg-primary/20 transition-colors">
                         <Users className="w-12 h-12 md:w-20 md:h-20 text-primary group-hover:scale-110 transition-transform" />
                     </div>
-                    <h3 className="text-xl md:text-4xl font-black tracking-tight uppercase text-slate-800">Group</h3>
-                    <p className="text-slate-500 mt-2 text-xs md:text-lg font-bold uppercase tracking-widest opacity-60">My Party</p>
+                    <h3 className="text-xl md:text-4xl font-black tracking-tight uppercase text-slate-800">My Party</h3>
+                    <p className="text-slate-500 mt-2 text-xs md:text-lg font-bold uppercase tracking-widest opacity-60">Group Check-in</p>
                 </div>
             </div>
         </div>
