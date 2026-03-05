@@ -174,7 +174,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                     <TableBody>
                         {payrollData.map(data => (
                             <TableRow key={data.id} className="border-b">
-                                <TableCell className="font-bold">{data.name}</TableCell>
+                                <TableCell className="font-bold">{data.name || 'Staff'}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-green-600">${data.stats.tips.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono font-bold">${data.stats.totalPay.toFixed(2)}</TableCell>

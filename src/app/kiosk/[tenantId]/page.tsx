@@ -318,7 +318,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
             return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
         }
         
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${duration} min` };
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min` };
     }, [service, staffTierId, pricingTiers]);
 
     return (
