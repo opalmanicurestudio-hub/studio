@@ -4,24 +4,51 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon, ShieldCheck, Calculator, Loader } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  Printer, 
+  BarChart, 
+  DollarSign, 
+  Package, 
+  Store, 
+  Hammer, 
+  Recycle, 
+  TrendingUp, 
+  AlertTriangle, 
+  Download, 
+  Target, 
+  Ban as BanIcon, 
+  Repeat, 
+  UserPlus, 
+  Users, 
+  Wallet, 
+  ShoppingCart, 
+  Activity, 
+  ShieldCheck, 
+  Calculator, 
+  Loader,
+  Clock,
+  Calendar as CalendarIcon
+} from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours, isSameDay, isSameMonth } from 'date-fns';
+import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours, isSameDay } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { type InventoryItem, type Appointment, type Service, type Staff, type WalkIn, type Transaction, type ActivityLog } from '@/lib/data';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartConfig } from '@/components/ui/chart';
-import { Bar, BarChart as RechartsBarChart, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
+import { type Staff, type Appointment, type Service, type WalkIn, type Notification } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
-import { Calendar as CalendarIcon } from 'lucide-react';
 import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useFirebase, useUser, useMemoFirebase, useCollection } from '@/firebase';
+import { collection, query, where } from 'firebase/firestore';
 
 /**
  * Utility to safely convert potential strings, timestamps, or Date objects into valid Date instances.
@@ -45,6 +72,8 @@ const safeDate = (val: any): Date => {
 
 export default function ReportsPage() {
   const isMobile = useIsMobile() || false;
+  const { firestore, user: currentUser } = useFirebase();
+  const { role } = useUser();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
   
@@ -61,7 +90,6 @@ export default function ReportsPage() {
     clients,
     isLoading
   } = useInventory();
-
 
   const monthlyOverhead = useMemo(() => {
       let totalOverhead = 0;
@@ -329,65 +357,6 @@ export default function ReportsPage() {
     }
   }, [performanceAndPayrollData, appointments, transactions, staff, dateRange, walkIns]);
 
-
-  const waitTimeData = useMemo(() => {
-    if (!walkIns) return { chartData: [], avgWaitTime: 0 };
-    
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    const completedWalkIns = walkIns.filter(
-      w => {
-          if (w.status !== 'completed' || !w.serviceStartTime) return false;
-          const checkInDate = safeDate(w.checkInTime);
-          if(fromDate && checkInDate < fromDate) return false;
-          if(toDate && checkInDate > toDate) return false;
-          return true;
-      }
-    );
-
-    const hourlyWaitTimes: { [hour: number]: { totalWait: number; count: number } } = {};
-
-    for(let i = 8; i < 20; i++) {
-        hourlyWaitTimes[i] = { totalWait: 0, count: 0 };
-    }
-
-    completedWalkIns.forEach(w => {
-      const checkInTime = safeDate(w.checkInTime);
-      const serviceStartTime = safeDate(w.serviceStartTime!);
-      const waitMinutes = differenceInMinutes(serviceStartTime, checkInTime);
-      const hour = getHours(checkInTime);
-
-      if (hourlyWaitTimes[hour]) {
-        hourlyWaitTimes[hour].totalWait += waitMinutes;
-        hourlyWaitTimes[hour].count++;
-      }
-    });
-
-    const chartData = Object.entries(hourlyWaitTimes).map(([hour, data]) => ({
-      hour: format(setHours(new Date(0), parseInt(hour, 10)), 'ha'),
-      waitTime: data.count > 0 ? data.totalWait / data.count : 0,
-    }));
-    
-    const totalWaitMinutes = chartData.reduce((acc, d) => acc + d.waitTime * (hourlyWaitTimes[parseInt(d.hour)]?.count || 0), 0);
-    const avgWaitTime = completedWalkIns.length > 0 ? totalWaitMinutes / completedWalkIns.length : 0;
-    
-    return { chartData, avgWaitTime };
-
-  }, [walkIns, dateRange]);
-  
-  const payrollTotals = useMemo(() => {
-    if (!performanceAndPayrollData) return { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 };
-    return performanceAndPayrollData.reduce((acc, staffMember) => {
-        acc.totalWages += staffMember.stats.wages;
-        acc.totalTips += staffMember.stats.tips;
-        acc.totalRetailCommission += staffMember.stats.retailCommission;
-        acc.totalPayroll += staffMember.stats.totalPay;
-        acc.totalNetProfit += staffMember.stats.netProfit;
-        return acc;
-    }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 });
-  }, [performanceAndPayrollData]);
-  
   const servicePerformanceData = useMemo(() => {
     if (!services || !appointments) return [];
 
@@ -570,8 +539,8 @@ export default function ReportsPage() {
           
           <Card className="border-2 shadow-sm overflow-hidden min-w-0">
               <CardHeader className="pb-4 border-b bg-muted/10">
-                  <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll Report</CardTitle>
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Earnings & Contribution Summary</CardDescription>
+                  <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll & Earnings</CardTitle>
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Payout summary for {dateRangeString}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                   <div className="hidden md:block">
@@ -628,7 +597,7 @@ export default function ReportsPage() {
                                     <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
                                 </Avatar>
                                 <div>
-                                    <p className="font-bold text-sm">{data.name}</p>
+                                    <p className="font-bold text-sm">{data.name || 'Staff'}</p>
                                     <p className="text-[10px] font-black uppercase text-muted-foreground">{data.payStructure}</p>
                                 </div>
                             </div>
@@ -644,7 +613,7 @@ export default function ReportsPage() {
                         <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
                         <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
                         <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
-                        <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</span></div>
+                        <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - periodOverhead).toFixed(2)}</span></div>
                   </div>
               </CardContent>
           </Card>
@@ -691,7 +660,7 @@ export default function ReportsPage() {
               </CardContent>
           </Card>
 
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full">
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full pb-20">
             <Card className="border-2 shadow-sm overflow-hidden min-w-0">
               <CardHeader className="pb-4">
                 <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Stylist Effectiveness</CardTitle>
@@ -728,7 +697,7 @@ export default function ReportsPage() {
                     {performanceAndPayrollData.map(data => (
                         <div key={data.id} className="p-3 border rounded-xl bg-background space-y-2">
                             <div className="flex justify-between items-center">
-                                <p className="font-bold text-sm">{data.name}</p>
+                                <p className="font-bold text-sm">{data.name || 'Staff'}</p>
                                 <Badge variant="outline" className={cn("text-[9px] h-4", data.stats.avgVariance > 0 ? "text-destructive" : "text-green-600")}>{data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m</Badge>
                             </div>
                             <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase text-muted-foreground text-center">
@@ -741,22 +710,21 @@ export default function ReportsPage() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="border-2 shadow-sm min-w-0">
+            <Card className="border-2 shadow-sm min-w-0 h-fit">
                 <CardHeader className="pb-4">
                     <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Booking Source</CardTitle>
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Lead generation channels</CardDescription>
                 </CardHeader>
                 <CardContent className="flex justify-center p-6">
-                    <ChartContainer config={{}} className="h-[200px] w-full max-w-[300px]">
-                        <RechartsPieChart>
-                            <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                    <div className="h-[200px] w-full max-w-[300px]">
+                        <RechartsPieChart width={300} height={200}>
                             <Pie data={bookingSourceData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={isMobile ? 60 : 80} label>
                                 {bookingSourceData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={entry.fill} />
                                 ))}
                             </Pie>
                         </RechartsPieChart>
-                    </ChartContainer>
+                    </div>
                 </CardContent>
             </Card>
           </div>
