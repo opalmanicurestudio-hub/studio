@@ -198,7 +198,7 @@ export default function ReportsPage() {
             }
         };
     });
-  }, [staff, appointments, services, transactions, activityLogs, dateRange]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange, currentUser, role]);
 
   const financials = useMemo(() => {
     if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
@@ -271,8 +271,8 @@ export default function ReportsPage() {
     const retailTransactions = transactions.filter(t => t.category === 'Retail' && t.appointmentId);
     const appointmentsWithRetail = new Set(retailTransactions.map(t => t.appointmentId));
 
-    const totalInServiceMinutes = performanceAndPayrollData.reduce((total, staff) => total + (staff.stats.totalInServiceHours * 60), 0);
-    const totalMinutesWorked = performanceAndPayrollData.reduce((total, staff) => total + (staff.stats.totalHours * 60), 0);
+    const totalInServiceMinutes = performanceAndPayrollData.reduce((total, staffMember) => total + (staffMember.stats.totalInServiceHours * 60), 0);
+    const totalMinutesWorked = performanceAndPayrollData.reduce((total, staffMember) => total + (staffMember.stats.totalHours * 60), 0);
     
     const clientsInPeriod = new Set(completedAppointments.map(apt => apt.clientId));
     let rebookedClients = 0;
@@ -378,12 +378,12 @@ export default function ReportsPage() {
   
   const payrollTotals = useMemo(() => {
     if (!performanceAndPayrollData) return { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 };
-    return performanceAndPayrollData.reduce((acc, staff) => {
-        acc.totalWages += staff.stats.wages;
-        acc.totalTips += staff.stats.tips;
-        acc.totalRetailCommission += staff.stats.retailCommission;
-        acc.totalPayroll += staff.stats.totalPay;
-        acc.totalNetProfit += staff.stats.netProfit;
+    return performanceAndPayrollData.reduce((acc, staffMember) => {
+        acc.totalWages += staffMember.stats.wages;
+        acc.totalTips += staffMember.stats.tips;
+        acc.totalRetailCommission += staffMember.stats.retailCommission;
+        acc.totalPayroll += staffMember.stats.totalPay;
+        acc.totalNetProfit += staffMember.stats.netProfit;
         return acc;
     }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 });
   }, [performanceAndPayrollData]);
@@ -574,8 +574,8 @@ export default function ReportsPage() {
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Earnings & Contribution Summary</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                  <ScrollArea className="w-full">
-                    <Table className="min-w-[700px]">
+                  <div className="hidden md:block">
+                    <Table className="w-full">
                         <TableHeader>
                             <TableRow className="bg-muted/50 border-b-2">
                                 <TableHead className="w-12"></TableHead>
@@ -617,23 +617,35 @@ export default function ReportsPage() {
                                 </TableRow>
                             ))}
                         </TableBody>
-                        <TableFooter className="bg-muted/20">
-                            <TableRow className="border-t-2"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-black text-sm">${financials.totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                            <TableRow className="bg-destructive/[0.02]"><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${financials.totalCOGS.toFixed(2)}</TableCell></TableRow>
-                            <TableRow className="font-black border-t-2 bg-muted/30"><TableCell colSpan={6} className="uppercase text-xs tracking-tight">Gross Profit</TableCell><TableCell className="text-right font-mono text-base tracking-tighter">${financials.grossProfit.toFixed(2)}</TableCell></TableRow>
-                            
-                            <TableRow className="border-t-4 border-white"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground pt-4">Operating Profit Analysis</TableCell><TableCell></TableCell></TableRow>
-                            <TableRow><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Service Wages</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
-                            <TableRow><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Retail Commission</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
-                            
-                            <TableRow className="font-black border-t-2 bg-muted/30"><TableCell colSpan={6} className="uppercase text-xs tracking-tight">Operating Profit</TableCell><TableCell className={cn("text-right font-mono text-base tracking-tighter", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-
-                            <TableRow className="border-t-4 border-white"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground pt-4">Bottom Line (After Overhead)</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                            <TableRow className="font-black text-xl md:text-2xl bg-primary/5"><TableCell colSpan={6} className="uppercase tracking-tighter py-6">True Net Profit</TableCell><TableCell className={cn("text-right font-mono tracking-tighter py-6", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
-                        </TableFooter>
                     </Table>
-                    <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                  </div>
+                  <div className="md:hidden space-y-4 p-4">
+                    {performanceAndPayrollData.map(data => (
+                        <div key={data.id} className="p-4 border-2 rounded-xl bg-muted/10 space-y-3">
+                            <div className="flex items-center gap-3">
+                                <Avatar className="h-10 w-10 border-2">
+                                    <AvatarImage src={data.avatarUrl} className="object-cover" />
+                                    <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <p className="font-bold text-sm">{data.name}</p>
+                                    <p className="text-[10px] font-black uppercase text-muted-foreground">{data.payStructure}</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="p-2 bg-background rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Service Rev</p><p className="font-bold">${data.stats.serviceRevenue.toFixed(2)}</p></div>
+                                <div className="p-2 bg-background rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Tips</p><p className="font-bold text-green-600">${data.stats.tips.toFixed(2)}</p></div>
+                                <div className="p-2 bg-primary/5 rounded-lg border border-primary/20 col-span-2 flex justify-between items-center"><p className="text-[9px] font-black text-primary uppercase">Total Payout</p><p className="font-black text-primary text-base">${data.stats.totalPay.toFixed(2)}</p></div>
+                            </div>
+                        </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 border-t p-4 space-y-2 bg-muted/5 text-sm">
+                        <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
+                        <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
+                        <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
+                        <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</span></div>
+                  </div>
               </CardContent>
           </Card>
           
@@ -643,8 +655,8 @@ export default function ReportsPage() {
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                  <ScrollArea className="w-full">
-                    <Table className="min-w-[600px]">
+                  <div className="hidden md:block">
+                    <Table className="w-full">
                         <TableHeader>
                             <TableRow className="bg-muted/30">
                                 <TableHead className="font-black text-[10px] uppercase tracking-widest">Service</TableHead>
@@ -664,8 +676,18 @@ export default function ReportsPage() {
                             ))}
                         </TableBody>
                     </Table>
-                    <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                  </div>
+                  <div className="md:hidden space-y-2 p-4">
+                    {servicePerformanceData.map(service => (
+                        <div key={service.id} className="flex justify-between items-center p-3 border rounded-xl bg-background shadow-sm">
+                            <div className="min-w-0">
+                                <p className="font-bold text-sm truncate">{service.name}</p>
+                                <p className="text-[9px] font-black text-muted-foreground uppercase">{service.totalBookings} Bookings &middot; {service.avgTime.toFixed(0)}m Avg</p>
+                            </div>
+                            <p className="font-black text-primary font-mono">${service.totalRevenue.toFixed(2)}</p>
+                        </div>
+                    ))}
+                  </div>
               </CardContent>
           </Card>
 
@@ -676,8 +698,8 @@ export default function ReportsPage() {
                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="w-full">
-                    <Table className="min-w-[500px]">
+                <div className="hidden md:block">
+                    <Table className="w-full">
                     <TableHeader>
                         <TableRow className="bg-muted/30">
                         <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
@@ -701,8 +723,22 @@ export default function ReportsPage() {
                         ))}
                     </TableBody>
                     </Table>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
+                </div>
+                <div className="md:hidden space-y-2 p-4">
+                    {performanceAndPayrollData.map(data => (
+                        <div key={data.id} className="p-3 border rounded-xl bg-background space-y-2">
+                            <div className="flex justify-between items-center">
+                                <p className="font-bold text-sm">{data.name}</p>
+                                <Badge variant="outline" className={cn("text-[9px] h-4", data.stats.avgVariance > 0 ? "text-destructive" : "text-green-600")}>{data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m</Badge>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase text-muted-foreground text-center">
+                                <div className="p-1 bg-muted/20 rounded">Util: {data.stats.utilizationRate.toFixed(0)}%</div>
+                                <div className="p-1 bg-muted/20 rounded">Tkt: ${data.stats.avgSalePerAppointment.toFixed(0)}</div>
+                                <div className="p-1 bg-muted/20 rounded">Retail: {data.stats.retailAttachmentRate.toFixed(0)}%</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
               </CardContent>
             </Card>
             <Card className="border-2 shadow-sm min-w-0">
