@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -107,10 +106,10 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                                 <TableCell>
                                     <Avatar className="h-9 w-9">
                                         <AvatarImage src={data.avatarUrl} alt={data.name} />
-                                        <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
+                                        <AvatarFallback>{(data.name || 'S').substring(0, 2)}</AvatarFallback>
                                     </Avatar>
                                 </TableCell>
-                                <TableCell className="font-medium">{data.name}</TableCell>
+                                <TableCell className="font-medium">{data.name || 'Unknown Staff'}</TableCell>
                                 <TableCell>
                                       <div className="font-medium capitalize">{data.payStructure}</div>
                                       {data.payStructure === 'commission' && data.commissionRate !== undefined && (
@@ -135,6 +134,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                           <TableRow><TableCell colSpan={6} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
                           <TableRow className="font-bold border-t"><TableCell colSpan={6}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
                           <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
                           <TableRow className="font-bold text-lg bg-gray-100"><TableCell colSpan={6}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-green-600' : 'text-red-600')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
                     </TableFooter>
                 </Table>
