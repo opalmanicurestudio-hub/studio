@@ -25,6 +25,7 @@ import {
   Trash2,
   Printer,
   Filter,
+  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -83,6 +84,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { collection, doc } from 'firebase/firestore';
+import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -334,7 +336,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                             <div className="flex items-center gap-1.5 mt-2">
                                 <Avatar className="h-5 w-5 border shadow-sm">
                                     <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                                    <AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback>
+                                    <AvatarFallback>{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <span className="text-[9px] font-black uppercase text-primary tracking-tight">{staffMember.name}</span>
                             </div>

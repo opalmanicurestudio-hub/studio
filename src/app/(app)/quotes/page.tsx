@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   MoreHorizontal,
   PlusCircle,
@@ -258,8 +258,7 @@ const KpiCards = ({ kpiData }: { kpiData: any }) => (
 
 
 export default function QuotesPage() {
-    const { firestore } = useFirebase();
-    const { user } = useFirebase();
+    const { firestore, user } = useFirebase();
     const { clients, isLoading: isInventoryLoading } = useInventory();
     const { toast } = useToast();
     const router = useRouter();

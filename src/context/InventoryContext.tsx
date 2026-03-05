@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, query, where } from 'firebase/firestore';
 import {
@@ -117,7 +117,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
     
-    // Sanitize titles to create safe segment IDs
+    // Sanitize titles to create safe segment IDs by stripping non-alphanumeric chars
     const profileBills = [
         ...(activeL?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
             ...b, 

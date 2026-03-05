@@ -18,6 +18,7 @@ import {
   Calendar as CalendarIcon,
   ShieldCheck,
   Loader,
+  Search,
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays } from 'date-fns';
@@ -31,6 +32,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
