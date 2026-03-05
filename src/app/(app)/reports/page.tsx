@@ -34,20 +34,18 @@ import {
   Calendar as CalendarIcon
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours, isSameDay } from 'date-fns';
+import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { type Staff, type Appointment, type Service, type WalkIn, type Notification } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type WalkIn } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useFirebase, useUser, useMemoFirebase, useCollection } from '@/firebase';
+import { useFirebase, useUser } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 
 /**
@@ -72,7 +70,8 @@ const safeDate = (val: any): Date => {
 
 export default function ReportsPage() {
   const isMobile = useIsMobile() || false;
-  const { firestore, user: currentUser } = useFirebase();
+  const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
   const { role } = useUser();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
@@ -90,6 +89,12 @@ export default function ReportsPage() {
     clients,
     isLoading
   } = useInventory();
+
+  const dateRangeString = useMemo(() => {
+    if (!dateRange?.from) return 'All Time';
+    if (!dateRange.to) return format(dateRange.from, 'MMM d, yyyy');
+    return `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`;
+  }, [dateRange]);
 
   const monthlyOverhead = useMemo(() => {
       let totalOverhead = 0;
@@ -440,7 +445,7 @@ export default function ReportsPage() {
                           variant={"outline"}
                           className={cn( "w-full sm:w-[300px] h-11 border-2 justify-start text-left font-normal shadow-sm", !dateRange && "text-muted-foreground" )}>
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, yyyy")} -{" "} {format(dateRange.to, "LLL dd, yyyy")} </> ) : ( format(dateRange.from, "LLL dd, yyyy") ) ) : ( <span>Pick a date range</span> ) }
+                          {dateRangeString}
                       </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="end">
@@ -736,7 +741,6 @@ export default function ReportsPage() {
             dateRange={dateRange}
             kpiData={kpiData}
             payrollData={performanceAndPayrollData}
-            payrollTotals={payrollTotals}
             grossProfit={financials.grossProfit}
             totalGrossRevenue={financials.totalGrossRevenue}
             totalCOGS={financials.totalCOGS}

@@ -22,13 +22,6 @@ interface PrintableStaffReportProps {
     newClientRate: number;
   };
   payrollData: (Staff & { stats: any })[];
-  payrollTotals: {
-    totalWages: number;
-    totalTips: number;
-    totalRetailCommission: number;
-    totalPayroll: number;
-    totalNetProfit: number;
-  };
   grossProfit: number;
   totalGrossRevenue: number;
   totalCOGS: number;
@@ -44,7 +37,6 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
     dateRange,
     kpiData,
     payrollData,
-    payrollTotals,
     grossProfit,
     totalGrossRevenue,
     totalCOGS,
@@ -54,6 +46,11 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
     const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d, yyyy')} - ${format(dateRange.to, 'MMM d, yyyy')}`
     : 'All Time';
+
+    const payrollTotals = payrollData.reduce((acc, d) => ({
+        totalPay: acc.totalPay + d.stats.totalPay,
+        totalNetProfit: acc.totalNetProfit + d.stats.netProfit
+    }), { totalPay: 0, totalNetProfit: 0 });
 
     return (
         <div ref={ref} className="p-8 bg-white text-black font-sans text-sm max-w-4xl mx-auto">
