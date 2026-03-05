@@ -27,7 +27,8 @@ import {
   Fingerprint,
   ShieldCheck,
   Calculator,
-  Loader
+  Loader,
+  Search
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, isSameMonth } from 'date-fns';
@@ -64,11 +65,26 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const MobileDataCard = ({ title, items, renderItem }: { title: string, items: any[], renderItem: (item: any) => React.ReactNode }) => (
+    <div className="space-y-4">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</h3>
+        <div className="grid gap-4">
+            {items.map((item, i) => (
+                <Card key={i} className="border-2 shadow-sm">
+                    <CardContent className="p-4">
+                        {renderItem(item)}
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+    </div>
+);
+
 export default function ReportsPage() {
-  const isMobile = useIsMobile() || false;
+  const isMobile = useIsMobile();
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
-  const { role } = useUser();
+  const { role } = useTenant();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
   
@@ -413,6 +429,17 @@ export default function ReportsPage() {
       ];
   }, [appointments]);
 
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen w-full flex-col">
+        <AppHeader title="Reports" />
+        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+            <Loader className="h-8 w-8 animate-spin" />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="no-print flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
       <AppHeader title="Reports & Analytics" />
@@ -529,179 +556,189 @@ export default function ReportsPage() {
             </Card>
         </div>
         
-        <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-            <CardHeader className="pb-4 border-b bg-muted/10">
-                <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll & Earnings</CardTitle>
-                <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Payout summary for {dateRangeString}</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-                <div className="hidden md:block">
-                  <Table className="w-full">
-                      <TableHeader>
-                          <TableRow className="bg-muted/50 border-b-2">
-                              <TableHead className="w-12"></TableHead>
-                              <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
-                              <TableHead className="font-black text-[10px] uppercase tracking-widest">Pay Structure</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Svc Rev.</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Tips</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Total Payout</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Contribution</TableHead>
-                          </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                          {performanceAndPayrollData.map(data => (
-                              <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
-                                  <TableCell>
-                                      <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
-                                          <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} className="object-cover" />
-                                          <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
-                                      </Avatar>
-                                  </TableCell>
-                                  <TableCell className="font-bold tracking-tight text-sm">{data.name || 'Staff'}</TableCell>
-                                  <TableCell>
-                                      <div className="font-bold uppercase text-[10px] tracking-tight">{data.payStructure}</div>
-                                      {data.payStructure === 'commission' && data.commissionRate !== undefined && (
-                                          <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
-                                              {data.commissionRate}% Svc / {data.retailCommissionRate || 0}% Ret.
-                                          </div>
-                                      )}
-                                      {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
-                                          <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
-                                              ${data.hourlyRate.toFixed(2)}/hr
-                                          </div>
-                                      )}
-                                  </TableCell>
-                                  <TableCell className="text-right font-mono font-bold text-xs">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right font-mono font-bold text-xs text-green-600">${data.stats.tips.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right font-mono font-black text-sm text-primary bg-primary/[0.02]">${data.stats.totalPay.toFixed(2)}</TableCell>
-                                  <TableCell className={cn("text-right font-mono font-black text-sm", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
-                              </TableRow>
-                          ))}
-                      </TableBody>
-                  </Table>
-                </div>
-                <div className="md:hidden space-y-4 p-4">
-                  {performanceAndPayrollData.map(data => (
-                      <div key={data.id} className="p-4 border-2 rounded-xl bg-muted/10 space-y-3">
-                          <div className="flex items-center gap-3">
-                              <Avatar className="h-10 w-10 border-2">
-                                  <AvatarImage src={data.avatarUrl} className="object-cover" />
-                                  <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                  <p className="font-bold text-sm">{data.name || 'Staff'}</p>
-                                  <p className="text-[10px] font-black uppercase text-muted-foreground">{data.payStructure}</p>
-                              </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div className="p-2 bg-background rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Service Rev</p><p className="font-bold">${data.stats.serviceRevenue.toFixed(2)}</p></div>
-                              <div className="p-2 bg-background rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Tips</p><p className="font-bold text-green-600">${data.stats.tips.toFixed(2)}</p></div>
-                              <div className="p-2 bg-primary/5 rounded-lg border border-primary/20 col-span-2 flex justify-between items-center"><p className="text-[9px] font-black text-primary uppercase">Total Payout</p><p className="font-black text-primary text-base">${data.stats.totalPay.toFixed(2)}</p></div>
-                          </div>
-                      </div>
-                  ))}
-                </div>
-                <div className="mt-4 border-t p-4 space-y-2 bg-muted/5 text-sm">
-                      <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
-                      <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
-                      <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
-                      <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - periodOverhead).toFixed(2)}</span></div>
-                </div>
-            </CardContent>
-        </Card>
-        
-        <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-            <CardHeader className="pb-4">
-                <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Service Performance</CardTitle>
-                <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-                <div className="hidden md:block">
-                  <Table className="w-full">
-                      <TableHeader>
-                          <TableRow className="bg-muted/30">
-                              <TableHead className="font-black text-[10px] uppercase tracking-widest">Service</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Bookings</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Time</TableHead>
-                              <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Revenue</TableHead>
-                          </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                          {servicePerformanceData.map(service => (
-                              <TableRow key={service.id} className="border-b transition-colors hover:bg-muted/30">
-                                  <TableCell className="font-bold tracking-tight text-sm">{service.name}</TableCell>
-                                  <TableCell className="text-right font-mono font-bold text-xs">{service.totalBookings}</TableCell>
-                                  <TableCell className="text-right font-mono font-bold text-xs">{service.avgTime.toFixed(0)} min</TableCell>
-                                  <TableCell className="text-right font-mono font-black text-sm text-primary">${service.totalRevenue.toFixed(2)}</TableCell>
-                              </TableRow>
-                          ))}
-                      </TableBody>
-                  </Table>
-                </div>
-                <div className="md:hidden space-y-2 p-4">
-                  {servicePerformanceData.map(service => (
-                      <div key={service.id} className="flex justify-between items-center p-3 border rounded-xl bg-background shadow-sm">
-                          <div className="min-w-0">
-                              <p className="font-bold text-sm truncate">{service.name}</p>
-                              <p className="text-[9px] font-black text-muted-foreground uppercase">{service.totalBookings} Bookings &middot; {service.avgTime.toFixed(0)}m Avg</p>
-                          </div>
-                          <p className="font-black text-primary font-mono">${service.totalRevenue.toFixed(2)}</p>
-                      </div>
-                  ))}
-                </div>
-            </CardContent>
-        </Card>
+        {isMobile ? (
+            <div className="space-y-8">
+                <MobileDataCard 
+                    title="Payroll & Earnings"
+                    items={performanceAndPayrollData}
+                    renderItem={(data) => (
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <Avatar className="h-10 w-10 border-2">
+                                    <AvatarImage src={data.avatarUrl} className="object-cover" />
+                                    <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <p className="font-bold text-sm">{data.name || 'Staff'}</p>
+                                    <p className="text-[10px] font-black uppercase text-muted-foreground">{data.payStructure}</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="p-2 bg-muted/20 rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Service Rev</p><p className="font-bold">${data.stats.serviceRevenue.toFixed(2)}</p></div>
+                                <div className="p-2 bg-muted/20 rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Tips</p><p className="font-bold text-green-600">${data.stats.tips.toFixed(2)}</p></div>
+                                <div className="p-2 bg-primary/5 rounded-lg border border-primary/20 col-span-2 flex justify-between items-center"><p className="text-[9px] font-black text-primary uppercase">Total Payout</p><p className="font-black text-primary text-base">${data.stats.totalPay.toFixed(2)}</p></div>
+                            </div>
+                        </div>
+                    )}
+                />
+                <MobileDataCard 
+                    title="Service Performance"
+                    items={servicePerformanceData}
+                    renderItem={(service) => (
+                        <div className="flex justify-between items-center">
+                            <div className="min-w-0">
+                                <p className="font-bold text-sm truncate">{service.name}</p>
+                                <p className="text-[9px] font-black text-muted-foreground uppercase">{service.totalBookings} Bookings &middot; {service.avgTime.toFixed(0)}m Avg</p>
+                            </div>
+                            <p className="font-black text-primary font-mono text-base">${service.totalRevenue.toFixed(2)}</p>
+                        </div>
+                    )}
+                />
+                <MobileDataCard 
+                    title="Stylist Effectiveness"
+                    items={performanceAndPayrollData}
+                    renderItem={(data) => (
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <p className="font-bold text-sm">{data.name || 'Staff'}</p>
+                                <Badge variant="outline" className={cn("text-[9px] h-4", data.stats.avgVariance > 0 ? "text-destructive" : "text-green-600")}>{data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m</Badge>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase text-muted-foreground text-center">
+                                <div className="p-1 bg-muted/20 rounded">Util: {data.stats.utilizationRate.toFixed(0)}%</div>
+                                <div className="p-1 bg-muted/20 rounded">Tkt: ${data.stats.avgSalePerAppointment.toFixed(0)}</div>
+                                <div className="p-1 bg-muted/20 rounded">Retail: {data.stats.retailAttachmentRate.toFixed(0)}%</div>
+                            </div>
+                        </div>
+                    )}
+                />
+            </div>
+        ) : (
+            <>
+                <Card className="border-2 shadow-sm overflow-hidden min-w-0">
+                    <CardHeader className="pb-4 border-b bg-muted/10">
+                        <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll & Earnings</CardTitle>
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Payout summary for {dateRangeString}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table className="w-full">
+                            <TableHeader>
+                                <TableRow className="bg-muted/50 border-b-2">
+                                    <TableHead className="w-12"></TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Pay Structure</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Svc Rev.</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Tips</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Total Payout</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Contribution</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {performanceAndPayrollData.map(data => (
+                                    <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
+                                        <TableCell>
+                                            <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
+                                                <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} className="object-cover" />
+                                                <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                            </Avatar>
+                                        </TableCell>
+                                        <TableCell className="font-bold tracking-tight text-sm">{data.name || 'Staff'}</TableCell>
+                                        <TableCell>
+                                            <div className="font-bold uppercase text-[10px] tracking-tight">{data.payStructure}</div>
+                                            {data.payStructure === 'commission' && data.commissionRate !== undefined && (
+                                                <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
+                                                    {data.commissionRate}% Svc / {data.retailCommissionRate || 0}% Ret.
+                                                </div>
+                                            )}
+                                            {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
+                                                <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
+                                                    ${data.hourlyRate.toFixed(2)}/hr
+                                                </div>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono font-bold text-xs">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
+                                        <TableCell className="text-right font-mono font-bold text-xs text-green-600">${data.stats.tips.toFixed(2)}</TableCell>
+                                        <TableCell className="text-right font-mono font-black text-sm text-primary bg-primary/[0.02]">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                        <TableCell className={cn("text-right font-mono font-black text-sm", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+                
+                <Card className="border-2 shadow-sm overflow-hidden min-w-0">
+                    <CardHeader className="pb-4">
+                        <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Service Performance</CardTitle>
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table className="w-full">
+                            <TableHeader>
+                                <TableRow className="bg-muted/30">
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Service</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Bookings</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Time</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Revenue</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {servicePerformanceData.map(service => (
+                                    <TableRow key={service.id} className="border-b transition-colors hover:bg-muted/30">
+                                        <TableCell className="font-bold tracking-tight text-sm">{service.name}</TableCell>
+                                        <TableCell className="text-right font-mono font-bold text-xs">{service.totalBookings}</TableCell>
+                                        <TableCell className="text-right font-mono font-bold text-xs">{service.avgTime.toFixed(0)} min</TableCell>
+                                        <TableCell className="text-right font-mono font-black text-sm text-primary">${service.totalRevenue.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </>
+        )}
+
+        <div className="mt-4 border-t p-4 space-y-2 bg-muted/5 text-sm rounded-xl border-2">
+              <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
+              <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
+              <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
+              <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - periodOverhead).toFixed(2)}</span></div>
+        </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full pb-20">
-          <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-            <CardHeader className="pb-4">
-              <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Stylist Effectiveness</CardTitle>
-              <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="hidden md:block">
-                  <Table className="w-full">
-                  <TableHeader>
-                      <TableRow className="bg-muted/30">
-                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Util.</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Ticket</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Retail</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Variance</TableHead>
-                      </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                      {performanceAndPayrollData.map(data => (
-                      <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
-                          <TableCell className="font-bold tracking-tight text-sm truncate max-w-[100px]">{data.name || 'Staff'}</TableCell>
-                          <TableCell className="text-right font-mono font-bold text-xs">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                          <TableCell className="text-right font-mono font-bold text-xs">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-mono font-bold text-xs">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
-                          <TableCell className={cn('text-right font-mono font-black text-[10px] uppercase', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
-                          {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m
-                          </TableCell>
-                      </TableRow>
-                      ))}
-                  </TableBody>
-                  </Table>
-              </div>
-              <div className="md:hidden space-y-2 p-4">
-                  {performanceAndPayrollData.map(data => (
-                      <div key={data.id} className="p-3 border rounded-xl bg-background space-y-2">
-                          <div className="flex justify-between items-center">
-                              <p className="font-bold text-sm">{data.name || 'Staff'}</p>
-                              <Badge variant="outline" className={cn("text-[9px] h-4", data.stats.avgVariance > 0 ? "text-destructive" : "text-green-600")}>{data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m</Badge>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase text-muted-foreground text-center">
-                              <div className="p-1 bg-muted/20 rounded">Util: {data.stats.utilizationRate.toFixed(0)}%</div>
-                              <div className="p-1 bg-muted/20 rounded">Tkt: ${data.stats.avgSalePerAppointment.toFixed(0)}</div>
-                              <div className="p-1 bg-muted/20 rounded">Retail: {data.stats.retailAttachmentRate.toFixed(0)}%</div>
-                          </div>
-                      </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
+          {!isMobile && (
+            <Card className="border-2 shadow-sm overflow-hidden min-w-0">
+                <CardHeader className="pb-4">
+                <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Stylist Effectiveness</CardTitle>
+                <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                <Table className="w-full">
+                    <TableHeader>
+                        <TableRow className="bg-muted/30">
+                        <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
+                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Util.</TableHead>
+                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Ticket</TableHead>
+                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Retail</TableHead>
+                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Variance</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {performanceAndPayrollData.map(data => (
+                        <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
+                            <TableCell className="font-bold tracking-tight text-sm truncate max-w-[100px]">{data.name || 'Staff'}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-xs">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-xs">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-xs">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
+                            <TableCell className={cn('text-right font-mono font-black text-[10px] uppercase', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
+                            {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m
+                            </TableCell>
+                        </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+                </CardContent>
+            </Card>
+          )}
           <Card className="border-2 shadow-sm min-w-0 h-fit">
               <CardHeader className="pb-4">
                   <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Booking Source</CardTitle>

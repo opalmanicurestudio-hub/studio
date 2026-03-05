@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -229,6 +228,20 @@ function PlannerPageContent() {
       absorbedCosts: absorbed + waivedTotal,
     };
   }, [transactions, appointments, services, currentDate, selectedTenant]);
+
+  const billInstancesWithDefinitions = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
+    const today = startOfDay(new Date());
+    return billInstances
+        .filter(i => {
+            const d = safeDate(i.dueDate);
+            return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7);
+        })
+        .map(instance => {
+            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+            return definition ? { ...instance, definition } : null;
+        }).filter((i): i is any => i !== null);
+  }, [billInstances, billDefinitions]);
 
   const handleUpdateStatus = (id: string, status: Appointment['status']) => {
     if (!firestore || !tenantId) return;
@@ -566,9 +579,9 @@ function PlannerPageContent() {
                                         <TooltipTrigger asChild>
                                             <Button variant="outline" size="icon" className="relative h-8 w-8" onClick={() => setIsBillsSheetOpen(true)}>
                                                 <CreditCard className="h-4 w-4" />
-                                                {billInstances.filter(i => i.status !== 'paid').length > 0 && (
+                                                {billInstancesWithDefinitions.length > 0 && (
                                                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white">
-                                                        {billInstances.filter(i => i.status !== 'paid').length}
+                                                        {billInstancesWithDefinitions.length}
                                                     </span>
                                                 )}
                                             </Button>
@@ -691,7 +704,7 @@ function PlannerPageContent() {
       <BillsDueSheet 
         open={isBillsSheetOpen} 
         onOpenChange={setIsBillsSheetOpen} 
-        billInstances={billInstances as any} 
+        billInstances={billInstancesWithDefinitions} 
         isMobile={isMobile || false} 
         onLogPaymentClick={(instance) => {
             setSelectedBill(instance as any);
