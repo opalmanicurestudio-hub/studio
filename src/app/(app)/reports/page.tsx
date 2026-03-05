@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -10,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon, ShieldCheck, Calculator, Loader } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
+import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours, isSameDay, isSameMonth } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type InventoryItem, type Appointment, type Service, type Staff, type WalkIn, type Transaction, type ActivityLog } from '@/lib/data';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartConfig } from '@/components/ui/chart';
@@ -45,13 +44,12 @@ const safeDate = (val: any): Date => {
 };
 
 export default function ReportsPage() {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile() || false;
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
   
   const {
     inventory,
-    stockCorrections,
     appointments,
     services,
     staff,
@@ -202,15 +200,7 @@ export default function ReportsPage() {
     });
   }, [staff, appointments, services, transactions, activityLogs, dateRange]);
 
-  const {
-    totalGrossRevenue,
-    totalCOGS,
-    grossProfit,
-    totalAbsorbedCosts,
-    totalWaivedFees,
-    totalOutstandingDebt,
-    recoveryRate
-  } = useMemo(() => {
+  const financials = useMemo(() => {
     if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
     const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
     const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
@@ -251,7 +241,7 @@ export default function ReportsPage() {
       totalOutstandingDebt: outstandingDebt,
       recoveryRate: rate
     };
-  }, [performanceAndPayrollData, appointments, transactions, dateRange, clients]);
+  }, [performanceAndPayrollData, transactions, dateRange, clients]);
   
   const kpiData = useMemo(() => {
     if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
@@ -493,28 +483,28 @@ export default function ReportsPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full">
-              <Card className="border-2 shadow-sm">
+              <Card className="border-2 shadow-sm min-w-0">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Avg. Ticket Size</CardTitle></CardHeader>
                   <CardContent>
                       <div className="text-2xl md:text-3xl font-black tracking-tighter">${kpiData.avgSalePerAppointment.toFixed(2)}</div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Revenue per completed appointment</p>
                   </CardContent>
               </Card>
-              <Card className="border-2 shadow-sm">
+              <Card className="border-2 shadow-sm min-w-0">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Target className="w-3 h-3"/>Stylist Utilization</CardTitle></CardHeader>
                   <CardContent>
                       <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.utilizationRate.toFixed(1)}%</div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Clocked-in time spent in-service</p>
                   </CardContent>
               </Card>
-              <Card className="bg-destructive/[0.03] border-destructive/20 border-2 shadow-sm">
+              <Card className="bg-destructive/[0.03] border-destructive/20 border-2 shadow-sm min-w-0">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-destructive/70 flex items-center gap-2"><AlertTriangle className="w-3 h-3"/>Absorbed Costs</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl md:text-3xl font-black tracking-tighter text-destructive">${totalAbsorbedCosts.toFixed(2)}</div>
+                      <div className="text-2xl md:text-3xl font-black tracking-tighter text-destructive">${financials.totalAbsorbedCosts.toFixed(2)}</div>
                       <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tight opacity-60">Waived Fees & Discounts</p>
                   </CardContent>
               </Card>
-              <Card className="border-2 shadow-sm">
+              <Card className="border-2 shadow-sm min-w-0">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><BanIcon className="w-3 h-3"/>Cancellation Rate</CardTitle></CardHeader>
                   <CardContent>
                       <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.cancellationRate.toFixed(1)}%</div>
@@ -524,47 +514,47 @@ export default function ReportsPage() {
           </div>
 
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full">
-              <Card className="border-2 border-primary/20 bg-primary/[0.02]">
+              <Card className="border-2 border-primary/20 bg-primary/[0.02] min-w-0">
                   <CardHeader className="pb-4">
-                      <CardTitle className="flex items-center gap-2 text-primary font-black uppercase tracking-tighter"><Wallet className="w-5 h-5" /> Revenue Recovery</CardTitle>
+                      <CardTitle className="flex items-center gap-2 text-primary font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Revenue Recovery</CardTitle>
                       <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Tracking unpaid balances</CardDescription>
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="p-4 rounded-xl bg-background border-2 shadow-sm">
                           <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Unpaid Debt (Total)</p>
-                          <p className="text-2xl font-black text-destructive tracking-tighter">${totalOutstandingDebt.toFixed(2)}</p>
+                          <p className="text-2xl font-black text-destructive tracking-tighter">${financials.totalOutstandingDebt.toFixed(2)}</p>
                       </div>
                       <div className="p-4 rounded-xl bg-background border-2 shadow-sm">
                           <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Fee Recovery Rate</p>
-                          <p className="text-2xl font-black text-primary tracking-tighter">{recoveryRate.toFixed(1)}%</p>
+                          <p className="text-2xl font-black text-primary tracking-tighter">{financials.recoveryRate.toFixed(1)}%</p>
                       </div>
                       <div className="p-4 rounded-xl bg-background border-2 shadow-sm sm:col-span-2 flex justify-between items-center">
                           <div>
                               <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Absorbed (Waived Fees)</p>
-                              <p className="text-2xl font-black text-destructive/70 tracking-tighter">${totalWaivedFees.toFixed(2)}</p>
+                              <p className="text-2xl font-black text-destructive/70 tracking-tighter">${financials.totalWaivedFees.toFixed(2)}</p>
                           </div>
                           <ShieldCheck className="w-8 h-8 text-primary/20" />
                       </div>
                   </CardContent>
               </Card>
 
-              <Card className="border-2 shadow-sm">
+              <Card className="border-2 shadow-sm min-w-0">
                   <CardHeader className="pb-4">
-                      <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter"><Users className="w-5 h-5" /> Top Accounts Receivable</CardTitle>
+                      <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Users className="w-5 h-5" /> Top Accounts Receivable</CardTitle>
                       <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Clients with highest debt</CardDescription>
                   </CardHeader>
                   <CardContent>
                       <div className="space-y-3">
                           {clients?.filter(c => (c.outstandingBalance || 0) > 0).sort((a,b) => (b.outstandingBalance || 0) - (a.outstandingBalance || 0)).slice(0, 5).map(client => (
                               <div key={client.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/20 border-2">
-                                  <div className="flex items-center gap-3">
-                                      <Avatar className="h-8 w-8 border-2 border-white shadow-sm">
+                                  <div className="flex items-center gap-3 truncate">
+                                      <Avatar className="h-8 w-8 border-2 border-white shadow-sm shrink-0">
                                           <AvatarImage src={client.avatarUrl} className="object-cover" />
                                           <AvatarFallback>{(client.name || 'C').substring(0,2).toUpperCase()}</AvatarFallback>
                                       </Avatar>
-                                      <span className="font-bold text-sm tracking-tight">{client.name}</span>
+                                      <span className="font-bold text-sm tracking-tight truncate">{client.name}</span>
                                   </div>
-                                  <Badge variant="destructive" className="font-mono font-black border-none h-6 px-2">-${client.outstandingBalance?.toFixed(2)}</Badge>
+                                  <Badge variant="destructive" className="font-mono font-black border-none h-6 px-2 shrink-0">-${client.outstandingBalance?.toFixed(2)}</Badge>
                               </div>
                           ))}
                           {(!clients || clients.filter(c => (c.outstandingBalance || 0) > 0).length === 0) && (
@@ -578,14 +568,14 @@ export default function ReportsPage() {
               </Card>
           </div>
           
-          <Card className="border-2 shadow-sm overflow-hidden">
+          <Card className="border-2 shadow-sm overflow-hidden min-w-0">
               <CardHeader className="pb-4 border-b bg-muted/10">
-                  <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter"><Wallet className="w-5 h-5" /> Payroll Report</CardTitle>
+                  <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll Report</CardTitle>
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Earnings & Contribution Summary</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                   <ScrollArea className="w-full">
-                    <Table>
+                    <Table className="min-w-[700px]">
                         <TableHeader>
                             <TableRow className="bg-muted/50 border-b-2">
                                 <TableHead className="w-12"></TableHead>
@@ -628,9 +618,9 @@ export default function ReportsPage() {
                             ))}
                         </TableBody>
                         <TableFooter className="bg-muted/20">
-                            <TableRow className="border-t-2"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-black text-sm">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                            <TableRow className="bg-destructive/[0.02]"><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                            <TableRow className="font-black border-t-2 bg-muted/30"><TableCell colSpan={6} className="uppercase text-xs tracking-tight">Gross Profit</TableCell><TableCell className="text-right font-mono text-base tracking-tighter">${grossProfit.toFixed(2)}</TableCell></TableRow>
+                            <TableRow className="border-t-2"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-black text-sm">${financials.totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
+                            <TableRow className="bg-destructive/[0.02]"><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${financials.totalCOGS.toFixed(2)}</TableCell></TableRow>
+                            <TableRow className="font-black border-t-2 bg-muted/30"><TableCell colSpan={6} className="uppercase text-xs tracking-tight">Gross Profit</TableCell><TableCell className="text-right font-mono text-base tracking-tighter">${financials.grossProfit.toFixed(2)}</TableCell></TableRow>
                             
                             <TableRow className="border-t-4 border-white"><TableCell colSpan={6} className="font-black uppercase text-[10px] tracking-widest text-muted-foreground pt-4">Operating Profit Analysis</TableCell><TableCell></TableCell></TableRow>
                             <TableRow><TableCell colSpan={6} className="text-muted-foreground pl-8 font-bold uppercase text-[9px] tracking-tight">Service Wages</TableCell><TableCell className="text-right font-mono text-xs font-bold text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
@@ -647,14 +637,14 @@ export default function ReportsPage() {
               </CardContent>
           </Card>
           
-          <Card className="border-2 shadow-sm">
+          <Card className="border-2 shadow-sm overflow-hidden min-w-0">
               <CardHeader className="pb-4">
-                  <CardTitle className="font-black uppercase tracking-tighter">Service Performance</CardTitle>
+                  <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Service Performance</CardTitle>
                   <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                   <ScrollArea className="w-full">
-                    <Table>
+                    <Table className="min-w-[600px]">
                         <TableHeader>
                             <TableRow className="bg-muted/30">
                                 <TableHead className="font-black text-[10px] uppercase tracking-widest">Service</TableHead>
@@ -679,15 +669,15 @@ export default function ReportsPage() {
               </CardContent>
           </Card>
 
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-            <Card className="border-2 shadow-sm">
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full">
+            <Card className="border-2 shadow-sm overflow-hidden min-w-0">
               <CardHeader className="pb-4">
-                <CardTitle className="font-black uppercase tracking-tighter">Stylist Effectiveness</CardTitle>
+                <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Stylist Effectiveness</CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="w-full">
-                    <Table>
+                    <Table className="min-w-[500px]">
                     <TableHeader>
                         <TableRow className="bg-muted/30">
                         <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
@@ -715,13 +705,13 @@ export default function ReportsPage() {
                 </ScrollArea>
               </CardContent>
             </Card>
-            <Card className="border-2 shadow-sm">
+            <Card className="border-2 shadow-sm min-w-0">
                 <CardHeader className="pb-4">
-                    <CardTitle className="font-black uppercase tracking-tighter">Booking Source</CardTitle>
+                    <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Booking Source</CardTitle>
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Lead generation channels</CardDescription>
                 </CardHeader>
                 <CardContent className="flex justify-center p-6">
-                    <ChartContainer config={{}} className="h-[200px] w-[200px] md:h-[250px] md:w-[250px]">
+                    <ChartContainer config={{}} className="h-[200px] w-full max-w-[300px]">
                         <RechartsPieChart>
                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                             <Pie data={bookingSourceData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={isMobile ? 60 : 80} label>
@@ -743,9 +733,9 @@ export default function ReportsPage() {
             kpiData={kpiData}
             payrollData={performanceAndPayrollData}
             payrollTotals={payrollTotals}
-            grossProfit={grossProfit}
-            totalGrossRevenue={totalGrossRevenue}
-            totalCOGS={totalCOGS}
+            grossProfit={financials.grossProfit}
+            totalGrossRevenue={financials.totalGrossRevenue}
+            totalCOGS={financials.totalCOGS}
             periodOverhead={periodOverhead}
             servicePerformanceData={servicePerformanceData}
             appointments={appointments}
