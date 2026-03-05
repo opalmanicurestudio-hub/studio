@@ -22,6 +22,7 @@ import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 /**
  * Utility to safely convert potential strings, timestamps, or Date objects into valid Date instances.
@@ -44,6 +45,7 @@ const safeDate = (val: any): Date => {
 };
 
 export default function ReportsPage() {
+  const isMobile = useIsMobile();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
   
