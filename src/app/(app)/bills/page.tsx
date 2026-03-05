@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -56,7 +55,7 @@ import { isPast, isFuture, parseISO } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
@@ -268,17 +267,34 @@ export default function BillsPage() {
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string; receiptUrl?: string }) => {
     if (!selectedBill || !firestore || !user || !tenantId) return;
     
-    // 1. Update the BillInstance in Firestore
-    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    // 1. Determine the BillInstance Reference (Handle virtual vs. real IDs)
+    const isVirtual = selectedBill.id.startsWith('virtual-');
+    const billInstanceRef = isVirtual 
+        ? doc(collection(firestore, 'tenants', tenantId, 'billInstances'))
+        : doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    
     const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
     const newAmountDue = selectedBill.amountDue - paymentData.amount;
     const newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
     
-    updateDocumentNonBlocking(billInstanceRef, {
-        amountPaid: newAmountPaid,
-        amountDue: newAmountDue,
-        status: newStatus
-    });
+    const batch = writeBatch(firestore);
+
+    if (isVirtual) {
+        batch.set(billInstanceRef, {
+            id: billInstanceRef.id,
+            billDefinitionId: selectedBill.billDefinitionId,
+            dueDate: selectedBill.dueDate,
+            amountDue: newAmountDue,
+            amountPaid: newAmountPaid,
+            status: newStatus
+        });
+    } else {
+        batch.update(billInstanceRef, {
+            amountPaid: newAmountPaid,
+            amountDue: newAmountDue,
+            status: newStatus
+        });
+    }
 
     // 2. Create a new Transaction in Firestore
     const newTransaction: Omit<Transaction, 'id'> = {
@@ -292,15 +308,18 @@ export default function BillsPage() {
         paymentMethod: paymentData.paymentMethod,
         hasReceipt: !!paymentData.receiptUrl,
         receiptUrl: paymentData.receiptUrl,
-        relatedBillInstanceId: selectedBill.id,
+        relatedBillInstanceId: isVirtual ? billInstanceRef.id : selectedBill.id,
     };
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-    addDocumentNonBlocking(transactionsRef, newTransaction);
     
-    toast({
-        title: "Payment Logged",
-        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
-    })
+    const transactionsRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+    batch.set(transactionsRef, { ...newTransaction, id: transactionsRef.id });
+    
+    batch.commit().then(() => {
+        toast({
+            title: "Payment Logged",
+            description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+        });
+    });
 
     setSelectedBill(null);
   };
@@ -428,5 +447,3 @@ export default function BillsPage() {
     </div>
   );
 }
-
-    

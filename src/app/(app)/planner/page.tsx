@@ -5,7 +5,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard, ShieldCheck } from 'lucide-react';
 import { type Event, type Staff, type Appointment, type AppointmentCheckoutState, type Resource, type Membership } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours, differenceInDays } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -497,8 +497,8 @@ function PlannerPageContent() {
 
     const batch = writeBatch(firestore);
     batch.update(appointmentRef, { 
-        cancellationFeeWaived: true,
-        waivedBy: authorizer.id,
+        cancellationFeeWaived: true, 
+        waivedBy: authorizer.id, 
         waivedReason: reason,
         waivedAt: waiverEntry.waivedAt
     });
@@ -520,16 +520,37 @@ function PlannerPageContent() {
   const handleLogPaymentConfirm = (paymentData: any) => {
     if (!selectedBill || !firestore || !tenantId) return;
     
-    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    // CRITICAL FIX: Virtual bills do not have real doc IDs. We must create them.
+    const isVirtual = selectedBill.id.startsWith('virtual-');
+    
     const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
     const newAmountDue = selectedBill.amountDue - paymentData.amount;
     const newStatus: any = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+
+    const batch = writeBatch(firestore);
     
-    updateDocumentNonBlocking(billInstanceRef, {
-        amountPaid: newAmountPaid,
-        amountDue: newAmountDue,
-        status: newStatus
-    });
+    let finalInstanceId = selectedBill.id;
+    const billInstanceRef = isVirtual 
+        ? doc(collection(firestore, 'tenants', tenantId, 'billInstances'))
+        : doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    
+    if (isVirtual) {
+        finalInstanceId = billInstanceRef.id;
+        batch.set(billInstanceRef, {
+            id: finalInstanceId,
+            billDefinitionId: selectedBill.billDefinitionId,
+            dueDate: selectedBill.dueDate,
+            amountDue: newAmountDue,
+            amountPaid: newAmountPaid,
+            status: newStatus
+        });
+    } else {
+        batch.update(billInstanceRef, {
+            amountPaid: newAmountPaid,
+            amountDue: newAmountDue,
+            status: newStatus
+        });
+    }
 
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
@@ -542,14 +563,17 @@ function PlannerPageContent() {
         paymentMethod: paymentData.paymentMethod,
         hasReceipt: !!paymentData.receiptUrl,
         receiptUrl: paymentData.receiptUrl,
-        relatedBillInstanceId: selectedBill.id,
+        relatedBillInstanceId: finalInstanceId,
     };
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-    addDocumentNonBlocking(transactionsRef, newTransaction);
     
-    toast({
-        title: "Payment Logged",
-        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+    const transactionRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+    batch.set(transactionRef, { ...newTransaction, id: transactionRef.id });
+    
+    batch.commit().then(() => {
+        toast({
+            title: "Payment Logged",
+            description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+        });
     });
 
     setSelectedBill(null);

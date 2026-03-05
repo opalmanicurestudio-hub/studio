@@ -117,16 +117,17 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
     
+    // CRITICAL FIX: Sanitize IDs to remove slashes which cause Firebase segment errors
     const profileBills = [
         ...(activeL?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
             ...b, 
-            id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-personal`, 
+            id: `bill-${b.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-personal`, 
             context: 'Personal', 
             category: c.name 
         }))),
         ...(activeB?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
             ...b, 
-            id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-business`, 
+            id: `bill-${b.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-business`, 
             context: 'Business', 
             category: c.name 
         })))

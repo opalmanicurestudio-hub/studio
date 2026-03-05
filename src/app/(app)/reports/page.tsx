@@ -1,50 +1,35 @@
 'use client';
 
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import Link from 'next/link';
 import { 
-  ArrowLeft, 
   Printer, 
   DollarSign, 
-  Package, 
-  Store, 
-  Hammer, 
-  Recycle, 
   TrendingUp, 
   AlertTriangle, 
   Target, 
   Ban as BanIcon, 
   Users, 
   Wallet, 
-  ShoppingCart, 
   Clock,
   Calendar as CalendarIcon,
-  Fingerprint,
   ShieldCheck,
-  Calculator,
   Loader,
-  Search,
-  CheckCircle
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, isSameMonth } from 'date-fns';
+import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { type Staff, type Appointment, type Service, type WalkIn } from '@/lib/data';
+import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
-import { PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
-import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useFirebase, useUser } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 
 const safeDate = (val: any): Date => {
@@ -69,7 +54,7 @@ const MobileDataCard = ({ title, items, renderItem }: { title: string, items: an
         <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</h3>
         <div className="grid gap-4">
             {items.map((item, i) => (
-                <Card key={i} className="border-2 shadow-sm">
+                <Card key={i} className="border-2 shadow-sm overflow-hidden">
                     <CardContent className="p-4">
                         {renderItem(item)}
                     </CardContent>
@@ -81,7 +66,6 @@ const MobileDataCard = ({ title, items, renderItem }: { title: string, items: an
 
 export default function ReportsPage() {
   const isMobile = useIsMobile();
-  const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
   const { role } = useTenant();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
@@ -233,7 +217,7 @@ export default function ReportsPage() {
             }
         };
     });
-  }, [staff, appointments, services, transactions, activityLogs, dateRange, currentUser, role]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange]);
 
   const financials = useMemo(() => {
     if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
@@ -279,7 +263,7 @@ export default function ReportsPage() {
   }, [performanceAndPayrollData, transactions, dateRange, clients]);
   
   const kpiData = useMemo(() => {
-    if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
+    if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0 };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -398,7 +382,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div className="no-print flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
       <AppHeader title="Reports & Analytics" />
       <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 w-full max-w-full min-w-0 overflow-y-auto">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -577,49 +561,46 @@ export default function ReportsPage() {
                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Payout summary for {dateRangeString}</CardDescription>
                     </CardHeader>
                     <CardContent className="p-0">
-                        <Table className="w-full">
-                            <TableHeader>
-                                <TableRow className="bg-muted/50 border-b-2">
-                                    <TableHead className="w-12"></TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Pay Structure</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Svc Rev.</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Tips</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Total Payout</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Contribution</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {performanceAndPayrollData.map(data => (
-                                    <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
-                                        <TableCell>
-                                            <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
-                                                <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} className="object-cover" />
-                                                <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
-                                            </Avatar>
-                                        </TableCell>
-                                        <TableCell className="font-bold tracking-tight text-sm">{data.name || 'Staff'}</TableCell>
-                                        <TableCell>
-                                            <div className="font-bold uppercase text-[10px] tracking-tight">{data.payStructure}</div>
-                                            {data.payStructure === 'commission' && data.commissionRate !== undefined && (
-                                                <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
-                                                    {data.commissionRate}% Svc / {data.retailCommissionRate || 0}% Ret.
-                                                </div>
-                                            )}
-                                            {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
-                                                <div className="text-[9px] text-muted-foreground font-medium uppercase opacity-60">
-                                                    ${data.hourlyRate.toFixed(2)}/hr
-                                                </div>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono font-bold text-xs">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
-                                        <TableCell className="text-right font-mono font-bold text-xs text-green-600">${data.stats.tips.toFixed(2)}</TableCell>
-                                        <TableCell className="text-right font-mono font-black text-sm text-primary bg-primary/[0.02]">${data.stats.totalPay.toFixed(2)}</TableCell>
-                                        <TableCell className={cn("text-right font-mono font-black text-sm", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted/50 border-b-2">
+                                    <tr>
+                                        <th className="w-12 p-4"></th>
+                                        <th className="text-left p-4 font-black text-[10px] uppercase tracking-widest">Staff Member</th>
+                                        <th className="text-left p-4 font-black text-[10px] uppercase tracking-widest">Pay Structure</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Svc Rev.</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Tips</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Total Payout</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Contribution</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {performanceAndPayrollData.map(data => (
+                                        <tr key={data.id} className="border-b transition-colors hover:bg-muted/30">
+                                            <td className="p-4">
+                                                <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
+                                                    <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} className="object-cover" />
+                                                    <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                                </Avatar>
+                                            </td>
+                                            <td className="p-4 font-bold tracking-tight">{data.name || 'Staff'}</td>
+                                            <td className="p-4 uppercase text-[10px] font-bold">
+                                                {data.payStructure}
+                                                {data.payStructure === 'commission' && (
+                                                    <div className="text-[9px] text-muted-foreground font-medium opacity-60">
+                                                        {data.commissionRate}% Svc / {data.retailCommissionRate || 0}% Ret.
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs">${data.stats.serviceRevenue.toFixed(2)}</td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs text-green-600">${data.stats.tips.toFixed(2)}</td>
+                                            <td className="p-4 text-right font-mono font-black text-sm text-primary bg-primary/[0.02]">${data.stats.totalPay.toFixed(2)}</td>
+                                            <td className={cn("p-4 text-right font-mono font-black text-sm", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </CardContent>
                 </Card>
                 
@@ -629,26 +610,28 @@ export default function ReportsPage() {
                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
                     </CardHeader>
                     <CardContent className="p-0">
-                        <Table className="w-full">
-                            <TableHeader>
-                                <TableRow className="bg-muted/30">
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest">Service</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Bookings</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Time</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Revenue</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {servicePerformanceData.map(service => (
-                                    <TableRow key={service.id} className="border-b transition-colors hover:bg-muted/30">
-                                        <TableCell className="font-bold tracking-tight text-sm">{service.name}</TableCell>
-                                        <TableCell className="text-right font-mono font-bold text-xs">{service.totalBookings}</TableCell>
-                                        <TableCell className="text-right font-mono font-bold text-xs">{service.avgTime.toFixed(0)} min</TableCell>
-                                        <TableCell className="text-right font-mono font-black text-sm text-primary">${service.totalRevenue.toFixed(2)}</TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted/30 border-b">
+                                    <tr>
+                                        <th className="text-left p-4 font-black text-[10px] uppercase tracking-widest">Service</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Bookings</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Avg. Time</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Revenue</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {servicePerformanceData.map(service => (
+                                        <tr key={service.id} className="border-b transition-colors hover:bg-muted/30">
+                                            <td className="p-4 font-bold tracking-tight">{service.name}</td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs">{service.totalBookings}</td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs">{service.avgTime.toFixed(0)} min</td>
+                                            <td className="p-4 text-right font-mono font-black text-sm text-primary">${service.totalRevenue.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </CardContent>
                 </Card>
             </>
@@ -669,30 +652,32 @@ export default function ReportsPage() {
                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                <Table className="w-full">
-                    <TableHeader>
-                        <TableRow className="bg-muted/30">
-                        <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff Member</TableHead>
-                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Util.</TableHead>
-                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Avg. Ticket</TableHead>
-                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Retail</TableHead>
-                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Variance</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {performanceAndPayrollData.map(data => (
-                        <TableRow key={data.id} className="border-b transition-colors hover:bg-muted/30">
-                            <TableCell className="font-bold tracking-tight text-sm truncate max-w-[100px]">{data.name || 'Staff'}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-xs">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-xs">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-xs">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
-                            <TableCell className={cn('text-right font-mono font-black text-[10px] uppercase', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
-                            {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m
-                            </TableCell>
-                        </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="bg-muted/30 border-b">
+                            <tr>
+                                <th className="text-left p-4 font-black text-[10px] uppercase tracking-widest">Staff Member</th>
+                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Util.</th>
+                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Avg. Ticket</th>
+                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Retail</th>
+                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Variance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {performanceAndPayrollData.map(data => (
+                            <tr key={data.id} className="border-b transition-colors hover:bg-muted/30">
+                                <td className="p-4 font-bold tracking-tight truncate max-w-[100px]">{data.name || 'Staff'}</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs">{data.stats.utilizationRate.toFixed(1)}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs">${data.stats.avgSalePerAppointment.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs">{data.stats.retailAttachmentRate.toFixed(1)}%</td>
+                                <td className={cn('p-4 text-right font-mono font-black text-[10px] uppercase', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
+                                    {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m
+                                </td>
+                            </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
                 </CardContent>
             </Card>
           )}
