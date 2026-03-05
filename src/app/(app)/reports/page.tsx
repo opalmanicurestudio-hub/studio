@@ -44,6 +44,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useFirebase, useUser } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
 
 /**
  * Utility to safely convert potential strings, timestamps, or Date objects into valid Date instances.

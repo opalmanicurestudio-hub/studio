@@ -75,6 +75,8 @@ interface InventoryContextType {
   reviews: Review[];
   pricingTiers: PricingTier[];
   scheduleProfiles: any[];
+  lifestyleProfiles: any[];
+  businessProfiles: any[];
   isLoading: boolean;
 }
 
@@ -118,9 +120,20 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const rawDefs = billDefinitionsData || [];
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
+    
     const profileBills = [
-        ...(activeL?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ ...b, id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-personal`, context: 'Personal', category: c.name }))),
-        ...(activeB?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ ...b, id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-business`, context: 'Business', category: c.name })))
+        ...(activeL?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
+            ...b, 
+            id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-personal`, 
+            context: 'Personal', 
+            category: c.name 
+        }))),
+        ...(activeB?.categories || []).flatMap((c: any) => (c.bills || []).map((b: any) => ({ 
+            ...b, 
+            id: `bill-${b.title.replace(/\s+/g, '-').toLowerCase()}-business`, 
+            context: 'Business', 
+            category: c.name 
+        })))
     ].filter((pb: any) => pb.amount > 0);
 
     const merged = [...rawDefs];
@@ -145,11 +158,14 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const existingInstances = (rawBillInstances || []).map(instance => ({ ...instance, dueDate: safeDate(instance.dueDate).toISOString() }));
     const now = new Date();
     const currentMonthStr = format(now, 'yyyy-MM');
+    
     const generatedInstances = billDefinitions.map(def => {
         const hasInstance = existingInstances.some(ei => ei.billDefinitionId === def.id && ei.dueDate.startsWith(currentMonthStr));
         if (hasInstance) return null;
+        
         const dueDate = new Date(now.getFullYear(), now.getMonth(), (def as any).dueDay || 1);
         const isOverdue = isPast(dueDate) && !isToday(dueDate);
+        
         return { 
             id: `virtual-${def.id}-${currentMonthStr}`, 
             billDefinitionId: def.id, 
@@ -159,6 +175,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
             amountPaid: 0 
         } as BillInstance;
     }).filter((i): i is BillInstance => i !== null);
+    
     return [...existingInstances, ...generatedInstances];
   }, [rawBillInstances, billDefinitions]);
 
@@ -230,6 +247,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     reviews: reviews || [],
     pricingTiers: pricingTiers || [],
     scheduleProfiles: scheduleProfiles || [],
+    lifestyleProfiles: lifestyleProfiles || [],
+    businessProfiles: businessProfiles || [],
     isLoading,
   };
 
