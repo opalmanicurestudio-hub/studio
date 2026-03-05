@@ -167,9 +167,9 @@ export default function CampaignsPage() {
   }, [campaigns]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col overflow-x-hidden">
       <AppHeader title="Campaigns" />
-      <main className="flex-1 p-4 md:p-8 space-y-8">
+      <main className="flex-1 p-4 md:p-8 space-y-8 max-w-full overflow-hidden">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold">Marketing Campaigns</h1>
@@ -196,12 +196,12 @@ export default function CampaignsPage() {
             <CardTitle>Your Campaigns</CardTitle>
             <CardDescription>A list of all your marketing campaigns, past and present.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0 sm:p-6 overflow-hidden">
             {isLoading ? (
-                <p>Loading campaigns...</p>
+                <div className="flex justify-center p-12"><Loader className="animate-spin" /></div>
             ) : campaigns && campaigns.length > 0 ? (
               <>
-                <div className="hidden md:block">
+                <div className="hidden md:block overflow-x-auto">
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -265,7 +265,7 @@ export default function CampaignsPage() {
                         </TableBody>
                     </Table>
                 </div>
-                <div className="md:hidden space-y-4">
+                <div className="md:hidden space-y-4 p-4">
                     {sortedCampaigns.map(campaign => (
                         <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
                     ))}

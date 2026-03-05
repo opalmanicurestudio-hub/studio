@@ -157,7 +157,7 @@ export default function ReportsPage() {
         }
         if(clockInTime && (!toDate || clockInTime < toDate)) {
             const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-            totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
+            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
         }
 
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
