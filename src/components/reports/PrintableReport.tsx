@@ -111,6 +111,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                 <Table>
                     <TableHeader>
                         <TableRow className="border-b-2 border-black">
+                            <TableHead className="w-12"></TableHead>
                             <TableHead className="font-black text-[10px] uppercase">Staff Member</TableHead>
                             <TableHead className="text-right font-black text-[10px] uppercase">Svc Rev</TableHead>
                             <TableHead className="text-right font-black text-[10px] uppercase">Tips</TableHead>
@@ -122,6 +123,12 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                     <TableBody>
                         {payrollData.map(data => (
                             <TableRow key={data.id} className="border-b">
+                                <TableCell>
+                                    <Avatar className="h-9 w-9">
+                                        <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} />
+                                        <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                </TableCell>
                                 <TableCell className="font-bold">{data.name || 'Staff'}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-green-600">${data.stats.tips.toFixed(2)}</TableCell>

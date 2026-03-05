@@ -253,7 +253,7 @@ export default function ReportsPage() {
     };
   }, [performanceAndPayrollData, appointments, transactions, dateRange, clients]);
   
-  const salonWideStats = useMemo(() => {
+  const kpiData = useMemo(() => {
     if (!appointments || !transactions || !staff || !walkIns) return { avgSalePerAppointment: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
@@ -740,7 +740,7 @@ export default function ReportsPage() {
         <PrintableStaffReport
             ref={reportRef} 
             dateRange={dateRange}
-            kpiData={salonWideStats}
+            kpiData={kpiData}
             payrollData={performanceAndPayrollData}
             payrollTotals={payrollTotals}
             grossProfit={grossProfit}
