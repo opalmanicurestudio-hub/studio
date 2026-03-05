@@ -122,7 +122,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
                                 <TableCell>
                                     <Avatar className="h-9 w-9">
                                         <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} />
-                                        <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                        <AvatarFallback>{(data.name || 'Staff').substring(0, 2).toUpperCase()}</AvatarFallback>
                                     </Avatar>
                                 </TableCell>
                                 <TableCell className="font-bold">{data.name || 'Staff'}</TableCell>
