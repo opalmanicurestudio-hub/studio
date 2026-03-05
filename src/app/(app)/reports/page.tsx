@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -22,6 +23,26 @@ import { PrintableStaffReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+
+/**
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 export default function ReportsPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
@@ -91,7 +112,7 @@ export default function ReportsPage() {
         completedAppointments.forEach(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
                 const scheduledDuration = service.duration;
                 totalMinutesVariance += actualDuration - scheduledDuration;
                 totalInServiceMinutes += actualDuration;
@@ -101,7 +122,7 @@ export default function ReportsPage() {
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
         const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
       
-        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
         
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -113,7 +134,7 @@ export default function ReportsPage() {
         const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));
         const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         
         let clockInTime: Date | null = null;
@@ -201,7 +222,7 @@ export default function ReportsPage() {
 
     // Fees waived in period
     const waivedFeesInRange = clients.flatMap(c => c.waivedFees || []).filter(w => {
-        const d = parseISO(w.waivedAt);
+        const d = safeDate(w.waivedAt);
         return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
     });
     const waivedTotal = waivedFeesInRange.reduce((acc, w) => acc + w.feeAmount, 0);
@@ -217,7 +238,7 @@ export default function ReportsPage() {
     
     // "Charged" is whatever was collected + whatever is currently pending/unpaid
     const pendingFeesInRange = clients.flatMap(c => c.unpaidFees || []).filter(f => {
-        const d = parseISO(f.appointmentDate);
+        const d = safeDate(f.appointmentDate);
         return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
     }).reduce((acc, f) => acc + f.feeAmount, 0);
 
@@ -279,7 +300,7 @@ export default function ReportsPage() {
     const rebookingRate = clientsInPeriod.size > 0 ? (rebookedClients / clientsInPeriod.size) * 100 : 0;
     
     const walkInsInRange = walkIns.filter(w => {
-        const checkInDate = parseISO(w.checkInTime);
+        const checkInDate = safeDate(w.checkInTime);
         if (fromDate && checkInDate < fromDate) return false;
         if (toDate && checkInDate > toDate) return false;
         return true;
@@ -330,7 +351,7 @@ export default function ReportsPage() {
     const completedWalkIns = walkIns.filter(
       w => {
           if (w.status !== 'completed' || !w.serviceStartTime) return false;
-          const checkInDate = parseISO(w.checkInTime);
+          const checkInDate = safeDate(w.checkInTime);
           if(fromDate && checkInDate < fromDate) return false;
           if(toDate && checkInDate > toDate) return false;
           return true;
@@ -344,8 +365,8 @@ export default function ReportsPage() {
     }
 
     completedWalkIns.forEach(w => {
-      const checkInTime = parseISO(w.checkInTime);
-      const serviceStartTime = parseISO(w.serviceStartTime!);
+      const checkInTime = safeDate(w.checkInTime);
+      const serviceStartTime = safeDate(w.serviceStartTime!);
       const waitMinutes = differenceInMinutes(serviceStartTime, checkInTime);
       const hour = getHours(checkInTime);
 
@@ -401,7 +422,7 @@ export default function ReportsPage() {
             
             const totalActualDuration = serviceAppointments.reduce((acc, apt) => {
                 if (apt.actualStartTime && apt.actualEndTime) {
-                    return acc + differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                    return acc + differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
                 }
                 return acc + service.duration;
             }, 0);

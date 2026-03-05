@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -275,9 +276,19 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
         if (service.serviceTiers && service.serviceTiers.length > 0) {
             const prices = service.serviceTiers.map(t => t.price);
             const minPrice = Math.min(...prices);
+            
+            if (service.price > 0 && service.price < minPrice) {
+                 return { priceText: `From $${service.price.toFixed(2)}`, durationText: `${service.duration} min` };
+            }
+            
+            if (minPrice === Math.max(...prices)) {
+                return { priceText: `$${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
+            }
+
             return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
         }
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${service.duration} min` };
+        
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${duration} min` };
     }, [service, staffTierId, pricingTiers]);
 
     return (
@@ -491,7 +502,7 @@ const MemberSetup = ({
             </div>
 
             <div className="p-8 md:p-16 pt-0 flex flex-col sm:flex-row gap-4 md:gap-6 mt-4">
-                <Button variant="ghost" size="lg" onClick={onBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-16 md:h-24 text-lg md:text-3xl font-black rounded-3xl uppercase tracking-tighter">Back</Button>
+                <Button variant="ghost" size="lg" onClick={handleBack} disabled={isSubmitting} className="text-slate-400 hover:text-slate-600 hover:bg-white/40 h-16 md:h-24 text-lg md:text-3xl font-black rounded-3xl uppercase tracking-tighter">Back</Button>
                 <div className="hidden sm:block flex-1" />
                 {hasNextSubStep ? (
                     <Button 
