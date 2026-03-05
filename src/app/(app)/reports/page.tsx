@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon, ShieldCheck, Calculator } from 'lucide-react';
+import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon, ShieldCheck, Calculator, Loader } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -19,7 +20,6 @@ import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { PrintableStaffReport } from '@/components/reports/PrintableReport';
-import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -496,14 +496,14 @@ export default function ReportsPage() {
               <Card className="border-2 shadow-sm">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Avg. Ticket Size</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl md:text-3xl font-black tracking-tighter">${salonWideStats.avgSalePerAppointment.toFixed(2)}</div>
+                      <div className="text-2xl md:text-3xl font-black tracking-tighter">${kpiData.avgSalePerAppointment.toFixed(2)}</div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Revenue per completed appointment</p>
                   </CardContent>
               </Card>
               <Card className="border-2 shadow-sm">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Target className="w-3 h-3"/>Stylist Utilization</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl md:text-3xl font-black tracking-tighter">{salonWideStats.utilizationRate.toFixed(1)}%</div>
+                      <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.utilizationRate.toFixed(1)}%</div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Clocked-in time spent in-service</p>
                   </CardContent>
               </Card>
@@ -517,7 +517,7 @@ export default function ReportsPage() {
               <Card className="border-2 shadow-sm">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><BanIcon className="w-3 h-3"/>Cancellation Rate</CardTitle></CardHeader>
                   <CardContent>
-                      <div className="text-2xl md:text-3xl font-black tracking-tighter">{salonWideStats.cancellationRate.toFixed(1)}%</div>
+                      <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.cancellationRate.toFixed(1)}%</div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Appointments marked as cancelled</p>
                   </CardContent>
               </Card>

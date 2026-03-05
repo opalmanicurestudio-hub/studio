@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -50,9 +51,9 @@ import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-type Step = 'partyType' | 'memberSetup' | 'confirmation';
-type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
-
+/**
+ * Utility to safely convert potential strings or Date objects into valid Date instances.
+ */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -180,7 +181,7 @@ const StepDetails = ({
                         defaultCountry="US"
                         value={member.phone || ''}
                         onChange={(value) => onUpdate({ phone: value || '' })}
-                        inputComponent={Input}
+                        inputComponent={Input as any}
                         placeholder="(555) 000-0000"
                         className="flex h-12 md:h-16 w-full rounded-2xl border-2 border-white/50 bg-white/80 px-4 py-2 text-lg md:text-2xl font-bold focus-within:ring-4 focus-within:ring-primary/20 focus-within:border-primary transition-all [&_input]:border-none [&_input]:focus-visible:ring-0 [&_input]:h-auto [&_input]:p-0 [&_input]:bg-transparent shadow-inner text-slate-900"
                     />
