@@ -29,12 +29,8 @@ import {
     type BillInstance,
     type Transaction,
 } from '@/lib/financial-data';
-import { parseISO, format, isPast, isToday, startOfDay } from 'date-fns';
+import { parseISO, format, isPast, isToday, startOfDay, addMonths, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 
-/**
- * Utility to safely convert Firestore/API values to Date objects.
- * Handles Timestamps, ISO Strings, and already converted Dates.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -157,26 +153,36 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const billInstances = useMemo(() => {
     const existingInstances = (rawBillInstances || []).map(instance => ({ ...instance, dueDate: safeDate(instance.dueDate).toISOString() }));
     const now = new Date();
-    const currentMonthStr = format(now, 'yyyy-MM');
     
-    const generatedInstances = billDefinitions.map(def => {
-        const hasInstance = existingInstances.some(ei => ei.billDefinitionId === def.id && ei.dueDate.startsWith(currentMonthStr));
-        if (hasInstance) return null;
-        
-        const dueDate = new Date(now.getFullYear(), now.getMonth(), (def as any).dueDay || 1);
-        const isOverdue = isPast(dueDate) && !isToday(dueDate);
-        
-        return { 
-            id: `virtual-${def.id}-${currentMonthStr}`, 
-            billDefinitionId: def.id, 
-            dueDate: dueDate.toISOString(), 
-            status: isOverdue ? 'overdue' : 'unpaid', 
-            amountDue: (def as any).amount, 
-            amountPaid: 0 
-        } as BillInstance;
-    }).filter((i): i is BillInstance => i !== null);
+    const generatedInstances: BillInstance[] = [];
+
+    billDefinitions.forEach(def => {
+        const start = safeDate(def.startDate || '2024-01-01');
+        let currentIterMonth = startOfMonth(start);
+        const endIterMonth = startOfMonth(now);
+
+        while (currentIterMonth <= endIterMonth) {
+            const monthStr = format(currentIterMonth, 'yyyy-MM');
+            const hasInstance = existingInstances.some(ei => ei.billDefinitionId === def.id && ei.dueDate.startsWith(monthStr));
+            
+            if (!hasInstance) {
+                const dueDate = new Date(currentIterMonth.getFullYear(), currentIterMonth.getMonth(), (def as any).dueDay || 1);
+                const isOverdue = isBefore(dueDate, startOfDay(now)) && !isToday(dueDate);
+                
+                generatedInstances.push({ 
+                    id: `virtual-${def.id}-${monthStr}`, 
+                    billDefinitionId: def.id, 
+                    dueDate: dueDate.toISOString(), 
+                    status: isOverdue ? 'overdue' : 'unpaid', 
+                    amountDue: (def as any).amount, 
+                    amountPaid: 0 
+                } as BillInstance);
+            }
+            currentIterMonth = addMonths(currentIterMonth, 1);
+        }
+    });
     
-    return [...existingInstances, ...generatedInstances];
+    return [...existingInstances, ...generatedInstances].sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
   }, [rawBillInstances, billDefinitions]);
 
   const appointments = useMemo(() => {

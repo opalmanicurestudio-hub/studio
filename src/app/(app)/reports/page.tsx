@@ -28,7 +28,8 @@ import {
   ShieldCheck,
   Calculator,
   Loader,
-  Search
+  Search,
+  CheckCircle
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, isSameMonth } from 'date-fns';
@@ -46,9 +47,6 @@ import { useFirebase, useUser } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 
-/**
- * Utility to safely convert potential strings, timestamps, or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -87,7 +85,6 @@ export default function ReportsPage() {
   const { user: currentUser } = useUser();
   const { role } = useTenant();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
-  const reportRef = useRef<HTMLDivElement>(null);
   
   const {
     inventory,
@@ -111,28 +108,20 @@ export default function ReportsPage() {
 
   const monthlyOverhead = useMemo(() => {
       let totalOverhead = 0;
-      const activeBusinessProfile = businessProfiles?.[0];
+      const activeBusinessProfile = businessProfiles?.find((p: any) => p.isActive);
       if (activeBusinessProfile?.categories) {
           totalOverhead += activeBusinessProfile.categories.reduce((total: number, category: any) => {
-              return total + category.bills.reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
+              return total + (category.bills || []).reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
           }, 0);
       }
-      const activeLifestyleProfile = lifestyleProfiles?.[0];
+      const activeLifestyleProfile = lifestyleProfiles?.find((p: any) => p.isActive);
       if (activeLifestyleProfile?.categories) {
           totalOverhead += activeLifestyleProfile.categories.reduce((total: number, category: any) => {
-              return total + category.bills.reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
+              return total + (category.bills || []).reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
           }, 0);
       }
       return totalOverhead;
   }, [businessProfiles, lifestyleProfiles]);
-
-  const periodOverhead = useMemo(() => {
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-    const daysInRange = fromDate && toDate ? differenceInDays(toDate, fromDate) + 1 : 30;
-
-    return (monthlyOverhead / 30.44) * daysInRange;
-  }, [dateRange, monthlyOverhead]);
 
   const performanceAndPayrollData = useMemo(() => {
     if (!staff || !appointments || !services || !transactions || !activityLogs) return [];
@@ -161,11 +150,12 @@ export default function ReportsPage() {
                 const scheduledDuration = service.duration;
                 totalMinutesVariance += actualDuration - scheduledDuration;
                 totalInServiceMinutes += actualDuration;
+            } else if (service) {
+                totalInServiceMinutes += service.duration;
             }
         });
       
         const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
-        const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
       
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
         
@@ -226,7 +216,6 @@ export default function ReportsPage() {
             ...staffMember,
             stats: {
                 totalServices: completedAppointmentsCount,
-                avgActualServiceTime,
                 avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
@@ -346,23 +335,6 @@ export default function ReportsPage() {
     const totalServiceHours = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.totalInServiceHours, 0);
     const revenuePerServiceHour = totalServiceHours > 0 ? totalServiceRevenue / totalServiceHours : 0;
 
-    let newClientsInPeriod = 0;
-    if(fromDate) {
-        clientsInPeriod.forEach(clientId => {
-            const clientAppointments = appointments.filter(apt => apt.clientId === clientId);
-            if (clientAppointments.length > 0) {
-                const firstAppointmentDate = clientAppointments.reduce((earliest, current) => {
-                    const d = safeDate(current.startTime);
-                    return d < earliest ? d : earliest;
-                }, safeDate(clientAppointments[0].startTime));
-                if (firstAppointmentDate >= fromDate) {
-                    newClientsInPeriod++;
-                }
-            }
-        });
-    }
-    const newClientRate = clientsInPeriod.size > 0 ? (newClientsInPeriod / clientsInPeriod.size) * 100 : 0;
-    
     return {
       avgSalePerAppointment: completedAppointments.length > 0 ? totalRevenue / completedAppointments.length : 0,
       utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0,
@@ -371,7 +343,6 @@ export default function ReportsPage() {
       rebookingRate,
       walkInConversionRate,
       revenuePerServiceHour,
-      newClientRate,
     }
   }, [performanceAndPayrollData, appointments, transactions, staff, dateRange, walkIns]);
 
@@ -414,21 +385,6 @@ export default function ReportsPage() {
         .filter((s): s is NonNullable<typeof s> => s !== null)
         .sort((a,b) => b.totalRevenue - a.totalRevenue);
   }, [services, appointments, dateRange]);
-
-  const bookingSourceData = useMemo(() => {
-      if (!appointments) return [];
-      const counts = appointments.reduce((acc, apt) => {
-          const source = apt.source || (apt.isWalkIn ? 'walk-in' : 'manual');
-          acc[source] = (acc[source] || 0) + 1;
-          return acc;
-      }, { online: 0, 'walk-in': 0, manual: 0 } as Record<string, number>);
-
-      return [
-          { name: 'Online', value: counts.online, fill: 'hsl(var(--chart-1))' },
-          { name: 'Walk-in', value: counts['walk-in'], fill: 'hsl(var(--chart-2))' },
-          { name: 'Manual', value: counts.manual, fill: 'hsl(var(--chart-3))' },
-      ];
-  }, [appointments]);
 
   if (isLoading) {
     return (
@@ -702,7 +658,7 @@ export default function ReportsPage() {
               <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
               <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
               <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
-              <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - periodOverhead).toFixed(2)}</span></div>
+              <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - (monthlyOverhead / 30.44 * 30)) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - (monthlyOverhead / 30.44 * 30)).toFixed(2)}</span></div>
         </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full pb-20">
@@ -740,23 +696,6 @@ export default function ReportsPage() {
                 </CardContent>
             </Card>
           )}
-          <Card className="border-2 shadow-sm min-w-0 h-fit">
-              <CardHeader className="pb-4">
-                  <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Booking Source</CardTitle>
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Lead generation channels</CardDescription>
-              </CardHeader>
-              <CardContent className="flex justify-center p-6">
-                  <div className="h-[200px] w-full max-w-[300px]">
-                      <RechartsPieChart width={300} height={200}>
-                          <Pie data={bookingSourceData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={isMobile ? 60 : 80} label>
-                              {bookingSourceData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                              ))}
-                          </Pie>
-                      </RechartsPieChart>
-                  </div>
-              </CardContent>
-          </Card>
         </div>
       </main>
     </div>

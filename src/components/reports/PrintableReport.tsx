@@ -19,7 +19,6 @@ interface PrintableStaffReportProps {
     rebookingRate: number;
     walkInConversionRate: number;
     revenuePerServiceHour: number;
-    newClientRate: number;
   };
   payrollData: (Staff & { stats: any })[];
   grossProfit: number;
@@ -41,7 +40,6 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
     totalGrossRevenue,
     totalCOGS,
     periodOverhead,
-    servicePerformanceData,
 }, ref) => {
     const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d, yyyy')} - ${format(dateRange.to, 'MMM d, yyyy')}`

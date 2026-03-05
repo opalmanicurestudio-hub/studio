@@ -53,9 +53,6 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 type Step = 'partyType' | 'memberSetup' | 'confirmation';
 type MemberSubStep = 'details' | 'services' | 'addons' | 'consents' | 'staff';
 
-/**
- * Utility to safely convert potential strings or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -248,174 +245,9 @@ const StepDetails = ({
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            <style jsx global>{`
-                .kiosk-phone-input .PhoneInputCountry {
-                    margin-right: 12px;
-                }
-                .kiosk-phone-input .PhoneInputCountryIcon {
-                    width: 32px;
-                    height: 24px;
-                }
-            `}</style>
         </div>
     );
 };
-
-const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-    const handleServiceToggle = (serviceId: string) => { 
-        onUpdate({ serviceIds: [serviceId] }); 
-    };
-    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
-    
-    if (!selectedCategory) {
-        return ( <div className="grid grid-cols-1 gap-4 md:gap-6" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 md:p-14 text-2xl md:text-5xl font-black rounded-[2.5rem] border-4 border-white/50 bg-white/60 backdrop-blur-xl hover:border-primary hover:bg-primary/5 transition-all shadow-2xl uppercase tracking-tighter text-slate-800" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
-    }
-    
-    return (
-        <div className="space-y-6" key="service-selection-list">
-            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-black uppercase tracking-widest p-3 transition-all hover:bg-primary/10 rounded-xl flex items-center gap-2 text-xs md:text-sm">
-                <ArrowLeft className="h-5 w-5"/> Change Category
-            </button>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6">
-                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
-                    <ServiceSelectionCard 
-                        key={service.id} 
-                        service={service} 
-                        isSelected={member.serviceIds.includes(service.id)} 
-                        onToggle={() => handleServiceToggle(service.id)} 
-                        pricingTiers={pricingTiers}
-                    /> 
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
-    const { priceText, durationText } = useMemo(() => {
-        let finalDuration = service.duration;
-        let finalPrice = service.price;
-        const staffTier = pricingTiers.find(t => t.id === staffTierId);
-        if (staffTierId && staffTier) {
-            const tierInfo = service.serviceTiers?.find(t => t.tierId === staffTierId);
-            if (tierInfo) {
-                finalDuration = tierInfo.durationMinutes;
-                finalPrice = tierInfo.price;
-                return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min` };
-            }
-        }
-        if (service.serviceTiers && service.serviceTiers.length > 0) {
-            const prices = service.serviceTiers.map(t => t.price);
-            const minPrice = Math.min(...prices);
-            
-            if (service.price > 0 && service.price < minPrice) {
-                 return { priceText: `From $${service.price.toFixed(2)}`, durationText: `${service.duration} min` };
-            }
-            
-            if (minPrice === Math.max(...prices)) {
-                return { priceText: `$${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
-            }
-
-            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
-        }
-        
-        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min` };
-    }, [service, staffTierId, pricingTiers]);
-
-    return (
-        <div 
-            className={cn(
-                "block cursor-pointer rounded-2xl border-2 transition-all hover:shadow-2xl h-full overflow-hidden",
-                isSelected ? "border-primary ring-4 ring-primary/20 bg-primary/5 shadow-primary/10" : "bg-white/60 backdrop-blur-md border-white/40 shadow-sm"
-            )}
-            onClick={(e) => {
-                e.preventDefault();
-                onToggle();
-            }}
-        >
-            <div className="flex flex-col h-full">
-                <div className="w-full aspect-video relative bg-muted/20 overflow-hidden">
-                    {service.imageUrl ? (
-                        <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
-                            <Scissors className="w-8 h-8 md:w-12 md:h-12"/>
-                        </div>
-                    )}
-                </div>
-                <div className="p-4 text-center flex-1 flex flex-col justify-center">
-                    <p className="font-black text-sm md:text-base uppercase tracking-tight line-clamp-1 text-slate-800">{service.name}</p>
-                    <div className="flex items-center justify-center gap-3 mt-2">
-                        <span className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest">{priceText}</span>
-                        <span className="text-[10px] md:text-xs text-muted-foreground font-black uppercase opacity-60">{durationText}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
-    <div className="space-y-6" key="staff-selection-step">
-        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
-            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
-        </RadioGroup>
-        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
-            <div className="flex items-center justify-between rounded-3xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-6 mt-6 shadow-inner">
-                <div className="space-y-1">
-                    <Label htmlFor={`wait-${member.id}`} className="font-black text-lg md:text-2xl text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
-                    <p className="text-xs text-muted-foreground uppercase font-black tracking-widest opacity-60">Estimated wait time may increase</p>
-                </div>
-                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} className="scale-150" />
-            </div>
-        )}
-    </div>
-);
-
-const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
-    <div className="space-y-8 md:space-y-12" key="consent-step">
-        {requiredForms.map(form => (
-            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-12 rounded-[3rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-2xl">
-                <h3 className="text-2xl md:text-4xl font-black flex items-center gap-4 uppercase tracking-tighter text-slate-900"><FileSignature className="w-8 h-8 md:w-12 md:h-12 text-primary" /> {form.title}</h3>
-                <div className="space-y-8 md:space-y-12">
-                    {form.fields?.map(field => (
-                        <div key={field.id} className="kiosk-form-field">
-                            <FormFieldRenderer 
-                                field={field} 
-                                value={formAnswers[form.id]?.[field.id]}
-                                onChange={(val) => setFormAnswers({
-                                    ...formAnswers,
-                                    [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val }
-                                })}
-                            />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        ))}
-        <style jsx global>{`
-            .kiosk-form-field label {
-                font-size: 1.1rem;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: #1e293b;
-                margin-bottom: 12px;
-                display: block;
-            }
-            .kiosk-form-field input, .kiosk-form-field textarea {
-                border-radius: 1.5rem;
-                border-width: 2px;
-                padding: 1rem 1.5rem;
-                font-size: 1.1rem;
-                background: rgba(255, 255, 255, 0.8);
-            }
-        `}</style>
-    </div>
-);
 
 const MemberSetup = ({
     member,
@@ -542,6 +374,124 @@ const MemberSetup = ({
         </motion.div>
     );
 };
+
+const StepServices = ({ member, onUpdate, services, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; services: Service[]; pricingTiers: PricingTier[]; }) => {
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const handleServiceToggle = (serviceId: string) => { 
+        onUpdate({ serviceIds: [serviceId] }); 
+    };
+    const categories = useMemo(() => Array.from(new Set(services.map(s => s.category || 'Uncategorized'))).sort(), [services]);
+    
+    if (!selectedCategory) {
+        return ( <div className="grid grid-cols-1 gap-4 md:gap-6" key="category-selection">{categories.map(category => ( <button key={category} className="w-full p-8 md:p-14 text-2xl md:text-5xl font-black rounded-[2.5rem] border-4 border-white/50 bg-white/60 backdrop-blur-xl hover:border-primary hover:bg-primary/5 transition-all shadow-2xl uppercase tracking-tighter text-slate-800" onClick={() => setSelectedCategory(category)}>{category}</button> ))}</div> )
+    }
+    
+    return (
+        <div className="space-y-6" key="service-selection-list">
+            <button onClick={() => setSelectedCategory(null)} className="mb-2 -ml-2 text-primary font-black uppercase tracking-widest p-3 transition-all hover:bg-primary/10 rounded-xl flex items-center gap-2 text-xs md:text-sm">
+                <ArrowLeft className="h-5 w-5"/> Change Category
+            </button>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6">
+                {services.filter(s => (s.category || 'Uncategorized') === selectedCategory).map(service => ( 
+                    <ServiceSelectionCard 
+                        key={service.id} 
+                        service={service} 
+                        isSelected={member.serviceIds.includes(service.id)} 
+                        onToggle={() => handleServiceToggle(service.id)} 
+                        pricingTiers={pricingTiers}
+                    /> 
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pricingTiers }: { service: Service; isSelected: boolean; onToggle: () => void; staffTierId?: string, pricingTiers: PricingTier[] }) => {
+    const { priceText, durationText } = useMemo(() => {
+        let finalDuration = service.duration;
+        let finalPrice = service.price;
+        if (service.serviceTiers && service.serviceTiers.length > 0) {
+            const prices = service.serviceTiers.map(t => t.price);
+            const minPrice = Math.min(...prices);
+            return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
+        }
+        return { priceText: `$${finalPrice.toFixed(2)}`, durationText: `${finalDuration} min` };
+    }, [service]);
+
+    return (
+        <div 
+            className={cn(
+                "block cursor-pointer rounded-2xl border-2 transition-all hover:shadow-2xl h-full overflow-hidden",
+                isSelected ? "border-primary ring-4 ring-primary/20 bg-primary/5 shadow-primary/10" : "bg-white/60 backdrop-blur-md border-white/40 shadow-sm"
+            )}
+            onClick={(e) => {
+                e.preventDefault();
+                onToggle();
+            }}
+        >
+            <div className="flex flex-col h-full">
+                <div className="w-full aspect-video relative bg-muted/20 overflow-hidden">
+                    {service.imageUrl ? (
+                        <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
+                            <Scissors className="w-8 h-8 md:w-12 md:h-12"/>
+                        </div>
+                    )}
+                </div>
+                <div className="p-4 text-center flex-1 flex flex-col justify-center">
+                    <p className="font-black text-sm md:text-base uppercase tracking-tight line-clamp-1 text-slate-800">{service.name}</p>
+                    <div className="flex items-center justify-center gap-3 mt-2">
+                        <span className="text-[10px] md:text-xs text-primary font-black uppercase tracking-widest">{priceText}</span>
+                        <span className="text-[10px] md:text-xs text-muted-foreground font-black uppercase opacity-60">{durationText}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const StepStaff = ({ member, onUpdate, staff, pricingTiers }: { member: PartyMember; onUpdate: (updates: Partial<PartyMember>) => void; staff: Staff[]; pricingTiers: PricingTier[]; }) => (
+    <div className="space-y-6" key="staff-selection-step">
+        <RadioGroup value={member.preferredStaffId || 'any'} onValueChange={(staffId) => onUpdate({ preferredStaffId: staffId })} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+            <StaffSelectionCard staff={{ id: 'any', name: 'First Available', avatarUrl: '' }} pricingTiers={pricingTiers} />
+            {staff?.map(s => <StaffSelectionCard key={s.id} staff={s} pricingTiers={pricingTiers} />)}
+        </RadioGroup>
+        {(member.preferredStaffId && member.preferredStaffId !== 'any') && (
+            <div className="flex items-center justify-between rounded-3xl border-2 border-white/50 bg-white/40 backdrop-blur-xl p-6 mt-6 shadow-inner">
+                <div className="space-y-1">
+                    <Label htmlFor={`wait-${member.id}`} className="font-black text-lg md:text-2xl text-slate-800 uppercase tracking-tight">Wait for Pro?</Label>
+                    <p className="text-xs text-muted-foreground uppercase font-black tracking-widest opacity-60">Estimated wait time may increase</p>
+                </div>
+                <Switch id={`wait-${member.id}`} checked={member.waitForPreferredStaff} onCheckedChange={(checked) => onUpdate({ waitForPreferredStaff: checked })} className="scale-150" />
+            </div>
+        )}
+    </div>
+);
+
+const StepConsents = ({ member, requiredForms, formAnswers, setFormAnswers }: { member: PartyMember, requiredForms: ConsentForm[], formAnswers: Record<string, any>, setFormAnswers: (answers: Record<string, any>) => void }) => (
+    <div className="space-y-8 md:space-y-12" key="consent-step">
+        {requiredForms.map(form => (
+            <div key={form.id} className="space-y-6 md:space-y-8 p-6 md:p-12 rounded-[3rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-2xl">
+                <h3 className="text-2xl md:text-4xl font-black flex items-center gap-4 uppercase tracking-tighter text-slate-900"><FileSignature className="w-8 h-8 md:w-12 md:h-12 text-primary" /> {form.title}</h3>
+                <div className="space-y-8 md:space-y-12">
+                    {form.fields?.map(field => (
+                        <div key={field.id} className="kiosk-form-field">
+                            <FormFieldRenderer 
+                                field={field} 
+                                value={formAnswers[form.id]?.[field.id]}
+                                onChange={(val) => setFormAnswers({
+                                    ...formAnswers,
+                                    [form.id]: { ...(formAnswers[form.id] || {}), [field.id]: val }
+                                })}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        ))}
+    </motion.div>
+);
 
 const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-10 md:p-24 text-center space-y-10 md:space-y-16" key="confirmation-screen">
