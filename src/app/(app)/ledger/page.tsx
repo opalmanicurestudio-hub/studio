@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -25,6 +25,8 @@ import {
   Trash2,
   Printer,
   User,
+  SlidersHorizontal,
+  Filter,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -53,7 +55,7 @@ import {
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import {
   Accordion,
@@ -74,14 +76,35 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { PrintableReport } from '@/components/ledger/PrintableReport';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { collection, doc } from 'firebase/firestore';
 
+/**
+ * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
+ */
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   const iconClass = "h-5 w-5";
@@ -130,16 +153,16 @@ const TransactionFilters = ({
     }, [transactions]);
 
   return (
-    <Card className="h-fit sticky top-20">
-      <CardHeader>
-        <CardTitle>Ledger</CardTitle>
-        <CardDescription>The ledger for every dollar in and out.</CardDescription>
+    <Card className="h-fit">
+      <CardHeader className="hidden md:block">
+        <CardTitle>Ledger Filters</CardTitle>
+        <CardDescription>Filter your cash flow records.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 pt-6 md:pt-0">
         <div className="space-y-2">
-            <Label>Date range</Label>
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date range</Label>
             <Popover>
-                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !date && 'text-muted-foreground')}>
+                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full h-11 justify-start text-left font-normal border-2', !date && 'text-muted-foreground')}>
                   <span className="flex items-center">
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {date?.from ? (
@@ -169,54 +192,58 @@ const TransactionFilters = ({
             </Popover>
         </div>
 
-        <Accordion type="single" collapsible defaultValue="summary">
-            <AccordionItem value="summary" className='border-0'>
-                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>Financial Summary</AccordionTrigger>
-                <AccordionContent className='p-4 text-sm'>
-                    <div className='space-y-2'>
-                        <div className='flex justify-between'><span>Total Revenue:</span><span className='font-medium text-green-500'>${financialSummary.revenue.toFixed(2)}</span></div>
-                        <div className='flex justify-between text-xs'><span> - COGS:</span><span className='font-medium text-red-500'>${financialSummary.cogs.toFixed(2)}</span></div>
-                        <div className='flex justify-between'><span>Gross Profit:</span><span className='font-medium'>${financialSummary.grossProfit.toFixed(2)}</span></div>
-                        <div className='flex justify-between'><span>Operating Expenses:</span><span className='font-medium text-red-500'>${financialSummary.operatingExpenses.toFixed(2)}</span></div>
-                        <div className='flex justify-between border-t mt-2 pt-2'>
-                            <span className="font-bold">Net Income:</span>
-                            <span className={cn('font-bold', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
-                                ${financialSummary.net.toFixed(2)}
-                            </span>
-                        </div>
-                    </div>
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
-
         <div className="space-y-4">
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search description..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search & Context</Label>
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Search description..." className="pl-9 h-11 border-2" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                </div>
             </div>
             <RadioGroup value={contextFilter} onValueChange={(v: any) => setContextFilter(v)} className="grid grid-cols-3 gap-2">
                 <div>
                     <RadioGroupItem value="all" id="all" className="peer sr-only" />
-                    <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">All</Label>
+                    <Label htmlFor="all" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[10px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">All</Label>
                 </div>
                 <div>
                     <RadioGroupItem value="Business" id="business" className="peer sr-only" />
-                    <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+                    <Label htmlFor="business" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[10px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Business</Label>
                 </div>
                 <div>
                     <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
-                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                    <Label htmlFor="personal" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[10px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
                 </div>
             </RadioGroup>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger>
-                    <SelectValue placeholder="Filter by category" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
-                </SelectContent>
-            </Select>
+            <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Category</Label>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <SelectTrigger className="h-11 border-2">
+                        <SelectValue placeholder="Filter by category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {categories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
+
+        <Separator />
+
+        <div className='p-4 rounded-xl bg-muted/30 border-2 border-dashed space-y-3'>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Period Summary</p>
+            <div className='space-y-2 text-xs'>
+                <div className='flex justify-between'><span>Total Revenue:</span><span className='font-bold text-green-600'>${financialSummary.revenue.toFixed(2)}</span></div>
+                <div className='flex justify-between'><span>COGS:</span><span className='font-bold text-red-600'>-${financialSummary.cogs.toFixed(2)}</span></div>
+                <div className='flex justify-between border-t border-muted pt-2'><span>Gross Profit:</span><span className='font-bold'>${financialSummary.grossProfit.toFixed(2)}</span></div>
+                <div className='flex justify-between'><span>Op. Expenses:</span><span className='font-bold text-red-600'>-${financialSummary.operatingExpenses.toFixed(2)}</span></div>
+                <div className='flex justify-between border-t-2 border-muted pt-2 mt-2'>
+                    <span className="font-black uppercase text-[10px]">Net Income</span>
+                    <span className={cn('font-black text-sm', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
+                        ${financialSummary.net.toFixed(2)}
+                    </span>
+                </div>
+            </div>
         </div>
       </CardContent>
     </Card>
@@ -297,60 +324,70 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
 
 const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void }) => {
     return (
-        <Card>
+        <Card className="border-2 shadow-sm">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start gap-4">
-                    <div className="p-2 bg-muted/50 rounded-full">
+                    <div className={cn("p-2 rounded-full", {
+                        'bg-green-500/10': transaction.type === 'income',
+                        'bg-red-500/10': transaction.type === 'expense',
+                        'bg-blue-500/10': transaction.type === 'payment',
+                        'bg-muted': transaction.type === 'reversal'
+                    })}>
                         <TransactionIcon type={transaction.type} />
                     </div>
                     <div className="flex-1 space-y-1 min-w-0">
-                        <p className="font-semibold truncate text-sm">{transaction.description}</p>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
+                        <p className="font-black text-sm truncate uppercase tracking-tight text-slate-900">{transaction.description}</p>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
-                            <div className="flex items-center gap-1.5 mt-1">
-                                <User className="w-3 h-3 text-primary" />
-                                <span className="text-[10px] font-black uppercase text-primary tracking-tight">Provider: {staffMember.name}</span>
+                            <div className="flex items-center gap-1.5 mt-2">
+                                <Avatar className="h-5 w-5 border shadow-sm">
+                                    <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
+                                    <AvatarFallback className="text-[8px]">{staffMember.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-[9px] font-black uppercase text-primary tracking-tight">{staffMember.name}</span>
                             </div>
                         )}
                     </div>
                     <div className='text-right'>
-                        <p className={cn('font-bold font-mono text-base', {
-                            'text-green-600 dark:text-green-400': transaction.type === 'income',
-                            'text-red-600 dark:text-red-400': transaction.type === 'expense',
-                            'text-blue-600 dark:text-blue-400': transaction.type === 'payment',
-                            'text-gray-500 dark:text-gray-400': transaction.type === 'reversal',
+                        <p className={cn('font-black font-mono text-base tracking-tighter', {
+                            'text-green-600': transaction.type === 'income',
+                            'text-red-600': transaction.type === 'expense',
+                            'text-blue-600': transaction.type === 'payment',
+                            'text-slate-400': transaction.type === 'reversal',
                         })}>
                            {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : transaction.type === 'reversal' ? '' : '+'}${transaction.amount.toFixed(2)}
                         </p>
-                        {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-muted-foreground inline-block" />}
+                        {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-muted-foreground inline-block mt-1" />}
                     </div>
                 </div>
-                 <div className="flex items-center justify-between text-sm">
+                 <div className="flex items-center justify-between pt-3 border-t mt-2">
                     <div className='flex items-center gap-2'>
                         <Badge
                             variant={transaction.context === 'Business' ? 'secondary' : 'outline'}
-                            className={cn("text-[9px] h-4", {
-                                'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': transaction.context === 'Business',
-                                'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': transaction.context === 'Personal'
+                            className={cn("text-[9px] h-4 font-black uppercase tracking-widest", {
+                                'bg-blue-100 text-blue-800 border-none': transaction.context === 'Business',
+                                'bg-purple-100 text-purple-800 border-none': transaction.context === 'Personal'
                             })}
                             >
                             {transaction.context}
                         </Badge>
-                        <Badge variant="outline" className="text-[9px] h-4">{transaction.category}</Badge>
+                        <Badge variant="outline" className="text-[9px] h-4 uppercase font-bold text-muted-foreground">{transaction.category}</Badge>
                     </div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button aria-haspopup="true" size="sm" variant="ghost">
-                                <MoreHorizontal className="h-4 w-4 mr-2" /> More
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'}>Revert</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-                 <div className="flex items-center text-[10px] text-muted-foreground pt-2 border-t mt-4 font-bold uppercase tracking-wider">
-                    <CreditCard className="w-3.5 h-3.5 mr-2"/> {transaction.paymentMethod}
+                    <div className="flex items-center gap-2">
+                        <div className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <CreditCard className="w-3 h-3"/> {transaction.paymentMethod}
+                        </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button aria-haspopup="true" size="sm" variant="ghost" className="h-7 w-7 p-0">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'}>Revert</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </div>
             </CardContent>
         </Card>
@@ -358,17 +395,19 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
 };
 
 export default function LedgerPage() {
-  const { firestore, user } = useFirebase();
+  const { firestore, user: currentUser } = useFirebase();
+  const { user } = useUser();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
   const { transactions, staff, isLoading: areTransactionsLoading } = useInventory();
 
   const [date, setDate] = React.useState<DateRange | undefined>({
-      from: new Date(new Date().getFullYear(), 0, 1),
-      to: new Date(),
+      from: startOfDay(subDays(new Date(), 30)),
+      to: endOfDay(new Date()),
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
@@ -381,7 +420,7 @@ export default function LedgerPage() {
 
     return transactions
         .filter(t => {
-            const transactionDate = new Date(t.date);
+            const transactionDate = safeDate(t.date);
             const from = date?.from ? startOfDay(date.from) : null;
             const to = date?.to ? endOfDay(date.to) : null;
 
@@ -393,22 +432,22 @@ export default function LedgerPage() {
 
             return true;
         })
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
   
   const financialSummary = useMemo(() => {
-    const cogsCategories = ['spoilage', 'supplies', 'Cost of Goods Sold'];
+    const cogsCategories = ['spoilage', 'supplies', 'Cost of Goods Sold', 'Spoilage'];
     
     const revenue = filteredTransactions
       .filter(t => t.type === 'income')
       .reduce((acc, t) => acc + t.amount, 0);
 
     const cogs = filteredTransactions
-      .filter(t => t.type === 'expense' && cogsCategories.includes(t.category))
+      .filter(t => t.type === 'expense' && cogsCategories.some(c => t.category.toLowerCase().includes(c.toLowerCase())))
       .reduce((acc, t) => acc + t.amount, 0);
 
     const operatingExpenses = filteredTransactions
-      .filter(t => t.type === 'expense' && !cogsCategories.includes(t.category))
+      .filter(t => t.type === 'expense' && !cogsCategories.some(c => t.category.toLowerCase().includes(c.toLowerCase())))
       .reduce((acc, t) => acc + t.amount, 0);
 
     const grossProfit = revenue - cogs;
@@ -417,7 +456,7 @@ export default function LedgerPage() {
     return { revenue, cogs, grossProfit, operatingExpenses, net };
   }, [filteredTransactions]);
 
-  const addTransaction = (data: Omit<Transaction, 'id'>) => {
+  const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore || !tenantId) return;
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
     addDocumentNonBlocking(transactionsRef, data);
@@ -425,10 +464,6 @@ export default function LedgerPage() {
         title: 'Transaction Logged',
         description: `Your transaction for $${data.amount.toFixed(2)} has been recorded.`
     })
-  }
-  
-  const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
-    addTransaction(data);
     setIsAddTxnOpen(false);
   }
   
@@ -448,7 +483,7 @@ export default function LedgerPage() {
       type: 'reversal',
       reversalOf: transactionToRevert.id,
     };
-    addTransaction(reversalTransaction);
+    handleAddTransaction(reversalTransaction);
     toast({ title: 'Transaction Reverted', description: 'A reversal transaction has been created.' });
     setTransactionToRevert(null);
   }
@@ -461,48 +496,85 @@ export default function LedgerPage() {
 
   return (
     <>
-    <div className="no-print flex min-h-screen w-full flex-col">
+    <div className="no-print flex min-h-screen w-full flex-col overflow-x-hidden">
       <AppHeader title="Ledger" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
-          <div className="md:col-span-1 lg:col-span-1">
-            <TransactionFilters 
-                transactions={transactions || []}
-                date={date}
-                setDate={setDate}
-                searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
-                contextFilter={contextFilter}
-                setContextFilter={setContextFilter}
-                categoryFilter={categoryFilter}
-                setCategoryFilter={setCategoryFilter}
-                financialSummary={financialSummary}
-            />
-          </div>
-          <div className="md:col-span-2 lg:col-span-3 space-y-4">
-            <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={handlePrint}><Printer className='mr-2 h-4 w-4' /> Print Report</Button>
-                <Button onClick={() => setIsAddTxnOpen(true)}><PlusCircle className='mr-2' /> Add Transaction</Button>
+      <main className="flex-1 p-4 md:p-8 w-full max-w-full">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+            <div className="space-y-1">
+                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Studio Ledger</h1>
+                <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
+                    Audit trail for all income and expenses
+                </p>
             </div>
-            <Card className="hidden md:block">
+            <div className="flex items-center gap-2 w-full md:w-auto">
+                <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-11 border-2 font-bold uppercase tracking-tight shadow-sm"><Printer className='mr-2 h-4 w-4' /> Print Report</Button>
+                <Button onClick={() => setIsAddTxnOpen(true)} className="flex-1 md:flex-none h-11 shadow-lg font-black uppercase tracking-tighter"><PlusCircle className='mr-2' /> Add Entry</Button>
+            </div>
+        </div>
+
+        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8 items-start">
+          <div className="md:col-span-1 lg:col-span-1">
+            {isMobile ? (
+                <Accordion type="single" collapsible className="w-full mb-4">
+                    <AccordionItem value="filters" className="border-none">
+                        <AccordionTrigger className="p-4 bg-muted/30 rounded-xl border-2 hover:no-underline">
+                            <div className="flex items-center gap-2">
+                                <Filter className="w-4 h-4 text-primary" />
+                                <span className="font-black uppercase text-xs tracking-widest">Filter & Summary</span>
+                            </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-4">
+                            <TransactionFilters 
+                                transactions={transactions || []}
+                                date={date}
+                                setDate={setDate}
+                                searchTerm={searchTerm}
+                                setSearchTerm={setSearchTerm}
+                                contextFilter={contextFilter}
+                                setContextFilter={setContextFilter}
+                                categoryFilter={categoryFilter}
+                                setCategoryFilter={setCategoryFilter}
+                                financialSummary={financialSummary}
+                            />
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            ) : (
+                <TransactionFilters 
+                    transactions={transactions || []}
+                    date={date}
+                    setDate={setDate}
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    contextFilter={contextFilter}
+                    setContextFilter={setContextFilter}
+                    categoryFilter={categoryFilter}
+                    setCategoryFilter={setCategoryFilter}
+                    financialSummary={financialSummary}
+                />
+            )}
+          </div>
+          
+          <div className="md:col-span-2 lg:col-span-3 space-y-4 min-w-0">
+            <Card className="hidden md:block border-2 shadow-sm overflow-hidden">
               <CardContent className='p-0 overflow-x-auto'>
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Staff</TableHead>
-                      <TableHead>Context</TableHead>
-                      <TableHead>Payment Method</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow className="border-b-2">
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Description</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Date</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Staff</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Context</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Account</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest">Category</TableHead>
+                      <TableHead className="text-right font-black text-[10px] uppercase tracking-widest">Amount</TableHead>
                       <TableHead><span className='sr-only'>Actions</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={8} className="h-24 text-center">Loading transactions...</TableCell>
+                            <TableCell colSpan={8} className="h-32 text-center"><Loader className="w-6 h-6 animate-spin mx-auto mb-2" />Loading transactions...</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
@@ -515,7 +587,7 @@ export default function LedgerPage() {
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={8} className="h-24 text-center">No transactions found matching your filters.</TableCell>
+                            <TableCell colSpan={8} className="h-32 text-center opacity-40 uppercase font-black tracking-widest text-xs">No entries found</TableCell>
                         </TableRow>
                     )}
                   </TableBody>
@@ -523,15 +595,29 @@ export default function LedgerPage() {
               </CardContent>
             </Card>
             <div className="md:hidden space-y-4">
-                 {isLoading && <p className="text-center text-muted-foreground">Loading transactions...</p>}
-                 {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard 
-                        key={transaction.id} 
-                        transaction={transaction} 
-                        staffMember={staff.find(s => s.id === transaction.staffId)}
-                        onRevertClick={() => setTransactionToRevert(transaction)} 
-                    />
-                 )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
+                 {isLoading && (
+                    <div className="flex flex-col items-center justify-center py-20">
+                        <Loader className="w-8 h-8 animate-spin text-primary mb-4" />
+                        <p className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Syncing Ledger...</p>
+                    </div>
+                 )}
+                 {!isLoading && filteredTransactions.length > 0 ? (
+                    <div className="grid gap-4">
+                        {filteredTransactions.map((transaction) => (
+                            <TransactionCard 
+                                key={transaction.id} 
+                                transaction={transaction} 
+                                staffMember={staff.find(s => s.id === transaction.staffId)}
+                                onRevertClick={() => setTransactionToRevert(transaction)} 
+                            />
+                        ))}
+                    </div>
+                 ) : !isLoading && (
+                    <div className="text-center py-20 opacity-40 border-2 border-dashed rounded-2xl flex flex-col items-center gap-4">
+                        <BookOpen className="w-12 h-12" />
+                        <p className="text-sm font-black uppercase tracking-widest">No matching records</p>
+                    </div>
+                 )}
             </div>
           </div>
         </div>
@@ -570,16 +656,16 @@ export default function LedgerPage() {
     />
     
     <AlertDialog open={!!transactionToRevert} onOpenChange={() => setTransactionToRevert(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-3xl border-4">
             <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to revert this transaction?</AlertDialogTitle>
-            <AlertDialogDescription>
-                This will create a new, opposite transaction to cancel out the selected one. This action cannot be undone.
+            <AlertDialogTitle className="font-black uppercase tracking-tight text-xl">Confirm Reversal</AlertDialogTitle>
+            <AlertDialogDescription className="font-medium text-sm">
+                This will create a new, opposite transaction to cancel out &quot;{transactionToRevert?.description}&quot;. This action is permanent and creates an audit trail.
             </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setTransactionToRevert(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRevertTransaction}>Revert Transaction</AlertDialogAction>
+            <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="rounded-2xl h-12 font-bold">Back</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRevertTransaction} className="rounded-2xl h-12 font-black uppercase tracking-tight shadow-lg">Yes, Revert Entry</AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
