@@ -55,7 +55,7 @@ import {
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, subDays } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import {
   Accordion,
@@ -86,9 +86,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { collection, doc } from 'firebase/firestore';
 
-/**
- * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -162,22 +159,19 @@ const TransactionFilters = ({
         <div className="space-y-2">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date range</Label>
             <Popover>
-                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full h-11 justify-start text-left font-normal border-2', !date && 'text-muted-foreground')}>
-                  <span className="flex items-center">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date?.from ? (
-                    date.to ? (
-                        <>
-                        {format(date.from, "LLL dd, y")} -{" "}
-                        {format(date.to, "LLL dd, y")}
-                        </>
-                    ) : (
-                        format(date.from, "LLL dd, y")
-                    )
-                    ) : (
-                    "Pick a date"
-                    )}
-                  </span>
+                <PopoverTrigger asChild>
+                    <Button variant='outline' className='w-full h-11 justify-start text-left font-normal border-2'>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {date?.from ? (
+                        date.to ? (
+                            <>{format(date.from, "LLL dd, y")} - {format(date.to, "LLL dd, y")}</>
+                        ) : (
+                            format(date.from, "LLL dd, y")
+                        )
+                        ) : (
+                        "Pick a date"
+                        )}
+                    </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
@@ -211,7 +205,7 @@ const TransactionFilters = ({
                 </div>
                 <div>
                     <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
-                    <Label htmlFor="personal" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[10px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
+                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 h-11 text-[10px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
                 </div>
             </RadioGroup>
             <div className="space-y-2">
@@ -337,7 +331,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                     </div>
                     <div className="flex-1 space-y-1 min-w-0">
                         <p className="font-black text-sm truncate uppercase tracking-tight text-slate-900">{transaction.description}</p>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{transaction.clientOrVendor} &middot; {format(safeDate(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
                             <div className="flex items-center gap-1.5 mt-2">
                                 <Avatar className="h-5 w-5 border shadow-sm">
@@ -396,7 +390,6 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
 
 export default function LedgerPage() {
   const { firestore, user: currentUser } = useFirebase();
-  const { user } = useUser();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const isMobile = useIsMobile();
@@ -468,7 +461,7 @@ export default function LedgerPage() {
   }
   
   const handleRevertTransaction = () => {
-    if (!transactionToRevert) return;
+    if (!transactionToRevert || !firestore || !tenantId) return;
     
     if (transactionToRevert.type === 'reversal' || transactionToRevert.reversalOf) {
         toast({ variant: 'destructive', title: "Cannot revert a reversal."});

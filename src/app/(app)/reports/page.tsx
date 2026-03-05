@@ -217,7 +217,7 @@ export default function ReportsPage() {
             }
         };
     });
-  }, [staff, appointments, services, transactions, activityLogs, dateRange]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange, currentUser, role]);
 
   const financials = useMemo(() => {
     if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
@@ -348,7 +348,7 @@ export default function ReportsPage() {
             
             if (serviceAppointments.length === 0) return null;
 
-            const totalRevenue = serviceAppointments.reduce((acc, apt) => acc + service.price, 0);
+            const totalRevenue = serviceAppointments.reduce((acc, apt) => acc + (service.price || 0), 0);
             
             const totalActualDuration = serviceAppointments.reduce((acc, apt) => {
                 if (apt.actualStartTime && apt.actualEndTime) {

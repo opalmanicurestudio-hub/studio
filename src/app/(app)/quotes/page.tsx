@@ -43,7 +43,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { clients, type Quote as QuoteType } from '@/lib/data';
+import { type Quote as QuoteType, type Client } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -60,6 +60,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 const statusConfig: {
   [key in QuoteType['status']]: {
@@ -74,14 +75,14 @@ const statusConfig: {
   booked: { label: 'Booked', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300' },
 };
 
-const QuoteTableRow = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
+const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
   const client = clients.find((c) => c.id === quote.clientId);
   const statusInfo = statusConfig[quote.status];
 
   const quoteDate = quote.eventDate ? parseISO(quote.eventDate) : parseISO(quote.createdAt);
 
   const total = useMemo(() => {
-    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + item.price, 0);
+    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + (item.price || 0), 0);
     const fee = servicesTotal * (quote.projectFee / 100);
     return servicesTotal + quote.travelExpenses + fee;
   }, [quote]);
@@ -108,11 +109,11 @@ const QuoteTableRow = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteTyp
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem>
-              <FileText />
+              <FileText className="mr-2 h-4 w-4"/>
               <span>View/Edit</span>
             </DropdownMenuItem>
             <DropdownMenuItem>
-              <Printer />
+              <Printer className="mr-2 h-4 w-4"/>
               <span>Print Quote</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -128,12 +129,12 @@ const QuoteTableRow = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteTyp
             </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'}>
-              <FileStack />
+              <FileStack className="mr-2 h-4 w-4"/>
               <span>Book</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive">
-              <Trash2 />
+              <Trash2 className="mr-2 h-4 w-4"/>
               <span>Delete</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -143,12 +144,12 @@ const QuoteTableRow = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteTyp
   );
 };
 
-const QuoteCard = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
+const QuoteCard = ({ quote, clients, onStatusChange, onBookEvent }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
     const client = clients.find((c) => c.id === quote.clientId);
     const statusInfo = statusConfig[quote.status];
 
     const total = useMemo(() => {
-        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + item.price, 0);
+        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + (item.price || 0), 0);
         const fee = servicesTotal * (quote.projectFee / 100);
         return servicesTotal + quote.travelExpenses + fee;
     }, [quote]);
@@ -157,13 +158,13 @@ const QuoteCard = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, o
         <Card>
             <CardContent className="p-4 space-y-4">
                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-1">
-                        <p className="font-semibold">{quote.eventName}</p>
+                    <div className="flex-1 space-y-1 min-w-0">
+                        <p className="font-semibold truncate">{quote.eventName}</p>
                         <p className="text-sm text-muted-foreground">{client?.name || 'N/A'} &middot; {quote.id.slice(-6).toUpperCase()}</p>
                     </div>
                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-2'>
+                            <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-2 -mr-2'>
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Toggle menu</span>
                             </Button>
@@ -258,6 +259,7 @@ const KpiCards = ({ kpiData }: { kpiData: any }) => (
 
 export default function QuotesPage() {
     const { firestore, user } = useFirebase();
+    const { clients, isLoading: isInventoryLoading } = useInventory();
     const { toast } = useToast();
     const router = useRouter();
     const { selectedTenant } = useTenant();
@@ -283,13 +285,13 @@ export default function QuotesPage() {
         const accepted = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
         
         const acceptedValue = accepted.reduce((acc, q) => {
-            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + item.price, 0);
+            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + (item.price || 0), 0);
             const fee = servicesTotal * (q.projectFee / 100);
             return acc + servicesTotal + q.travelExpenses + fee;
         }, 0);
         
         const totalValue = sentOrBeyond.reduce((acc, q) => {
-             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + item.price, 0);
+             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + (item.price || 0), 0);
             const fee = servicesTotal * (q.projectFee / 100);
             return acc + servicesTotal + q.travelExpenses + fee;
         }, 0);
@@ -319,7 +321,7 @@ export default function QuotesPage() {
             title: quote.eventName,
             type: 'business',
             startTime: parseISO(quote.eventDate),
-            endTime: parseISO(quote.eventDate), // Placeholder, needs duration logic
+            endTime: parseISO(quote.eventDate),
             location: quote.eventLocation,
             notes: `Booked from Quote #${quote.id.slice(-6).toUpperCase()}. \n\n${quote.notes}`,
             quoteId: quote.id
@@ -349,7 +351,7 @@ export default function QuotesPage() {
           </div>
           <Button asChild>
             <Link href="/quotes/new">
-              <PlusCircle className="mr-2" /> Create New Quote
+              <PlusCircle className="mr-2 h-4 w-4" /> Create New Quote
             </Link>
           </Button>
         </div>
@@ -380,8 +382,8 @@ export default function QuotesPage() {
                 <CardDescription>A list of all project proposals you've created.</CardDescription>
             </CardHeader>
             <CardContent>
-                {isLoading && <p>Loading quotes...</p>}
-                {!isLoading && (
+                {(isLoading || isInventoryLoading) && <p>Loading quotes...</p>}
+                {!(isLoading || isInventoryLoading) && (
                     <>
                         <div className="hidden md:block">
                             <Table>
@@ -400,14 +402,14 @@ export default function QuotesPage() {
                             </TableHeader>
                             <TableBody>
                                 {sortedQuotes.map((quote) => (
-                                    <QuoteTableRow key={quote.id} quote={quote} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
+                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
                                 ))}
                             </TableBody>
                             </Table>
                         </div>
                         <div className="grid gap-4 md:hidden">
                             {sortedQuotes.map((quote) => (
-                                <QuoteCard key={quote.id} quote={quote} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
+                                <QuoteCard key={quote.id} quote={quote} clients={clients} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
                             ))}
                         </div>
                     </>
