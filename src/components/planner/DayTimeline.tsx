@@ -1,9 +1,8 @@
-
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO } from 'date-fns';
 import { type Staff, type Appointment, type Service, type Resource, type Event } from '@/lib/data';
-import { type Transaction } from '@/lib/financial-data';
+import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
@@ -12,7 +11,8 @@ import { type TicketData } from './PrintTicket';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock, Users } from 'lucide-react';
+import { Building, HardHat, Lock, Users, Landmark } from 'lucide-react';
+import { Card, CardContent } from '../ui/card';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -67,8 +67,8 @@ export const DayTimeline = ({
     onMobileColumnChange,
 }: { 
     date: Date; 
-    columns: (Staff | Resource)[];
-    itemsByColumn: Map<string, (Appointment | Event)[]>;
+    columns: (Staff | Resource | { id: string, name: string, isBusiness: boolean })[];
+    itemsByColumn: Map<string, (Appointment | Event | BillInstance)[]>;
     showColumnHeader: boolean;
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
@@ -120,27 +120,25 @@ export const DayTimeline = ({
         const map = new Map<string, any[]>();
         if (!itemsByColumn) return map;
         
-        const allItemsOnDate = Array.from(itemsByColumn.values()).flat();
-        
         for (const column of columns) {
             const columnId = column.id;
-            const primaryItems = itemsByColumn.get(columnId) || [];
-            const secondaryItems = activeView === 'staff' ? allItemsOnDate.filter(item => {
-                if ('staffId' in item && item.staffId === columnId) return false;
-                const overrides = (item as any).checkoutState?.serviceStaffOverrides || {};
-                return Object.values(overrides).includes(columnId);
-            }) : [];
+            const items = itemsByColumn.get(columnId) || [];
 
-            const combinedItems = [...primaryItems, ...secondaryItems.map(item => ({ ...item, isSecondary: true }))];
-            let layoutInfo = combinedItems.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
+            let layoutInfo = items.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
             
             function positionCluster(cluster: any[]) {
-                cluster.sort((a,b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
+                cluster.sort((a,b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime());
                 const cols: any[][] = [];
                 for(const item of cluster) {
+                    const start = safeDate(item.startTime || item.dueDate);
+                    const end = safeDate(item.endTime || addMinutes(start, 60));
                     let placed = false;
                     for (let i = 0; i < cols.length; i++) {
-                        if (!cols[i].some(ex => areIntervalsOverlapping({ start: safeDate(item.startTime), end: safeDate(item.endTime) }, { start: safeDate(ex.startTime), end: safeDate(ex.endTime) }, { inclusive: false }))) {
+                        if (!cols[i].some(ex => {
+                            const exStart = safeDate(ex.startTime || ex.dueDate);
+                            const exEnd = safeDate(ex.endTime || addMinutes(exStart, 60));
+                            return areIntervalsOverlapping({ start, end }, { start: exStart, end: exEnd }, { inclusive: false });
+                        })) {
                             cols[i].push(item); item.layout.col = i; placed = true; break;
                         }
                     }
@@ -152,18 +150,43 @@ export const DayTimeline = ({
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
-                if (lastEventEnd !== null && safeDate(item.startTime).getTime() >= lastEventEnd.getTime()) { 
+                const start = safeDate(item.startTime || item.dueDate);
+                const end = safeDate(item.endTime || addMinutes(start, 60));
+                if (lastEventEnd !== null && start.getTime() >= lastEventEnd.getTime()) { 
                     positionCluster(currentCluster); 
                     currentCluster = []; 
                 }
                 currentCluster.push(item);
-                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, safeDate(item.endTime).getTime()));
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, end.getTime()));
             }
             if (currentCluster.length > 0) positionCluster(currentCluster);
             map.set(columnId, layoutInfo.map(item => ({ ...item, layout: { width: `${100 / item.layout.cols}%`, left: `${(100 / item.layout.cols) * item.layout.col}%` } })));
         }
         return map;
-    }, [itemsByColumn, columns, activeView]);
+    }, [itemsByColumn, columns]);
+
+    const renderBill = (item: any) => {
+        const dayStart = setHours(startOfDay(date), START_HOUR);
+        const dueDate = safeDate(item.dueDate);
+        const top = differenceInMinutes(dueDate, dayStart) * (160/60);
+        const height = 60 * (160/60);
+        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        
+        return (
+            <div key={item.id} className="absolute pr-2 z-10" style={style}>
+                <Card className="h-full border-2 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-sm">
+                    <CardContent className="p-2 flex flex-col justify-center h-full gap-1">
+                        <div className="flex items-center gap-1.5">
+                            <Landmark className="w-3 h-3 text-orange-600" />
+                            <p className="text-[10px] font-black uppercase text-orange-700 truncate">{item.definition?.name || 'Bill'}</p>
+                        </div>
+                        <p className="font-black text-sm text-orange-800">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
+                        <Badge variant="outline" className="w-fit h-4 text-[8px] border-orange-500/20 text-orange-600 uppercase">Due Today</Badge>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
@@ -236,7 +259,12 @@ export const DayTimeline = ({
                                         {columns.map(c => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'avatarUrl' in c ? (
+                                                    {'isBusiness' in c ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <HardHat className="w-4 h-4 text-primary" />
+                                                            <span>Business</span>
+                                                        </div>
+                                                    ) : 'avatarUrl' in c ? (
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="w-6 h-6">
                                                                 <AvatarImage src={(c as Staff).avatarUrl} />
@@ -257,7 +285,13 @@ export const DayTimeline = ({
                                 </Select>
                             ) : (
                                 <div className="flex items-center justify-center gap-2 h-full">
-                                    {'avatarUrl' in column ? <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar> : ((column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />)}
+                                    {'isBusiness' in column ? (
+                                        <HardHat className="w-5 h-5 text-primary" />
+                                    ) : 'avatarUrl' in column ? (
+                                        <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
+                                    ) : (
+                                        (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
+                                    )}
                                     <p className="font-semibold text-sm truncate">{column.name}</p>
                                 </div>
                             )}
@@ -271,7 +305,11 @@ export const DayTimeline = ({
                     {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r">
                             {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed" />))}
-                            {(positionedItemsByColumn.get(column.id) || []).map(item => (item.type === 'personal' || item.type === 'business' || item.type === 'blocked' ? renderEvent(item) : renderAppointment(item)))}
+                            {(positionedItemsByColumn.get(column.id) || []).map(item => {
+                                if (item.itemType === 'bill') return renderBill(item);
+                                if (item.itemType === 'event') return renderEvent(item);
+                                return renderAppointment(item);
+                            })}
                         </div>
                     ))}
                     {isToday(date) && (

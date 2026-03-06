@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { 
   Printer, 
   DollarSign, 
@@ -18,13 +17,11 @@ import {
   Calendar as CalendarIcon,
   ShieldCheck,
   Loader,
-  Search,
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { type Staff, type Appointment, type Service } from '@/lib/data';
-import { type Transaction } from '@/lib/financial-data';
+import { type Staff } from '@/lib/data';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
@@ -32,7 +29,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();

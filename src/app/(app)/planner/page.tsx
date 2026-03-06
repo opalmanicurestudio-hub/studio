@@ -144,22 +144,20 @@ function PlannerPageContent() {
 
   const staff = useMemo(() => (role === 'staff' && currentUser) ? (allStaff || []).filter(s => s.id === currentUser.uid) : (allStaff || []), [allStaff, role, currentUser]);
   
-  useEffect(() => { 
-    if (activeView === 'staff' && staff?.length > 0 && !mobileSelectedColumnId) {
-        setMobileSelectedColumnId(staff[0].id); 
-    } else if (activeView === 'resources' && resources?.length > 0 && !mobileSelectedColumnId) {
-        setMobileSelectedColumnId(resources[0].id);
+  const columns = useMemo(() => {
+    let cols: any[] = activeView === 'staff' ? (staff || []) : (resources || []);
+    // If owner/admin, add a "Business" column for global events/bills
+    if (role === 'owner' || role === 'admin') {
+        cols = [{ id: 'business', name: 'Business', isBusiness: true }, ...cols];
     }
-  }, [staff, resources, activeView, mobileSelectedColumnId]);
+    return cols;
+  }, [activeView, staff, resources, role]);
 
-  const handleViewChange = (v: 'staff' | 'resources') => {
-      setActiveView(v);
-      if (v === 'staff' && staff?.length > 0) {
-          setMobileSelectedColumnId(staff[0].id);
-      } else if (v === 'resources' && resources?.length > 0) {
-          setMobileSelectedColumnId(resources[0].id);
-      }
-  };
+  useEffect(() => { 
+    if (columns.length > 0 && !mobileSelectedColumnId) {
+        setMobileSelectedColumnId(columns[0].id); 
+    }
+  }, [columns, mobileSelectedColumnId]);
 
   const onMobileColumnChange = (id: string) => {
       setMobileSelectedColumnId(id);
@@ -168,16 +166,29 @@ function PlannerPageContent() {
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), i)), [currentDate]);
 
   const itemsByColumn = useMemo(() => {
-    const map = new Map<string, (Appointment | Event)[]>();
-    const cols = activeView === 'staff' ? staff : resources;
-    (cols || []).forEach(c => map.set(c.id, []));
+    const map = new Map<string, (Appointment | Event | BillInstance)[]>();
+    (columns || []).forEach(c => map.set(c.id, []));
+    
+    // Appointments
     appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
+
+    // Bills & Global Events
+    if (map.has('business')) {
+        billInstances?.filter(i => isSameDay(safeDate(i.dueDate), currentDate)).forEach(i => {
+            const def = billDefinitions.find(d => d.id === i.billDefinitionId);
+            map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
+        });
+        events?.filter(e => isSameDay(safeDate(e.startTime), currentDate) && (!e.staffId || e.staffId === 'all')).forEach(e => {
+            map.get('business')!.push({ ...e, itemType: 'event' } as any);
+        });
+    }
+
     map.forEach(items => items.sort((a,b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime()));
     return map;
-  }, [currentDate, appointments, staff, resources, activeView]);
+  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) {
@@ -520,7 +531,6 @@ function PlannerPageContent() {
   const handleLogPaymentConfirm = (paymentData: any) => {
     if (!selectedBill || !firestore || !tenantId) return;
     
-    // CRITICAL FIX: Virtual bills do not have real doc IDs. We must create them.
     const isVirtual = selectedBill.id.startsWith('virtual-');
     
     const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
@@ -644,7 +654,7 @@ function PlannerPageContent() {
       <main className="flex-1 flex flex-col min-h-0">
             <DayTimeline 
                 date={currentDate} 
-                columns={activeView === 'staff' ? staff : resources || []} 
+                columns={columns} 
                 itemsByColumn={itemsByColumn}
                 showColumnHeader={activeView === 'resources'} isMobile={isMobile || false} activeView={activeView}
                 allStaff={allStaff || []} 
