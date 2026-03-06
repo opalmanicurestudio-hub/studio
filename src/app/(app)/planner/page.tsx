@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -13,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
+import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
 import { AddEventDialog } from '@/components/planner/AddEventDialog';
 import {
@@ -264,6 +266,15 @@ function PlannerPageContent() {
     setIsDetailsOpen(false);
   };
 
+  const handleUpdateAppointment = (apt: Appointment) => {
+      if (!firestore || !tenantId) return;
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
+      updateDocumentNonBlocking(appointmentRef, apt);
+      if (apt.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...apt, tenantId });
+      setIsEditAppointmentOpen(false);
+      toast({ title: "Session Updated" });
+  };
+
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
@@ -364,6 +375,19 @@ function PlannerPageContent() {
       />
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={allStaff || []} onConfirm={handleOverrideConfirm} />
+      
+      {selectedAppointment && (
+          <EditAppointmentDialog 
+            open={isEditAppointmentOpen} 
+            onOpenChange={setIsEditAppointmentOpen} 
+            appointment={selectedAppointment} 
+            clients={clients || []} 
+            services={services || []} 
+            appointments={appointments} 
+            onConfirm={handleUpdateAppointment} 
+          />
+      )}
+
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
       {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={(aid, st) => {
           const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', aid);
