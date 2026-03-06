@@ -63,7 +63,7 @@ const StaffMemberCard = ({
 
     return (
         <Card className={cn(
-            "relative transition-all border-2 rounded-[2rem] flex flex-col h-full",
+            "relative transition-all border-2 rounded-[2rem] flex flex-col h-full overflow-hidden",
             isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.02] z-10" : "border-border/50 shadow-sm",
             !member.active && "opacity-40 grayscale"
         )}>
@@ -294,7 +294,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
                 </Card>
             </div>
 
-            <ScrollArea className="w-full pb-4">
+            <ScrollArea className="w-full">
                 <div className="flex space-x-4 px-2 py-6">
                     {activeStaff.map((member, index) => (
                         <div key={member.id} className="w-[300px] shrink-0">

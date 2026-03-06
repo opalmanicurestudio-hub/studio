@@ -30,7 +30,9 @@ import {
     Cake,
     ChevronDown,
     Zap,
-    Search
+    Search,
+    ChevronRight,
+    User
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -55,6 +57,7 @@ import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -194,6 +197,7 @@ export const CheckoutHub = ({
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
     const [clientSearch, setClientSearch] = useState('');
+    const [isPayerPopoverOpen, setIsPayerPopoverOpen] = useState(false);
 
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -300,37 +304,62 @@ export const CheckoutHub = ({
             <div className="mb-8 flex-shrink-0">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-3 mt-2">
-                    <Select value={selectedClientId || 'walk-in'} onValueChange={(v) => setSelectedClientId(v === 'walk-in' ? null : v)}>
-                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5">
-                            <SelectValue placeholder={isGroupCheckout ? "Group Payer" : "Search Payer..."} />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-2xl border-2 shadow-2xl p-0 overflow-hidden">
-                            <div className="p-3 border-b bg-muted/10">
+                    <Popover open={isPayerPopoverOpen} onOpenChange={setIsPayerPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4">
+                                {selectedClient ? (
+                                    <div className="flex items-center gap-3">
+                                        <Avatar className="h-8 w-8 border-2 shadow-sm rounded-xl">
+                                            <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="truncate">{selectedClient.name}</span>
+                                    </div>
+                                ) : <span className="opacity-40">{isGroupCheckout ? "Group Payer" : "Search Payer..."}</span>}
+                                <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[320px] rounded-[2rem] border-2 shadow-2xl p-0 overflow-hidden" align="start">
+                            <div className="p-4 border-b bg-muted/10">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                     <Input 
                                         placeholder="Find client..." 
                                         value={clientSearch} 
                                         onChange={e => setClientSearch(e.target.value)} 
-                                        className="pl-9 h-10 rounded-xl border-2 font-bold focus-visible:ring-primary/20"
-                                        onKeyDown={e => e.stopPropagation()}
+                                        className="pl-9 h-11 rounded-xl border-2 font-bold focus-visible:ring-primary/20"
                                     />
                                 </div>
                             </div>
-                            <ScrollArea className="h-64">
-                                <SelectItem value="walk-in" className="font-bold py-3">WALK-IN GUEST</SelectItem>
+                            <div className="max-h-[300px] overflow-y-auto">
+                                <button 
+                                    className="w-full text-left p-4 hover:bg-muted/50 transition-colors flex items-center gap-3 border-b border-dashed"
+                                    onClick={() => { setSelectedClientId(null); setIsPayerPopoverOpen(false); }}
+                                >
+                                    <div className="p-2 bg-muted rounded-lg"><User className="w-4 h-4 text-muted-foreground" /></div>
+                                    <span className="font-black uppercase tracking-widest text-[10px]">WALK-IN GUEST</span>
+                                </button>
                                 {filteredClients.map((c: Client) => (
-                                    <SelectItem key={c.id} value={c.id} className="font-bold py-3">
-                                        <div className="flex items-center gap-2">
-                                            <Avatar className="h-6 w-6 rounded-lg"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{c.name.charAt(0)}</AvatarFallback></Avatar>
-                                            <span className="uppercase">{c.name}</span>
-                                        </div>
-                                    </SelectItem>
+                                    <button 
+                                        key={c.id} 
+                                        className="w-full text-left p-4 hover:bg-primary/5 transition-colors flex items-center gap-3 border-b border-dashed last:border-none"
+                                        onClick={() => { setSelectedClientId(c.id); setIsPayerPopoverOpen(false); }}
+                                    >
+                                        <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
+                                            <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="font-black uppercase tracking-tight text-xs">{c.name}</span>
+                                    </button>
                                 ))}
-                                {filteredClients.length === 0 && <div className="p-10 text-center text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-40">No matches found</div>}
-                            </ScrollArea>
-                        </SelectContent>
-                    </Select>
+                                {filteredClients.length === 0 && (
+                                    <div className="p-10 text-center">
+                                        <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40">No matching accounts</p>
+                                    </div>
+                                )}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                     <div className="flex gap-2">
                         <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onAddClientClick}><UserPlus className="w-6 h-6" /></Button>
                         <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onScanClick}><QrCode className="w-6 h-6" /></Button>
