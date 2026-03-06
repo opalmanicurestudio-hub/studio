@@ -49,6 +49,17 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+const involvedStaffIds = (apt: Appointment, st: AppointmentCheckoutState) => {
+    const ids = new Set<string>();
+    if (apt.staffId) ids.add(apt.staffId);
+    if (st.serviceStaffOverrides) {
+        Object.values(st.serviceStaffOverrides).forEach((id: any) => {
+            if (id && typeof id === 'string') ids.add(id);
+        });
+    }
+    return Array.from(ids);
+};
+
 function PlannerPageContent() {
   const searchParams = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -143,7 +154,14 @@ function PlannerPageContent() {
     (columns || []).forEach(c => map.set(c.id, []));
     
     appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
-        if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
+        if (activeView === 'staff') { 
+            const involvedIds = involvedStaffIds(a, a.checkoutState || {} as any);
+            involvedIds.forEach(sid => {
+                if (map.has(sid)) {
+                    map.get(sid)!.push({ ...a, itemType: 'appointment', isSecondary: sid !== a.staffId } as any);
+                }
+            });
+        }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
 
@@ -274,6 +292,62 @@ function PlannerPageContent() {
       toast({ title: "Session Updated" });
   };
 
+  const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+    if (!firestore || !tenantId) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    
+    const apt = appointments?.find(a => a.id === appointmentId);
+    if (!apt) return;
+
+    const totalServicesCount = 1 + (apt.addOnIds || []).length;
+    const completedIds = checkoutState.completedServiceIds || [];
+    const allComplete = completedIds.length >= totalServicesCount;
+
+    const batch = writeBatch(firestore);
+    
+    if (allComplete) {
+        batch.update(appointmentRef, {
+            status: 'ready_for_checkout',
+            checkoutState,
+            actualEndTime: new Date().toISOString(),
+        });
+        if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
+        
+        const involvedIds = new Set<string>();
+        if (apt.staffId) involvedIds.add(apt.staffId);
+        if (checkoutState.serviceStaffOverrides) {
+            Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => {
+                if (id && typeof id === 'string') involvedIds.add(id);
+            });
+        }
+        involvedIds.forEach(sid => {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+        });
+    } else {
+        batch.update(appointmentRef, { checkoutState });
+        
+        if (currentUser) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+        }
+
+        const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+        const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
+        const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
+        if (nextStaffId) {
+            batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
+        }
+    }
+
+    batch.commit().then(() => {
+        toast({
+            title: allComplete ? "Service Finished" : "Part Completed",
+            description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Hand-off complete."
+        });
+        setIsTechnicianReviewOpen(false);
+        setIsDetailsOpen(false);
+    });
+};
+
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
@@ -389,35 +463,7 @@ function PlannerPageContent() {
       )}
 
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
-      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={(aid, st) => {
-          if (!firestore || !tenantId) return;
-          const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aid);
-          const allPartIds = [selectedAppointment.serviceId, ...(selectedAppointment.addOnIds || [])];
-          const completedIds = st.completedServiceIds || [];
-          const allDone = completedIds.length >= allPartIds.length;
-          const batch = writeBatch(firestore);
-          batch.update(appointmentRef, { status: allDone ? 'ready_for_checkout' : 'servicing', checkoutState: st, actualEndTime: allDone ? new Date().toISOString() : null });
-          
-          if (allDone) {
-              involvedStaffIds(selectedAppointment, st).forEach(sid => batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }));
-          } else {
-              // HAND-OFF LOGIC
-              // Current provider becomes idle
-              if (currentUser) {
-                  batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
-              }
-              // Next sequential provider becomes busy
-              const concurrentIds = st.concurrentServiceIds || [];
-              const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !concurrentIds.includes(id));
-              const nextStaffId = st.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === selectedAppointment.serviceId ? selectedAppointment.staffId : null);
-              
-              if (nextStaffId) {
-                  batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
-              }
-          }
-
-          batch.commit().then(() => { toast({ title: allDone ? "Sent to Desk" : "Part Complete" }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); });
-      }} />}
+      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={async (data) => {
           if (!firestore || !tenantId) return;
@@ -441,16 +487,5 @@ function PlannerPageContent() {
     </div>
   );
 }
-
-const involvedStaffIds = (apt: Appointment, st: AppointmentCheckoutState) => {
-    const ids = new Set<string>();
-    if (apt.staffId) ids.add(apt.staffId);
-    if (st.serviceStaffOverrides) {
-        Object.values(st.serviceStaffOverrides).forEach((id: any) => {
-            if (id && typeof id === 'string') ids.add(id);
-        });
-    }
-    return Array.from(ids);
-};
 
 export default function PlannerPageWrapper() { return <Suspense fallback={<div>Loading...</div>}><PlannerPageContent /></Suspense> }

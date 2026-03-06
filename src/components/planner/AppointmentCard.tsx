@@ -16,6 +16,7 @@ import {
   MapPin,
   Car,
   Square,
+  Sparkles,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -136,6 +137,7 @@ export function AppointmentCard({
                 <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1 flex-wrap">
                     {checkInIndicator}
                     {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
+                    {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
                     {isBirthdayToday && <Cake className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-pink-500" />}
                 </div>
