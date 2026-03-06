@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
-import { formatDistanceToNow, parseISO, format, differenceInMinutes, isSameMonth } from 'date-fns';
+import { formatDistanceToNow, parseISO, format, isSameMonth } from 'date-fns';
 import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint, Cake } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -70,6 +69,12 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
     
     const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
     const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
+
+    const handleLateConfirm = () => {
+        const mins = parseInt(tempLateMinutes) || 0;
+        onUpdateStatus(item.id, isWalkIn, 'running_late', mins);
+        setIsLateEntryOpen(false);
+    };
 
     const isBirthdayToday = useMemo(() => {
         const clientId = isWalkIn ? (item as WalkIn).clientId : (item as Appointment).clientId;
