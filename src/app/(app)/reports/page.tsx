@@ -30,6 +30,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { Badge } from '@/components/ui/badge';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
