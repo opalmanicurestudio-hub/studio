@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -7,6 +6,7 @@ import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calenda
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes } from 'date-fns';
+import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -22,7 +22,6 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
-import { collection, doc, writeBatch, query, where, increment, arrayUnion } from 'firebase/firestore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -270,53 +269,53 @@ function PlannerPageContent() {
   return (
     <div className="flex h-screen w-full flex-col bg-white">
       <AppHeader />
-      <div className="p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
-            <div className="max-w-7xl mx-auto space-y-8">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                    <div className="space-y-1">
-                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
-                        <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
+      <div className="p-3 sm:p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
+            <div className="max-w-7xl mx-auto space-y-4 sm:space-y-8">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
+                    <div className="space-y-0.5 sm:space-y-1">
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
+                        <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
-                    <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
                         {(role === 'owner' || role === 'admin') && (
-                            <div className="flex gap-2 mr-2">
-                                <Button variant="outline" size="icon" className="relative h-12 w-12 rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
-                                    <CreditCard className="h-5 w-5" />
-                                    {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-black text-white shadow-lg border-2 border-white">{billInstancesWithDefinitions.length}</span>}
+                            <div className="flex gap-1.5 sm:gap-2 mr-1 sm:mr-2">
+                                <Button variant="outline" size="icon" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
+                                    <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
+                                    {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{billInstancesWithDefinitions.length}</span>}
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-12 w-12 rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-5 w-5" /></Button>
+                                <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
                             </div>
                         )}
-                        <Button variant="outline" size="icon" className="h-12 w-12 rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-5 w-5" /></Button>
-                        <Button size="lg" className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/>New Session</Button>
+                        <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+                        <Button size="lg" className="flex-1 md:flex-none h-10 sm:h-14 px-4 sm:px-8 rounded-xl sm:rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4"/>New Session</Button>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                    <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-3xl border-2 border-muted shadow-inner max-w-fit">
-                        <Button variant="ghost" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-10 w-10 rounded-2xl hover:bg-white shadow-sm"><ChevronLeft className="w-5 h-5"/></Button>
-                        <div className="px-4 text-center min-w-[140px]">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-1">{format(currentDate, 'MMMM yyyy')}</p>
-                            <p className="text-lg font-black text-slate-900 leading-none">{format(currentDate, 'EEEE, do')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-center">
+                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner max-w-full sm:max-w-fit overflow-x-auto scrollbar-hide">
+                        <Button variant="ghost" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0"><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+                        <div className="px-2 sm:px-4 text-center min-w-[110px] sm:min-w-[140px]">
+                            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>
+                            <p className="text-sm sm:text-lg font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
                         </div>
-                        <Button variant="ghost" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-10 w-10 rounded-2xl hover:bg-white shadow-sm"><ChevronRight className="w-5 h-5"/></Button>
-                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-10 px-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50">Today</Button>
+                        <Button variant="ghost" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0"><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 sm:h-10 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50 shrink-0">Today</Button>
                     </div>
 
-                    <div className="flex items-center gap-4 md:justify-end">
-                        <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-2 p-2 bg-muted/30 rounded-2xl border-2 border-muted shadow-inner">
-                            <Label htmlFor="staff-v" className={cn("flex items-center gap-2 h-10 px-4 rounded-xl cursor-pointer font-black text-[10px] uppercase tracking-widest transition-all", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                            <Label htmlFor="res-v" className={cn("flex items-center gap-2 h-10 px-4 rounded-xl cursor-pointer font-black text-[10px] uppercase tracking-widest transition-all", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+                    <div className="flex items-center gap-3 md:justify-end">
+                        <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-muted/30 rounded-xl sm:rounded-2xl border-2 border-muted shadow-inner">
+                            <Label htmlFor="staff-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
+                            <Label htmlFor="res-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
                         </RadioGroup>
                     </div>
                 </div>
 
                 <ScrollArea className="w-full">
-                    <div className="flex w-full gap-2 px-1">
+                    <div className="flex w-full gap-1.5 sm:gap-2 px-1">
                         {weekDays.map(day => (
-                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-4 min-w-[80px] rounded-3xl transition-all border-4 flex flex-col items-center gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
-                                <p className={cn("text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
-                                <p className={cn("text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-4 min-w-[60px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-4 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
+                                <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
+                                <p className={cn("text-lg sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
                             </button>
                         ))}
                     </div>

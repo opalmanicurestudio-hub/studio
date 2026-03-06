@@ -122,14 +122,14 @@ export const DayTimeline = ({
         
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <Card className="h-full border-4 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-xl rounded-2xl">
-                    <CardContent className="p-3 flex flex-col justify-center h-full gap-1 text-left">
-                        <div className="flex items-center gap-2">
-                            <Landmark className="w-4 h-4 text-orange-600" />
-                            <p className="text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
+                <Card className="h-full border-2 sm:border-4 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-xl rounded-xl sm:rounded-2xl">
+                    <CardContent className="p-2 sm:p-3 flex flex-col justify-center h-full gap-0.5 sm:gap-1 text-left">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                            <Landmark className="w-3 h-3 sm:w-4 sm:h-4 text-orange-600" />
+                            <p className="text-[8px] sm:text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
                         </div>
-                        <p className="font-black text-lg text-orange-800 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
-                        <Badge variant="outline" className="w-fit h-5 text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
+                        <p className="font-black text-sm sm:text-lg text-orange-800 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
+                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[7px] sm:text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
                     </CardContent>
                 </Card>
             </div>
@@ -191,15 +191,15 @@ export const DayTimeline = ({
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
-            <div className="grid grid-cols-[auto,1fr] min-w-max">
-                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-16 border-b border-r" style={{ width: isMobile ? '50px' : '64px' }} />
+            <div className="grid grid-cols-[auto,1fr] min-w-max md:min-w-full">
+                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-12 sm:h-16 border-b border-r" style={{ width: isMobile ? '40px' : '64px' }} />
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background/80 backdrop-blur-md" style={gridStyle}>
                     {displayedColumns.map(column => (
-                        <div key={column.id} className="p-3 h-16 border-b border-r text-center flex items-center justify-center">
+                        <div key={column.id} className="p-2 sm:p-3 h-12 sm:h-16 border-b border-r text-center flex items-center justify-center">
                             {isMobile ? (
                                 <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
                                     <SelectTrigger className="border-none h-full p-0 focus:ring-0 w-full bg-transparent">
-                                        <div className="flex items-center justify-center gap-2 h-full w-full">
+                                        <div className="flex items-center justify-center gap-1.5 h-full w-full">
                                             <SelectValue />
                                         </div>
                                     </SelectTrigger>
@@ -207,8 +207,8 @@ export const DayTimeline = ({
                                         {columns.map(c => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'isBusiness' in c ? <Briefcase className="w-4 h-4 text-primary" /> : 'role' in c ? <Avatar className="w-6 h-6"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[8px] bg-primary/10 text-primary">{c.name.charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />)}
-                                                    <span className="font-black uppercase text-[10px] tracking-widest">{c.name}</span>
+                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[7px] bg-primary/10 text-primary">{c.name.charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
+                                                    <span className="font-black uppercase text-[9px] tracking-widest">{c.name}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}
@@ -232,8 +232,8 @@ export const DayTimeline = ({
                         </div>
                     ))}
                 </div>
-                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-12" : "w-16")}>
-                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-3 pt-1 flex justify-end items-start"><span className="text-[10px] font-black uppercase text-muted-foreground -mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-16")}>
+                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start"><span className="text-[8px] sm:text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
                 </div>
                 <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
@@ -251,7 +251,7 @@ export const DayTimeline = ({
                             className="absolute w-full flex items-center z-20 pointer-events-none" 
                             style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}
                         >
-                            <div className="h-3 w-3 rounded-full bg-red-500 -ml-1.5 border-4 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
+                            <div className="h-2 w-2 sm:h-3 sm:w-3 rounded-full bg-red-500 -ml-1 sm:-ml-1.5 border-2 sm:border-4 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
                             <div className="h-0.5 w-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"></div>
                         </div>
                     )}

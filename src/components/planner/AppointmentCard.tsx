@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -97,7 +96,7 @@ export function AppointmentCard({
 
   const statusDisplay: Record<string, { text: string; className: string; bgClassName: string; dotColor: string }> = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/20 text-blue-800 bg-blue-500/[0.03]', bgClassName: 'bg-blue-500/5', dotColor: 'bg-blue-500' },
-    servicing: { text: 'Live', className: 'border-primary ring-4 ring-primary/10 text-primary bg-primary/[0.02]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
+    servicing: { text: 'Live', className: 'border-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.02]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
     completed: { text: 'Finished', className: 'border-green-500/20 text-green-800 bg-green-500/[0.03]', bgClassName: 'bg-green-500/5', dotColor: 'bg-green-500' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/20 text-red-800 bg-red-500/[0.03] grayscale', bgClassName: 'bg-red-500/5', dotColor: 'bg-red-500' },
     deposit_pending: { text: 'Deposit Due', className: 'border-amber-500/20 text-amber-800 bg-amber-500/[0.03]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-500' },
@@ -110,9 +109,9 @@ export function AppointmentCard({
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
     switch (appointment.checkInStatus) {
-        case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[8px] font-black uppercase h-4 px-1 shadow-sm"><MapPin className="w-2 h-2 mr-0.5" />HERE</Badge>;
-        case 'running_late': return <Badge className="bg-amber-500 text-white border-none text-[8px] font-black uppercase h-4 px-1 shadow-sm animate-pulse">+{appointment.lateTimeMinutes}M</Badge>;
-        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[8px] font-black uppercase h-4 px-1 shadow-sm">WAY</Badge>;
+        case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
+        case 'running_late': return <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse">+{appointment.lateTimeMinutes}M</Badge>;
+        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">WAY</Badge>;
         default: return null;
     }
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status]);
@@ -126,25 +125,25 @@ export function AppointmentCard({
       <div style={{ height: `${(service.duration / totalDuration) * 100}%` }} className="min-h-fit flex-1">
         <Card 
           className={cn(
-            'p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
+            'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
             currentStatus?.className,
-            isRunningOver && 'border-destructive ring-4 ring-destructive/20 animate-pulse bg-destructive/10'
+            isRunningOver && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10'
           )}
           onClick={() => onViewDetails(appointment)}
         >
-          <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1 flex-wrap">
                     {checkInIndicator}
-                    {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[8px] font-black uppercase h-4 px-1 animate-pulse">LIVE</Badge>}
-                    {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground opacity-40" />}
-                    {isBirthdayToday && <Cake className="h-3 w-3 text-pink-500" />}
+                    {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
+                    {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
+                    {isBirthdayToday && <Cake className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-pink-500" />}
                 </div>
-                <p className="font-black uppercase tracking-tight text-[11px] text-slate-900 truncate leading-none mb-1">{client.name}</p>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service.name}</p>
+                <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
+                <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service.name}</p>
             </div>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
                 {appointment.status === 'servicing' && <DropdownMenuItem onClick={() => onFinishService(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
                 {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={() => onCompleteClick(appointment)} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
@@ -157,18 +156,18 @@ export function AppointmentCard({
           </div>
 
           {appointment.status === 'servicing' && elapsedTime && (
-            <div className="flex-1 flex items-center justify-center py-1">
-                <p className={cn("text-2xl font-black font-mono tracking-tighter leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
+            <div className="flex-1 flex items-center justify-center py-0.5 sm:py-1">
+                <p className={cn("text-lg sm:text-2xl font-black font-mono tracking-tighter leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
             </div>
           )}
 
-          <div className="mt-auto pt-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-                <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
-                <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">{format(safeDate(appointment.startTime), 'h:mm a')}</p>
+          <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className={cn("w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
+                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">{format(safeDate(appointment.startTime), 'h:mm a')}</p>
             </div>
             {appointment.status === 'ready_for_checkout' && (
-                <Button size="xs" className="h-5 px-2 bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest shadow-lg shadow-primary/20 rounded-lg animate-bounce" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
+                <Button size="xs" className="h-4 sm:h-5 px-1.5 sm:px-2 bg-primary text-white border-none font-black text-[7px] sm:text-[8px] uppercase tracking-widest shadow-lg shadow-primary/20 rounded-lg animate-bounce" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
             )}
           </div>
         </Card>
