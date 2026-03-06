@@ -834,7 +834,7 @@ function POSPageContent() {
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem]">
                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
-                                <SheetTitle className="text-3xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
+                                <SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
                             <div className="flex-1 overflow-hidden bg-background">
                                 <CheckoutHub {...checkoutHubProps} />

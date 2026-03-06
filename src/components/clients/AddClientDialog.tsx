@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, KeyboardEvent, useEffect } from 'react';
@@ -540,7 +541,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="history" className="border rounded-xl overflow-hidden">
-                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Service History</AccordionTrigger>
+                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Past Service History</AccordionTrigger>
                         <AccordionContent className="p-3">
                             <Textarea placeholder="Past experiences, good or bad..." className="text-xs min-h-[80px]" {...register('notes.history')} />
                         </AccordionContent>
