@@ -161,15 +161,9 @@ export function EventCard({
         setIsSheetOpen(false);
         setTimeout(() => {
             setIsAddTransactionOpen(true);
-        }, 150); // Delay to allow sheet to close before dialog opens
+        }, 150);
     };
     
-    const checklistProgress = useMemo(() => {
-        if (!event.checklist || event.checklist.length === 0) return 0;
-        const completed = event.checklist.filter(item => item.completed).length;
-        return (completed / event.checklist.length) * 100;
-    }, [event.checklist]);
-
     const TriggerCard = (
         <div 
             className={cn(
@@ -182,26 +176,26 @@ export function EventCard({
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    <p className="font-semibold text-sm truncate flex-1">{event.title}</p>
+                    <p className="font-black uppercase tracking-tight text-[11px] truncate flex-1">{event.title}</p>
                 </div>
-                {event.status === 'pending' && <Badge variant="outline" className="text-xs">Pending</Badge>}
+                {event.status === 'pending' && <Badge variant="outline" className="text-[8px] h-4 px-1 uppercase font-black">Pending</Badge>}
             </div>
             
             <div className='flex-grow mt-2 overflow-y-auto space-y-2'>
                 {event.notes && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">{event.notes}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground line-clamp-2 leading-relaxed italic">"{event.notes}"</p>
                 )}
             </div>
 
             <div className="mt-auto pt-2 flex items-end justify-between">
                 {duration >= 30 ? (
-                    <p className="text-[10px] text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
                 ) : <div />}
                 {event.type !== 'blocked' && (
                     <div className="space-y-2">
                         {totalCost > 0 && (
-                            <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
-                                <DollarSign className="w-3 h-3" />
+                            <div className="flex items-center justify-end gap-1 text-[10px] font-black text-destructive tracking-tighter">
+                                <DollarSign className="w-2.5 h-2.5" />
                                 <span>{totalCost.toFixed(2)}</span>
                             </div>
                         )}
@@ -211,12 +205,12 @@ export function EventCard({
             {isOwnerOrAdmin && event.status === 'pending' && (
                 <div className="p-1 border-t mt-1 -mx-3 -mb-3 bg-muted/20">
                     <div className="flex w-full gap-1">
-                         <Button size="xs" variant="ghost" className="w-full text-destructive" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
-                            <X className="w-4 h-4 mr-1" />
+                         <Button size="xs" variant="ghost" className="w-full text-destructive font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
+                            <X className="w-3 h-3 mr-1" />
                             Deny
                         </Button>
-                        <Button size="xs" variant="ghost" className="w-full text-primary" onClick={(e) => { e.stopPropagation(); onUpdateEvent({ ...event, status: 'approved', approvedBy: user?.uid, approvedAt: new Date().toISOString() }); }}>
-                            <Check className="w-4 h-4 mr-1" />
+                        <Button size="xs" variant="ghost" className="w-full text-primary font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onUpdateEvent({ ...event, status: 'approved', approvedBy: user?.uid, approvedAt: new Date().toISOString() }); }}>
+                            <Check className="w-3 h-3 mr-1" />
                             Approve
                         </Button>
                     </div>
@@ -225,25 +219,25 @@ export function EventCard({
         </div>
     );
     
-    const DialogOrSheet = isMobile ? Sheet : Sheet;
-    const DialogOrSheetContent = isMobile ? SheetContent : SheetContent;
-
     return (
         <>
-            <DialogOrSheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+            <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                 <SheetTrigger asChild>
                     <div className="h-full" onClick={() => setIsSheetOpen(true)}>
                         {TriggerCard}
                     </div>
                 </SheetTrigger>
-                <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
-                    <SheetHeader className="p-6 pb-4">
-                        <SheetTitle>{event.title}</SheetTitle>
-                        <SheetDescription>
+                <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
+                    <SheetHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
+                        <div className="flex items-center gap-3 mb-2">
+                            <Sparkles className="w-5 h-5 text-primary" />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Event Dossier</span>
+                        </div>
+                        <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">{event.title}</SheetTitle>
+                        <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
                             {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
                         </SheetDescription>
                     </SheetHeader>
-                    <Separator />
                     <EventDetailsContent 
                         event={event} 
                         transactions={transactions} 
@@ -253,7 +247,7 @@ export function EventCard({
                         onLogExpenseClick={handleLogExpenseClick}
                     />
                 </DialogOrSheetContent>
-            </DialogOrSheet>
+            </Sheet>
 
             <AddTransactionDialog
                 open={isAddTransactionOpen}
@@ -267,5 +261,3 @@ export function EventCard({
         </>
     )
 }
-
-    

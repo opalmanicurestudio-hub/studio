@@ -3,9 +3,9 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles } from 'lucide-react';
-import { type Appointment, type Event, type Staff, type Resource, type Membership } from '@/lib/data';
+import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, differenceInDays, isPast, isToday, startOfDay, query, where, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -21,7 +21,7 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, increment, arrayUnion } from 'firebase/firestore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -37,8 +37,6 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { Html5Qrcode } from 'html5-qrcode';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
