@@ -1,11 +1,12 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
-import { formatDistanceToNow, parseISO, addMinutes, differenceInSeconds } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake } from 'lucide-react';
+import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
+import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -28,28 +29,11 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-interface InServiceAppointmentCardProps {
-    appointment: Appointment;
-    services: Service[] | null;
-    staff: Staff[] | null;
-    onSendToCheckout: () => void;
-    onRevertToReady: () => void;
-    onViewDetails: () => void;
-}
-
-export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> = ({ 
-    appointment, 
-    services, 
-    staff, 
-    onSendToCheckout,
-    onRevertToReady,
-    onViewDetails
-}) => {
+export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onRevertToReady, onViewDetails }) => {
     const { clients } = useInventory();
-    const mainService = services?.find(s => s.id === appointment.serviceId);
-    const addOnServices = (appointment.addOnIds || []).map(id => services?.find(s => s.id === id)).filter((s): s is Service => !!s);
-    const allServices = [mainService, ...addOnServices].filter((s): s is Service => !!s);
-
+    const mainService = services?.find((s:any) => s.id === appointment.serviceId);
+    const addOnServices = (appointment.addOnIds || []).map((id:any) => services?.find((s:any) => s.id === id)).filter((s:any): s is Service => !!s);
+    const allServices = [mainService, ...addOnServices].filter((s:any): s is Service => !!s);
     const serviceDuration = allServices.reduce((acc, s) => acc + s.duration, 0);
 
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -67,33 +51,19 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
-
         if (appointment.status === 'servicing' && appointment.actualStartTime) {
             const startTime = safeDate(appointment.actualStartTime);
-
             const updateTimer = () => {
-                const now = new Date();
-                const diffInSeconds = differenceInSeconds(now, startTime);
-
-                const hours = Math.floor(diffInSeconds / 3600);
-                const minutes = Math.floor((diffInSeconds % 3600) / 60);
-                const seconds = diffInSeconds % 60;
-
-                if (hours > 0) {
-                    setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-                } else {
-                    setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-                }
-
-                const elapsedMinutes = Math.floor(diffInSeconds / 60);
-                setIsRunningOver(elapsedMinutes > serviceDuration);
-                setMinsRemaining(Math.max(0, serviceDuration - elapsedMinutes));
-
-                if (serviceDuration > 0) {
-                    setProgress(Math.min(100, (elapsedMinutes / serviceDuration) * 100));
-                }
+                const diff = differenceInSeconds(new Date(), startTime);
+                const minutes = Math.floor(diff / 60);
+                const h = Math.floor(minutes / 60);
+                const m = minutes % 60;
+                const s = diff % 60;
+                setElapsedTime(h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`);
+                setIsRunningOver(minutes > serviceDuration);
+                setMinsRemaining(Math.max(0, serviceDuration - minutes));
+                if (serviceDuration > 0) setProgress(Math.min(100, (minutes / serviceDuration) * 100));
             };
-            
             updateTimer(); 
             timer = setInterval(updateTimer, 1000);
         }
@@ -103,10 +73,8 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     const assignedTechnicians = useMemo(() => {
         const techIds = new Set<string>();
         if (appointment.staffId) techIds.add(appointment.staffId);
-        if (appointment.checkoutState?.serviceStaffOverrides) {
-            Object.values(appointment.checkoutState.serviceStaffOverrides).forEach(id => techIds.add(id));
-        }
-        return staff?.filter(s => techIds.has(s.id)) || [];
+        if (appointment.checkoutState?.serviceStaffOverrides) Object.values(appointment.checkoutState.serviceStaffOverrides).forEach((id: any) => techIds.add(id));
+        return staff?.filter((s:any) => techIds.has(s.id)) || [];
     }, [appointment, staff]);
 
     const completedIds = appointment.checkoutState?.completedServiceIds || [];
@@ -114,122 +82,75 @@ export const InServiceAppointmentCard: React.FC<InServiceAppointmentCardProps> =
     const isReady = appointment.status === 'ready_for_checkout';
     
     return (
-        <Card className={cn("transition-all border-2", isReady ? "border-green-500 bg-green-500/[0.02]" : "", isRunningOver && "border-destructive ring-2 ring-destructive/50")}>
-            <CardContent className="p-4" onClick={onViewDetails}>
-                 <div className="flex justify-between items-start gap-2 cursor-pointer">
-                    <div className="space-y-3 flex-1 min-w-0">
+        <Card className={cn("transition-all border-2 rounded-2xl overflow-hidden shadow-sm", isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-white", isRunningOver && "border-destructive ring-4 ring-destructive/10 shadow-destructive/10")}>
+            <CardContent className="p-5 space-y-4" onClick={onViewDetails}>
+                 <div className="flex justify-between items-start gap-3 cursor-pointer">
+                    <div className="space-y-4 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                            <p className="font-bold truncate text-sm flex items-center gap-2"><User className="w-4 h-4 shrink-0"/>{appointment.clientName}</p>
-                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 px-1 uppercase font-black shadow-sm animate-bounce"><Cake className="w-2 h-2 mr-0.5" /> Birthday</Badge>}
+                            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
+                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
                         </div>
                         
-                        <div className="space-y-1.5">
-                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Live Sequence</p>
+                        <div className="space-y-2">
                             {assignedTechnicians.map(tech => {
-                                const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {})
-                                    .filter(([_, staffId]) => staffId === tech.id)
-                                    .map(([svcId]) => svcId);
-                                
-                                // Default assignment if not in overrides
-                                if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) {
-                                    techServices.unshift(appointment.serviceId);
-                                }
-                                
+                                const techServices = Object.entries(appointment.checkoutState?.serviceStaffOverrides || {}).filter(([_, staffId]) => staffId === tech.id).map(([svcId]) => svcId);
+                                if (appointment.staffId === tech.id && !techServices.includes(appointment.serviceId)) techServices.unshift(appointment.serviceId);
                                 const isDone = techServices.length > 0 && techServices.every(id => completedIds.includes(id));
-                                
                                 const isWorking = techServices.some(svcId => {
                                     if (completedIds.includes(svcId)) return false;
-                                    const isPrimary = svcId === appointment.serviceId;
-                                    const isConcurrent = concurrentIds.includes(svcId);
-                                    // It's sequential if it's not the primary service and not concurrent
-                                    // We start showing "Working" for sequential parts only when the primary service is done
                                     const primaryDone = completedIds.includes(appointment.serviceId);
-                                    return isPrimary || isConcurrent || primaryDone;
+                                    return (svcId === appointment.serviceId) || concurrentIds.includes(svcId) || primaryDone;
                                 });
-
-                                const isQueued = !isDone && !isWorking;
-
                                 return (
-                                    <div key={tech.id} className={cn("flex items-center gap-2 p-1 rounded-lg border bg-background transition-opacity", isDone && "opacity-50 grayscale")}>
-                                        <Avatar className="h-6 w-6 border shadow-sm">
-                                            <AvatarImage src={tech.avatarUrl} className="object-cover" />
-                                            <AvatarFallback>{tech.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
+                                    <div key={tech.id} className={cn("flex items-center gap-2 p-2 rounded-xl border-2 bg-background transition-all", isDone && "opacity-40 grayscale")}>
+                                        <Avatar className="h-7 w-7 border shadow-sm rounded-lg"><AvatarImage src={tech.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[9px] uppercase">{(tech.name||'S')[0]}</AvatarFallback></Avatar>
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-[11px] font-bold truncate leading-tight">{tech.name.split(' ')[0]}</p>
-                                            <div className="flex items-center gap-1">
+                                            <p className="text-[10px] font-black uppercase tracking-tight truncate leading-tight">{tech.name.split(' ')[0]}</p>
+                                            <div className="flex items-center gap-1.5 mt-0.5">
                                                 {techServices.map(sid => {
-                                                    const svc = services?.find(s => s.id === sid);
-                                                    const isPartConcurrent = concurrentIds.includes(sid);
+                                                    const isCon = concurrentIds.includes(sid);
                                                     return (
                                                         <TooltipProvider key={sid}>
                                                             <Tooltip>
-                                                                <TooltipTrigger>
-                                                                    {isPartConcurrent ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground" />}
-                                                                </TooltipTrigger>
-                                                                <TooltipContent><p>{svc?.name} ({isPartConcurrent ? 'Concurrent' : 'Sequential'})</p></TooltipContent>
+                                                                <TooltipTrigger>{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</TooltipTrigger>
+                                                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">{services?.find(s => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
                                                             </Tooltip>
                                                         </TooltipProvider>
                                                     );
                                                 })}
                                             </div>
                                         </div>
-                                        {isDone ? (
-                                            <Badge className="bg-green-500 border-none h-4 px-1 text-[8px] uppercase font-black text-white">Done</Badge>
-                                        ) : isWorking ? (
-                                            <Badge variant="outline" className="h-4 px-1 text-[8px] uppercase font-black animate-pulse border-primary text-primary">Working</Badge>
-                                        ) : (
-                                            <Badge variant="secondary" className="h-4 px-1 text-[8px] uppercase font-black bg-muted text-muted-foreground border-none">
-                                                <Hourglass className="w-2 h-2 mr-0.5" />
-                                                Queued
-                                            </Badge>
-                                        )}
+                                        {isDone ? <Check className="w-4 h-4 text-green-500" /> : isWorking ? <Badge className="bg-primary text-white border-none h-4 px-1 text-[8px] font-black uppercase animate-pulse">Live</Badge> : <Badge variant="secondary" className="h-4 px-1 text-[8px] uppercase font-black bg-muted border-none opacity-40">Wait</Badge>}
                                     </div>
                                 );
                             })}
                         </div>
                     </div>
                      <div className="text-right shrink-0">
-                        {allServices?.slice(0, 2).map(s => (
-                            <div key={s.id} className="flex items-center justify-end gap-1">
-                                {completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}
-                                <p className={cn("text-[10px] font-bold leading-tight", completedIds.includes(s.id) && "text-muted-foreground line-through")}>{s.name}</p>
-                            </div>
-                        ))}
-                        {allServices.length > 2 && <p className="text-[9px] text-muted-foreground">+{allServices.length - 2} more</p>}
-                        {elapsedTime && <p className={cn("text-xl font-black font-mono tracking-tighter mt-2", isRunningOver && "text-destructive")}>{elapsedTime}</p>}
+                        {allServices?.slice(0, 2).map(s => <div key={s.id} className="flex items-center justify-end gap-1">{completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}<p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-slate-900")}>{s.name}</p></div>)}
+                        {elapsedTime && <p className={cn("text-2xl font-black font-mono tracking-tighter mt-3", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>}
                     </div>
                 </div>
                 {elapsedTime && (
-                    <div className="mt-3 space-y-1">
-                        <Progress value={progress} className={cn("h-1.5", isRunningOver && "[&>div]:bg-destructive")} />
-                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-tighter text-muted-foreground">
-                            <span>{isRunningOver ? "Overtime" : `~${minsRemaining}m Left`}</span>
-                            <span>{serviceDuration}m scheduled</span>
+                    <div className="mt-4 space-y-1.5">
+                        <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isRunningOver && "[&>div]:bg-destructive")} />
+                        <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                            <span>{isRunningOver ? "OVERTIME ALERT" : `~${minsRemaining}M REMAINING`}</span>
+                            <span>{serviceDuration}M GOAL</span>
                         </div>
                     </div>
                 )}
             </CardContent>
-             <CardFooter className="p-2 border-t gap-2 bg-muted/30">
-                <Button variant="secondary" size="sm" className="flex-1 font-bold h-9" onClick={onSendToCheckout} disabled={isReady}>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    {isReady ? "Ready for Checkout" : "Send to Desk"}
+             <CardFooter className="p-2 border-t gap-2 bg-muted/5">
+                <Button variant="secondary" size="sm" className="flex-1 font-black uppercase text-[10px] tracking-widest h-11 rounded-xl shadow-xl shadow-primary/5" onClick={onSendToCheckout} disabled={isReady}>
+                    <Square className="w-3.5 h-3.5 mr-2" />
+                    Finish & Checkout
                 </Button>
                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-9 w-9">
-                            <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={onViewDetails}>
-                            <PlusCircle className="w-4 h-4 mr-2" />
-                            Manage Sequence
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={onRevertToReady} className="text-muted-foreground">
-                            <Undo2 className="w-4 h-4 mr-2" />
-                            Revert to Notified
-                        </DropdownMenuItem>
+                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl"><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl">
+                        <DropdownMenuItem onClick={onViewDetails} className="font-bold text-[10px] uppercase tracking-widest"><PlusCircle className="w-3.5 h-3.5 mr-2" /> Add Part / Technician</DropdownMenuItem>
+                        <DropdownMenuItem onClick={onRevertToReady} className="text-muted-foreground font-bold text-[10px] uppercase tracking-widest"><Undo2 className="w-3.5 h-3.5 mr-2" /> Revert to Waiting</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </CardFooter>

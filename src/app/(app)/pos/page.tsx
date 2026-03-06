@@ -21,7 +21,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -51,16 +51,16 @@ const safeDate = (val: any): Date => {
 };
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
-  <Card>
+  <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      <div className={cn("p-2 rounded-lg", iconBgColor)}>
-        {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+      <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</CardTitle>
+      <div className={cn("p-2 rounded-xl", iconBgColor)}>
+        {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4' })}
       </div>
     </CardHeader>
     <CardContent>
-      <div className="text-2xl font-bold">{value}</div>
-      <p className="text-xs text-muted-foreground">{description}</p>
+      <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">{value}</div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-60">{description}</p>
     </CardContent>
   </Card>
 );
@@ -444,7 +444,6 @@ function POSPageContent() {
             });
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'ready_for_checkout', tenantId });
             
-            // AUTO-IDLE: Mark ALL involved staff as idle when the whole appointment is done
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (checkoutState.serviceStaffOverrides) {
@@ -456,12 +455,10 @@ function POSPageContent() {
         } else {
             batch.update(appointmentRef, { checkoutState });
             
-            // AUTO-IDLE: Mark staff member who just completed their part as idle
             if (currentUser) {
                 batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
             }
 
-            // Mark NEXT sequential technician as busy on hand-off
             const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
             const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
             const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''];
@@ -490,12 +487,10 @@ function POSPageContent() {
 
         let totalLtvIncrease = 0;
 
-        // 1. Process Appointments
         for (const aptData of selectedAptsData) {
             const { appointment: apt, service, addOnServices, staff: tech } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
             
-            // Formula & Inventory Deduction (Intelligent Rollover)
             const formula = apt.checkoutState?.formula || [];
             formula.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
@@ -508,7 +503,6 @@ function POSPageContent() {
                     let currentUses = product.partialContainerUses || 0;
                     let currentStock = product.totalStock;
                     const usesPerContainer = product.estimatedUses || 1;
-                    
                     currentUses -= item.quantity;
                     while (currentUses <= 0 && currentStock > 0) {
                         currentStock -= 1;
@@ -520,7 +514,6 @@ function POSPageContent() {
                     let currentSize = product.partialContainerSize || 0;
                     let currentStock = product.totalStock;
                     const sizePerContainer = product.size || 1;
-
                     currentSize -= item.quantity;
                     while (currentSize <= 0 && currentStock > 0) {
                         currentStock -= 1;
@@ -534,7 +527,6 @@ function POSPageContent() {
 
                 batch.update(productRef, updateData);
 
-                // Add to Inventory Ledger (Professional Format)
                 const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
                 batch.set(scRef, {
                     productId: item.id,
@@ -562,7 +554,6 @@ function POSPageContent() {
 
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
             
-            // Log Service Revenue (Per Staff)
             const serviceTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(serviceTxnRef, {
                 date: now,
@@ -579,11 +570,9 @@ function POSPageContent() {
                 hasReceipt: true
             });
 
-            // Mark lead tech as idle
             if (tech.id) batch.set(doc(firestore, 'tenants', tenantId, 'staff', tech.id), { status: 'idle' }, { merge: true });
         }
 
-        // 2. Process Retail Items
         retailItems.forEach(item => {
             const retailAmount = item.price * item.quantity;
             totalLtvIncrease += retailAmount;
@@ -605,7 +594,6 @@ function POSPageContent() {
             const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
             batch.update(productRef, { totalStock: increment(-item.quantity) });
 
-            // Add to Inventory Ledger for Retail Sale
             const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
             batch.set(scRef, {
                 productId: item.id,
@@ -616,7 +604,6 @@ function POSPageContent() {
             });
         });
 
-        // Update Client LTV & Last Appointment
         if (selectedClient) {
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
             batch.update(clientDocRef, {
@@ -625,7 +612,6 @@ function POSPageContent() {
             });
         }
 
-        // 3. Log Tips (Accurate Allocation)
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
             if (amount > 0) {
                 const tipTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -645,7 +631,6 @@ function POSPageContent() {
             }
         });
 
-        // 4. Log Discount Absorption (Marketing Expense)
         if (discount > 0) {
             const discountTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(discountTxnRef, {
@@ -743,32 +728,44 @@ function POSPageContent() {
     }, [appointmentsFromInventory]);
 
     return (
-        <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
-            <AppHeader />
-            <div className="flex-1 grid lg:grid-cols-[1fr,400px] overflow-hidden">
-                <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-8 pb-24 lg:pb-8">
-                    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-                        <KpiCard title="Avg. Wait Time" value={`${kpiData.avgWaitTime.toFixed(0)} min`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
-                        <KpiCard title="Walk-in Conversion" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Check-in to chair rate." />
-                        <KpiCard title="Today's Volume" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total check-ins today." />
-                        <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Gross rev today." />
+        <div className="h-screen w-full flex flex-col bg-background">
+            <AppHeader title="Studio POS" />
+            <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
+                <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-24 lg:pb-10">
+                    <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
+                        <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
+                        <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
+                        <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500"/>} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
+                        <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                     </div>
 
-                    <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
-                    <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
-                    <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
+                    <div className="grid gap-10 grid-cols-1">
+                        <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
+                        <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-primary" />
+                                Retail & Additions
+                            </h3>
+                            <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => setIsScannerOpen(true)} />
+                        </div>
+                    </div>
                 </main>
-                <aside className="hidden lg:flex border-l bg-card p-4 lg:p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
+                <aside className="hidden lg:flex border-l-4 border-muted/30 bg-white p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
             </div>
             {isMobile && (
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-sm lg:hidden z-40">
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-                        <SheetTrigger asChild><Button className="w-full h-14">View Cart (${total.toFixed(2)})</Button></SheetTrigger>
-                        <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                            <SheetHeader className="p-4 border-b">
-                                <SheetTitle>Current Sale</SheetTitle>
+                        <SheetTrigger asChild>
+                            <Button className="w-full h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">
+                                View Cart (${total.toFixed(2)})
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[95vh] p-0 flex flex-col border-none rounded-t-[3rem]">
+                            <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
+                                <SheetTitle className="text-3xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
-                            <div className="p-4 flex-1 overflow-y-auto">
+                            <div className="p-8 flex-1 overflow-y-auto bg-background">
                                 <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
@@ -823,7 +820,7 @@ function POSPageContent() {
             />
 
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
-            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Authorize Action</DialogTitle></DialogHeader><div className="py-6 flex flex-col items-center gap-4"><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-3xl font-black h-16 w-48" /></div><DialogFooter><Button onClick={() => {
+            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl"><DialogHeader><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Action</DialogTitle></DialogHeader><div className="py-10 flex flex-col items-center gap-6"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Admin PIN Required</Label><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-4xl font-black h-20 w-48 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" /></div><DialogFooter className="p-6 pt-0"><Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl" onClick={() => {
                 const target = staff?.find(s => s.pin === authPin);
                 if (target && pendingStatusAction) {
                     const { staffId, action } = pendingStatusAction;
@@ -841,16 +838,16 @@ function POSPageContent() {
                     setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
                     setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null);
                 } else toast({ variant: 'destructive', title: 'Invalid PIN' });
-            }}>Confirm</Button></DialogFooter></DialogContent></Dialog>
+            }}>Confirm Authorization</Button></DialogFooter></DialogContent></Dialog>
             
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-              <DialogContent className="sm:max-w-md p-0">
-                <DialogHeader className="p-4 pb-0"><DialogTitle>Scan QR Code</DialogTitle></DialogHeader>
-                <div className="p-4 relative">
-                  <div id="qr-reader-pos" className="w-full rounded-md bg-muted" />
-                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
+              <DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl">
+                <DialogHeader className="p-6 pb-0"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Scan Terminal</DialogTitle></DialogHeader>
+                <div className="p-10 relative">
+                  <div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
+                  <div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
                 </div>
-                <DialogFooter className="p-4 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button></DialogFooter>
+                <DialogFooter className="p-6 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter>
               </DialogContent>
             </Dialog>
         </div>
