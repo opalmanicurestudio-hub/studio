@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -277,7 +276,7 @@ export default function PaydayPage() {
             </div>
 
             <div className="space-y-6">
-                <div className="flex gap-2 p-3 bg-muted border-2 border-muted rounded-2xl shadow-inner">
+                <div className="max-w-sm mx-auto flex gap-2 p-2 bg-muted border-2 border-muted rounded-2xl shadow-inner">
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'bi-weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Bi-Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'monthly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Monthly</Button>
