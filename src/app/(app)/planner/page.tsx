@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -112,18 +112,18 @@ function PlannerPageContent() {
   const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
     
   const { data: scheduleProfilesData } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
-  const { data: resources } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
+  const { data: resourcesData } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
 
   const staff = useMemo(() => (role === 'staff' && currentUser) ? (allStaff || []).filter(s => s.id === currentUser.uid) : (allStaff || []), [allStaff, role, currentUser]);
   
   const columns = useMemo(() => {
-    let cols: any[] = activeView === 'staff' ? (staff || []) : (resources || []);
+    let cols: any[] = activeView === 'staff' ? (staff || []) : (resourcesData || []);
     if (role === 'owner' || role === 'admin') {
         cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
     }
     return cols;
-  }, [activeView, staff, resources, role]);
+  }, [activeView, staff, resourcesData, role]);
 
   useEffect(() => { 
     if (columns.length > 0 && !mobileSelectedColumnId) {
@@ -332,7 +332,7 @@ function PlannerPageContent() {
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={handleStartService} onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
                 onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
-                walkIns={walkIns} clients={clients} services={services} resources={resources || []}
+                walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
             />
       </main>
 
