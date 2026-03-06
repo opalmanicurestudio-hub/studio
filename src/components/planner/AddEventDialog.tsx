@@ -44,10 +44,10 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event, type EventChecklistItem, type Appointment, type Staff, services as allServices } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse } from 'date-fns';
+import { type Event, type EventChecklistItem, type Staff } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
@@ -91,8 +91,8 @@ const AddEventForm = ({
     const { firestore } = useFirebase();
     const tenantId = selectedTenant?.id;
 
-    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
-    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId]));
+    const { data: appointmentsFromDB } = useCollection<Appointment>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
+    const { data: eventsFromDB } = useCollection<Event>(useMemoFirebase(() => tenantId && firestore ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId]));
 
     const appointments = useMemo(() => {
         if (!appointmentsFromDB) return [];
@@ -261,7 +261,6 @@ const AddEventForm = ({
     return (
         <>
             <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
-                <ScrollArea className="h-[70vh] pr-6">
                 <div className="space-y-6">
                     <div className="space-y-4">
                         <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
@@ -444,7 +443,6 @@ const AddEventForm = ({
                         </div>
                     </div>
                 </div>
-                </ScrollArea>
             </form>
              <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
@@ -481,14 +479,18 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0 rounded-t-[3rem]">
-          <SheetHeader className="text-left p-8 border-b bg-muted/5">
-            <SheetTitle className="text-3xl font-black uppercase tracking-tighter">{title}</SheetTitle>
-            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</SheetDescription>
+          <SheetHeader className="text-left p-6 border-b bg-muted/5 flex-shrink-0">
+            <SheetTitle className="text-2xl font-black uppercase tracking-tighter">{title}</SheetTitle>
+            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="p-8 pt-4 border-t bg-background">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 font-bold uppercase tracking-tight rounded-2xl">Cancel</Button>
-            <Button type="submit" form="add-event-form" className="w-full h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl">Save Event</Button>
+          <div className="flex-1 overflow-y-auto p-6">
+             <AddEventForm onConfirm={onConfirm} staff={staff} />
+          </div>
+          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
+            <div className="flex w-full gap-3">
+                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 font-bold uppercase tracking-tight rounded-2xl flex-1">Cancel</Button>
+                <Button type="submit" form="add-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Save Event</Button>
+            </div>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -502,9 +504,11 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
             <DialogTitle className="text-3xl font-black uppercase tracking-tighter">{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-            {FormContent}
-        </div>
+        <ScrollArea className="flex-1">
+            <div className="px-8 py-6">
+                {FormContent}
+            </div>
+        </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
           <Button type="submit" form="add-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20">Save Event</Button>
