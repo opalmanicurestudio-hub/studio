@@ -39,17 +39,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Award, CalendarCheck, Clock, Users, Zap, Repeat, Star } from 'lucide-react';
+import { 
+  CalendarIcon, 
+  PlusCircle, 
+  Trash2, 
+  AlertTriangle, 
+  ChevronLeft, 
+  ChevronRight, 
+  Briefcase, 
+  User, 
+  Lock, 
+  Award, 
+  CalendarCheck, 
+  Clock, 
+  Users, 
+  Zap, 
+  Repeat, 
+  Star, 
+  Sparkles, 
+  Wallet, 
+  Check 
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff, Event, Resource, Membership, getServicePrice } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse, addMonths, endOfDay, parseISO } from 'date-fns';
+import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, addMonths, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Calendar } from '@/components/ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -60,14 +78,22 @@ import { collection, query, where } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface AddAppointmentDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
-  client?: Client | null;
-  appointmentToRebook?: Appointment | null;
-  memberships: Membership[];
-}
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -80,6 +106,33 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     d.setHours(hours, minutes);
     return d;
 }
+
+const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
+    const isAnyStaff = staff.id === 'any';
+    return (
+        <label htmlFor={`staff-select-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
+            <div className={cn(
+                'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
+                isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
+                disabled && 'bg-muted/50 border-dashed'
+            )}>
+                <Avatar className={cn("w-16 h-16 border-4 shadow-sm transition-transform duration-500", isSelected ? "border-primary scale-110" : "border-background")}>
+                    {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
+                    <AvatarFallback className="text-muted-foreground bg-muted">
+                        {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                    </AvatarFallback>
+                </Avatar>
+                <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
+                <RadioGroupItem value={staff.id} id={`staff-select-${staff.id}`} className="sr-only" disabled={disabled} />
+                {isSelected && (
+                    <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
+                        <Check className="w-3 h-3" />
+                    </div>
+                )}
+            </div>
+        </label>
+    );
+};
 
 const AddAppointmentForm = ({ 
     onConfirm,
@@ -686,21 +739,4 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
       </DialogContent>
     </Dialog>
   );
-};
-
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
-    return new Date(val);
 };
