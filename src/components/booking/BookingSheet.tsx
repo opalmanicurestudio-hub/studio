@@ -24,7 +24,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, Ban, Loader } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, Ban, Loader, ArrowRight, Sparkles, CheckCircle2, Zap } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -57,7 +57,7 @@ import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
@@ -73,18 +73,25 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
     const isAnyStaff = staff.id === 'any';
     return (
         <label htmlFor={`staff-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
-            <Card className={cn('transition-all', isSelected ? 'border-primary ring-2 ring-primary shadow-md' : 'hover:border-primary/50', disabled && 'bg-muted/50 hover:border-muted')}>
-                <CardContent className="p-4 flex flex-col items-center gap-3">
-                    <Avatar className="w-16 h-16 border-2 border-background shadow-inner">
-                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
-                        <AvatarFallback className="text-muted-foreground bg-muted">
-                            {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
-                        </AvatarFallback>
-                    </Avatar>
-                    <p className="font-semibold text-sm text-center truncate w-full">{staff.name}</p>
-                    <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" disabled={disabled} />
-                </CardContent>
-            </Card>
+            <div className={cn(
+                'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
+                isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
+                disabled && 'bg-muted/50 border-dashed'
+            )}>
+                <Avatar className={cn("w-16 h-16 border-4 shadow-sm transition-transform duration-500", isSelected ? "border-primary scale-110" : "border-background")}>
+                    {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
+                    <AvatarFallback className="text-muted-foreground bg-muted">
+                        {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                    </AvatarFallback>
+                </Avatar>
+                <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
+                <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" disabled={disabled} />
+                {isSelected && (
+                    <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
+                        <Check className="w-3 h-3" />
+                    </div>
+                )}
+            </div>
         </label>
     );
 };
@@ -360,11 +367,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         const valid = await methods.trigger(['clientName', 'clientEmail']); 
         if (!valid) return; 
         
-        // Final guard: wait for identity resolution before proceeding
         const currentEmail = watch('clientEmail');
         const currentPhone = watch('clientPhone');
-        
-        // Forced sync check to prevent race condition before clicking continue
         await resolveIdentity(currentEmail, currentPhone);
         
         if (bannedClient || existingClientWithBalance) return;
@@ -441,74 +445,91 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col border-l-0 sm:border-l">
-        <SheetHeader className="p-6 pb-4 bg-muted/30">
-          <SheetTitle className="text-2xl font-bold">Book Appointment</SheetTitle>
-          {currentStep !== 'confirmation' && <div className="pt-2"><Progress value={progress} className="h-1.5" /></div>}
+      <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden">
+        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking Experience</span>
+          </div>
+          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">Reserve Session</SheetTitle>
+          {currentStep !== 'confirmation' && <div className="pt-6"><Progress value={progress} className="h-1 rounded-full bg-muted" /></div>}
         </SheetHeader>
+        
         <ScrollArea className="flex-1">
-            <div className="p-6 space-y-8">
+            <div className="p-8 space-y-12 pb-32">
+                <AnimatePresence mode="wait">
                 {currentStep === 'confirmation' ? (
-                    <div className="text-center py-12 space-y-6">
-                        <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto">
-                            <CheckCircle className="w-10 h-10 text-green-500" />
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12 space-y-10" key="confirmation">
+                        <div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
+                            <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
                         </div>
-                        <div className="space-y-2">
-                            <h2 className="text-3xl font-bold">You're All Set!</h2>
-                            <p className="text-muted-foreground">Your appointment for <strong>{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
+                        <div className="space-y-3">
+                            <h2 className="text-4xl font-black uppercase tracking-tighter">You're All Set!</h2>
+                            <p className="text-muted-foreground font-medium max-w-sm mx-auto leading-relaxed">Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We've sent the details to your email.</p>
                         </div>
-                        <div className="space-y-4 max-w-xs mx-auto">
+                        <div className="grid gap-6 max-w-sm mx-auto">
                             {bookedStaff && (
-                                <Card className="border-2 overflow-hidden shadow-sm">
-                                    <CardContent className="p-4 flex flex-col items-center gap-3">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Professional</p>
-                                        <Avatar className="w-20 h-20 border-4 border-background shadow-lg">
-                                            <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
-                                            <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <div className="text-center">
-                                            <p className="font-bold text-lg">{bookedStaff.name}</p>
-                                            <p className="text-xs text-muted-foreground">{bookedStaff.specialties?.slice(0, 2).join(', ')}</p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                <div className="p-6 rounded-[2rem] border-2 bg-white/50 backdrop-blur-sm shadow-xl flex flex-col items-center gap-4">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary">Your Professional</p>
+                                    <Avatar className="w-24 h-24 border-4 border-background shadow-2xl">
+                                        <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
+                                        <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="text-center">
+                                        <p className="font-black text-xl uppercase tracking-tight">{bookedStaff.name}</p>
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">{bookedStaff.specialties?.slice(0, 2).join(' • ')}</p>
+                                    </div>
+                                </div>
                             )}
-                            <Card className="border-2 bg-muted/30 text-left overflow-hidden shadow-sm">
-                                <CardContent className="p-4 space-y-3">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center">Appointment Details</p>
-                                    <div className="flex items-start gap-3">
-                                        <Calendar className="w-4 h-4 mt-0.5 text-primary" />
-                                        <div className="text-sm">
-                                            <p className="font-bold">{format(date, 'EEEE, MMMM d, yyyy')}</p>
-                                            <p className="text-muted-foreground">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
-                                        </div>
+                            <div className="p-6 rounded-[2rem] border-2 bg-muted/20 text-left shadow-inner space-y-4">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center">Session Intel</p>
+                                <div className="flex items-start gap-4">
+                                    <Calendar className="w-5 h-5 mt-0.5 text-primary opacity-40" />
+                                    <div className="space-y-1">
+                                        <p className="font-black uppercase text-sm">{format(date, 'EEEE, MMM d, yyyy')}</p>
+                                        <p className="text-xs font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
                                     </div>
-                                    <div className="flex items-start gap-3 border-t pt-3">
-                                        <MapPin className="w-4 h-4 mt-0.5 text-primary" />
-                                        <div className="text-sm">
-                                            <p className="font-bold">{tenant?.name || 'Our Studio'}</p>
-                                            <p className="text-xs text-muted-foreground">123 Beauty Lane, Suite 100</p>
-                                        </div>
+                                </div>
+                                <div className="flex items-start gap-4 pt-4 border-t border-dashed">
+                                    <MapPin className="w-5 h-5 mt-0.5 text-primary opacity-40" />
+                                    <div className="space-y-1">
+                                        <p className="font-black uppercase text-sm">{tenant?.name || 'Studio'}</p>
+                                        <p className="text-xs font-medium text-muted-foreground">123 Beauty Lane, Suite 100</p>
                                     </div>
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex flex-col gap-2 pt-4">
-                            <Button className="w-full h-12 text-lg font-bold" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-                        </div>
-                    </div>
+                        <Button className="w-full h-16 text-lg font-black uppercase tracking-widest rounded-3xl shadow-2xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
+                    </motion.div>
                 ) : (
-                    <>
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} key={currentStep} className="space-y-12">
+                        {/* Summary Header */}
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between"><h3 className="font-bold flex items-center gap-2 text-lg"><Clock className="w-5 h-5 text-primary" /> Service</h3>{currentStep !== 'staff' && <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} className="h-auto p-0 text-muted-foreground underline">Change</Button>}</div>
-                            <Card className="overflow-hidden border-2">
-                                <CardContent className="p-4 flex gap-4 items-center">
-                                    <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted"><Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" /></div>
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                    <Zap className="w-3 h-3" />
+                                    Active Selection
+                                </h3>
+                                {currentStep !== 'staff' && (
+                                    <Button variant="ghost" size="sm" onClick={() => setCurrentStepIndex(0)} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest underline decoration-2 underline-offset-4">Change</Button>
+                                )}
+                            </div>
+                            <Card className="overflow-hidden rounded-[2rem] border-2 bg-white/50 backdrop-blur-xl shadow-2xl shadow-primary/5">
+                                <CardContent className="p-6 flex gap-6 items-center">
+                                    <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-muted shadow-inner">
+                                        <Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" />
+                                    </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-lg leading-tight">{service?.name}</p>
-                                        <div className="text-sm text-muted-foreground flex items-center gap-4">
-                                            <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/>{service?.duration} min</span>
-                                            <span className="flex items-center gap-1.5 font-bold text-foreground"><DollarSign className="w-3.5 h-3.5"/>{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
+                                        <p className="font-black text-2xl uppercase tracking-tighter leading-none mb-2">{service?.name}</p>
+                                        <div className="flex items-center gap-6">
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Duration</span>
+                                                <span className="text-sm font-bold">{service?.duration} min</span>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Investment</span>
+                                                <span className="text-sm font-black text-primary">{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </CardContent>
@@ -516,50 +537,99 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         </div>
                         
                         {currentStep === 'staff' && (
-                           <div className="space-y-6">
-                                <h3 className="text-lg font-bold flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> Choose Your Provider</h3>
+                           <div className="space-y-8">
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                        <Users className="w-6 h-6 text-primary" />
+                                        Select Provider
+                                    </h3>
+                                    <p className="text-xs font-medium text-muted-foreground">Expert hands for your specific needs.</p>
+                                </div>
                                 <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 gap-4">
                                     <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} disabled={!!initialStaffId} />
                                     {qualifiedStaff.map(s => <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} />)}
                                 </RadioGroup>
                                 {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
-                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t">
+                                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-10 border-t border-dashed">
                                         <div className="space-y-1">
-                                            <h4 className="font-bold text-sm">Price Tier Preference</h4>
-                                            <p className="text-xs text-muted-foreground">Select a skill level to view accurate pricing and availability.</p>
+                                            <h4 className="font-black uppercase tracking-tight text-sm">Tiered Preference</h4>
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Prices vary by professional experience level</p>
                                         </div>
-                                        <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="space-y-2">
-                                            <label htmlFor="tier-any" className="flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer hover:bg-muted/50 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                                <div className="flex items-center gap-2">
+                                        <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="grid grid-cols-1 gap-3">
+                                            <label htmlFor="tier-any" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-lg">
+                                                <div className="flex items-center gap-3">
                                                     <RadioGroupItem value="any" id="tier-any" />
-                                                    <span className="text-sm font-medium">First Available (Any Price)</span>
+                                                    <span className="text-sm font-black uppercase tracking-tight">First Available (Any Price)</span>
                                                 </div>
                                             </label>
                                             {availableTiersForService.map(tier => (
-                                                <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} className="flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer hover:bg-muted/50 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                                    <div className="flex items-center gap-2">
+                                                <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-lg">
+                                                    <div className="flex items-center gap-3">
                                                         <RadioGroupItem value={tier.tierId} id={`tier-${tier.tierId}`} />
-                                                        <span className="text-sm font-medium">Any Available {tier.name}</span>
+                                                        <span className="text-sm font-black uppercase tracking-tight">{tier.name}</span>
                                                     </div>
-                                                    <span className="font-bold text-primary text-sm">${tier.price.toFixed(2)}</span>
+                                                    <span className="font-black text-primary text-base tracking-tighter">${tier.price.toFixed(2)}</span>
                                                 </label>
                                             ))}
                                         </RadioGroup>
-                                        <Button className="w-full h-12 mt-4" onClick={() => setCurrentStepIndex(1)}>View Available Times</Button>
                                     </motion.div>
                                 )}
                             </div>
                         )}
 
                         {currentStep === 'dateTime' && (
-                             <div className="space-y-4">
-                                <h3 className="text-lg font-bold flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" /> Select Date & Time</h3>
-                                <div className="p-4 rounded-xl border-2 space-y-4 bg-muted/10">
-                                    <div className="flex items-center justify-between"><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-bold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
-                                    <div className="grid grid-cols-7 gap-1.5">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border transition-all aspect-square", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-md scale-105" : "bg-background hover:border-primary/50", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button"><span className="text-[10px] uppercase font-bold">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
-                                    <div className="grid grid-cols-3 gap-2 pt-4 border-t">
-                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)} className={cn("h-11 font-semibold", selectedTime === time && "shadow-md")}>{format(timeStringToDate(time, new Date()), 'h:mm a')}</Button>))}
-                                        {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-8">No availability for this day.</p>)}
+                             <div className="space-y-8">
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                        <Calendar className="w-6 h-6 text-primary" />
+                                        Timing
+                                    </h3>
+                                    <p className="text-xs font-medium text-muted-foreground">Select a window that fits your schedule.</p>
+                                </div>
+                                <div className="p-8 rounded-[2.5rem] border-2 bg-muted/10 space-y-8 shadow-inner">
+                                    <div className="flex items-center justify-between">
+                                        <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-5 h-5" /></Button>
+                                        <span className="font-black uppercase tracking-widest text-sm">{format(weekStart, 'MMMM yyyy')}</span>
+                                        <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-5 h-5" /></Button>
+                                    </div>
+                                    <div className="grid grid-cols-7 gap-3">
+                                        {weekDays.map(day => (
+                                            <button 
+                                                key={day.toString()} 
+                                                onClick={() => setDate(day)} 
+                                                disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                                className={cn(
+                                                    "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", 
+                                                    isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
+                                                    (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                                )} 
+                                                type="button"
+                                            >
+                                                <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
+                                                <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-3 pt-8 border-t border-dashed">
+                                        {timeSlots.map(time => (
+                                            <Button 
+                                                key={time} 
+                                                variant={selectedTime === time ? 'default' : 'outline'} 
+                                                onClick={() => setSelectedTime(time)} 
+                                                className={cn(
+                                                    "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", 
+                                                    selectedTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                                )}
+                                            >
+                                                {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                            </Button>
+                                        ))}
+                                        {timeSlots.length === 0 && (
+                                            <div className="col-span-full text-center py-12 px-6 border-2 border-dashed rounded-3xl">
+                                                <Clock className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                                                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground/60">No Availability for this date</p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -567,39 +637,53 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         
                         {currentStep === 'details' && (
                             <FormProvider {...methods}>
-                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-6">
-                                    <h3 className="text-lg font-bold flex items-center gap-2"><User className="w-5 h-5 text-primary" /> Your Information</h3>
-                                    <div className="space-y-4">
-                                        <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" {...methods.register('clientName')} className="h-12" /></div>
-                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...methods.register('clientEmail')} className="h-12" /></div>
-                                        <PhoneInput name="clientPhone" label="Phone (for SMS alerts)" />
+                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-10">
+                                    <div className="space-y-2">
+                                        <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                            <User className="w-6 h-6 text-primary" />
+                                            Guest Profile
+                                        </h3>
+                                        <p className="text-xs font-medium text-muted-foreground">Personalize your visit.</p>
+                                    </div>
+                                    <div className="space-y-6">
+                                        <div className="space-y-3">
+                                            <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Legal Name</Label>
+                                            <Input id="name" {...methods.register('clientName')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="Enter your full name" />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email for Confirmation</Label>
+                                            <Input id="email" type="email" {...methods.register('clientEmail')} className="h-14 rounded-2xl border-2 text-lg font-bold shadow-inner" placeholder="jane@example.com" />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile for Alerts</Label>
+                                            <PhoneInput name="clientPhone" label="" className="h-14" />
+                                        </div>
                                     </div>
                                     
                                     <AnimatePresence>
                                         {isResolvingIdentity && (
-                                            <motion.div key="resolving" className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
-                                                <Loader className="w-3 h-3 animate-spin" /> Verifying account status...
+                                            <motion.div key="resolving" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-primary animate-pulse">
+                                                <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
                                             </motion.div>
                                         )}
                                         {bannedClient && (
-                                            <motion.div key="banned" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-sm border-2">
-                                                    <Ban className="h-4 w-4" />
-                                                    <AlertTitle className="text-xs font-black uppercase">Booking Restricted</AlertTitle>
-                                                    <AlertDescription className="text-xs mt-1">
-                                                        We are currently unable to accept online bookings for this account. Please contact the studio for assistance.
+                                            <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                                                <Alert variant="destructive" className="bg-destructive/10 border-destructive shadow-xl border-4 rounded-[2rem] p-6">
+                                                    <Ban className="h-6 w-6" />
+                                                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
+                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                                        Your account is currently restricted. Please see the front desk for further assistance.
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>
                                         )}
                                         {existingClientWithBalance && !bannedClient && (
-                                            <motion.div key="balance" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 mt-4 border-2">
-                                                    <Wallet className="h-4 w-4" />
-                                                    <AlertTitle className="text-xs font-black uppercase tracking-tight">Outstanding Balance Notice</AlertTitle>
-                                                    <AlertDescription className="text-xs mt-1 space-y-3">
-                                                        <p>Our records show an outstanding balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong>.</p>
-                                                        <p>To ensure a smooth experience, please contact the studio at {tenant?.twilioPhoneNumber} to settle this before booking your next visit.</p>
+                                            <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                                                <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl">
+                                                    <Wallet className="h-6 w-6" />
+                                                    <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
+                                                    <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                                        Account balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Please settle at the desk to complete this booking.
                                                     </AlertDescription>
                                                 </Alert>
                                             </motion.div>
@@ -610,13 +694,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
 
                         {currentStep === 'consents' && (
-                            <div className="space-y-6">
-                                <h3 className="text-lg font-bold flex items-center gap-2"><FileSignature className="w-5 h-5 text-primary" /> Consent Forms</h3>
-                                <div className="space-y-8">
+                            <div className="space-y-10">
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                        <FileSignature className="w-6 h-6 text-primary" />
+                                        Agreements
+                                    </h3>
+                                    <p className="text-xs font-medium text-muted-foreground">Required standards and waivers.</p>
+                                </div>
+                                <div className="space-y-12">
                                     {requiredForms.map(form => (
-                                        <div key={form.id} className="space-y-4 p-4 rounded-xl border-2 bg-muted/5">
-                                            <div className="flex items-center gap-2 text-lg font-bold pb-2 border-b"><ListChecks className="w-5 h-5 text-primary" />{form.title}</div>
-                                            <div className="space-y-6">
+                                        <div key={form.id} className="space-y-8 p-8 md:p-12 rounded-[3rem] border-2 border-white/50 bg-white/60 backdrop-blur-2xl shadow-2xl">
+                                            <div className="flex items-center gap-4 text-2xl font-black uppercase tracking-tighter pb-4 border-b border-dashed"><ListChecks className="w-8 h-8 text-primary" />{form.title}</div>
+                                            <div className="space-y-10">
                                                 {form.fields?.map(field => (
                                                     <FormFieldRenderer 
                                                         key={field.id} 
@@ -636,50 +726,87 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
 
                         {currentStep === 'summary' && (
-                             <div className="space-y-4">
-                                <h3 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-primary" /> Review & Confirm</h3>
-                                <Card className="bg-primary/5 border-primary/20 overflow-hidden shadow-sm border-2">
-                                    <CardContent className="p-6 space-y-4">
-                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Provider</span> <span className="font-bold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
+                             <div className="space-y-8">
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                        <ShieldCheck className="w-6 h-6 text-primary" />
+                                        Review
+                                    </h3>
+                                    <p className="text-xs font-medium text-muted-foreground">Finalize your session details.</p>
+                                </div>
+                                <Card className="bg-primary/5 border-primary/20 overflow-hidden shadow-2xl rounded-[2.5rem] border-2">
+                                    <CardContent className="p-10 space-y-6">
+                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Professional</span> <span className="font-black text-lg uppercase tracking-tight">{selectedStaffId === 'any' ? 'First Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
                                         {selectedStaffId === 'any' && selectedTierId !== 'any' && (
-                                            <div className="flex justify-between items-center"><span className="text-muted-foreground">Price Tier</span> <span className="font-bold capitalize text-primary">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span></div>
+                                            <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tier Pref</span> <span className="font-black text-lg uppercase tracking-tight text-primary">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span></div>
                                         )}
-                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Date</span> <span className="font-bold">{format(date, 'EEEE, MMM d, yyyy')}</span></div>
-                                        <div className="flex justify-between items-center"><span className="text-muted-foreground">Time</span> <span className="font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>
-                                        <Separator className="bg-primary/10" />
-                                        <div className="flex justify-between items-center text-xl font-black"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
-                                        {depositAmount > 0 && <p className="text-xs text-right text-muted-foreground">A deposit of <strong>${depositAmount.toFixed(2)}</strong> will be required next.</p>}
+                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</span> <span className="font-black text-lg uppercase tracking-tight">{format(date, 'MMM d, yyyy')}</span></div>
+                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Start Time</span> <span className="font-black text-2xl uppercase tracking-tight text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>
+                                        <Separator className="bg-primary/10 border-dashed" />
+                                        <div className="flex justify-between items-center text-3xl font-black uppercase tracking-tighter"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
+                                        {depositAmount > 0 && (
+                                            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Required Deposit: <strong className="text-base tracking-tighter">${depositAmount.toFixed(2)}</strong></p>
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             </div>
                         )}
 
                         {currentStep === 'payment' && (
-                            <div className="space-y-6">
-                                <h3 className="text-lg font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-primary" /> Secure Deposit</h3>
-                                <Card className="border-2 shadow-lg"><CardContent className="p-8 space-y-6">
-                                    <div className="text-center space-y-1"><p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Required Deposit</p><p className="text-5xl font-black text-primary">${depositAmount.toFixed(2)}</p></div>
-                                    <div className="space-y-4 pt-4 border-t">
-                                        <div className="space-y-2"><Label>Card Number</Label><Input placeholder="**** **** **** 1234" className="h-12" /></div>
-                                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Expiry</Label><Input placeholder="MM / YY" className="h-12" /></div><div className="space-y-2"><Label>CVC</Label><Input placeholder="123" className="h-12" /></div></div>
-                                    </div>
-                                </CardContent></Card>
+                            <div className="space-y-8">
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                                        <CreditCard className="w-6 h-6 text-primary" />
+                                        Deposit
+                                    </h3>
+                                    <p className="text-xs font-medium text-muted-foreground">Secure your spot with a partial payment.</p>
+                                </div>
+                                <Card className="border-4 rounded-[3rem] shadow-2xl overflow-hidden">
+                                    <CardHeader className="bg-muted/30 p-10 pb-6 text-center">
+                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground mb-2">Required Today</p>
+                                        <p className="text-7xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</p>
+                                    </CardHeader>
+                                    <CardContent className="p-10 space-y-8">
+                                        <div className="space-y-4">
+                                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 text-lg font-mono" /></div>
+                                            <div className="grid grid-cols-2 gap-6"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-14 rounded-2xl border-2 text-lg text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-14 rounded-2xl border-2 text-lg text-center" /></div></div>
+                                        </div>
+                                        <div className="flex items-center gap-3 p-4 bg-muted/20 rounded-2xl text-xs text-muted-foreground font-medium italic">
+                                            <Lock className="w-4 h-4 shrink-0" />
+                                            Your payment information is encrypted and never stored on our servers.
+                                        </div>
+                                    </CardContent>
+                                </Card>
                             </div>
                         )}
-                    </>
+                    </motion.div>
                 )}
+                </AnimatePresence>
             </div>
         </ScrollArea>
+        
         {currentStep !== 'confirmation' && (
-            <SheetFooter className="p-6 border-t bg-muted/10 backdrop-blur-sm">
-                <div className="flex w-full gap-3">
-                    {currentStepIndex > 0 && <Button variant="outline" onClick={handlePrevStep} className="flex-1 h-12">Back</Button>}
+            <SheetFooter className="p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20">
+                <div className="flex w-full gap-4">
+                    {currentStepIndex > 0 && (
+                        <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-16 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-lg md:text-2xl text-slate-400">
+                            Back
+                        </Button>
+                    )}
                     <Button 
                         onClick={handleNextStep} 
                         disabled={(currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity))} 
-                        className={cn("h-12 font-bold text-lg", currentStepIndex === 0 ? "w-full" : "flex-[2]")}
+                        className={cn(
+                            "h-16 md:h-20 font-black uppercase tracking-widest text-lg md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
+                            currentStepIndex === 0 ? "w-full" : "flex-[2.5]"
+                        )}
                     >
-                        {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : currentStep === 'summary' || currentStep === 'payment' ? 'Confirm Booking' : 'Continue'}
+                        {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' : 
+                         currentStep === 'summary' || currentStep === 'payment' ? 'Finalize Booking' : 
+                         'Continue'}
+                        <ArrowRight className="ml-3 w-6 h-6 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
                     </Button>
                 </div>
             </SheetFooter>
