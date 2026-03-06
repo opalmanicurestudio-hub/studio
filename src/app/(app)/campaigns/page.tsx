@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon, FlaskConical, Gift } from 'lucide-react';
+import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon, FlaskConical, Gift, Loader } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
