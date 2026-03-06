@@ -46,7 +46,7 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { RadioGroup, RadioGroupGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
@@ -147,7 +147,6 @@ function PlannerPageContent() {
   
   const columns = useMemo(() => {
     let cols: any[] = activeView === 'staff' ? (staff || []) : (resources || []);
-    // If owner/admin, add a "Business" column for global events/bills
     if (role === 'owner' || role === 'admin') {
         cols = [{ id: 'business', name: 'Business', isBusiness: true }, ...cols];
     }
@@ -170,13 +169,11 @@ function PlannerPageContent() {
     const map = new Map<string, (Appointment | Event | BillInstance)[]>();
     (columns || []).forEach(c => map.set(c.id, []));
     
-    // Appointments
     appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
         if (activeView === 'staff') { if (a.staffId && map.has(a.staffId)) map.get(a.staffId)!.push({ ...a, itemType: 'appointment' } as any); }
         else { (a.requiredResourceIds || []).forEach(rid => { if (map.has(rid)) map.get(rid)!.push({ ...a, itemType: 'appointment' } as any); }); }
     });
 
-    // Bills & Global Events
     if (map.has('business')) {
         billInstances?.filter(i => isSameDay(safeDate(i.dueDate), currentDate)).forEach(i => {
             const def = billDefinitions.find(d => d.id === i.billDefinitionId);
@@ -592,7 +589,7 @@ function PlannerPageContent() {
 
   const handleViewChange = (v: 'staff' | 'resources') => {
       setActiveView(v);
-      setMobileSelectedColumnId(''); // Reset selection to default first
+      setMobileSelectedColumnId(''); 
   }
 
   return (

@@ -659,7 +659,7 @@ export default function LedgerPage() {
                 This will create a new, opposite transaction to cancel out &quot;{transactionToRevert?.description}&quot;. This action is permanent and creates an audit trail.
             </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="gap-2">
+            <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="rounded-2xl h-12 font-bold">Back</AlertDialogCancel>
             <AlertDialogAction onClick={handleRevertTransaction} className="rounded-2xl h-12 font-black uppercase tracking-tight shadow-lg">Yes, Revert Entry</AlertDialogAction>
             </AlertDialogFooter>

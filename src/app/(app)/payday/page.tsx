@@ -43,7 +43,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, subDays, format, isWithinInterval } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, subDays, format, isWithinInterval, differenceInDays } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -79,7 +79,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
     </div>
 );
 
-const PaydayPage = () => {
+export default function PaydayPage() {
   const { billDefinitions, billInstances, transactions, staff, activityLogs } = useInventory();
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   
@@ -234,9 +234,9 @@ const PaydayPage = () => {
             </div>
 
             <div className="flex gap-2 p-1 bg-muted rounded-xl">
-                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) <= 7 && "bg-white shadow-sm")}>Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) > 7 && differenceInDays(date?.to || 0, date?.from || 0) <= 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) > 14 && "bg-white shadow-sm")}>Monthly</Button>
+                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) <= 7 && "bg-white shadow-sm")}>Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) > 7 && differenceInDays(date?.to || new Date(), date?.from || new Date()) <= 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) > 14 && "bg-white shadow-sm")}>Monthly</Button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -392,5 +392,3 @@ const PaydayPage = () => {
     </div>
   );
 };
-
-export default PaydayPage;
