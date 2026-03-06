@@ -97,7 +97,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
-  const { inventory, services: allServices, staff, clients } = useInventory();
+  const { inventory, services: allServices, staff } = useInventory();
   const { role, selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
@@ -208,6 +208,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </div>
                 </div>
 
+                {client.outstandingBalance && client.outstandingBalance > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                        <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-4 rounded-[2rem] p-6 shadow-xl shadow-destructive/5">
+                            <Wallet className="h-6 w-6" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Accounting Alert</AlertTitle>
+                            <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                Client has an outstanding balance of <strong>${client.outstandingBalance.toFixed(2)}</strong>. Settle at checkout.
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Button variant="outline" className="h-12 rounded-2xl border-2 font-bold justify-start" asChild><Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4" /> Client Profile</Link></Button>
                     <Button variant="outline" className="h-12 rounded-2xl border-2 font-bold justify-start" onClick={handleCopyCheckInLink}><LinkIcon className="mr-2 h-4 w-4" /> Copy Link</Button>
@@ -286,6 +298,5 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </SheetFooter>
       </SheetContent>
     </Sheet>
-    </>
   );
 };

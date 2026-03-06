@@ -6,8 +6,6 @@ import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
-import { type ReceiptData } from './PrintReceipt';
-import { type TicketData } from './PrintTicket';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
