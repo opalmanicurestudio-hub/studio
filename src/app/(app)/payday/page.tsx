@@ -25,14 +25,10 @@ import {
     Calculator, 
     Info, 
     Users, 
-    ArrowUpRight, 
     AlertCircle,
-    Calendar as CalendarIcon,
-    Filter,
     ChevronLeft,
     ChevronRight,
     CheckCircle2,
-    CalendarSearch,
     CalendarRange,
     Loader
 } from 'lucide-react';
@@ -54,20 +50,19 @@ import {
     endOfDay, 
     subDays, 
     format, 
-    isWithinInterval, 
-    differenceInDays, 
     startOfWeek, 
-    endOfWeek, 
-    subWeeks, 
     startOfMonth, 
     endOfMonth,
-    isSameDay,
     addDays,
-    addWeeks,
     subMonths,
     addMonths
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useFirebase, useUser } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { useToast } from '@/hooks/use-toast';
+import { type Transaction } from '@/lib/financial-data';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -103,8 +98,14 @@ type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 export default function PaydayPage() {
   const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading } = useInventory();
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { toast } = useToast();
+  const tenantId = selectedTenant?.id;
+
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   const [cadence, setCadence] = useState<Cadence>('bi-weekly');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Initialize date to current Bi-Weekly period
   const [dateRange, setDateRange] = useState<{ from: Date, to: Date }>(() => {
@@ -250,6 +251,65 @@ export default function PaydayPage() {
 
   const handleSetMaxBalance = () => {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
+  };
+
+  const handleConfirmDistributions = async () => {
+    if (!firestore || !tenantId) return;
+    setIsSubmitting(true);
+
+    const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
+
+    // 1. Record Staff Payouts as expenses
+    staffObligations.forEach(obligation => {
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        const newTxn: Omit<Transaction, 'id'> = {
+            date: now,
+            description: `Payroll Payout: ${obligation.name}`,
+            clientOrVendor: obligation.name,
+            type: 'expense',
+            context: 'Business',
+            category: 'Payroll',
+            amount: obligation.amount,
+            paymentMethod: 'Distribution',
+            hasReceipt: false,
+            staffId: obligation.id,
+        };
+        batch.set(txnRef, { ...newTxn, id: txnRef.id });
+    });
+
+    // 2. Record Profit First bucket allocations as expenses (distributions)
+    suggestions.forEach(bucket => {
+        if (bucket.amount > 0) {
+            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            const newTxn: Omit<Transaction, 'id'> = {
+                date: now,
+                description: `Profit First Allocation: ${bucket.label}`,
+                clientOrVendor: 'Internal Distribution',
+                type: 'expense',
+                context: 'Business',
+                category: 'Distribution',
+                amount: bucket.amount,
+                paymentMethod: 'Internal Transfer',
+                hasReceipt: false,
+            };
+            batch.set(txnRef, { ...newTxn, id: txnRef.id });
+        }
+    });
+
+    try {
+        await batch.commit();
+        toast({
+            title: "Distributions Confirmed",
+            description: `Successfully logged ${staffObligations.length + suggestions.filter(s => s.amount > 0).length} distribution transactions to the ledger.`
+        });
+        setAllocationAmount(0);
+    } catch (e) {
+        console.error("Distributions failed:", e);
+        toast({ variant: 'destructive', title: "Distribution Failed", description: "Could not save transactions. Please try again." });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   if (isLoading) {
@@ -487,9 +547,18 @@ export default function PaydayPage() {
                     </Accordion>
                 </CardContent>
                 <CardFooter className="p-6 pt-0">
-                    <Button size="lg" className="w-full h-16 rounded-2xl text-xl font-black uppercase tracking-tight shadow-xl shadow-primary/20" disabled={allocationAmount <= 0}>
-                        <CheckCircle2 className="mr-3 h-7 w-7" />
-                        Confirm Distributions
+                    <Button 
+                        size="lg" 
+                        className="w-full h-16 rounded-2xl text-xl font-black uppercase tracking-tight shadow-xl shadow-primary/20" 
+                        disabled={allocationAmount <= 0 || isSubmitting}
+                        onClick={handleConfirmDistributions}
+                    >
+                        {isSubmitting ? <Loader className="animate-spin h-7 w-7" /> : (
+                            <>
+                                <CheckCircle2 className="mr-3 h-7 w-7" />
+                                Confirm Distributions
+                            </>
+                        )}
                     </Button>
                 </CardFooter>
             </Card>

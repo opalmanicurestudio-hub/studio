@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { 
   Printer, 
   DollarSign, 
@@ -29,7 +30,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { Badge } from '@/components/ui/badge';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
