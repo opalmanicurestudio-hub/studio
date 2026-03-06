@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -8,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service, type Resource } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, MoreHorizontal, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCw, Sparkles } from 'lucide-react';
+import { Clock, MoreHorizontal, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCw, Sparkles, Users } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isSameDay, startOfDay } from 'date-fns';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
@@ -129,6 +128,17 @@ const StaffMemberCard = ({
         </Card>
     );
 };
+
+interface TeamStatusProps {
+    staff: Staff[] | null;
+    appointments: Appointment[] | null;
+    resources: Resource[] | null;
+    onReorder: (newOrder: Staff[]) => void;
+    assignmentMode: 'fair_play' | 'ordered_list';
+    onAssignmentModeChange: (mode: 'fair_play' | 'ordered_list') => void;
+    onForceIdle: (id: string) => void;
+    services: Service[] | null;
+}
 
 export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, resources, onReorder, assignmentMode, onAssignmentModeChange, onForceIdle }) => {
     const { role } = useTenant();
