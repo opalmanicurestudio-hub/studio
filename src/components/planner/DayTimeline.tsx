@@ -1,4 +1,3 @@
-
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO, addMinutes } from 'date-fns';
@@ -12,7 +11,7 @@ import { type TicketData } from './PrintTicket';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock, Users, Landmark } from 'lucide-react';
+import { Building, HardHat, Lock, Users, Landmark, Briefcase } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -263,7 +262,7 @@ export const DayTimeline = ({
                                                 <div className="flex items-center gap-2">
                                                     {'isBusiness' in c ? (
                                                         <div className="flex items-center gap-2">
-                                                            <HardHat className="w-4 h-4 text-primary" />
+                                                            <Briefcase className="w-4 h-4 text-primary" />
                                                             <span>Business</span>
                                                         </div>
                                                     ) : 'role' in c ? (
@@ -276,7 +275,7 @@ export const DayTimeline = ({
                                                         </div>
                                                     ) : (
                                                         <div className="flex items-center gap-2">
-                                                            {(c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />}
+                                                            {(c as Resource).type === 'room' ? <Building className="w-4 h-4 text-muted-foreground" /> : <HardHat className="w-4 h-4 text-muted-foreground" />}
                                                             <span>{c.name}</span>
                                                         </div>
                                                     )}
@@ -288,7 +287,7 @@ export const DayTimeline = ({
                             ) : (
                                 <div className="flex items-center justify-center gap-2 h-full">
                                     {'isBusiness' in column ? (
-                                        <HardHat className="w-5 h-5 text-primary" />
+                                        <Briefcase className="w-5 h-5 text-primary" />
                                     ) : 'role' in column ? (
                                         <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
                                     ) : (

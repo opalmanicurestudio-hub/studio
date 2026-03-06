@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -22,12 +20,14 @@ import {
   Users,
   Edit,
   Calendar,
+  Loader,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useInventory } from '@/context/InventoryContext';
 import type { Resource, InventoryItem } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
-import { useFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { EditResourceDialog } from '@/components/resources/EditResourceDialog';
+import { useFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
@@ -118,6 +118,8 @@ export default function ResourcesPage() {
     const { toast } = useToast();
 
     const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
+    const [isEditResourceOpen, setIsEditResourceOpen] = useState(false);
+    const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
         if (!firestore || !tenantId) return;
@@ -137,6 +139,14 @@ export default function ResourcesPage() {
         });
         setIsAddResourceOpen(false);
     }
+
+    const handleUpdateResource = (resourceData: Resource) => {
+        if (!firestore || !tenantId) return;
+        const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', resourceData.id);
+        updateDocumentNonBlocking(resourceRef, resourceData);
+        toast({ title: "Resource Updated" });
+        setIsEditResourceOpen(false);
+    }
     
     const handleDeleteResource = (resourceId: string) => {
         if (!firestore || !tenantId) return;
@@ -150,10 +160,8 @@ export default function ResourcesPage() {
     }
 
     const handleEditResource = (resource: Resource) => {
-        toast({
-            title: "Edit Action",
-            description: `Editing ${resource.name}. (Functionality to be implemented)`,
-        });
+        setSelectedResource(resource);
+        setIsEditResourceOpen(true);
     };
 
     const equipmentInventory = useMemo(() => inventory.filter(i => i.type === 'equipment'), [inventory]);
@@ -178,7 +186,7 @@ export default function ResourcesPage() {
         </div>
         
         {resourcesLoading ? (
-            <p>Loading...</p>
+            <div className="flex justify-center p-20"><Loader className="animate-spin" /></div>
         ) : (resources && resources.length > 0) ? (
             <div className="space-y-8">
                  <section>
@@ -223,8 +231,16 @@ export default function ResourcesPage() {
         onSave={handleSaveResource}
         equipmentInventory={equipmentInventory}
       />
+
+      {selectedResource && (
+          <EditResourceDialog
+            open={isEditResourceOpen}
+            onOpenChange={setIsEditResourceOpen}
+            resource={selectedResource}
+            onSave={handleUpdateResource}
+            equipmentInventory={equipmentInventory}
+          />
+      )}
     </div>
   );
 }
-
-    

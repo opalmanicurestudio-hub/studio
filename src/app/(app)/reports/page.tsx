@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -88,23 +87,6 @@ export default function ReportsPage() {
     if (!dateRange.to) return format(dateRange.from, 'MMM d, yyyy');
     return `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`;
   }, [dateRange]);
-
-  const monthlyOverhead = useMemo(() => {
-      let totalOverhead = 0;
-      const activeBusinessProfile = businessProfiles?.find((p: any) => p.isActive);
-      if (activeBusinessProfile?.categories) {
-          totalOverhead += activeBusinessProfile.categories.reduce((total: number, category: any) => {
-              return total + (category.bills || []).reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
-          }, 0);
-      }
-      const activeLifestyleProfile = lifestyleProfiles?.find((p: any) => p.isActive);
-      if (activeLifestyleProfile?.categories) {
-          totalOverhead += activeLifestyleProfile.categories.reduce((total: number, category: any) => {
-              return total + (category.bills || []).map((bill: any) => bill.amount || 0).reduce((acc: number, val: number) => acc + val, 0);
-          }, 0);
-      }
-      return totalOverhead;
-  }, [businessProfiles, lifestyleProfiles]);
 
   const performanceAndPayrollData = useMemo(() => {
     if (!staff || !appointments || !services || !transactions || !activityLogs) return [];
@@ -216,7 +198,7 @@ export default function ReportsPage() {
             }
         };
     });
-  }, [staff, appointments, services, transactions, activityLogs, dateRange, currentUser, role]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange]);
 
   const financials = useMemo(() => {
     if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0 };
@@ -640,7 +622,6 @@ export default function ReportsPage() {
               <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
               <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
               <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
-              <div className="flex justify-between font-black text-xl md:text-2xl bg-primary/5 p-4 rounded-xl mt-4"><span className="uppercase tracking-tighter">True Net Profit</span><span className={cn("font-mono tracking-tighter", (financials.grossProfit - (monthlyOverhead / 30.44 * 30)) >= 0 ? 'text-primary' : 'text-destructive')}>${(financials.grossProfit - (monthlyOverhead / 30.44 * 30)).toFixed(2)}</span></div>
         </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full pb-20">
