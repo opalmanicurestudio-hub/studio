@@ -325,7 +325,7 @@ function PlannerPageContent() {
             <DayTimeline 
                 date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
                 showColumnHeader={activeView === 'resources'} isMobile={isMobile || false} activeView={activeView}
-                allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={setMobileSelectedColumnId}
+                allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
                 onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus} onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onPrintReceipt={() => {}} onPrintTicket={() => {}} onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
                 onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onUpdateEvent={() => {}}

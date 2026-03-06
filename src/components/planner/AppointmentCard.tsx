@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -17,6 +18,7 @@ import {
   Car,
   Square,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,7 +55,7 @@ export function AppointmentCard({
   onViewDetails,
   onFinishService,
 }: any) {
-  const { services } = useInventory();
+  const { services, clients } = useInventory();
   const { toast } = useToast();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
@@ -62,7 +64,7 @@ export function AppointmentCard({
     let timer: NodeJS.Timeout | undefined;
     if (appointment.status === 'servicing' && appointment.actualStartTime) {
       const startTime = safeDate(appointment.actualStartTime);
-      timer = setInterval(() => {
+      const updateTimer = () => {
         const now = new Date();
         const diff = differenceInSeconds(now, startTime);
         const mins = Math.floor(diff / 60);
@@ -71,7 +73,9 @@ export function AppointmentCard({
         const displaySecs = diff % 60;
         setElapsedTime(hours > 0 ? `${hours}:${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}` : `${displayMins}:${String(displaySecs).padStart(2, '0')}`);
         setIsRunningOver(mins > service.duration);
-      }, 1000);
+      };
+      updateTimer();
+      timer = setInterval(updateTimer, 1000);
     }
     return () => { if (timer) clearInterval(timer); };
   }, [appointment.status, appointment.actualStartTime, service.duration]);
