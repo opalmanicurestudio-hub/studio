@@ -179,10 +179,28 @@ function PlannerPageContent() {
             const def = billDefinitions.find(d => d.id === i.billDefinitionId);
             map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
         });
-        events?.filter(e => isSameDay(safeDate(e.startTime), currentDate) && (!e.staffId || e.staffId === 'all')).forEach(e => {
-            map.get('business')!.push({ ...e, itemType: 'event' } as any);
-        });
     }
+
+    events?.filter(e => isSameDay(safeDate(e.startTime), currentDate)).forEach(e => {
+        const targetStaffIds = e.staffIds || [];
+        const isGlobal = targetStaffIds.length === 0 || targetStaffIds.includes('all');
+        
+        if (isGlobal) {
+            if (map.has('business')) map.get('business')!.push({ ...e, itemType: 'event' } as any);
+            // If it's a blocked event for everyone, show it in all relevant staff lanes
+            if (e.type === 'blocked' && activeView === 'staff') {
+                columns.forEach(col => {
+                    if (col.id !== 'business' && map.has(col.id)) {
+                        map.get(col.id)!.push({ ...e, itemType: 'event', isSecondary: true } as any);
+                    }
+                });
+            }
+        } else if (activeView === 'staff') {
+            targetStaffIds.forEach(sid => {
+                if (map.has(sid)) map.get(sid)!.push({ ...e, itemType: 'event' } as any);
+            });
+        }
+    });
 
     map.forEach(items => items.sort((a,b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
@@ -412,6 +430,15 @@ function PlannerPageContent() {
     await setDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), apt, {});
     setIsAddAppointmentOpen(false);
     toast({ title: "Appointment Booked" });
+  };
+
+  const handleAddEvent = async (data: any) => {
+      if (!firestore || !tenantId) return;
+      const id = nanoid();
+      const event = { ...data, id, tenantId, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() };
+      await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), event, {});
+      setIsAddEventOpen(false);
+      toast({ title: "Event Added" });
   };
 
   const handleFinishService = (apt: Appointment) => {
@@ -723,7 +750,7 @@ function PlannerPageContent() {
       />
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={handleAddAppointment} client={clientForNewApt} appointmentToRebook={appointmentToRebook} memberships={memberships || []} />
-      <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={() => {}} staff={allStaff || []} />
+      <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={handleAddEvent} staff={allStaff || []} />
       
       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0 overflow-hidden">

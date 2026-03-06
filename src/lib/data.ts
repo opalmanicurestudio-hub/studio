@@ -382,7 +382,7 @@ export type Event = {
   startTime: any;
   endTime: any;
   allDay?: boolean;
-  staffId?: string;
+  staffIds?: string[];
   notes?: string;
   location?: string;
   cost?: number;

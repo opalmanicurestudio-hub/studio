@@ -880,6 +880,7 @@
         "type": { "type": "string" },
         "location": { "type": "string" },
         "notes": { "type": "string" },
+        "staffIds": { "type": "array", "items": { "type": "string" }, "description": "The IDs of the staff members associated with this event." },
         "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
       },
       "required": ["id", "title", "startTime", "endTime"]
@@ -949,7 +950,7 @@
         "usageCount": { "type": "number", "description": "How many times the code has been used." },
         "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
         "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
-        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." },
+        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
         "applicableServiceIds": {
             "type": "array",
             "items": { "type": "string" },
