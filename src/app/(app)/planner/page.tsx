@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO } from 'date-fns';
-import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes } from 'date-fns';
+import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -125,6 +125,10 @@ function PlannerPageContent() {
     }
     return cols;
   }, [activeView, staff, resourcesData, role]);
+
+  const onMobileColumnChange = useCallback((id: string) => {
+    setMobileSelectedColumnId(id);
+  }, []);
 
   useEffect(() => { 
     if (columns.length > 0 && !mobileSelectedColumnId) {
