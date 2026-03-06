@@ -50,7 +50,7 @@ import { type Appointment, type Client, type Service, type Staff } from '@/lib/d
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
