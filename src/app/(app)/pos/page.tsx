@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -263,12 +262,10 @@ function POSPageContent() {
       batch.set(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
       if (appointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId }, { merge: true });
       
-      // Mark primary tech as busy
       if (appointment.staffId) {
           batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
       }
 
-      // Mark all concurrent technicians as busy immediately
       const concurrentIds = appointment.checkoutState?.concurrentServiceIds || [];
       const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
       concurrentIds.forEach(svcId => {
@@ -757,7 +754,7 @@ function POSPageContent() {
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                         <SheetTrigger asChild>
-                            <Button className="w-full h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">
+                            <Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">
                                 View Cart (${total.toFixed(2)})
                             </Button>
                         </SheetTrigger>

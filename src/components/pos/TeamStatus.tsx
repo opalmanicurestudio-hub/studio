@@ -49,31 +49,33 @@ const StaffMemberCard = ({
     canManage: boolean
 }) => {
     const getStatus = () => {
-        if (!member.active) return { text: 'Off Duty', className: 'border-dashed text-muted-foreground' };
+        if (!member.active) return { text: 'Offline', className: 'bg-muted text-muted-foreground' };
         if (member.onBreak) return { text: 'On Break', className: 'bg-amber-500 text-white border-none' };
         if (member.status === 'busy') return { text: 'Busy', className: 'bg-destructive text-white border-none' };
         return { text: 'Idle', className: 'bg-green-500 text-white border-none' };
     };
 
     const status = getStatus();
-    const initials = (member.name || 'S').split(' ').map(n => n[0]).join('').toUpperCase();
+    const initials = (member.name || 'S').split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2);
 
     return (
         <Card className={cn(
-            "relative transition-all border-2 rounded-2xl overflow-hidden",
-            isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.03] z-10" : "border-border/50 shadow-sm",
+            "relative transition-all border-2 rounded-[1.5rem] overflow-hidden flex flex-col h-full",
+            isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.02] z-10" : "border-border/50 shadow-sm",
             !member.active && "opacity-40 grayscale"
         )}>
-            <CardContent className="p-4 flex items-center gap-4">
-                 {assignmentMode === 'ordered_list' && member.active && (
-                    <div className="w-8 h-8 rounded-xl bg-primary text-primary-foreground font-black text-sm flex items-center justify-center border-2 border-background shadow-lg shrink-0">
-                        {turnOrder}
-                    </div>
-                )}
+            {/* Turn order indicator - positioned absolutely to save horizontal space */}
+            {assignmentMode === 'ordered_list' && member.active && (
+                <div className="absolute top-2 left-2 z-20 w-6 h-6 rounded-lg bg-primary text-primary-foreground font-black text-[10px] flex items-center justify-center border-2 border-background shadow-lg">
+                    {turnOrder}
+                </div>
+            )}
+
+            <CardContent className={cn("p-4 flex items-center gap-3 flex-1 min-w-0", assignmentMode === 'ordered_list' && member.active && "pl-5")}>
                 <div className="relative shrink-0">
-                    <Avatar className="w-12 h-12 border-2 border-background shadow-xl rounded-xl">
+                    <Avatar className="w-12 h-12 border-2 border-background shadow-xl rounded-xl transition-transform group-hover:scale-105">
                         <AvatarImage src={member.avatarUrl} alt={member.name} className="object-cover" />
-                        <AvatarFallback className="font-black bg-muted text-muted-foreground text-xs">{initials}</AvatarFallback>
+                        <AvatarFallback className="font-black bg-muted text-muted-foreground text-[10px]">{initials}</AvatarFallback>
                     </Avatar>
                     <div className={cn("absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-background shadow-sm", {
                         'bg-green-500': member.status === 'idle' || !member.status,
@@ -83,16 +85,20 @@ const StaffMemberCard = ({
                     })} />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        <p className="font-black uppercase tracking-tight text-sm truncate text-slate-900">{member.name}</p>
-                        {nextAppointment?.checkInStatus === 'arrived' && <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="font-black uppercase tracking-tight text-xs md:text-sm truncate text-slate-900">{member.name}</p>
+                        {nextAppointment?.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping shrink-0" />}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
-                        <Badge className={cn("font-black text-[8px] h-4 px-1 uppercase tracking-widest", status.className)}>{status.text}</Badge>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase truncate opacity-60">{member.availability?.status}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                        <Badge variant="outline" className={cn("font-black text-[7px] md:text-[8px] h-4 px-1 uppercase tracking-widest border-none", status.className)}>
+                            {status.text}
+                        </Badge>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase truncate opacity-60 tracking-tighter">
+                            {member.availability?.status}
+                        </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-0.5 shrink-0">
                     {assignmentMode === 'ordered_list' && member.active && (
                         <div className="flex flex-col gap-0.5">
                             <Button size="icon" variant="ghost" className="h-6 w-6 rounded-lg hover:bg-primary/10" onClick={() => onMoveUp(member.id)} disabled={isFirst}>
@@ -106,14 +112,14 @@ const StaffMemberCard = ({
                     {canManage && (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5">
                                     <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl">
-                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="font-black uppercase text-[10px] tracking-widest text-amber-600">
-                                    <RefreshCw className="w-3.5 h-3.5 mr-2" />
-                                    Force Reset Idle
+                            <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl p-1">
+                                <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="font-black uppercase text-[9px] tracking-widest text-amber-600 focus:text-amber-700 focus:bg-amber-50 rounded-xl px-3">
+                                    <RefreshCw className="w-3 h-3 mr-2" />
+                                    Force Reset
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -121,7 +127,7 @@ const StaffMemberCard = ({
                 </div>
             </CardContent>
             {isNextUp && (
-                <div className="bg-primary px-3 py-0.5 text-[8px] font-black uppercase text-white tracking-[0.3em] text-center">
+                <div className="bg-primary px-3 py-1 text-[8px] font-black uppercase text-white tracking-[0.3em] text-center shrink-0">
                     Priority Lane
                 </div>
             )}
@@ -252,24 +258,24 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                <Card className="md:col-span-2 border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 flex flex-col justify-center text-center p-8 overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 p-6 opacity-5 transition-opacity group-hover:opacity-10"><Sparkles className="w-20 h-20 text-primary" /></div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mb-2">Lead Provider Available</p>
-                    <p className="text-5xl font-black text-primary tracking-tighter leading-none">
+                <Card className="md:col-span-2 border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 flex flex-col justify-center text-center p-6 sm:p-8 overflow-hidden relative group min-h-[140px]">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 transition-opacity group-hover:opacity-10"><Sparkles className="w-16 h-16 text-primary" /></div>
+                    <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-primary mb-2">Lead Provider Available</p>
+                    <p className="text-3xl sm:text-5xl font-black text-primary tracking-tighter leading-none uppercase">
                         {hasIdleStaff ? "NOW" : nextAvailableIn !== null ? `~${nextAvailableIn}m` : "OFF DUTY"}
                     </p>
                 </Card>
                 
-                <Card className="md:col-span-3 border-2 border-indigo-500/10 bg-indigo-500/[0.03] rounded-[2.5rem] shadow-xl shadow-indigo-500/5">
-                    <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-indigo-700 flex items-center gap-2"><Building className="w-3.5 h-3.5" /> Studio Resource Pulse</CardTitle></CardHeader>
-                    <CardContent className="p-6 pt-0">
-                        <ScrollArea className="h-[100px]">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-4">
+                <Card className="md:col-span-3 border-2 border-indigo-500/10 bg-indigo-500/[0.03] rounded-[2.5rem] shadow-xl shadow-indigo-500/5 min-h-[140px]">
+                    <CardHeader className="p-5 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-indigo-700 flex items-center gap-2"><Building className="w-3.5 h-3.5" /> Studio Resource Pulse</CardTitle></CardHeader>
+                    <CardContent className="p-5 pt-0">
+                        <ScrollArea className="h-[80px]">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pr-4">
                                 {resourcePulse.map(res => (
-                                    <div key={res.id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border-2 border-indigo-500/5 shadow-sm">
+                                    <div key={res.id} className="flex items-center justify-between p-2 rounded-xl bg-white border-2 border-indigo-500/5 shadow-sm">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            {res.type === 'room' ? <Building className="w-3.5 h-3.5 text-indigo-400" /> : <HardHat className="w-3.5 h-3.5 text-indigo-400" />}
-                                            <span className="font-black uppercase text-[9px] tracking-tight truncate">{res.name}</span>
+                                            {res.type === 'room' ? <Building className="w-3 h-3 text-indigo-400" /> : <HardHat className="w-3 h-3 text-indigo-400" />}
+                                            <span className="font-black uppercase text-[8px] tracking-tight truncate">{res.name}</span>
                                         </div>
                                         {res.isAtCapacity ? <Badge className="bg-destructive text-white border-none h-4 px-1.5 text-[8px] font-black uppercase animate-pulse">{res.nextFreeIn}m</Badge> : <Badge className="bg-green-500 text-white border-none h-4 px-1.5 text-[8px] font-black uppercase">Open</Badge>}
                                     </div>
