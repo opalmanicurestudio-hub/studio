@@ -224,10 +224,10 @@ export const CheckoutHub = ({
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
     
     const filteredClients = useMemo(() => {
-        if (!payerOptions) return [];
-        if (!clientSearch.trim()) return payerOptions;
+        const listToFilter = payerOptions || [];
+        if (!clientSearch.trim()) return listToFilter;
         const search = clientSearch.toLowerCase();
-        return payerOptions.filter((c: Client) => 
+        return listToFilter.filter((c: Client) => 
             c.name.toLowerCase().includes(search) || 
             (c.email && c.email.toLowerCase().includes(search)) || 
             (c.phone && c.phone.includes(search))
@@ -341,7 +341,7 @@ export const CheckoutHub = ({
                                     />
                                 </div>
                             </div>
-                            <div className="max-h-[300px] overflow-y-auto">
+                            <div className="max-h-[300px] overflow-y-auto bg-background">
                                 <button 
                                     className="w-full text-left p-4 hover:bg-muted/50 transition-colors flex items-center gap-3 border-b border-dashed"
                                     onClick={() => { setSelectedClientId(null); setIsPayerPopoverOpen(false); }}
@@ -370,7 +370,7 @@ export const CheckoutHub = ({
                             </div>
                             <div className="p-2 bg-muted/5 border-t">
                                 <Button variant="outline" className="w-full h-10 rounded-xl font-bold uppercase text-[9px] tracking-widest" onClick={() => { setIsPayerPopoverOpen(false); onAddClientClick(); }}>
-                                    <UserPlus className="w-3 h-3 mr-2" />
+                                    <UserPlus className="w-3.5 h-3.5 mr-2" />
                                     Register New Client
                                 </Button>
                             </div>
@@ -416,7 +416,7 @@ export const CheckoutHub = ({
                                             <div className="flex justify-between items-start gap-4">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <p className="font-black text-sm uppercase tracking-tight truncate text-slate-900">{data.service.name}</p>
+                                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
                                                         {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
                                                     </div>
                                                     <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{data.staff.name.split(' ')[0]} &middot; {data.service.duration}m</p>

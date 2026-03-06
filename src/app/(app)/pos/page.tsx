@@ -134,6 +134,7 @@ function POSPageContent() {
 
         if (nextIds.has(id)) {
             nextIds.delete(id);
+            // Only clear client if we are clearing the last appointment
             if (nextIds.size === 0) nextClientId = null;
         } else {
             nextIds.add(id);
@@ -694,10 +695,10 @@ function POSPageContent() {
     const allClientOptions = clients || [];
 
     const payerOptionsList = useMemo(() => {
+        if (!allClientOptions) return [];
         const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
-        if (involvedClientIds.size === 0) return allClientOptions;
         
-        // Return all clients but sort involved ones to the top
+        // If we have appointments, sort those clients to the top
         return [...allClientOptions].sort((a, b) => {
             const aInvolved = involvedClientIds.has(a.id);
             const bInvolved = involvedClientIds.has(b.id);
