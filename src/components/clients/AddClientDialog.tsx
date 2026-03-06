@@ -41,7 +41,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift, UserPlus, Check, X as XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client } from '@/lib/data';
 import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
@@ -193,7 +193,7 @@ const ClientIntelCategory = ({
                     <Badge key={item} variant="secondary" className="text-[10px] h-6">
                         {item}
                         <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
-                            <X className="h-3 w-3" />
+                            <XIcon className="h-3 w-3" />
                         </button>
                     </Badge>
                 ))}
@@ -214,12 +214,6 @@ const ClientIntelCategory = ({
     </AccordionItem>
   )
 };
-
-const X = ({ className }: { className?: string }) => (
-    <svg className={className} width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.50001L3.21846 10.9684C2.99391 11.193 2.99391 11.5571 3.21846 11.7816C3.44301 12.0062 3.80708 12.0062 4.03164 11.7816L7.50005 8.3132L10.9685 11.7816C11.193 12.0062 11.5571 12.0062 11.7816 11.7816C12.0062 11.5571 12.0062 11.193 11.7816 10.9684L8.31322 7.50001L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path>
-    </svg>
-);
 
 const ClientIntelAccordion = () => (
   <Accordion type="multiple" className="w-full space-y-3">
@@ -249,6 +243,7 @@ const ClientIntelAccordion = () => (
 
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
+    const isMobile = useIsMobile();
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const referralSource = watch('intel.referralSource');
     const [tags, setTags] = useState<string[]>([]);
@@ -304,9 +299,9 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         control={control}
                         render={({ field }) => (
                             <>
-                            <Avatar className="w-16 h-16 md:w-24 md:h-24 text-lg">
+                            <Avatar className={cn("border-2 shadow-sm", isMobile ? "w-16 h-16" : "w-24 h-24")}>
                                 <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
-                                <AvatarFallback><Upload className="h-6 w-6 md:h-8 md:w-8 text-muted-foreground" /></AvatarFallback>
+                                <AvatarFallback><Upload className="h-6 w-6 text-muted-foreground" /></AvatarFallback>
                             </Avatar>
                             <div className="flex-1 w-full sm:w-auto">
                                 <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
