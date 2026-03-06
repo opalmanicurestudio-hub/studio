@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -186,7 +187,7 @@ function PlannerPageContent() {
         });
     }
 
-    map.forEach(items => items.sort((a,b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime()));
+    map.forEach(items => items.sort((a,b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
   }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events]);
 

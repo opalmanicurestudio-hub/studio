@@ -1,6 +1,7 @@
+
 'use client';
 
-import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO } from 'date-fns';
+import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO, addMinutes } from 'date-fns';
 import { type Staff, type Appointment, type Service, type Resource, type Event } from '@/lib/data';
 import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -13,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Building, HardHat, Lock, Users, Landmark } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
+import { Badge } from '@/components/ui/badge';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -67,7 +69,7 @@ export const DayTimeline = ({
     onMobileColumnChange,
 }: { 
     date: Date; 
-    columns: (Staff | Resource | { id: string, name: string, isBusiness: boolean })[];
+    columns: (Staff | Resource | { id: string, name: string, isBusiness?: boolean })[];
     itemsByColumn: Map<string, (Appointment | Event | BillInstance)[]>;
     showColumnHeader: boolean;
     onCompleteClick: (apt: Appointment) => void; 
@@ -264,7 +266,7 @@ export const DayTimeline = ({
                                                             <HardHat className="w-4 h-4 text-primary" />
                                                             <span>Business</span>
                                                         </div>
-                                                    ) : 'avatarUrl' in c ? (
+                                                    ) : 'role' in c ? (
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="w-6 h-6">
                                                                 <AvatarImage src={(c as Staff).avatarUrl} />
@@ -287,7 +289,7 @@ export const DayTimeline = ({
                                 <div className="flex items-center justify-center gap-2 h-full">
                                     {'isBusiness' in column ? (
                                         <HardHat className="w-5 h-5 text-primary" />
-                                    ) : 'avatarUrl' in column ? (
+                                    ) : 'role' in column ? (
                                         <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
                                     ) : (
                                         (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
