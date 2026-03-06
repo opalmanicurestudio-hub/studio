@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -297,7 +298,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
             <ScrollArea className="w-full">
                 <div className="flex space-x-4 px-2 py-6">
                     {activeStaff.map((member, index) => (
-                        <div key={member.id} className="w-[220px] shrink-0">
+                        <div key={member.id} className="w-[200px] shrink-0">
                             <StaffMemberCard member={member} isNextUp={member.id === nextUpStaffId} turnOrder={index + 1} onMoveUp={(id) => handleMove(id, 'up')} onMoveDown={(id) => handleMove(id, 'down')} isFirst={index === 0} isLast={index === activeStaff.length - 1} assignmentMode={assignmentMode} nextAppointment={member.nextApt} onForceIdle={onForceIdle} canManage={canManage} services={services} />
                         </div>
                     ))}

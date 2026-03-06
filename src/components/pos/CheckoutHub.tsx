@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -195,6 +196,7 @@ export const CheckoutHub = ({
     const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
     const { firestore } = useFirebase();
+    const isMobile = useIsMobile();
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
@@ -303,7 +305,7 @@ export const CheckoutHub = ({
 
     return (
         <div className="flex flex-col h-full">
-            <div className="mb-8 flex-shrink-0">
+            <div className="mb-6 flex-shrink-0 px-1">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-3 mt-2">
                     <Popover open={isPayerPopoverOpen} onOpenChange={isPayerPopoverOpen ? () => setIsPayerPopoverOpen(false) : undefined}>
@@ -371,18 +373,10 @@ export const CheckoutHub = ({
                         <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onScanClick}><Scan className="w-6 h-6" /></Button>
                     </div>
                 </div>
-                {selectedClient && (
-                    <div className="mt-3 flex items-center justify-between px-1">
-                        <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-black uppercase text-primary tracking-widest bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">{selectedClient.name}</span>
-                        </div>
-                        {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none animate-pulse h-5 px-2 text-[8px] font-black uppercase tracking-widest shadow-lg shadow-pink-500/20"><Cake className="w-2.5 h-2.5 mr-1" /> Celebration</Badge>}
-                    </div>
-                )}
             </div>
 
             <ScrollArea className="flex-1 min-h-0 -mx-2 px-2">
-                <div className="space-y-8 pb-10">
+                <div className={cn("space-y-8 pb-10", isMobile && "px-2 pt-2")}>
                     {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
                         <div className="p-5 rounded-[2rem] border-4 border-destructive bg-destructive/5 text-destructive shadow-2xl shadow-destructive/5 space-y-4">
                             <div className="flex items-center gap-3">
@@ -532,17 +526,17 @@ export const CheckoutHub = ({
                 </div>
             </ScrollArea>
             
-            <div className="flex-shrink-0 pt-6 border-t-4 border-muted/30 bg-white">
-                <div className="space-y-3 text-sm px-1">
-                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[10px] tracking-widest opacity-60"><p>Subtotal</p><p className="font-mono text-xs">${subtotal.toFixed(2)}</p></div>
+            <div className="flex-shrink-0 pt-4 border-t-4 border-muted/30 bg-white">
+                <div className="space-y-2 text-sm px-1">
+                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60"><p>Subtotal</p><p className="font-mono text-xs">${subtotal.toFixed(2)}</p></div>
                     {(discount + membershipDiscount) > 0 && (
-                        <div className="flex justify-between items-center text-[11px] text-primary font-black uppercase tracking-tighter">
+                        <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
                             <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Discounts Applied</span>
                             <span className="font-mono text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
                         </div>
                     )}
                     {appliedAdjustments.size > 0 && (
-                        <div className="flex justify-between items-center text-[11px] text-destructive font-black uppercase tracking-tighter">
+                        <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter">
                             <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Settling Historical Debt</span>
                             <span className="font-mono text-xs">+${Array.from(appliedAdjustments).reduce((sum, id) => {
                                 const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
@@ -550,58 +544,58 @@ export const CheckoutHub = ({
                             }, 0).toFixed(2)}</span>
                         </div>
                     )}
-                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[10px] tracking-widest opacity-60"><p>Studio Tax (7%)</p><p className="font-mono text-xs">${tax.toFixed(2)}</p></div>
-                    <div className="flex justify-between items-center py-2">
-                        <p className="font-black uppercase text-[11px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-                        <div className="relative w-36">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary font-black" />
-                            <Input type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-12 text-right pr-4 pl-10 font-black text-xl border-2 rounded-2xl shadow-inner focus-visible:ring-primary/20" placeholder="0.00" />
+                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60"><p>Studio Tax (7%)</p><p className="font-mono text-xs">${tax.toFixed(2)}</p></div>
+                    <div className="flex justify-between items-center py-1">
+                        <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
+                        <div className="relative w-32">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary font-black" />
+                            <Input type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-3 pl-8 font-black text-lg border-2 rounded-xl shadow-inner focus-visible:ring-primary/20" placeholder="0.00" />
                         </div>
                     </div>
                     {allInvolvedStaff.length > 1 && (
-                        <div className="p-4 rounded-2xl border-2 bg-muted/10 space-y-3">
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Users className="w-3 h-3" /> Split Tip Distribution</p>
+                        <div className="p-3 rounded-xl border-2 bg-muted/10 space-y-2">
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Users className="w-2.5 h-2.5" /> Split Tip Distribution</p>
                             {allInvolvedStaff.map((member: any) => (
                                 <div key={member.id} className="flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-2 min-w-0">
-                                        <Avatar className="h-6 w-6 border shadow-sm"><AvatarImage src={member.avatarUrl} className="object-cover" /><AvatarFallback>{member.name.charAt(0)}</AvatarFallback></Avatar>
-                                        <span className="text-[10px] font-black uppercase tracking-tight truncate">{member.name.split(' ')[0]}</span>
+                                        <Avatar className="h-5 w-5 border shadow-sm rounded-lg"><AvatarImage src={member.avatarUrl} className="object-cover" /><AvatarFallback>{member.name.charAt(0)}</AvatarFallback></Avatar>
+                                        <span className="text-[9px] font-black uppercase tracking-tight truncate">{member.name.split(' ')[0]}</span>
                                     </div>
-                                    <div className="relative w-24">
-                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 h-3 text-muted-foreground" />
-                                        <Input type="number" value={tipAllocations[member.id] || ''} onChange={(e) => setTipAllocations({...tipAllocations, [member.id]: parseFloat(e.target.value) || 0})} className="h-7 text-right text-[10px] pl-5 font-bold rounded-lg border-primary/10" />
+                                    <div className="relative w-20">
+                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-2.5 w-2.5 text-muted-foreground" />
+                                        <Input type="number" value={tipAllocations[member.id] || ''} onChange={(e) => setTipAllocations({...tipAllocations, [member.id]: parseFloat(e.target.value) || 0})} className="h-6 text-right text-[9px] pl-4 font-bold rounded-lg border-primary/10" />
                                     </div>
                                 </div>
                             ))}
                         </div>
                     )}
-                    <Separator className="my-4" />
-                    <div className="flex justify-between items-baseline font-black text-4xl text-primary tracking-tighter"><p className="text-[11px] uppercase tracking-[0.3em] text-muted-foreground">Checkout Total</p><p className="font-mono">${total.toFixed(2)}</p></div>
+                    <Separator className="my-2" />
+                    <div className="flex justify-between items-baseline font-black text-2xl md:text-3xl text-primary tracking-tighter"><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Checkout Total</p><p className="font-mono">${total.toFixed(2)}</p></div>
                 </div>
                 
-                <div className="mt-8 space-y-4 pb-10">
-                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-3">
-                        <div><RadioGroupItem value="cash" id="pos-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-cash" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><Banknote className="mb-1.5 h-6 w-6 opacity-40" />Cash</RadioLabel></div>
-                        <div><RadioGroupItem value="card" id="pos-pay-card" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-card" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><CreditCard className="mb-1.5 h-6 w-6 opacity-40" />Card</Label></div>
-                        <div><RadioGroupItem value="scan" id="pos-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-scan" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><Scan className="mb-1.5 h-6 w-6 opacity-40" />Scan</Label></div>
+                <div className="mt-4 space-y-3 pb-8">
+                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2">
+                        <div><RadioGroupItem value="cash" id="pos-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-cash" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-white p-2 text-[9px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-16 shadow-sm"><Banknote className="mb-1 h-5 w-5 opacity-40" />Cash</RadioLabel></div>
+                        <div><RadioGroupItem value="card" id="pos-pay-card" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-card" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-white p-2 text-[9px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-16 shadow-sm"><CreditCard className="mb-1 h-5 w-5 opacity-40" />Card</RadioLabel></div>
+                        <div><RadioGroupItem value="scan" id="pos-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-scan" className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-white p-2 text-[9px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-16 shadow-sm"><Scan className="mb-1 h-5 w-5 opacity-40" />Scan</RadioLabel></div>
                     </RadioGroup>
 
                     {paymentTab === 'cash' && (
-                        <div className="space-y-4 pt-2 animate-in slide-in-from-top-2">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1.5"><Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Tendered</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground font-black" /><Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-9 h-14 font-black text-2xl border-2 rounded-2xl shadow-inner" /></div></div>
-                                {amountTendered > total && (<div className="space-y-1.5"><Label className="text-[10px] uppercase font-black tracking-widest text-green-600 ml-1">Change</Label><div className="h-14 flex items-center justify-center bg-green-500/10 border-4 border-green-500/20 rounded-2xl"><p className="font-black text-2xl text-green-600 font-mono tracking-tighter">${(amountTendered - total).toFixed(2)}</p></div></div>)}
+                        <div className="space-y-3 pt-1 animate-in slide-in-from-top-2">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1"><Label className="text-[9px] uppercase font-black tracking-widest text-muted-foreground ml-1">Tendered</Label><div className="relative"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground font-black" /><Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8 h-12 font-black text-xl border-2 rounded-xl shadow-inner" /></div></div>
+                                {amountTendered > total && (<div className="space-y-1"><Label className="text-[9px] uppercase font-black tracking-widest text-green-600 ml-1">Change</Label><div className="h-12 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl"><p className="font-black text-xl text-green-600 font-mono tracking-tighter">${(amountTendered - total).toFixed(2)}</p></div></div>)}
                             </div>
-                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                {quickTenderOptions.map(val => (<Button key={val} variant="outline" size="sm" className="flex-1 font-black h-10 rounded-xl text-xs shrink-0 border-2" onClick={() => setAmountTendered(val)}>${val}</Button>))}
-                                <Button variant="outline" size="sm" className="flex-1 font-black h-10 rounded-xl border-4 border-primary text-primary text-xs shrink-0" onClick={() => setAmountTendered(total)}>EXACT</Button>
+                            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+                                {quickTenderOptions.map(val => (<Button key={val} variant="outline" size="sm" className="flex-1 font-black h-9 rounded-lg text-[10px] shrink-0 border-2" onClick={() => setAmountTendered(val)}>${val}</Button>))}
+                                <Button variant="outline" size="sm" className="flex-1 font-black h-9 rounded-lg border-2 border-primary text-primary text-[10px] shrink-0" onClick={() => setAmountTendered(total)}>EXACT</Button>
                             </div>
                         </div>
                     )}
 
-                    <div className="pt-4">
-                        <Button className="w-full h-20 text-2xl font-black rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tighter" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
-                            {isSubmitting ? <Loader className="animate-spin h-8 w-8" /> : (total <= 0 ? 'COMPLETE SALE' : `COLLECT $${total.toFixed(2)}`)}
+                    <div className="pt-2">
+                        <Button className="w-full h-16 text-xl font-black rounded-[1.5rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tighter" onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total)}>
+                            {isSubmitting ? <Loader className="animate-spin h-7 w-7" /> : (total <= 0 ? 'COMPLETE SALE' : `COLLECT $${total.toFixed(2)}`)}
                         </Button>
                     </div>
                 </div>

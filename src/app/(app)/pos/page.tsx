@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -693,6 +694,13 @@ function POSPageContent() {
     const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
     const allClientOptions = clients || [];
 
+    // Corrected payerOptions logic: Provide all clients for retail sales, or filter by selected appointments if any.
+    const payerOptionsList = useMemo(() => {
+        if (selectedAppointmentIds.size === 0) return allClientOptions;
+        const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
+        return allClientOptions.filter(c => involvedClientIds.has(c.id));
+    }, [selectedAppointmentIds, selectedAptsData, allClientOptions]);
+
     const checkoutHubProps = {
         cart: retailItems, 
         onCartChange: setRetailItems,
@@ -700,7 +708,7 @@ function POSPageContent() {
         onSelectAppointment: handleSelectAppointment, 
         clients: allClientOptions, 
         isGroupCheckout: isGroupCheckoutValue,
-        payerOptions: allClientOptions,
+        payerOptions: payerOptionsList,
         selectedClientId, 
         setSelectedClientId, 
         onAddClientClick: () => setIsAddClientOpen(true), 
@@ -780,10 +788,10 @@ function POSPageContent() {
     }, [appointmentsFromInventory]);
 
     return (
-        <div className="h-screen w-full flex flex-col bg-background">
+        <div className="h-[100dvh] w-full flex flex-col bg-background">
             <AppHeader title="Studio POS" />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-24 lg:pb-10">
+                <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10">
                     <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
                         <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
                         <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500"/>} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
@@ -813,11 +821,11 @@ function POSPageContent() {
                                 View Cart (${total.toFixed(2)})
                             </Button>
                         </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[95vh] p-0 flex flex-col border-none rounded-t-[3rem]">
+                        <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem]">
                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
                                 <SheetTitle className="text-3xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
-                            <div className="p-8 flex-1 overflow-y-auto bg-background">
+                            <div className="flex-1 overflow-hidden bg-background">
                                 <CheckoutHub {...checkoutHubProps} />
                             </div>
                         </SheetContent>
