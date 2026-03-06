@@ -43,7 +43,12 @@ import {
   CircleHelp,
   Award,
   Star,
-  Repeat
+  Repeat,
+  Plus,
+  X,
+  MessageCircleQuestion,
+  ImagePlus,
+  Grip,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -57,7 +62,7 @@ import {
 } from '@/components/ui/select';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
-import { type Tenant, type BookingPageSettings } from '@/lib/data';
+import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -65,6 +70,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { nanoid } from 'nanoid';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -249,6 +255,68 @@ export default function SettingsPage() {
         toast({ variant: 'destructive', title: 'Save Failed' });
     }
   }
+
+  const handleAddFaq = () => {
+    const newFaq: BookingFAQItem = { id: nanoid(), question: '', answer: '' };
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            faqs: [...(prev.bookingPageSettings?.faqs || []), newFaq]
+        }
+    }));
+  };
+
+  const handleRemoveFaq = (id: string) => {
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            faqs: (prev.bookingPageSettings?.faqs || []).filter(f => f.id !== id)
+        }
+    }));
+  };
+
+  const handleUpdateFaq = (id: string, field: keyof BookingFAQItem, value: string) => {
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            faqs: (prev.bookingPageSettings?.faqs || []).map(f => f.id === id ? { ...f, [field]: value } : f)
+        }
+    }));
+  };
+
+  const handleAddGalleryImage = (url: string) => {
+    const newItem: BookingGalleryItem = { id: nanoid(), url, caption: '' };
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            gallery: [...(prev.bookingPageSettings?.gallery || []), newItem]
+        }
+    }));
+  };
+
+  const handleRemoveGalleryImage = (id: string) => {
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            gallery: (prev.bookingPageSettings?.gallery || []).filter(g => g.id !== id)
+        }
+    }));
+  };
+
+  const handleUpdateGalleryCaption = (id: string, caption: string) => {
+    setTenantData(prev => ({
+        ...prev,
+        bookingPageSettings: {
+            ...prev.bookingPageSettings,
+            gallery: (prev.bookingPageSettings?.gallery || []).map(g => g.id === id ? { ...g, caption } : g)
+        }
+    }));
+  };
 
   const handleQueueEdit = () => {
     setBackupTenantData(tenantData);
@@ -659,6 +727,102 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <MessageCircleQuestion className="w-4 h-4"/> FAQ Management
+                                </h3>
+                                <Button variant="outline" size="sm" onClick={handleAddFaq} disabled={!isBookingBuilderEditing}>
+                                    <Plus className="w-4 h-4 mr-2" /> Add Question
+                                </Button>
+                            </div>
+                            <div className="space-y-4">
+                                {(tenantData.bookingPageSettings?.faqs || []).map((faq) => (
+                                    <div key={faq.id} className="p-4 rounded-xl border-2 bg-muted/10 space-y-4 group">
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex-1 space-y-4">
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-[10px] font-black uppercase text-muted-foreground">Question</Label>
+                                                    <Input 
+                                                        value={faq.question} 
+                                                        onChange={e => handleUpdateFaq(faq.id, 'question', e.target.value)} 
+                                                        disabled={!isBookingBuilderEditing}
+                                                        placeholder="e.g., What is your cancellation policy?"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-[10px] font-black uppercase text-muted-foreground">Answer</Label>
+                                                    <Textarea 
+                                                        value={faq.answer} 
+                                                        onChange={e => handleUpdateFaq(faq.id, 'answer', e.target.value)} 
+                                                        disabled={!isBookingBuilderEditing}
+                                                        placeholder="Enter answer details..."
+                                                        rows={2}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <Button 
+                                                variant="ghost" 
+                                                size="icon" 
+                                                className="text-destructive h-8 w-8" 
+                                                onClick={() => handleRemoveFaq(faq.id)}
+                                                disabled={!isBookingBuilderEditing}
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(tenantData.bookingPageSettings?.faqs || []).length === 0 && (
+                                    <p className="text-xs text-center text-muted-foreground py-10 border-2 border-dashed rounded-xl">No custom FAQs added. We'll show the defaults.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                <ImagePlus className="w-4 h-4"/> Gallery Management
+                            </h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                {(tenantData.bookingPageSettings?.gallery || []).map((item) => (
+                                    <div key={item.id} className="relative group aspect-square rounded-2xl overflow-hidden border-2 bg-muted">
+                                        <img src={item.url} alt="Gallery item" className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-between">
+                                            <div className="flex justify-end">
+                                                <Button 
+                                                    variant="destructive" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 rounded-full" 
+                                                    onClick={() => handleRemoveGalleryImage(item.id)}
+                                                    disabled={!isBookingBuilderEditing}
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                            <Input 
+                                                value={item.caption || ''} 
+                                                onChange={e => handleUpdateGalleryCaption(item.id, e.target.value)} 
+                                                placeholder="Add caption..."
+                                                className="h-8 text-[10px] bg-white/20 border-none text-white placeholder:text-white/60"
+                                                disabled={!isBookingBuilderEditing}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                                {isBookingBuilderEditing && (
+                                    <div className="aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 text-center">
+                                        <ImagePlus className="w-8 h-8 text-muted-foreground mb-2" />
+                                        <p className="text-[10px] font-black uppercase text-muted-foreground mb-4">Add Image</p>
+                                        <ImageUpload onImageUploaded={handleAddGalleryImage} />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </CardContent>

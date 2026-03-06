@@ -536,6 +536,18 @@ export type TicketData = {
   service: Service;
 };
 
+export type BookingFAQItem = {
+    id: string;
+    question: string;
+    answer: string;
+};
+
+export type BookingGalleryItem = {
+    id: string;
+    url: string;
+    caption?: string;
+};
+
 export type BookingPageSettings = {
     heroImageUrl?: string;
     heroTitle?: string;
@@ -555,6 +567,8 @@ export type BookingPageSettings = {
     gallerySectionTitle?: string;
     policiesSectionTitle?: string;
     contactSectionTitle?: string;
+    faqs?: BookingFAQItem[];
+    gallery?: BookingGalleryItem[];
 };
 
 export type Tenant = {

@@ -147,7 +147,31 @@
                 "reviewsSectionTitle": { "type": "string", "default": "Voices" },
                 "gallerySectionTitle": { "type": "string", "default": "The Vibe" },
                 "policiesSectionTitle": { "type": "string", "default": "The Standard" },
-                "contactSectionTitle": { "type": "string", "default": "Connect" }
+                "contactSectionTitle": { "type": "string", "default": "Connect" },
+                "faqs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "question": { "type": "string" },
+                            "answer": { "type": "string" }
+                        },
+                        "required": ["id", "question", "answer"]
+                    }
+                },
+                "gallery": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "url": { "type": "string" },
+                            "caption": { "type": "string" }
+                        },
+                        "required": ["id", "url"]
+                    }
+                }
             }
         }
       },
