@@ -46,7 +46,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event, type EventChecklistItem, type Staff } from '@/lib/data';
+import { type Event, type EventChecklistItem, type Staff, type Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
@@ -54,7 +54,7 @@ import { Switch } from '../ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
 
@@ -378,7 +378,7 @@ const AddEventForm = ({
                             <Switch id="all-day-event" checked={allDay} onCheckedChange={setAllDay} />
                         </div>
                         {!allDay ? (
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <Label htmlFor="start-time-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Start Time</Label>
                                     <Input id="start-time-event" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-14 rounded-2xl border-2 font-black text-lg" />
