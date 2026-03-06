@@ -29,7 +29,8 @@ import {
     ArrowUpRight, 
     AlertCircle,
     Calendar as CalendarIcon,
-    Filter
+    Filter,
+    CalendarDays
 } from 'lucide-react';
 import {
   Accordion,
@@ -83,9 +84,13 @@ const PaydayPage = () => {
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   
   const [date, setDate] = React.useState<DateRange | undefined>({
-      from: startOfDay(subDays(new Date(), 14)),
+      from: startOfDay(subDays(new Date(), 14)), // Default to Bi-weekly (14 days)
       to: endOfDay(new Date()),
   });
+
+  const setWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 7)), to: endOfDay(new Date()) });
+  const setBiWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 14)), to: endOfDay(new Date()) });
+  const setMonthly = () => setDate({ from: startOfDay(subDays(new Date(), 30)), to: endOfDay(new Date()) });
 
   const filteredTransactions = useMemo(() => {
       if (!transactions || !date?.from || !date?.to) return transactions || [];
@@ -226,6 +231,12 @@ const PaydayPage = () => {
                         </PopoverContent>
                     </Popover>
                 </div>
+            </div>
+
+            <div className="flex gap-2 p-1 bg-muted rounded-xl">
+                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) <= 7 && "bg-white shadow-sm")}>Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) > 7 && differenceInDays(date?.to || 0, date?.from || 0) <= 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || 0, date?.from || 0) > 14 && "bg-white shadow-sm")}>Monthly</Button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -118,6 +118,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const activeL = (lifestyleProfiles || []).find((p: any) => p.isActive);
     const activeB = (businessProfiles || []).find((p: any) => p.isActive);
     
+    // CRITICAL: Sanitize IDs to strip slashes and special characters that break Firestore paths
     const sanitizeId = (title: string) => title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
 
     const profileBills = [

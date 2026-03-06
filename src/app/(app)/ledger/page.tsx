@@ -497,7 +497,7 @@ export default function LedgerPage() {
       <main className="flex-1 p-4 md:p-8 w-full max-w-full">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
             <div className="space-y-1">
-                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Studio Ledger</h1>
+                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Studio Ledger</h1>
                 <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
                     Audit trail for all income and expenses
                 </p>

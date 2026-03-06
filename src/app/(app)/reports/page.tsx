@@ -367,7 +367,7 @@ export default function ReportsPage() {
       <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 w-full max-w-full min-w-0 overflow-y-auto">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Studio Reports</h1>
+            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Studio Reports</h1>
             <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
               Insights into your salon's performance
             </p>
