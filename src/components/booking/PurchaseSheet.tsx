@@ -174,10 +174,10 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                 </ScrollArea>
 
                 {step !== 'success' && (
-                    <SheetFooter className="p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20">
+                    <SheetFooter className="p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20">
                         <div className="flex w-full gap-4">
                             {step === 'payment' && (
-                                <Button variant="ghost" onClick={() => setStep('info')} className="flex-1 h-16 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-lg md:text-2xl text-slate-400">
+                                <Button variant="ghost" onClick={() => setStep('info')} className="flex-1 h-12 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">
                                     Back
                                 </Button>
                             )}
@@ -187,7 +187,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                                 onClick={step === 'payment' ? handleSubmit(handleFormSubmit) : undefined}
                                 disabled={isSubmitting}
                                 className={cn(
-                                    "h-16 md:h-20 font-black uppercase tracking-widest text-lg md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
+                                    "h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
                                     step === 'info' ? "w-full" : "flex-[2.5]"
                                 )}
                             >
@@ -196,7 +196,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                                 ) : (
                                     <>
                                         {step === 'info' ? 'Next: Payment' : `Unlock Access • $${item.price.toFixed(2)}`}
-                                        <ArrowRight className="ml-3 w-6 h-6 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+                                        <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
                                     </>
                                 )}
                             </Button>
