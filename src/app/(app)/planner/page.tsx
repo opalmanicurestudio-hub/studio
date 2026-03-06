@@ -111,6 +111,10 @@ function PlannerPageContent() {
   const [mobileSelectedColumnId, setMobileSelectedColumnId] = useState<string>('');
   const [activeView, setActiveView] = useState<'staff' | 'resources'>(viewParam === 'resources' ? 'resources' : 'staff');
     
+  const onMobileColumnChange = useCallback((id: string) => {
+    setMobileSelectedColumnId(id);
+  }, []);
+
   const { data: scheduleProfilesData } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
   const { data: resourcesData } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
@@ -124,10 +128,6 @@ function PlannerPageContent() {
     }
     return cols;
   }, [activeView, staff, resourcesData, role]);
-
-  const onMobileColumnChange = useCallback((id: string) => {
-    setMobileSelectedColumnId(id);
-  }, []);
 
   useEffect(() => { 
     if (columns.length > 0 && !mobileSelectedColumnId) {
