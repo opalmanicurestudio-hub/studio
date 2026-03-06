@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef } from 'react';
@@ -14,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import {
   MoreHorizontal,
   PlusCircle,
-  Search,
   TrendingUp,
   TrendingDown,
   RefreshCw,
@@ -157,42 +157,39 @@ const TransactionFilters = ({
         <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 pt-6">
-        <div className="space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date range</Label>
-            <Popover>
-                <PopoverTrigger asChild>
-                    <Button variant='outline' className='w-full h-12 justify-start text-left font-bold rounded-2xl border-2 hover:bg-primary/5 hover:border-primary/30 transition-all'>
-                        <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                        {date?.from ? (
-                        date.to ? (
-                            <>{format(date.from, "LLL dd")} - {format(date.to, "LLL dd, y")}</>
-                        ) : (
-                            format(date.from, "LLL dd, y")
-                        )
-                        ) : (
-                        "Pick a date"
-                        )}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0 rounded-3xl border-2 shadow-2xl" align="start">
-                    <Calendar
-                        initialFocus
-                        mode="range"
-                        defaultMonth={date?.from}
-                        selected={date}
-                        onSelect={setDate}
-                        numberOfMonths={2}
-                    />
-                </PopoverContent>
-            </Popover>
+        <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
+                <input 
+                    type="date" 
+                    value={date?.from ? format(date.from, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => {
+                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                        setDate({ from: d || date?.from, to: date?.to });
+                    }}
+                    className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                />
+            </div>
+            <div className="space-y-1.5">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
+                <input 
+                    type="date" 
+                    value={date?.to ? format(date.to, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => {
+                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                        setDate({ from: date?.from, to: d || date?.to });
+                    }}
+                    className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                />
+            </div>
         </div>
 
         <div className="space-y-4">
             <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search & Context</Label>
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search Records</Label>
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search records..." className="pl-9 h-12 rounded-2xl border-2 focus-visible:ring-primary/20" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    <Input placeholder="Description or entity..." className="pl-9 h-12 rounded-2xl border-2 focus-visible:ring-primary/20" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                 </div>
             </div>
             <RadioGroup value={contextFilter} onValueChange={(v: any) => setContextFilter(v)} className="grid grid-cols-3 gap-2">

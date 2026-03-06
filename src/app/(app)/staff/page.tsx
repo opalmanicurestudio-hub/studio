@@ -44,8 +44,6 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
@@ -136,46 +134,46 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
 
     const renderActionButtons = () => {
         if (!member.active) {
-            return <Button className="w-full" onClick={() => onStatusChange(member.id, 'clock_in')}><Clock className="mr-2 h-4 w-4"/>Clock In</Button>
+            return <Button className="w-full h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg" onClick={() => onStatusChange(member.id, 'clock_in')}><Clock className="mr-2 h-4 w-4"/>Clock In</Button>
         }
         if (member.onBreak) {
-            return <Button className="w-full" variant="outline" onClick={() => onStatusChange(member.id, 'break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>
+            return <Button className="w-full h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2" variant="outline" onClick={() => onStatusChange(member.id, 'break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>
         }
         return (
             <div className="grid grid-cols-2 gap-2 w-full">
-                <Button variant="outline" onClick={() => onStatusChange(member.id, 'break_start')}><Coffee className="mr-2 h-4 w-4"/>Start Break</Button>
-                <Button variant="destructive" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
+                <Button variant="outline" className="h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2" onClick={() => onStatusChange(member.id, 'break_start')}><Coffee className="mr-2 h-4 w-4"/>Start Break</Button>
+                <Button variant="destructive" className="h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-destructive/20" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
             </div>
         )
     }
 
     return (
-        <Card className="text-center flex flex-col">
-            <CardHeader className="p-4">
-                 <div className="flex justify-between items-start">
-                    <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize", {
-                        'bg-green-100 text-green-800 dark:bg-green-900/50': member.active && !member.onBreak,
-                        'bg-yellow-100 text-yellow-800 dark:bg-green-900/50': member.active && member.onBreak,
+        <Card className={cn("text-center flex flex-col border-2 shadow-sm rounded-[2rem] overflow-hidden", !member.active && "opacity-60 grayscale-[0.5]")}>
+            <CardHeader className="p-4 bg-muted/5 border-b">
+                 <div className="flex justify-between items-center">
+                    <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize font-black text-[9px] tracking-widest px-3 h-6 border-2", {
+                        'bg-green-500 text-white border-none': member.active && !member.onBreak,
+                        'bg-amber-500 text-white border-none': member.active && member.onBreak,
                     })}>
                         {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                     </Badge>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1">
                                 <MoreHorizontal className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => onViewActivity(member)}>Dashboard</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
+                        <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
+                            <DropdownMenuItem onClick={() => onViewActivity(member)} className="font-bold text-xs uppercase tracking-tight">Dashboard</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onEdit(member)} className="font-bold text-xs uppercase tracking-tight">Edit Profile</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {canManage && (
                                 <>
-                                    <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600">
+                                    <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600 font-bold text-xs uppercase tracking-tight">
                                         <RefreshCw className="w-4 h-4 mr-2" />
                                         Force Idle
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => onDelete(member)} className="text-destructive">
+                                    <DropdownMenuItem onClick={() => onDelete(member)} className="text-destructive font-bold text-xs uppercase tracking-tight">
                                         <Trash2 className="w-4 h-4 mr-2" />
                                         Delete Profile
                                     </DropdownMenuItem>
@@ -185,56 +183,45 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                     </DropdownMenu>
                 </div>
             </CardHeader>
-            <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
-                <Avatar className="w-24 h-24 mx-auto mb-4">
+            <CardContent className="p-6 flex-1 flex flex-col items-center">
+                <Avatar className="w-24 h-24 mx-auto mb-4 border-4 border-background shadow-xl rounded-3xl">
                     <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" className="object-cover" />
-                    <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+                    <AvatarFallback className="font-black bg-primary/10 text-primary">{getInitials(member.name)}</AvatarFallback>
                 </Avatar>
-                <h3 className="text-lg font-semibold">{member.name}</h3>
-                <div className="flex items-center justify-center gap-2">
-                    <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
-                    {member.pricingTierId && <Badge variant="outline" className="capitalize">{pricingTiers.find(pt => pt.id === member.pricingTierId)?.name}</Badge>}
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">{member.name}</h3>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{member.role}</p>
+                    {member.pricingTierId && <Badge variant="secondary" className="h-5 px-2 text-[8px] font-black uppercase tracking-widest bg-primary/10 text-primary border-none">{pricingTiers.find(pt => pt.id === member.pricingTierId)?.name}</Badge>}
                 </div>
-                <div className="text-xs text-muted-foreground mt-2 space-y-1 text-center">
-                    {member.email && (
-                        <a href={`mailto:${member.email}`} className="flex items-center justify-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                            <Mail className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{member.email}</span>
-                        </a>
-                    )}
-                    {member.phone && (
-                        <a href={`tel:${member.phone}`} className="flex items-center justify-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                            <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{formatPhoneNumber(member.phone)}</span>
-                        </a>
-                    )}
-                </div>
-                <Separator className="my-4" />
-                <div className="w-full text-left space-y-3 text-sm">
-                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Total Sales</span><span className="font-semibold">${member.stats.totalSales.toFixed(2)}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${member.stats.tips.toFixed(2)}</span></div>
-                    <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${member.stats.earnings.toFixed(2)}</span></div>
+                
+                <Separator className="my-6" />
+                
+                <div className="w-full text-left space-y-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center mb-2">Performance activity</p>
+                    <div className="flex justify-between items-center"><span className="text-[10px] font-bold text-muted-foreground uppercase">Total Sales</span><span className="font-black text-sm text-slate-900 tracking-tighter font-mono">${member.stats.totalSales.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-[10px] font-bold text-muted-foreground uppercase">Tips Earned</span><span className="font-black text-sm text-green-600 tracking-tighter font-mono">${member.stats.tips.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-border/50 font-black"><span className="text-[10px] uppercase text-primary">Est. Payout</span><span className="text-lg text-primary tracking-tighter font-mono">${member.stats.earnings.toFixed(2)}</span></div>
                 </div>
 
                 {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
-                    <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
-                        <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        <div>
-                            <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}</p>
-                            <p>
+                    <div className={cn("mt-6 text-left p-4 rounded-2xl border-2 w-full flex items-start gap-3", licenseInfo.isExpired ? "bg-destructive/5 border-destructive/10 text-destructive" : "bg-amber-50 border-amber-100 text-amber-700")}>
+                        <ShieldAlert className="h-5 w-5 shrink-0" />
+                        <div className="space-y-0.5 min-w-0">
+                            <p className="font-black uppercase tracking-tight text-[10px]">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring'}</p>
+                            <p className="text-[10px] font-medium leading-relaxed">
                                 {licenseInfo.isExpired 
-                                ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
-                                : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                                ? `Action required. Expired on ${format(licenseInfo.expiryDate!, 'MMM d')}.`
+                                : `Renewal due. Expires in ${licenseInfo.daysUntilExpiry} days.`
                                 }
                             </p>
                         </div>
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
+            <CardFooter className="p-4 border-t mt-auto flex flex-col gap-3 bg-muted/5">
                 {renderActionButtons()}
-                 <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
-                    <Link href={`/staff/${member.id}`}>View Public Profile</Link>
+                 <Button asChild variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest h-8 w-full hover:bg-primary/5 text-muted-foreground hover:text-primary">
+                    <Link href={`/staff/${member.id}`}>Public Portfolio <MoreHorizontal className="ml-1 h-3 w-3" /></Link>
                 </Button>
             </CardFooter>
         </Card>
@@ -297,58 +284,64 @@ const PricingTierCard = ({
 
     return (
         <>
-            <Card>
-                <CardHeader>
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                <CardHeader className="bg-muted/5 border-b p-6">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
-                            <CardTitle>Pricing Tiers</CardTitle>
-                            <CardDescription>Define the pricing levels for your staff.</CardDescription>
+                            <CardTitle className="text-sm font-black uppercase tracking-widest">Skill & Pricing Tiers</CardTitle>
+                            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Studio expertise levels.</CardDescription>
                         </div>
                         {isEditing ? (
                             <div className="flex gap-2 w-full sm:w-auto">
-                                <Button variant="outline" onClick={handleCancel} className="flex-1">Cancel</Button>
-                                <Button onClick={handleSave} className="flex-1">Save Tiers</Button>
+                                <Button variant="outline" onClick={handleCancel} className="flex-1 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest">Cancel</Button>
+                                <Button onClick={handleSave} className="flex-1 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20">Save</Button>
                             </div>
                         ) : (
-                            <Button onClick={() => setIsEditing(true)}>Edit Tiers</Button>
+                            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} className="h-9 rounded-xl text-[10px] font-black uppercase tracking-widest border-2">Edit Tiers</Button>
                         )}
                     </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="p-6 space-y-3">
                     {localTiers.sort((a,b) => a.rank - b.rank).map((tier, index) => (
-                        <div key={tier.id} className="flex items-center gap-2">
-                             {isEditing && <p className="text-muted-foreground font-bold">{index + 1}.</p>}
+                        <div key={tier.id} className="flex items-center gap-3">
+                             <p className="text-[10px] font-black text-muted-foreground w-4">{index + 1}.</p>
                              <Input
                                 value={tier.name}
                                 onChange={(e) => handleTierChange(index, 'name', e.target.value)}
                                 disabled={!isEditing}
-                                className={cn(!isEditing && "border-none text-base font-medium p-0 h-auto focus-visible:ring-0")}
+                                className={cn(
+                                    "h-11 rounded-xl font-bold uppercase tracking-tight border-2",
+                                    !isEditing && "border-transparent bg-muted/20 px-4"
+                                )}
                             />
                             {isEditing && (
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteClick(tier)}>
+                                <Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-destructive hover:bg-destructive/5" onClick={() => handleDeleteClick(tier)}>
                                     <Trash2 className="w-4 h-4" />
                                 </Button>
                             )}
                         </div>
                     ))}
                     {isEditing && (
-                        <Button variant="outline" className="w-full border-dashed" onClick={handleAddTier}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add Tier
+                        <Button variant="outline" className="w-full h-12 rounded-xl border-dashed border-2 font-black uppercase text-[10px] tracking-widest mt-2" onClick={handleAddTier}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Experience Tier
                         </Button>
                     )}
                 </CardContent>
             </Card>
             <AlertDialog open={!!tierToDelete} onOpenChange={() => setTierToDelete(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will permanently delete the &quot;{tierToDelete?.name}&quot; tier. Staff members assigned to this tier will need to be reassigned. This action cannot be undone.
+                <AlertDialogContent className="rounded-[3rem] border-4">
+                    <AlertDialogHeader className="p-6 pb-0">
+                        <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Deletion</AlertDialogTitle>
+                        <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
+                            Tier: "{tierToDelete?.name}"
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmDeleteTier} className={buttonVariants({ variant: "destructive" })}>Delete Tier</AlertDialogAction>
+                    <div className="p-6">
+                        <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the pricing tier. Staff members assigned to this tier will need to be reassigned to maintain accurate service pricing.</p>
+                    </div>
+                    <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
+                        <Button onClick={confirmDeleteTier} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20">Delete Tier</Button>
+                        <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
@@ -710,52 +703,42 @@ export default function StaffPage() {
         ) : (
             <>
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold">Your Team</h1>
-                    <p className="text-muted-foreground">Add, edit, and manage your staff members.</p>
+                <div className="space-y-1">
+                    <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Your Team</h1>
+                    <p className="text-sm text-muted-foreground font-black uppercase tracking-widest opacity-60">Add, edit, and manage your staff members.</p>
                 </div>
-                <Button onClick={() => setIsAddStaffOpen(true)}>
+                <Button onClick={() => setIsAddStaffOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
                     <PlusCircle className="mr-2 h-4 w-4" /> Add Staff Member
                 </Button>
                 </div>
                 
-                <div className="mb-6">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                id="date"
-                                variant={"outline"}
-                                className={cn(
-                                "w-full md:w-[300px] justify-start text-left font-normal",
-                                !dateRange && "text-muted-foreground"
-                                )}
-                            >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateRange?.from ? (
-                                dateRange.to ? (
-                                    <>
-                                    {format(dateRange.from, "LLL dd, yyyy")} -{" "}
-                                    {format(dateRange.to, "LLL dd, yyyy")}
-                                    </>
-                                ) : (
-                                    format(dateRange.from, "LLL dd, yyyy")
-                                )
-                                ) : (
-                                <span>Pick a date range</span>
-                                )}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                initialFocus
-                                mode="range"
-                                defaultMonth={dateRange?.from}
-                                selected={dateRange}
-                                onSelect={setDateRange}
-                                numberOfMonths={2}
+                <div className="mb-8 p-4 bg-muted/30 rounded-[2rem] border-2 border-dashed border-border/50">
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                        <div className="w-full space-y-1.5">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze From</Label>
+                            <input 
+                                type="date" 
+                                value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                    setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
+                                }}
+                                className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                             />
-                        </PopoverContent>
-                    </Popover>
+                        </div>
+                        <div className="w-full space-y-1.5">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze To</Label>
+                            <input 
+                                type="date" 
+                                value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                    setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
+                                }}
+                                className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                            />
+                        </div>
+                    </div>
                 </div>
                 
                 <div className="grid lg:grid-cols-3 gap-8 items-start">
@@ -775,11 +758,11 @@ export default function StaffPage() {
                                 ))}
                             </div>
                             ) : (
-                            <Card>
+                            <Card className="border-4 border-dashed rounded-[3rem] opacity-40">
                                 <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
                                     <Users className="w-16 h-16 mb-4"/>
-                                <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
-                                <p className="mb-4">Click the button to add your first team member.</p>
+                                <h3 className="text-xl font-black uppercase tracking-widest">No staff members yet</h3>
+                                <p className="mb-4 font-bold text-xs uppercase opacity-60">Click the button to add your first team member.</p>
                                 </CardContent>
                             </Card>
                         )}
@@ -807,36 +790,38 @@ export default function StaffPage() {
         pricingTiers={pricingTiers || []}
         existingStaff={staff || []}
       />
-       <StaffDetailsSheet
-        open={isDetailsSheetOpen}
-        onOpenChange={setIsDetailsSheetOpen}
-        staffMember={selectedStaffMember}
-        dateRange={dateRange}
-        transactions={transactions || []}
-        services={services || []}
-        appointments={appointments || []}
-        activityLogs={activityLogs || []}
-        consentForms={consentForms || []}
-      />
+       {selectedStaffMember && (
+           <StaffDetailsSheet
+            open={isDetailsSheetOpen}
+            onOpenChange={setIsDetailsSheetOpen}
+            staffMember={selectedStaffMember}
+            dateRange={dateRange}
+            transactions={transactions || []}
+            services={services || []}
+            appointments={appointments || []}
+            activityLogs={activityLogs || []}
+            consentForms={consentForms || []}
+          />
+       )}
       
       <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
-        <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                    <KeyRound className="w-5 h-5 text-primary" />
-                    Authorize Action
+        <DialogContent className="sm:max-w-md rounded-[3rem] border-4">
+            <DialogHeader className="p-6 pb-0">
+                <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
+                    <KeyRound className="w-6 h-6 text-primary" />
+                    Security Verify
                 </DialogTitle>
-                <DialogDescription>
-                    Enter your unique 4-digit PIN to verify this status change.
+                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
+                    Authorize status transition with your unique 4-digit PIN.
                 </DialogDescription>
             </DialogHeader>
-            <div className="py-6 flex flex-col items-center space-y-4">
-                <Label className="text-sm font-black uppercase tracking-widest text-muted-foreground">Verification PIN</Label>
+            <div className="py-10 flex flex-col items-center space-y-6">
+                <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Verification PIN</Label>
                 <div className="relative w-48">
                     <Input 
                         type="password" 
                         maxLength={4} 
-                        className="text-center text-3xl font-black h-16 tracking-[0.5em] bg-muted/50 border-2" 
+                        className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20" 
                         value={authPin} 
                         onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
                         autoFocus
@@ -844,27 +829,27 @@ export default function StaffPage() {
                     />
                 </div>
             </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => setIsPinAuthOpen(false)}>Cancel</Button>
-                <Button onClick={handleVerifyPin} disabled={authPin.length < 4}>Verify & Confirm</Button>
+            <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
+                <Button onClick={handleVerifyPin} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Verify & Confirm</Button>
+                <Button variant="ghost" onClick={() => setIsPinAuthOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={!!staffToDelete} onOpenChange={() => setStaffToDelete(null)}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    This will permanently delete the staff profile for <strong>{staffToDelete?.name}</strong>. 
-                    This action cannot be undone and they will no longer be able to log in.
+        <AlertDialogContent className="rounded-[3rem] border-4">
+            <AlertDialogHeader className="p-6 pb-0">
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Profile</AlertDialogTitle>
+                <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
+                    Target: <strong>{staffToDelete?.name}</strong>
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={confirmDeleteStaff} className={buttonVariants({ variant: "destructive" })}>
-                    Delete Profile
-                </AlertDialogAction>
+            <div className="p-6">
+                <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the staff profile and directory entry. The associated authentication account will remain, but they will be prohibited from all studio access. <strong>This action is non-reversible.</strong></p>
+            </div>
+            <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
+                <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20">Purge Record</Button>
+                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

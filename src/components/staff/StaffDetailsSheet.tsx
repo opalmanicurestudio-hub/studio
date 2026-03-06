@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -34,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Sparkles, Loader } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -48,23 +50,23 @@ interface StaffDetailsSheetProps {
 }
 
 const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
-    <Card className="bg-background">
+    <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden">
         <CardContent className="p-3">
              <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
-                    <p className="font-medium text-sm leading-tight capitalize flex items-center gap-2">
-                        {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
-                        {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
-                        {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
-                        {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                    <p className="font-bold text-xs uppercase tracking-tight flex items-center gap-2">
+                        {log.type === 'clock_in' && <Clock className="w-3.5 h-3.5 text-green-500" />}
+                        {log.type === 'clock_out' && <Clock className="w-3.5 h-3.5 text-red-500" />}
+                        {log.type === 'break_start' && <Coffee className="w-3.5 h-3.5 text-yellow-500" />}
+                        {log.type === 'break_end' && <Coffee className="w-3.5 h-3.5 text-gray-500" />}
                         {log.type.replace('_', ' ')}
                     </p>
-                    <p className="text-xs text-muted-foreground">{format(log.timestamp, 'PPP p')}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{format(log.timestamp, 'MMM d, h:mm a')}</p>
                 </div>
                 {log.durationMinutes && (
                     <div className="text-right flex-shrink-0">
-                        <p className="font-semibold text-sm">{log.durationMinutes} min</p>
-                        <p className="text-xs text-muted-foreground">Duration</p>
+                        <p className="font-black text-xs text-slate-900">{log.durationMinutes}m</p>
+                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Dur.</p>
                     </div>
                 )}
             </div>
@@ -73,27 +75,27 @@ const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
 );
 
 const TransactionCard = ({ transaction, service, timeVariance }: { transaction: Transaction, service?: Service, timeVariance: number | null }) => (
-    <Card className="bg-background">
+    <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden">
         <CardContent className="p-3">
             <div className="flex justify-between items-start gap-2">
-                <div className="flex-1 space-y-1">
-                    <p className="font-medium text-sm leading-tight">{transaction.description}</p>
-                    <p className="text-xs text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, yyyy h:mm a')}</p>
+                <div className="flex-1 space-y-1 min-w-0">
+                    <p className="font-bold text-xs uppercase tracking-tight truncate">{transaction.description}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                    <p className={cn('font-mono font-semibold', transaction.type === 'income' ? 'text-green-500' : 'text-red-600')}>
+                    <p className={cn('font-black font-mono text-sm tracking-tighter', transaction.type === 'income' ? 'text-green-600' : 'text-destructive')}>
                         {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
                     </p>
                     {timeVariance !== null && (
-                        <p className={cn('text-xs font-mono', timeVariance > 0 ? 'text-destructive' : 'text-green-500')}>
-                            {timeVariance > 0 ? '+' : ''}{timeVariance} min
+                        <p className={cn('text-[9px] font-black uppercase tracking-tighter', timeVariance > 0 ? 'text-destructive' : 'text-green-600')}>
+                            {timeVariance > 0 ? '+' : ''}{timeVariance}m Var
                         </p>
                     )}
                 </div>
             </div>
-            <div className="flex items-center flex-wrap gap-2 mt-2 pt-2 border-t text-xs text-muted-foreground">
-                 <Badge variant={transaction.category === 'Tips' ? 'secondary' : 'outline'} className={transaction.category === 'Tips' ? 'bg-green-100 text-green-800' : ''}>{transaction.category}</Badge>
-                 {service && <p className="truncate">{service.name}</p>}
+            <div className="flex items-center flex-wrap gap-2 mt-2 pt-2 border-t border-dashed border-border/50">
+                 <Badge variant="outline" className={cn("text-[8px] h-4 px-1 uppercase font-black tracking-widest border-none", transaction.category === 'Tips' ? 'bg-green-500/10 text-green-700' : 'bg-primary/5 text-primary')}>{transaction.category}</Badge>
+                 {service && <p className="text-[9px] font-bold uppercase tracking-tight text-muted-foreground truncate opacity-60">{service.name}</p>}
             </div>
         </CardContent>
     </Card>
@@ -186,81 +188,120 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const stats = staffMember.stats || {};
 
   const performanceKpis = [
-      { label: "Utilization Rate", value: `${(stats.utilizationRate || 0).toFixed(1)}%` },
-      { label: "Avg. Ticket Size", value: `$${(stats.avgSalePerAppointment || 0).toFixed(2)}` },
-      { label: "Retail Attach Rate", value: `${(stats.retailAttachmentRate || 0).toFixed(1)}%` },
-      { label: "Avg Time Variance", value: `${(stats.avgVariance || 0) > 0 ? '+' : ''}${(stats.avgVariance || 0).toFixed(1)} min` },
+      { label: "Utilization", value: `${(stats.utilizationRate || 0).toFixed(1)}%` },
+      { label: "Avg. Ticket", value: `$${(stats.avgSalePerAppointment || 0).toFixed(2)}` },
+      { label: "Retail Rate", value: `${(stats.retailAttachmentRate || 0).toFixed(1)}%` },
+      { label: "Avg Variance", value: `${(stats.avgVariance || 0) > 0 ? '+' : ''}${(stats.avgVariance || 0).toFixed(1)}m` },
   ];
 
   const content = (
-    <div className="space-y-6">
+    <div className="space-y-10">
           <div className="grid grid-cols-2 gap-4">
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Sales</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(stats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Tips Earned</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">${(stats.tips || 0).toFixed(2)}</p></CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Hours Worked</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{(stats.totalHours || 0).toFixed(1)}</p></CardContent></Card>
-              <Card className="bg-primary/5 border-primary/20"><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-primary">Take-home</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-primary">${(stats.earnings || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Sales</CardTitle></CardHeader><CardContent className="px-4 pb-4"><p className="text-2xl font-black tracking-tighter text-slate-900 font-mono">${(stats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-4 pb-4"><p className="text-2xl font-black tracking-tighter text-green-600 font-mono">${(stats.tips || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Hours Worked</CardTitle></CardHeader><CardContent className="px-4 pb-4"><p className="text-2xl font-black tracking-tighter text-slate-900 font-mono">{(stats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary">Take-home</CardTitle></CardHeader><CardContent className="px-4 pb-4"><p className="text-2xl font-black tracking-tighter text-primary font-mono">${(stats.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
+
            <Tabs defaultValue="activity" className="w-full">
-              <ScrollArea>
-                  <TabsList>
-                      <TabsTrigger value="activity">Activity Log</TabsTrigger>
-                      <TabsTrigger value="transactions">Transactions</TabsTrigger>
-                      <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
-                      <TabsTrigger value="profile">Profile</TabsTrigger>
+              <ScrollArea className="w-full">
+                  <TabsList className="bg-muted/50 p-1 rounded-2xl mb-6">
+                      <TabsTrigger value="activity" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Activity Log</TabsTrigger>
+                      <TabsTrigger value="transactions" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Ledger</TabsTrigger>
+                      <TabsTrigger value="effectiveness" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Effectiveness</TabsTrigger>
+                      <TabsTrigger value="profile" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Profile</TabsTrigger>
                   </TabsList>
                   <ScrollBar orientation="horizontal" />
               </ScrollArea>
-              <TabsContent value="activity" className="mt-4">
-                  <div className="relative mb-4">
+              
+              <TabsContent value="activity" className="mt-0 space-y-4">
+                  <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input placeholder="Search activities..." className="pl-9" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
+                      <Input placeholder="Search actions..." className="pl-9 h-12 rounded-2xl border-2 focus-visible:ring-primary/20" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
                   </div>
-                  <ScrollArea className="h-96">
-                    <div className="space-y-3 pr-4">
-                        {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<p className="text-center text-sm text-muted-foreground pt-10">No activity found.</p>)}
-                    </div>
-                  </ScrollArea>
-              </TabsContent>
-              <TabsContent value="transactions" className="mt-4">
-                  <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search transactions..." className="pl-9" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
+                  <div className="space-y-3">
+                    {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30"><Clock className="w-12 h-12 mx-auto mb-2"/><p className="text-xs font-black uppercase tracking-widest">No activity</p></div>)}
                   </div>
-                   <ScrollArea className="h-96">
-                      <div className="space-y-3 pr-4">
-                          {filteredTransactions.length > 0 ? (
-                              filteredTransactions.map(t => {
-                                  const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                                  const service = services.find(s => s.id === appointment?.serviceId);
-                                  let timeVariance = null;
-                                  if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                      const actualDuration = differenceInMinutes(safeDate(appointment.actualEndTime), safeDate(appointment.actualStartTime));
-                                      timeVariance = actualDuration - service.duration;
-                                  }
-                                  return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
-                              })
-                          ) : (
-                            <div className="text-center h-24 py-10 text-muted-foreground">No transactions found.</div>
-                          )}
-                      </div>
-                   </ScrollArea>
               </TabsContent>
-              <TabsContent value="effectiveness" className="mt-4">
-                  <Card><CardContent className="p-4 space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                         {performanceKpis.map(kpi => (
-                             <div key={kpi.label} className="p-3 rounded-lg bg-muted/50">
-                                 <div className="text-sm font-medium text-muted-foreground">{kpi.label}</div>
-                                 <div className={cn("text-2xl font-bold", kpi.label === "Avg Time Variance" && (parseFloat(kpi.value) > 0 ? 'text-destructive' : 'text-green-500'))}>{kpi.value}</div>
-                             </div>
-                         ))}
-                      </div>
-                  </CardContent></Card>
+
+              <TabsContent value="transactions" className="mt-0 space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Search records..." className="pl-9 h-12 rounded-2xl border-2 focus-visible:ring-primary/20" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
+                  </div>
+                  <div className="space-y-3">
+                      {filteredTransactions.length > 0 ? (
+                          filteredTransactions.map(t => {
+                              const appointment = appointments.find(apt => apt.id === t.appointmentId);
+                              const service = services.find(s => s.id === appointment?.serviceId);
+                              let timeVariance = null;
+                              if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                  const actualDuration = differenceInMinutes(safeDate(appointment.actualEndTime), safeDate(appointment.actualStartTime));
+                                  timeVariance = actualDuration - service.duration;
+                              }
+                              return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
+                          })
+                      ) : (
+                        <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30"><DollarSign className="w-12 h-12 mx-auto mb-2"/><p className="text-xs font-black uppercase tracking-widest">No records</p></div>
+                      )}
+                  </div>
+              </TabsContent>
+
+              <TabsContent value="effectiveness" className="mt-0">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Efficiency Metrics</CardTitle></CardHeader>
+                    <CardContent className="p-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            {performanceKpis.map(kpi => (
+                                <div key={kpi.label} className="p-4 rounded-2xl bg-muted/20 border-2 transition-all group hover:border-primary/20">
+                                    <div className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">{kpi.label}</div>
+                                    <div className={cn("text-2xl font-black tracking-tighter", kpi.label === "Avg Variance" && (parseFloat(kpi.value) > 0 ? 'text-destructive' : 'text-green-600'))}>{kpi.value}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                  </Card>
                </TabsContent>
-               <TabsContent value="profile" className="mt-4 space-y-4">
-                  <Card><CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>Email:</strong> {staffMember.email}</p><p><strong>Phone:</strong> {staffMember.phone}</p>{staffMember.emergencyContact?.name && (<div className="pt-2 border-t"><p><strong>Emergency:</strong> {staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p><p className="pl-4">{staffMember.emergencyContact.phone}</p></div>)}</CardContent></Card>
-                  <Card><CardHeader><CardTitle className="text-base">Compliance</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p><p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(safeDate(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p><div className="space-y-2 pt-2"><h4 className="font-medium">Documents</h4>{(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (<div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>)) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}</div><div className="space-y-2 pt-2"><h4 className="font-medium">Assigned Forms</h4>{(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {const form = consentForms.find(f => f.id === formId); return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;}) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}</div></CardContent></Card>
-                  <Card><CardHeader><CardTitle className="text-base">Services Offered</CardTitle></CardHeader><CardContent className="text-sm space-y-2">{staffServices.map(s => (<div key={s.id} className="flex justify-between"><span>{s.name}</span><span className="font-semibold">${s.price.toFixed(2)}</span></div>))}</CardContent></Card>
+
+               <TabsContent value="profile" className="mt-0 space-y-6">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Contact & Compliance</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-6 text-sm font-bold">
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900">{staffMember.email}</span></div>
+                            <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900">{staffMember.phone}</span></div>
+                        </div>
+                        {staffMember.emergencyContact?.name && (
+                            <div className="pt-6 border-t border-dashed space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Emergency Contact</p>
+                                <div className="space-y-1">
+                                    <p className="text-slate-900">{staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p>
+                                    <p className="text-primary">{staffMember.emergencyContact.phone}</p>
+                                </div>
+                            </div>
+                        )}
+                        <Separator className="bg-muted/50" />
+                        <div className="space-y-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Licensing Intel</p>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">License #</p><p className="uppercase tracking-tight">{staffMember.compliance?.licenseNumber || '—'}</p></div>
+                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Expires</p><p className="uppercase tracking-tight">{staffMember.compliance?.licenseExpiry ? format(safeDate(staffMember.compliance.licenseExpiry), 'MMM d, yyyy') : '—'}</p></div>
+                            </div>
+                        </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Skill Matrix</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-3">
+                        {staffServices.length > 0 ? staffServices.map(s => (
+                            <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
+                                <span className="text-xs font-black uppercase tracking-tight text-slate-700">{s.name}</span>
+                                <span className="font-mono font-black text-primary text-xs">${s.price.toFixed(2)}</span>
+                            </div>
+                        )) : <p className="text-center py-6 text-xs font-bold text-muted-foreground uppercase opacity-40">No services assigned</p>}
+                    </CardContent>
+                  </Card>
                </TabsContent>
           </Tabs>
       </div>
@@ -268,50 +309,61 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0", isMobile ? "h-[90vh]" : "sm:max-w-2xl")}>
+      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background", isMobile ? "h-[95vh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
         <div className="flex flex-col h-full">
-            <SheetHeader className="p-4 border-b text-left flex-shrink-0">
-                <SheetTitle>Dashboard: {staffMember.name}</SheetTitle>
-                <SheetDescription>
-                    Performance breakdown for {dateRangeString}.
-                </SheetDescription>
+            <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+                <div className="flex items-center gap-4 mb-4">
+                    <Avatar className="h-16 w-16 border-4 border-background shadow-xl rounded-2xl">
+                        <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{staffMember.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none mb-1">{staffMember.name}</SheetTitle>
+                        <SheetDescription className="text-[10px] font-black uppercase tracking-widest opacity-60">Live Performance Analytics</SheetDescription>
+                    </div>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-4 border-t border-dashed border-border/50">
+                    <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                        <div className="flex-1 space-y-1">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
+                            <input 
+                                type="date" 
+                                value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                    setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
+                                }}
+                                className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all"
+                            />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
+                            <input 
+                                type="date" 
+                                value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                    setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
+                                }}
+                                className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all"
+                            />
+                        </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => window.print()} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 mt-auto sm:self-end">
+                        <Printer className="mr-2 h-3.5 w-3.5" /> Print
+                    </Button>
+                </div>
             </SheetHeader>
-            <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
-                <Popover>
-                    <PopoverTrigger asChild>
-                        <Button
-                            id="date"
-                            variant={"outline"}
-                            size="sm"
-                            className={cn(
-                            "w-auto justify-start text-left font-normal",
-                            !dateRange && "text-muted-foreground"
-                            )}
-                        >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {dateRangeString}
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        initialFocus
-                        mode="range"
-                        defaultMonth={dateRange?.from}
-                        selected={dateRange}
-                        onSelect={setDateRange}
-                        numberOfMonths={2}
-                    />
-                    </PopoverContent>
-                </Popover>
-                <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
-            </div>
+
             <ScrollArea className="flex-1 min-h-0">
-                <div className="p-4">
+                <div className="p-8">
                     {content}
                 </div>
             </ScrollArea>
-            <SheetFooter className="p-4 border-t bg-background flex-shrink-0">
-                <Button onClick={() => onOpenChange(false)} className="w-full h-12 text-lg font-bold">Close</Button>
+            
+            <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+                <Button onClick={() => onOpenChange(false)} className="w-full h-16 rounded-2xl text-xl font-black uppercase tracking-tight shadow-2xl shadow-primary/20">Close Dashboard</Button>
             </SheetFooter>
         </div>
       </SheetContent>

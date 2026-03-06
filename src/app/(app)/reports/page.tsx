@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -30,6 +31,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { Label } from '@/components/ui/label';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -373,20 +375,32 @@ export default function ReportsPage() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            <Popover>
-                <PopoverTrigger asChild>
-                    <Button
-                        id="date"
-                        variant={"outline"}
-                        className={cn( "w-full sm:w-[300px] h-11 border-2 justify-start text-left font-normal shadow-sm", !dateRange && "text-muted-foreground" )}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateRangeString}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                    <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={isMobile ? 1 : 2} />
-                </PopoverContent>
-            </Popover>
+            <div className="flex flex-col sm:flex-row gap-2 border-2 p-2 rounded-2xl bg-muted/10">
+                <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
+                    <input 
+                        type="date" 
+                        value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                        onChange={(e) => {
+                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                            setDateRange({ from: d || dateRange?.from, to: dateRange?.to });
+                        }}
+                        className="h-9 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary"
+                    />
+                </div>
+                <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
+                    <input 
+                        type="date" 
+                        value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                        onChange={(e) => {
+                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                            setDateRange({ from: dateRange?.from, to: d || dateRange?.to });
+                        }}
+                        className="h-9 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary"
+                    />
+                </div>
+            </div>
              <Button variant="outline" className="h-11 border-2 shadow-sm font-bold uppercase tracking-tight" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print Report</Button>
           </div>
         </div>
