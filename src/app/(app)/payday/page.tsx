@@ -33,7 +33,8 @@ import {
     ChevronRight,
     CheckCircle2,
     CalendarSearch,
-    CalendarRange
+    CalendarRange,
+    Loader
 } from 'lucide-react';
 import {
   Accordion,
@@ -86,7 +87,7 @@ const safeDate = (val: any): Date => {
 };
 
 const AllocationItem = ({ label, percentage, amount, color }: { label: string, percentage: number, amount: number, color: string }) => (
-    <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border">
+    <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border shadow-sm">
         <div className="flex items-center gap-3">
             <div className={cn("w-2 h-8 rounded-full", color)} />
             <div>
@@ -94,14 +95,14 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
                 <p className="text-[10px] font-bold text-muted-foreground opacity-60">{percentage}% Allocation</p>
             </div>
         </div>
-        <p className="text-lg font-black font-mono tracking-tighter">${amount.toFixed(2)}</p>
+        <p className="text-lg font-black font-mono tracking-tighter text-slate-900">${amount.toFixed(2)}</p>
     </div>
 );
 
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 export default function PaydayPage() {
-  const { billDefinitions, billInstances, transactions, staff, activityLogs } = useInventory();
+  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading } = useInventory();
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   const [cadence, setCadence] = useState<Cadence>('bi-weekly');
   
@@ -167,7 +168,7 @@ export default function PaydayPage() {
   }, [filteredTransactions]);
 
   const staffObligations = useMemo(() => {
-    if (!staff || !filteredTransactions) return [];
+    if (!staff || !filteredTransactions || !activityLogs) return [];
 
     return staff.map(member => {
         const staffTransactions = filteredTransactions.filter(t => t.staffId === member.id && t.type === 'income');
@@ -187,7 +188,7 @@ export default function PaydayPage() {
         let earnings = 0;
         if (member.payStructure === 'commission') {
             earnings = (serviceRevenue * ((member.commissionRate || 40) / 100)) + 
-                       (retailSales * ((member.retailCommissionRate || 10) / 100));
+                       (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
         } else if (member.payStructure === 'hourly' && member.hourlyRate) {
             const logs = activityLogs.filter(l => 
                 l.staffId === member.id && 
@@ -251,6 +252,17 @@ export default function PaydayPage() {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
   };
 
+  if (isLoading) {
+      return (
+          <div className="flex min-h-screen w-full flex-col bg-white">
+            <AppHeader title="Payday" />
+            <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+                <Loader className="w-8 h-8 animate-spin" />
+            </main>
+          </div>
+      )
+  }
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
@@ -276,7 +288,7 @@ export default function PaydayPage() {
                         <div className="flex items-center gap-2 justify-center text-[10px] font-black uppercase tracking-widest text-primary mb-2">
                             <CalendarRange className="w-3 h-3" /> Select Custom Window
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                                 <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Start Date</Label>
                                 <input 
