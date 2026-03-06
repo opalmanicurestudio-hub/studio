@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Award } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Award, CalendarCheck, Clock, Users, Zap, Repeat, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, Resource, Membership, getServicePrice } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse, addMonths, endOfDay, parseISO } from 'date-fns';
@@ -53,12 +53,12 @@ import { Calendar } from '@/components/ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, query, where } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
-
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface AddAppointmentDialogProps {
   open: boolean;
@@ -72,21 +72,11 @@ interface AddAppointmentDialogProps {
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-
-    if (!timeStr) {
-      return d;
-    }
-
+    if (!timeStr) return d;
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
-
-    if (period === 'PM' && hours < 12) {
-        hours += 12;
-    }
-    if (period === 'AM' && hours === 12) {
-        hours = 0;
-    }
-
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
     d.setHours(hours, minutes);
     return d;
 }
@@ -119,8 +109,8 @@ const AddAppointmentForm = ({
         if (!appointmentsFromDB) return [];
         return appointmentsFromDB.map(apt => ({
           ...apt,
-          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+          startTime: safeDate(apt.startTime),
+          endTime: safeDate(apt.endTime),
         }));
       }, [appointmentsFromDB]);
     
@@ -128,8 +118,8 @@ const AddAppointmentForm = ({
         if (!eventsFromDB) return [];
         return eventsFromDB.map(evt => ({
             ...evt,
-            startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
-            endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+            startTime: safeDate(evt.startTime),
+            endTime: safeDate(evt.endTime),
         }));
       }, [eventsFromDB]);
 
@@ -155,7 +145,7 @@ const AddAppointmentForm = ({
                 ? user.uid
                 : (appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''));
 
-            const defaultValues = {
+            reset({
                 clientId: initialClient?.id || appointmentToRebook?.clientId || '',
                 serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
                 staffId: staffDefault,
@@ -167,8 +157,7 @@ const AddAppointmentForm = ({
                     frequency: 'weekly',
                     endDate: addMonths(new Date(), 3),
                 }
-            };
-            reset(defaultValues);
+            });
         }
     }, [staff, staffLoading, appointmentToRebook, initialClient, reset, role, user]);
 
@@ -207,88 +196,49 @@ const AddAppointmentForm = ({
 
     const timeSlots = useMemo(() => {
         if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
-
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(date, 'eeee').toLowerCase();
-        
         const selectedStaffMember = staff.find(s => s.id === staffId);
-        let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
-
+        let workingHours;
         const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
-
-        if (staffDaySchedule) {
-            workingHours = staffDaySchedule;
-        } else {
-            workingHours = publicScheduleProfile?.week?.[dayName];
-        }
+        if (staffDaySchedule) workingHours = staffDaySchedule;
+        else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) {
-          return [];
-        }
-        
-        const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
-        const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
-        
+        if (!workingHours || !workingHours.enabled) return [];
+        const openT = timeStringToDate(workingHours.start, date);
+        const closeT = timeStringToDate(workingHours.end, date);
         const busyIntervals: { start: Date, end: Date }[] = [];
 
-        (appointments || [])
-          .filter(apt => {
+        (appointments || []).filter(apt => {
             if (!isSameDay(apt.startTime, date)) return false;
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
             if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
             return true;
-          })
-          .forEach(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
-            busyIntervals.push({
-              start: addMinutes(apt.startTime, -padBefore),
-              end: addMinutes(apt.endTime, padAfter),
-            });
-          });
+        }).forEach(apt => {
+            const svc = services.find(s => s.id === apt.serviceId);
+            busyIntervals.push({ start: addMinutes(apt.startTime, -(svc?.padBefore || 0)), end: addMinutes(apt.endTime, (svc?.padAfter || 0)) });
+        });
 
-        (events || [])
-          .filter(evt => {
-            if (!isSameDay(evt.startTime, date)) return false;
-            if (evt.type !== 'blocked') return false;
+        (events || []).filter(evt => {
+            if (!isSameDay(evt.startTime, date) || evt.type !== 'blocked') return false;
             return !evt.staffId || evt.staffId === 'all' || (staffId !== 'any' && evt.staffId === staffId);
-          })
-          .forEach(evt => {
-            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
-          });
+        }).forEach(evt => { busyIntervals.push({ start: evt.startTime, end: evt.endTime }); });
 
         const options: string[] = [];
-        
-        let earliestBookableTime = dayStartWithBusinessHours;
+        let currentTime = openT;
         const now = new Date();
-
-        if (isToday(date) && now > dayStartWithBusinessHours) {
-            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
-            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
-            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
-            if (intervalsToSkip > 0) {
-                earliestBookableTime = addMinutes(dayStartWithBusinessHours, earliestBookableTime.getMinutes() + (intervalsToSkip * bookingInterval));
-            }
+        if (isToday(date) && now > openT) {
+            const minSinceStart = (now.getHours() * 60) + now.getMinutes();
+            const busStartMin = (openT.getHours() * 60) + openT.getMinutes();
+            const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
+            if (skip > 0) currentTime = addMinutes(openT, skip * bookingInterval);
         }
         
-        let currentTime = earliestBookableTime;
-
-        while (currentTime < dayEndWithBusinessHours) {
+        while (currentTime < closeT) {
             const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
-            if (potentialEnd > dayEndWithBusinessHours) break;
-            const isOverlapping = busyIntervals.some((interval) =>
-                areIntervalsOverlapping(
-                    { start: currentTime, end: potentialEnd },
-                    interval,
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(currentTime, 'HH:mm'));
-            }
-
+            if (potentialEnd > closeT) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
             currentTime = addMinutes(currentTime, bookingInterval);
         }
         return options;
@@ -300,23 +250,16 @@ const AddAppointmentForm = ({
             setClashingItem(null);
             return;
         }
-
         const [hours, minutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-        
         const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
         const endDateTime = addMinutes(startDateTime, totalDuration);
-
         const newInterval = { start: startDateTime, end: endDateTime };
 
         const clashApt = appointments.find(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
             if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
-            
-            return areIntervalsOverlapping(newInterval, { 
-                start: apt.startTime, 
-                end: apt.endTime 
-            }, { inclusive: false });
+            return areIntervalsOverlapping(newInterval, { start: apt.startTime, end: apt.endTime }, { inclusive: false });
         });
 
         if (clashApt) {
@@ -329,11 +272,7 @@ const AddAppointmentForm = ({
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
             if (evt.staffId && evt.staffId !== 'all' && staffId !== 'any' && evt.staffId === staffId) return false;
-            
-            return areIntervalsOverlapping(newInterval, { 
-                start: evt.startTime, 
-                end: evt.endTime 
-            }, { inclusive: false });
+            return areIntervalsOverlapping(newInterval, { start: evt.startTime, end: evt.endTime }, { inclusive: false });
         });
 
         if (clashEvt) {
@@ -341,246 +280,321 @@ const AddAppointmentForm = ({
             setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
             return;
         }
-
         setIsOverlapping(false);
         setClashingItem(null);
     }, [date, startTime, selectedService, appointments, services, appointmentToRebook, staffId, events]);
 
     const confirmAndSubmit = (data: any) => {
         if (!data.clientId || !data.serviceId || !data.date || !data.startTime || !services) return;
-
         const [hours, minutes] = data.startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
         const service = services.find(s => s.id === data.serviceId);
         const endDateTime = addMinutes(startDateTime, service?.duration || 0);
-        
         const allServicesInApt = [service, ...selectedAddOns].filter((s): s is Service => !!s);
         const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
 
-        const newAppointment = {
+        onConfirm({
             clientId: data.clientId,
             serviceId: data.serviceId,
             staffId: data.staffId,
             startTime: startDateTime,
             endTime: endDateTime,
-            status: 'confirmed' as const,
+            status: 'confirmed',
             addOnIds: data.addOnIds || [],
             recurrence: data.isRecurring ? data.recurrence : undefined,
             requiredResourceIds: allRequiredResourceIds,
-        };
-        onConfirm(newAppointment);
+        });
     }
     
     const handleSaveAttempt = (data: any) => {
-        if (!data.clientId || !data.serviceId || !data.startTime) {
-            return;
-        }
-        if (isOverlapping) {
-            setShowConfirmation(true);
-        } else {
-            confirmAndSubmit(data);
-        }
+        if (!data.clientId || !data.serviceId || !data.startTime) return;
+        if (isOverlapping) setShowConfirmation(true);
+        else confirmAndSubmit(data);
     };
     
     return (
         <form id="add-appointment-form" onSubmit={handleSubmit(handleSaveAttempt)}>
-            <div className="space-y-6">
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Client & Service</h3>
+            <div className="space-y-10 py-4">
+                <div className="space-y-6">
+                    <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                        <Users className="w-6 h-6 text-primary" />
+                        Engagement
+                    </h3>
                     {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
-                        <Alert variant="destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Outstanding Balance</AlertTitle>
-                            <AlertDescription>
-                                This client has an outstanding balance of ${selectedClient.outstandingBalance.toFixed(2)}.
-                            </AlertDescription>
-                        </Alert>
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                            <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl shadow-destructive/5">
+                                <Wallet className="h-6 w-6" />
+                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
+                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
+                                    Account balance of <strong>${selectedClient.outstandingBalance!.toFixed(2)}</strong> found. Settle at POS to clear.
+                                </AlertDescription>
+                            </Alert>
+                        </motion.div>
                     )}
-                    <div className="space-y-2">
-                        <Label htmlFor="client">Client</Label>
+                    <div className="space-y-3">
+                        <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Rolodex</Label>
                         <div className="flex gap-2">
                             <Controller
                                 name="clientId"
                                 control={control}
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger id="client">
+                                        <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
                                             {selectedClient ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6"><AvatarImage src={selectedClient.avatarUrl} /><AvatarFallback>{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback></Avatar>
-                                                    <span>{selectedClient.name}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <Avatar className="w-8 h-8 border-2 shadow-sm rounded-xl">
+                                                        <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
+                                                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="uppercase tracking-tight">{selectedClient.name}</span>
                                                 </div>
                                             ) : (
                                                 <SelectValue placeholder="Select a client" />
                                             )}
                                         </SelectTrigger>
-                                        <SelectContent>
-                                            {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{(c.name || 'C')?.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                            {(clients || []).map(c => (
+                                                <SelectItem key={c.id} value={c.id} className="rounded-xl">
+                                                    <div className="flex items-center gap-3 py-1">
+                                                        <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                                            <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                                            <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span className="font-bold uppercase tracking-tight">{c.name}</span>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 )}
                             />
-                            <Button variant="outline" size="icon" type="button"><PlusCircle className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" type="button" className="h-14 w-14 rounded-2xl border-2"><PlusCircle className="h-6 w-6" /></Button>
                         </div>
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="staff">Staff Member</Label>
-                        <Controller
-                            name="staffId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
-                                    <SelectTrigger id="staff">
-                                        {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
-                                            <SelectItem key={s.id} value={s.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6">
-                                                        <AvatarImage src={s.avatarUrl} />
-                                                        <AvatarFallback>{(s?.name || 'S')?.charAt(0) || '?'}</AvatarFallback>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                            <Label htmlFor="staff" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Professional</Label>
+                            <Controller
+                                name="staffId"
+                                control={control}
+                                render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
+                                        <SelectTrigger id="staff" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                            {selectedStaff ? (
+                                                <div className="flex items-center gap-3">
+                                                    <Avatar className="w-8 h-8 border-2 shadow-sm rounded-xl">
+                                                        <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
+                                                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback>
                                                     </Avatar>
-                                                    <span>{s?.name || 'Unknown Staff'}</span>
+                                                    <span className="uppercase tracking-tight">{selectedStaff.name.split(' ')[0]}</span>
                                                 </div>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="service">Service</Label>
-                        <Controller
-                            name="serviceId"
-                            control={control}
-                            render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger id="service"><SelectValue placeholder="Select a service" /></SelectTrigger>
-                                    <SelectContent>
-                                        {(services || []).filter(s => s.type === 'service').map(s => {
-                                            const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
-                                            return (
-                                                <SelectItem key={s.id} value={s.id}>
-                                                    <div className="flex items-center w-full gap-2">
-                                                    <span className="flex-1">{s.name}</span>
-                                                    {isMembershipPerk && (
-                                                        <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
-                                                            <Award className="mr-1 h-3 w-3" />
-                                                            Membership Perk
-                                                        </Badge>
-                                                    )}
+                                            ) : (
+                                                <SelectValue placeholder="Professional" />
+                                            )}
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
+                                                <SelectItem key={s.id} value={s.id} className="rounded-xl">
+                                                    <div className="flex items-center gap-3 py-1">
+                                                        <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                                            <AvatarImage src={s.avatarUrl} className="object-cover" />
+                                                            <AvatarFallback className="font-black text-xs">{(s?.name || 'S')?.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span className="font-bold uppercase tracking-tight">{s?.name || 'Unknown Staff'}</span>
                                                     </div>
                                                 </SelectItem>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        />
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Add-on Services</h3>
-                    {selectedAddOns.length > 0 ? (
-                        <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
-                    ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
-                </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Date & Time</h3>
-                    <div className="rounded-lg border space-y-4 p-4">
-                        <div className="flex items-center justify-between">
-                            <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
-                            <span className="font-semibold text-center">{format(date, 'MMMM yyyy')}</span>
-                            <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                            />
                         </div>
-                        <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
+                        <div className="space-y-3">
+                            <Label htmlFor="service" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Menu</Label>
+                            <Controller
+                                name="serviceId"
+                                control={control}
+                                render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger id="service" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                            <SelectValue placeholder="Select service" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                            {(services || []).filter(s => s.type === 'service').map(s => {
+                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
+                                                return (
+                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl">
+                                                        <div className="flex items-center w-full gap-3 py-1">
+                                                            <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
+                                                            {isMembershipPerk && (
+                                                                <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
+                                                                    <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                            />
+                        </div>
                     </div>
-                    <div className="space-y-2">
-                        <Label>Start Time</Label>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                            {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
-                            {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-8">No available slots for this day.</div>)}
+                </div>
+
+                <div className="space-y-6 pt-6 border-t border-dashed">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
+                            <PlusCircle className="w-6 h-6 text-primary" />
+                            Add-ons
+                        </h3>
+                        <Button variant="ghost" onClick={() => setIsAddOnSelectorOpen(true)} type="button" className="h-auto p-0 text-[10px] font-black uppercase tracking-[0.2em] text-primary underline">Browse Extras</Button>
+                    </div>
+                    {selectedAddOns.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2">
+                            {selectedAddOns.map(item => (
+                                <div key={item.id} className="flex items-center justify-between p-4 rounded-[1.25rem] bg-muted/20 border-2 transition-all hover:bg-muted/30">
+                                    <span className="text-xs font-black uppercase tracking-tight text-slate-700">{item.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-8 text-center text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/40 border-4 border-dashed rounded-[2rem]">No Add-ons Selected</div>
+                    )}
+                </div>
+
+                <div className="space-y-6 pt-6 border-t border-dashed">
+                    <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
+                        <CalendarCheck className="w-6 h-6 text-primary" />
+                        Timing
+                    </h3>
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
+                        <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
+                            <div className="flex justify-between items-center px-2">
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
+                                <span className="font-black uppercase tracking-widest text-sm">{format(date, 'MMMM yyyy')}</span>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-3">
+                                {weekDays.map(day => (
+                                    <button 
+                                        key={day.toISOString()} 
+                                        onClick={() => setValue('date', day)} 
+                                        disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", 
+                                            isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
+                                            (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                        )} 
+                                        type="button"
+                                    >
+                                        <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
+                                        <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-8 border-t-2 border-dashed border-white/50">
+                                {timeSlots.map(time => (
+                                    <Button 
+                                        key={time} 
+                                        variant={startTime === time ? 'default' : 'outline'} 
+                                        onClick={() => setValue('startTime', time)} 
+                                        type="button"
+                                        className={cn(
+                                            "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", 
+                                            startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                        )}
+                                    >
+                                        {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                    </Button>
+                                ))}
+                                {timeSlots.length === 0 && (<div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
+                            </div>
                         </div>
                     </div>
                     {isOverlapping && (
-                        <Alert variant="destructive" className="mt-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Potential Double Booking</AlertTitle>
-                            <AlertDescription className="space-y-1">
-                                <p>This time slot overlaps with an existing item.</p>
-                                {clashingItem && (
-                                    <div className="pt-1 mt-1 border-t border-destructive/20">
-                                        <p className="font-bold">Clashes with: {clashingItem.details}</p>
-                                        <p className="text-xs opacity-80">{clashingItem.time}</p>
-                                    </div>
-                                )}
-                            </AlertDescription>
-                        </Alert>
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                            <Alert variant="destructive" className="mt-2 border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl">
+                                <AlertTriangle className="h-6 w-6" />
+                                <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Clash Warning</AlertTitle>
+                                <AlertDescription className="space-y-3 pt-1">
+                                    <p className="text-xs font-bold leading-relaxed opacity-80 uppercase">The selected window overlaps with another session.</p>
+                                    {clashingItem && (
+                                        <div className="pt-3 border-t border-destructive/20">
+                                            <p className="font-black text-xs uppercase tracking-tight">{clashingItem.details}</p>
+                                            <p className="text-[10px] font-black opacity-60 mt-1 uppercase tracking-widest">{clashingItem.time}</p>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        </motion.div>
                     )}
                 </div>
-                <div className="space-y-4">
+
+                <div className="space-y-6 pt-6 border-t border-dashed">
                     <Controller
                         name="isRecurring"
                         control={control}
                         render={({ field }) => (
-                            <div className="flex items-center justify-between p-4 border rounded-lg">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="is-recurring" className="text-base">Recurring Appointment</Label>
-                                    <p className="text-sm text-muted-foreground">Set up a repeating schedule for this client.</p>
+                            <div className="flex items-center justify-between p-6 border-2 rounded-[2rem] bg-primary/[0.03] border-primary/10 shadow-sm">
+                                <div className="space-y-1">
+                                    <Label htmlFor="is-recurring" className="text-lg font-black uppercase tracking-tight">Recurring Schedule</Label>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Automate future appointments</p>
                                 </div>
-                                <Switch id="is-recurring" checked={field.value} onCheckedChange={field.onChange} />
+                                <Switch id="is-recurring" checked={field.value} onCheckedChange={field.onChange} className="scale-125" />
                             </div>
                         )}
                     />
-                    {watch('isRecurring') && (
-                        <Card className="bg-muted/50"><CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Controller
-                                name="recurrence.frequency"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                        <Label>Frequency</Label>
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger><SelectValue placeholder="Select frequency" /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="weekly">Weekly</SelectItem>
-                                                <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
-                                                <SelectItem value="every-3-weeks">Every 3 Weeks</SelectItem>
-                                                <SelectItem value="every-4-weeks">Every 4 Weeks</SelectItem>
-                                                <SelectItem value="monthly">Monthly</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                )}
-                            />
-                            <Controller
-                                name="recurrence.endDate"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                        <Label>End Date</Label>
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant={"outline"}
-                                                    className={cn('w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}
-                                                >
-                                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                                    {field.value ? format(field.value, 'PPP') : 'Pick end date'}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                                        </Popover>
-                                    </div>
-                                )}
-                            />
-                        </CardContent></Card>
-                    )}
+                    <AnimatePresence>
+                        {watch('isRecurring') && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner">
+                                    <CardContent className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <Controller
+                                            name="recurrence.frequency"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <div className="space-y-3">
+                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Frequency</Label>
+                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-bold bg-background"><SelectValue /></SelectTrigger>
+                                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                                            <SelectItem value="weekly" className="font-bold">Weekly</SelectItem>
+                                                            <SelectItem value="bi-weekly" className="font-bold">Bi-Weekly</SelectItem>
+                                                            <SelectItem value="every-3-weeks" className="font-bold">Every 3 Weeks</SelectItem>
+                                                            <SelectItem value="every-4-weeks" className="font-bold">Every 4 Weeks</SelectItem>
+                                                            <SelectItem value="monthly" className="font-bold">Monthly</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            )}
+                                        />
+                                        <Controller
+                                            name="recurrence.endDate"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <div className="space-y-3">
+                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">End Date</Label>
+                                                    <input 
+                                                        type="date" 
+                                                        value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                                        onChange={(e) => {
+                                                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                                            field.onChange(d);
+                                                        }}
+                                                        className="w-full h-14 rounded-2xl border-2 bg-background px-4 font-black text-lg focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
+                                                    />
+                                                </div>
+                                            )}
+                                        />
+                                    </CardContent>
+                                </Card>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
             <SelectAddOnsDialog 
@@ -591,14 +605,17 @@ const AddAppointmentForm = ({
                 onSelect={handleAddOnsChange} 
             />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This time slot overlaps with {clashingItem?.details || 'an existing item'}. Are you sure you want to proceed?
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                    <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
+                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Overlap</AlertDialogTitle>
+                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                            This time slot overlaps with {clashingItem?.details || 'an existing item'}. Force this booking?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleSubmit(confirmAndSubmit)}>Book Anyway</AlertDialogAction></AlertDialogFooter>
+                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                        <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
+                    </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
         </form>
@@ -607,13 +624,10 @@ const AddAppointmentForm = ({
 
 export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, client, appointmentToRebook, memberships }) => {
   const isMobile = useIsMobile();
+  const formKey = useMemo(() => appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${client?.id || 'fresh'}`, [appointmentToRebook, client]);
 
-  const formKey = useMemo(() => {
-    return appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${client?.id || 'fresh'}`;
-  }, [appointmentToRebook, client]);
-
-  const title = "New Appointment";
-  const description = "Book a new appointment for a client.";
+  const dialogTitle = "New Session";
+  const dialogDescription = "Reserve a studio session for your guest.";
   
   const FormContent = <AddAppointmentForm 
     key={formKey}
@@ -626,15 +640,23 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="text-left p-4 border-b">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0 border-none rounded-t-[3rem] bg-background shadow-2xl">
+          <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Planning Studio</span>
+            </div>
+            <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</SheetTitle>
+            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{dialogDescription}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4 border-t">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form="add-appointment-form" className="w-full">Book Appointment</Button>
+          <div className="flex-1 overflow-y-auto">
+              <div className="px-8">{FormContent}</div>
+          </div>
+          <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+            <div className="flex w-full gap-4">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button type="submit" form="add-appointment-form" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Complete Booking</Button>
+            </div>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -643,19 +665,42 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
-         <DialogHeader className="p-6 pb-4">
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left">
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Planning Studio</span>
+            </div>
+            <DialogTitle className="text-4xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto px-6">
-            {FormContent}
-        </div>
-        <DialogFooter className="p-6 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form="add-appointment-form">Book Appointment</Button>
+        <ScrollArea className="flex-1">
+            <div className="px-10">
+                {FormContent}
+            </div>
+        </ScrollArea>
+        <DialogFooter className="p-10 pt-6 border-t bg-background">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
+          <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20">Book Appointment</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+};
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
 };
