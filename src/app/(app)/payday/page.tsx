@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -32,7 +31,8 @@ import {
     Filter,
     ChevronLeft,
     ChevronRight,
-    CheckCircle2
+    CheckCircle2,
+    CalendarSearch
 } from 'lucide-react';
 import {
   Accordion,
@@ -66,6 +66,9 @@ import {
     addMonths
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { type DateRange } from 'react-day-picker';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -97,7 +100,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
     </div>
 );
 
-type Cadence = 'weekly' | 'bi-weekly' | 'monthly';
+type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 export default function PaydayPage() {
   const { billDefinitions, billInstances, transactions, staff, activityLogs } = useInventory();
@@ -114,6 +117,7 @@ export default function PaydayPage() {
   });
 
   const handlePrevPeriod = () => {
+      if (cadence === 'custom') return;
       setDateRange(prev => {
           let daysToShift = 7;
           if (cadence === 'bi-weekly') daysToShift = 14;
@@ -126,6 +130,7 @@ export default function PaydayPage() {
   };
 
   const handleNextPeriod = () => {
+      if (cadence === 'custom') return;
       setDateRange(prev => {
           let daysToShift = 7;
           if (cadence === 'bi-weekly') daysToShift = 14;
@@ -146,6 +151,13 @@ export default function PaydayPage() {
           setDateRange({ from: startOfDay(subDays(now, 13)), to: endOfDay(now) });
       } else if (newCadence === 'monthly') {
           setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
+      }
+      // If 'custom', we keep the current range until they pick a new one
+  };
+
+  const handleCustomRangeSelect = (range: DateRange | undefined) => {
+      if (range?.from && range?.to) {
+          setDateRange({ from: startOfDay(range.from), to: endOfDay(range.to) });
       }
   };
 
@@ -265,17 +277,57 @@ export default function PaydayPage() {
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'weekly' && "bg-white shadow-sm")}>Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'bi-weekly' && "bg-white shadow-sm")}>Bi-Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'monthly' && "bg-white shadow-sm")}>Monthly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('custom')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'custom' && "bg-white shadow-sm")}>Custom</Button>
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20">
-                    <Button variant="ghost" size="icon" onClick={handlePrevPeriod} className="h-10 w-10 hover:bg-white rounded-full shadow-sm"><ChevronLeft className="w-5 h-5"/></Button>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={handlePrevPeriod} 
+                        disabled={cadence === 'custom'}
+                        className="h-10 w-10 hover:bg-white rounded-full shadow-sm disabled:opacity-20"
+                    >
+                        <ChevronLeft className="w-5 h-5"/>
+                    </Button>
+                    
                     <div className="text-center">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-0.5">Reconciling Period</p>
-                        <p className="text-sm md:text-lg font-black text-slate-900">
-                            {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
+                        <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-0.5">
+                            {cadence === 'custom' ? 'Custom Range' : 'Reconciling Period'}
                         </p>
+                        {cadence === 'custom' ? (
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="text-sm md:text-lg font-black text-slate-900 border-b-2 border-primary border-dashed hover:text-primary transition-colors">
+                                        {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="center">
+                                    <Calendar
+                                        initialFocus
+                                        mode="range"
+                                        selected={{ from: dateRange.from, to: dateRange.to }}
+                                        onSelect={handleCustomRangeSelect}
+                                        numberOfMonths={2}
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                        ) : (
+                            <p className="text-sm md:text-lg font-black text-slate-900">
+                                {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
+                            </p>
+                        )}
                     </div>
-                    <Button variant="ghost" size="icon" onClick={handleNextPeriod} className="h-10 w-10 hover:bg-white rounded-full shadow-sm"><ChevronRight className="w-5 h-5"/></Button>
+
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={handleNextPeriod} 
+                        disabled={cadence === 'custom'}
+                        className="h-10 w-10 hover:bg-white rounded-full shadow-sm disabled:opacity-20"
+                    >
+                        <ChevronRight className="w-5 h-5"/>
+                    </Button>
                 </div>
             </div>
             
