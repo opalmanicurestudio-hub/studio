@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -21,7 +20,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -32,6 +31,7 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -661,9 +661,36 @@ function POSPageContent() {
         }
     };
 
+    const handleScan = useCallback((data: string) => {
+        if (!inventory) return;
+        
+        // Check for product match by SKU or full ID
+        const matchedProduct = inventory.find(p => p.sku === data || p.id === data);
+        if (matchedProduct) {
+            handleAddToCart(matchedProduct);
+            toast({ 
+                title: "Product Detected", 
+                description: `${matchedProduct.name} added to cart.`,
+                icon: <ShoppingCart className="h-4 w-4" />
+            });
+            setIsScannerOpen(false);
+            return;
+        }
+
+        // Handle other ClarityFlow codes
+        if (data.startsWith('clarityflow://checkout/')) {
+            const appointmentId = data.split('/').pop();
+            if (appointmentId && readyForCheckoutAppointments.some(a => a.id === appointmentId)) {
+                handleSelectAppointment(appointmentId);
+                toast({ title: "Checkout Ticket Found" });
+                setIsScannerOpen(false);
+            }
+        } else {
+            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not identify product or ticket.' });
+        }
+    }, [inventory, readyForCheckoutAppointments, handleAddToCart, handleSelectAppointment, toast]);
+
     const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
-    
-    // REQUIREMENT FIX: Load ALL clients for selection, not just those with appointments.
     const allClientOptions = clients || [];
 
     const checkoutHubProps = {
@@ -722,9 +749,34 @@ function POSPageContent() {
         });
     };
 
+    useEffect(() => {
+        let html5QrCode: Html5Qrcode | undefined;
+        if (isScannerOpen) {
+            const timer = setTimeout(() => {
+                const element = document.getElementById('qr-reader-pos');
+                if (element) {
+                    html5QrCode = new Html5Qrcode('qr-reader-pos');
+                    html5QrCode.start(
+                        { facingMode: "environment" }, 
+                        { fps: 10, qrbox: { width: 250, height: 250 } }, 
+                        (decodedText) => handleScan(decodedText),
+                        () => {}
+                    ).catch(() => {
+                        toast({ variant: 'destructive', title: 'Camera Error' });
+                        setIsScannerOpen(false);
+                    });
+                }
+            }, 300);
+            return () => {
+                clearTimeout(timer);
+                if (html5QrCode?.isScanning) html5QrCode.stop().catch(console.error);
+            };
+        }
+    }, [isScannerOpen, handleScan, toast]);
+
     const todayAppointments = useMemo(() => {
         const todayStart = startOfDay(new Date());
-        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), todayStart));
+        return (appointmentsFromInventory || []).filter(a => isSameDay(new Date(a.startTime), todayStart));
     }, [appointmentsFromInventory]);
 
     return (

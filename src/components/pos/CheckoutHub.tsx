@@ -32,7 +32,9 @@ import {
     Zap,
     Search,
     ChevronRight,
-    User
+    User,
+    Plus,
+    Minus
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -240,7 +242,7 @@ export const CheckoutHub = ({
 
     const cartServiceIds = useMemo(() => {
         const appointmentServiceIds = appointmentsData.map((a: any) => a.appointment.serviceId);
-        const cartServices = cart.filter(item => item.type === 'service').map(item => item.id);
+        const cartServices = cart.filter((item: any) => item.type === 'service').map((item: any) => item.id);
         const appointmentAddOnIds = appointmentsData.flatMap((a: any) => a.appointment.addOnIds || []);
         return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
     }, [cart, appointmentsData]);
@@ -248,9 +250,9 @@ export const CheckoutHub = ({
     const handleApplyDiscount = (code: string) => {
         const codeUpper = code.trim().toUpperCase();
         if (!codeUpper) return;
-        const d = discounts.find(d => d.code.toUpperCase() === codeUpper);
+        const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper);
         if (d && d.isActive) {
-            const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || (d.applicableServiceIds.some(id => cartServiceIds.includes(id)));
+            const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || (d.applicableServiceIds.some((id: string) => cartServiceIds.includes(id)));
             if (!isCompatible) return toast({ variant: 'destructive', title: 'Incompatible' });
             if (appliedDiscountCodes.includes(d.code)) return;
             if (!allowStacking) setAppliedDiscountCodes([d.code]);
@@ -304,9 +306,13 @@ export const CheckoutHub = ({
             <div className="mb-8 flex-shrink-0">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-3 mt-2">
-                    <Popover open={isPayerPopoverOpen} onOpenChange={setIsPayerPopoverOpen}>
+                    <Popover open={isPayerPopoverOpen} onOpenChange={isPayerPopoverOpen ? () => setIsPayerPopoverOpen(false) : undefined}>
                         <PopoverTrigger asChild>
-                            <Button variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4">
+                            <Button 
+                                variant="outline" 
+                                onClick={() => setIsPayerPopoverOpen(true)}
+                                className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4"
+                            >
                                 {selectedClient ? (
                                     <div className="flex items-center gap-3">
                                         <Avatar className="h-8 w-8 border-2 shadow-sm rounded-xl">
@@ -362,7 +368,7 @@ export const CheckoutHub = ({
                     </Popover>
                     <div className="flex gap-2">
                         <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onAddClientClick}><UserPlus className="w-6 h-6" /></Button>
-                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onScanClick}><QrCode className="w-6 h-6" /></Button>
+                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shadow-sm" onClick={onScanClick}><Scan className="w-6 h-6" /></Button>
                     </div>
                 </div>
                 {selectedClient && (
@@ -394,7 +400,7 @@ export const CheckoutHub = ({
                     <div className="space-y-4">
                         <div className="flex items-center gap-2 px-1">
                             <ShoppingCart className="w-4 h-4 text-primary" />
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Session Summary</h3>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized List</h3>
                         </div>
                         <div className="space-y-3">
                             {appointmentsData.map((data: any) => {
@@ -447,10 +453,17 @@ export const CheckoutHub = ({
                             {cart.map((item: any) => (
                                 <div key={item.id} className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-4 group">
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}</p>
+                                        <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
                                         <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
                                     </div>
-                                    <p className="font-black font-mono text-sm tracking-tighter">${(item.price * item.quantity).toFixed(2)}</p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center bg-background rounded-lg border-2 h-8 px-1">
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-md" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3"/></Button>
+                                            <span className="w-8 text-center text-xs font-black">{item.quantity}</span>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-md" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3"/></Button>
+                                        </div>
+                                        <p className="font-black font-mono text-sm tracking-tighter w-16 text-right">${(item.price * item.quantity).toFixed(2)}</p>
+                                    </div>
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="h-4 w-4"/></Button>
                                 </div>
                             ))}
