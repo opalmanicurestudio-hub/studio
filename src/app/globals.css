@@ -1,45 +1,47 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  font-family: var(--font-body), sans-serif;
+  font-family: 'Figtree', sans-serif;
+  letter-spacing: -0.01em;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-headline), sans-serif;
+  font-family: 'Figtree', sans-serif;
 }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    /* PRD Colors: Primary #7955c4, Background #f0f0f5, Accent #4db6ac */
+    --background: 240 15% 96%; /* #f0f0f5 */
     --foreground: 224 71.4% 4.1%;
     --card: 0 0% 100%;
     --card-foreground: 224 71.4% 4.1%;
     --popover: 0 0% 100%;
     --popover-foreground: 224 71.4% 4.1%;
-    --primary: 210 40% 55%;
+    --primary: 259 50% 55%; /* #7955c4 */
     --primary-foreground: 210 20% 98%;
-    --secondary: 210 40% 96.1%;
+    --secondary: 240 10% 90%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
+    --muted: 240 10% 92%;
     --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
+    --accent: 174 42% 51%; /* #4db6ac */
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 210 40% 55%;
+    --border: 240 10% 88%;
+    --input: 240 10% 88%;
+    --ring: 259 50% 55%;
+    --radius: 1.5rem;
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 224 71.4% 4.1%;
-    --sidebar-primary: 210 40% 55%;
+    --sidebar-primary: 259 50% 55%;
     --sidebar-primary-foreground: 210 20% 98%;
-    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent: 240 10% 96%;
     --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-    --sidebar-border: 214.3 31.8% 91.4%;
-    --sidebar-ring: 210 40% 55%;
+    --sidebar-border: 240 10% 92%;
+    --sidebar-ring: 259 50% 55%;
   }
 
   .dark {
@@ -49,27 +51,27 @@ h1, h2, h3, h4, h5, h6 {
     --card-foreground: 210 20% 90%;
     --popover: 220 15% 15%;
     --popover-foreground: 210 20% 90%;
-    --primary: 210 40% 55%;
+    --primary: 259 50% 55%;
     --primary-foreground: 210 20% 98%;
     --secondary: 220 15% 20%;
     --secondary-foreground: 210 20% 90%;
     --muted: 220 15% 20%;
     --muted-foreground: 210 20% 65%;
-    --accent: 220 15% 25%;
+    --accent: 174 42% 51%;
     --accent-foreground: 210 20% 90%;
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 15% 20%;
     --input: 220 15% 25%;
-    --ring: 210 40% 55%;
+    --ring: 259 50% 55%;
     --sidebar-background: 220 15% 12%;
     --sidebar-foreground: 210 20% 90%;
-    --sidebar-primary: 210 40% 55%;
+    --sidebar-primary: 259 50% 55%;
     --sidebar-primary-foreground: 210 20% 98%;
     --sidebar-accent: 220 15% 20%;
     --sidebar-accent-foreground: 210 20% 90%;
     --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 210 40% 55%;
+    --sidebar-ring: 259 50% 55%;
   }
 }
 
@@ -94,4 +96,23 @@ h1, h2, h3, h4, h5, h6 {
   .PhoneInputCountrySelectArrow {
     @apply w-4 h-4 text-muted-foreground ml-2 opacity-75;
   }
+}
+
+/* Custom Scrollbar for Luxury feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
 }

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -105,7 +104,6 @@ const financialsNavItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { toggleSidebar } = useSidebar();
   const { selectedTenant, isLoading: isTenantLoading, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const auth = useAuth();
@@ -130,84 +128,87 @@ export function AppSidebar() {
 
 
   return (
-    <Sidebar>
-      <SidebarHeader>
-        <div className="flex items-center gap-2">
-            <ClarityFlowLogo />
-            <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+    <Sidebar className="border-r border-border/40">
+      <SidebarHeader className="p-6">
+        <div className="flex items-center gap-3">
+            <ClarityFlowLogo className="w-8 h-8" />
+            <h2 className="text-xl font-black uppercase tracking-tighter text-slate-900 group-data-[collapsible=icon]:hidden">
                 ClarityFlow
             </h2>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-4">
         {role === 'owner' && (
-            <div className="p-2">
+            <div className="mb-6">
             <ClientOnly>
                 <TenantSwitcher />
             </ClientOnly>
             </div>
         )}
-        <SidebarMenu>
-        {(role === 'owner' ? mainNavItems : staffNavItems).map((item) => (
-            <SidebarMenuItem key={item.href}>
-            <SidebarMenuButton
-                asChild
-                isActive={isNavItemActive(item.href)}
-                tooltip={item.label}
-            >
-                <Link href={item.href}>
-                <item.icon />
-                <span>{item.label}</span>
-                </Link>
-            </SidebarMenuButton>
-            </SidebarMenuItem>
-        ))}
-        </SidebarMenu>
+        <SidebarGroup>
+            <SidebarMenu>
+            {(role === 'owner' ? mainNavItems : staffNavItems).map((item) => (
+                <SidebarMenuItem key={item.href}>
+                <SidebarMenuButton
+                    asChild
+                    isActive={isNavItemActive(item.href)}
+                    tooltip={item.label}
+                    className="rounded-xl h-11 font-bold transition-all data-[active=true]:bg-primary data-[active=true]:text-white hover:bg-primary/10"
+                >
+                    <Link href={item.href}>
+                    <item.icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                    </Link>
+                </SidebarMenuButton>
+                </SidebarMenuItem>
+            ))}
+            </SidebarMenu>
+        </SidebarGroup>
 
         {role === 'owner' && (
             <>
-                <SidebarSeparator />
+                <SidebarSeparator className="my-4 opacity-50" />
                 <SidebarGroup>
-                    <SidebarGroupLabel>Manage</SidebarGroupLabel>
+                    <SidebarGroupLabel className="px-2 mb-2 font-black uppercase text-[10px] tracking-widest text-muted-foreground">Studio Management</SidebarGroupLabel>
                     <SidebarMenu>
                         {manageNavItems.map((item) => (
                             <SidebarMenuItem key={item.href}>
-                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
-                                    <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label} className="rounded-xl h-10 font-bold transition-all data-[active=true]:bg-primary data-[active=true]:text-white hover:bg-primary/10">
+                                    <Link href={item.href}><item.icon className="w-4.5 h-4.5" /><span>{item.label}</span></Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
                     </SidebarMenu>
                 </SidebarGroup>
-                <SidebarSeparator />
+                <SidebarSeparator className="my-4 opacity-50" />
                 <SidebarGroup>
-                    <SidebarGroupLabel>Financials</SidebarGroupLabel>
+                    <SidebarGroupLabel className="px-2 mb-2 font-black uppercase text-[10px] tracking-widest text-muted-foreground">Financial Suite</SidebarGroupLabel>
                     <SidebarMenu>
                         {financialsNavItems.map((item) => (
                             <SidebarMenuItem key={item.href}>
-                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
-                                    <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                                <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label} className="rounded-xl h-10 font-bold transition-all data-[active=true]:bg-primary data-[active=true]:text-white hover:bg-primary/10">
+                                    <Link href={item.href}><item.icon className="w-4.5 h-4.5" /><span>{item.label}</span></Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
                     </SidebarMenu>
                 </SidebarGroup>
-                <SidebarSeparator />
+                <SidebarSeparator className="my-4 opacity-50" />
                 <SidebarGroup>
-                    <SidebarGroupLabel>Public Pages</SidebarGroupLabel>
+                    <SidebarGroupLabel className="px-2 mb-2 font-black uppercase text-[10px] tracking-widest text-muted-foreground">Public Touchpoints</SidebarGroupLabel>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild tooltip="Booking Page" disabled={isTenantLoading || !tenantId}>
+                            <SidebarMenuButton asChild tooltip="Booking Page" disabled={isTenantLoading || !tenantId} className="rounded-xl h-10 font-bold hover:bg-primary/10">
                                 <Link href={tenantId ? `/book/${tenantId}` : '#'} target="_blank">
-                                    <Globe />
-                                    <span>Booking Page</span>
+                                    <Globe className="w-4.5 h-4.5 text-primary" />
+                                    <span>Client Booking Page</span>
                                 </Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId}>
+                            <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId} className="rounded-xl h-10 font-bold hover:bg-primary/10">
                                 <Link href={tenantId ? `/kiosk/${tenantId}` : '#'} target="_blank">
-                                    <Users />
+                                    <Users className="w-4.5 h-4.5 text-primary" />
                                     <span>Walk-in Kiosk</span>
                                 </Link>
                             </SidebarMenuButton>
@@ -217,32 +218,24 @@ export function AppSidebar() {
             </>
         )}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="p-4 bg-muted/30">
         <SidebarMenu>
             {role === 'owner' && (
                 <>
                     <SidebarMenuItem>
-                        <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
+                        <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings" className="rounded-xl font-bold hover:bg-primary/10">
                         <Link href="/settings">
-                            <Settings />
+                            <Settings className="w-4.5 h-4.5" />
                             <span>Settings</span>
-                        </Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton asChild tooltip="Help Center">
-                        <Link href="#">
-                            <LifeBuoy />
-                            <span>Support</span>
                         </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                 </>
             )}
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
-                <LogOut />
-                <span>Logout</span>
+              <SidebarMenuButton onClick={handleLogout} tooltip="Logout" className="rounded-xl font-bold text-destructive hover:bg-destructive/5 hover:text-destructive">
+                <LogOut className="w-4.5 h-4.5" />
+                <span>Sign Out</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
         </SidebarMenu>
