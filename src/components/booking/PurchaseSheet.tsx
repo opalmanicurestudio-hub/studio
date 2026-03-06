@@ -18,7 +18,7 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { PhoneInput } from '../ui/phone-input';
 import { Card, CardContent } from '../ui/card';
-import { Award, Repeat, DollarSign, CreditCard, Loader, Sparkles, ShieldCheck, Lock, ArrowRight } from 'lucide-react';
+import { Award, Repeat, DollarSign, CreditCard, Loader, Sparkles, ShieldCheck, Lock, ArrowRight, CheckCircle2, User } from 'lucide-react';
 import { Separator } from '../ui/separator';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -88,7 +88,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                             {step === 'success' ? (
                                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12 space-y-8" key="success">
                                     <div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
-                                        <ShieldCheck className="w-16 h-16 text-green-500 -rotate-6" />
+                                        <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
                                     </div>
                                     <div className="space-y-3">
                                         <h2 className="text-4xl font-black uppercase tracking-tighter">Welcome Aboard!</h2>
@@ -183,7 +183,7 @@ export const PurchaseSheet: React.FC<PurchaseSheetProps> = ({
                             )}
                             <Button 
                                 type="submit" 
-                                form={step === 'info' ? "purchase-details-form" : undefined}
+                                form="purchase-details-form"
                                 onClick={step === 'payment' ? handleSubmit(handleFormSubmit) : undefined}
                                 disabled={isSubmitting}
                                 className={cn(
