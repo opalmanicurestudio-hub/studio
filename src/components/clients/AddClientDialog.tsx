@@ -282,7 +282,6 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
     return (
         <div className="space-y-6 md:space-y-8">
-            {/* Section 1: Basic Info */}
             <div className="space-y-4">
                 <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">1. Basic Information</h3>
                  <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-4">
@@ -305,25 +304,25 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div className="space-y-1.5">
                         <Label htmlFor="full-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Full Name</Label>
-                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} className="h-11 md:h-12" />
+                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} className="h-10 md:h-12" />
                         {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                     </div>
                     <div className="space-y-1.5">
                         <Label htmlFor="email" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Email</Label>
-                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} className="h-11 md:h-12" />
+                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} className="h-10 md:h-12" />
                         {errors.email && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.email.message}</p>}
                     </div>
                 </div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                         <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Phone Number</Label>
-                        <PhoneInput name="phone" label="" placeholder="e.g., (555) 123-4567" className="h-11 md:h-12" />
+                        <PhoneInput name="phone" label="" placeholder="e.g., (555) 123-4567" className="h-10 md:h-12" />
                     </div>
                      <div className="space-y-1.5">
                         <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Birthday</Label>
                         <div className="grid grid-cols-3 gap-1.5">
                             <Select value={birthMonth} onValueChange={setBirthMonth}>
-                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Mo" /></SelectTrigger>
+                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Mo" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 12 }, (_, i) => (
                                         <SelectItem key={i + 1} value={(i + 1).toString()}>
@@ -333,7 +332,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                 </SelectContent>
                             </Select>
                             <Select value={birthDay} onValueChange={setBirthDay}>
-                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Day" /></SelectTrigger>
+                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Day" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 31 }, (_, i) => (
                                         <SelectItem key={i + 1} value={(i + 1).toString()}>
@@ -343,7 +342,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                 </SelectContent>
                             </Select>
                             <Select value={birthYear} onValueChange={setBirthYear}>
-                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Yr" /></SelectTrigger>
+                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Yr" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 100 }, (_, i) => {
                                         const year = new Date().getFullYear() - i;
@@ -365,26 +364,26 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 <div className="space-y-3 p-4 md:p-5 rounded-2xl border-2 bg-muted/5">
                     <div className="space-y-1.5">
                         <Label htmlFor="street" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Street Address</Label>
-                        <Input id="street" placeholder="123 Main St" {...register('address.street')} className="h-11 md:h-12" />
+                        <Input id="street" placeholder="123 Main St" {...register('address.street')} className="h-10 md:h-12" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                             <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">City</Label>
-                            <Input placeholder="City" {...register('address.city')} className="h-11 md:h-12" />
+                            <Input placeholder="City" {...register('address.city')} className="h-10 md:h-12" />
                         </div>
                         <div className="space-y-1.5">
                             <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">State</Label>
-                            <Input placeholder="State" {...register('address.state')} className="h-11 md:h-12" />
+                            <Input placeholder="State" {...register('address.state')} className="h-10 md:h-12" />
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                             <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">ZIP</Label>
-                            <Input placeholder="ZIP" {...register('address.zip')} className="h-11 md:h-12" />
+                            <Input placeholder="ZIP" {...register('address.zip')} className="h-10 md:h-12" />
                         </div>
                         <div className="space-y-1.5">
                             <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Country</Label>
-                            <Input placeholder="Country" {...register('address.country')} className="h-11 md:h-12" />
+                            <Input placeholder="Country" {...register('address.country')} className="h-10 md:h-12" />
                         </div>
                     </div>
                 </div>
@@ -395,11 +394,11 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div className="space-y-1.5">
                         <Label htmlFor="emergency-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Name</Label>
-                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} className="h-11 md:h-12" />
+                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} className="h-10 md:h-12" />
                     </div>
                     <div className="space-y-1.5">
                         <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Phone</Label>
-                        <PhoneInput name="emergencyContact.phone" label="" className="h-11 md:h-12" />
+                        <PhoneInput name="emergencyContact.phone" label="" className="h-10 md:h-12" />
                     </div>
                 </div>
                  <div className="space-y-1.5">
@@ -409,7 +408,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         control={control}
                         render={({ field }) => (
                             <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="emergency-relationship" className="h-11 md:h-12">
+                                <SelectTrigger id="emergency-relationship" className="h-10 md:h-12">
                                     <SelectValue placeholder="Select..." />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -428,14 +427,13 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 </div>
             </div>
 
-             {/* Section 2: Tags & Referral */}
              <div className="space-y-4">
                 <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">4. Marketing Intel</h3>
                 <div className="space-y-1.5">
                     <Label htmlFor="referral-code" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Promo Code</Label>
                     <div className="relative">
                         <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9 h-11 md:h-12" />
+                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9 h-10 md:h-12" />
                     </div>
                 </div>
                 <div className="space-y-1.5">
@@ -447,9 +445,9 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                             value={tagInput}
                             onChange={(e) => setTagInput(e.target.value)}
                             onKeyDown={handleTagInputKeyDown}
-                            className="h-11 md:h-12"
+                            className="h-10 md:h-12"
                         />
-                        <Button type="button" onClick={handleAddTag} variant="secondary" className="h-11 md:h-12">Add</Button>
+                        <Button type="button" onClick={handleAddTag} variant="secondary" className="h-10 md:h-12">Add</Button>
                     </div>
                     <div className="flex flex-wrap gap-1.5 pt-1">
                         {tags.map(tag => (
@@ -473,7 +471,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         control={control}
                         render={({ field }) => (
                             <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="referral-source" className="h-11 md:h-12">
+                                <SelectTrigger id="referral-source" className="h-10 md:h-12">
                                     <SelectValue placeholder="How did they find you?" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -494,7 +492,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                             <div className="space-y-1.5">
                                 <Label htmlFor="referring-client" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Referring Client</Label>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger id="referring-client" className="h-11 md:h-12">
+                                    <SelectTrigger id="referring-client" className="h-10 md:h-12">
                                     <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -509,32 +507,30 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 )}
              </div>
 
-             {/* Section 3: Client Intel */}
              <div className="space-y-4">
                 <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">5. Health & Safety</h3>
                 <ClientIntelAccordion />
              </div>
 
-            {/* Section 4: Notes */}
             <div className="space-y-4">
                 <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">6. Discovery Notes</h3>
                 <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals']}>
                     <AccordionItem value="goals" className="border rounded-xl overflow-hidden">
                         <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Client Goals</AccordionTrigger>
                         <AccordionContent className="p-3">
-                            <Textarea placeholder="What is the client hoping to achieve today and in the long term?" className="text-xs min-h-[80px]" {...register('notes.goals')} />
+                            <Textarea placeholder="What is the client hoping to achieve..." className="text-xs min-h-[80px]" {...register('notes.goals')} />
                         </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="routine" className="border rounded-xl overflow-hidden">
                         <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Routine & Products</AccordionTrigger>
                         <AccordionContent className="p-3">
-                            <Textarea placeholder="Current home care and products..." className="text-xs min-h-[80px]" {...register('notes.routine')} />
+                            <Textarea placeholder="Current home care..." className="text-xs min-h-[80px]" {...register('notes.routine')} />
                         </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="history" className="border rounded-xl overflow-hidden">
                         <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Past Service History</AccordionTrigger>
                         <AccordionContent className="p-3">
-                            <Textarea placeholder="Past experiences, good or bad..." className="text-xs min-h-[80px]" {...register('notes.history')} />
+                            <Textarea placeholder="Past experiences..." className="text-xs min-h-[80px]" {...register('notes.history')} />
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="other" className="border rounded-xl overflow-hidden">
@@ -583,7 +579,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   
   const formId = "add-client-form";
   const title = "New Client Record";
-  const description = "Register a guest account in the rolodex.";
+  const description = "Register a guest account.";
   
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
@@ -591,25 +587,25 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   const FormBody = (
     <FormProvider {...methods}>
       <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col flex-1 min-h-0">
-        <DialogHeader className={isMobile ? 'p-6 pb-4 border-b text-left flex-shrink-0 bg-muted/5' : 'p-6 pb-4 flex-shrink-0'}>
-          <div className="flex items-center gap-3 mb-2">
-            <UserPlus className="w-5 h-5 text-primary" />
+        <DialogHeader className={isMobile ? 'p-4 pb-2 border-b text-left flex-shrink-0 bg-muted/5' : 'p-6 pb-4 flex-shrink-0'}>
+          <div className="flex items-center gap-3 mb-1 md:mb-2">
+            <UserPlus className="w-4 h-4 md:w-5 md:h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Guest Registration</span>
           </div>
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">{title}</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
+          <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900">{title}</DialogTitle>
+          <DialogDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto bg-background">
-          <div className={cn("p-6", isMobile && "pb-24")}>
+          <div className={cn("p-4 md:p-6", isMobile && "pb-24")}>
             <AddClientForm clients={clients} />
           </div>
         </div>
              
-        <DialogFooter className={cn("flex-shrink-0 bg-white", isMobile ? "p-6 border-t fixed bottom-0 left-0 right-0 z-20" : "p-6 border-t")}>
+        <DialogFooter className={cn("flex-shrink-0 bg-white", isMobile ? "p-4 border-t fixed bottom-0 left-0 right-0 z-20" : "p-6 border-t")}>
           <div className={cn("flex w-full gap-3", isMobile ? "grid grid-cols-2" : "justify-end")}>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-sm text-slate-400">Cancel</Button>
-            <Button type="submit" className="h-12 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-sm rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30">Complete Registration</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-10 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-sm text-slate-400">Cancel</Button>
+            <Button type="submit" className="h-10 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-sm rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30">Finish</Button>
           </div>
         </DialogFooter>
       </form>
@@ -622,7 +618,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
         side={isMobile ? 'bottom' : undefined}
         className={
           isMobile
-            ? "h-[95vh] flex flex-col p-0 border-none rounded-t-[3rem] overflow-hidden"
+            ? "h-[90vh] flex flex-col p-0 border-none rounded-t-[3rem] overflow-hidden"
             : "max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden"
         }
       >

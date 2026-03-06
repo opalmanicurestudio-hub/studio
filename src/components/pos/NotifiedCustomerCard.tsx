@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { parseISO, differenceInMinutes } from 'date-fns';
-import { Clock, SkipForward, Play, XCircle, Users, AlertTriangle, Cake, Undo2 } from 'lucide-react';
+import { Clock, SkipForward, Play, XCircle, Users, AlertTriangle, Cake, Undo2, MoreHorizontal } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
