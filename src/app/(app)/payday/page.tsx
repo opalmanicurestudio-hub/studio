@@ -43,7 +43,21 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, subDays, format, isWithinInterval, differenceInDays } from 'date-fns';
+import { 
+    differenceInMinutes, 
+    parseISO, 
+    startOfDay, 
+    endOfDay, 
+    subDays, 
+    format, 
+    isWithinInterval, 
+    differenceInDays, 
+    startOfWeek, 
+    endOfWeek, 
+    subWeeks, 
+    startOfMonth, 
+    endOfMonth 
+} from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -83,14 +97,29 @@ export default function PaydayPage() {
   const { billDefinitions, billInstances, transactions, staff, activityLogs } = useInventory();
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   
+  // Default to current calendar week (Sun-Sat)
   const [date, setDate] = React.useState<DateRange | undefined>({
-      from: startOfDay(subDays(new Date(), 13)), // Default to Bi-weekly (14 days total)
-      to: endOfDay(new Date()),
+      from: startOfWeek(new Date(), { weekStartsOn: 0 }),
+      to: endOfWeek(new Date(), { weekStartsOn: 0 }),
   });
 
-  const setWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 6)), to: endOfDay(new Date()) });
-  const setBiWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 13)), to: endOfDay(new Date()) });
-  const setMonthly = () => setDate({ from: startOfDay(subDays(new Date(), 29)), to: endOfDay(new Date()) });
+  const setThisWeek = () => setDate({ 
+    from: startOfWeek(new Date(), { weekStartsOn: 0 }), 
+    to: endOfWeek(new Date(), { weekStartsOn: 0 }) 
+  });
+
+  const setLastWeek = () => {
+    const lastWeek = subWeeks(new Date(), 1);
+    setDate({ 
+        from: startOfWeek(lastWeek, { weekStartsOn: 0 }), 
+        to: endOfWeek(lastWeek, { weekStartsOn: 0 }) 
+    });
+  };
+
+  const setThisMonth = () => setDate({ 
+    from: startOfMonth(new Date()), 
+    to: endOfMonth(new Date()) 
+  });
 
   const filteredTransactions = useMemo(() => {
       if (!transactions || !date?.from || !date?.to) return transactions || [];
@@ -196,6 +225,24 @@ export default function PaydayPage() {
       return differenceInDays(date.to, date.from) + 1;
   }, [date]);
 
+  const isCurrentWeek = useMemo(() => {
+    if (!date?.from || !date?.to) return false;
+    const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
+    return isSameDay(date.from, thisWeekStart) && periodDays === 7;
+  }, [date, periodDays]);
+
+  const isLastWeek = useMemo(() => {
+    if (!date?.from || !date?.to) return false;
+    const lastWeekStart = startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 0 });
+    return isSameDay(date.from, lastWeekStart) && periodDays === 7;
+  }, [date, periodDays]);
+
+  const isThisMonth = useMemo(() => {
+    if (!date?.from || !date?.to) return false;
+    const thisMonthStart = startOfMonth(new Date());
+    return isSameDay(date.from, thisMonthStart) && isSameDay(date.to, endOfMonth(new Date()));
+  }, [date]);
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
@@ -205,7 +252,7 @@ export default function PaydayPage() {
                 <div className="space-y-1">
                     <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
                     <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-                        Allocate period revenue
+                        Allocate revenue by calendar period
                     </p>
                 </div>
                 <div className="w-full sm:w-auto">
@@ -239,9 +286,9 @@ export default function PaydayPage() {
             </div>
 
             <div className="flex gap-2 p-1 bg-muted rounded-xl">
-                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 7 && "bg-white shadow-sm")}>Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 30 && "bg-white shadow-sm")}>Monthly</Button>
+                <Button variant="ghost" size="sm" onClick={setThisWeek} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isCurrentWeek && "bg-white shadow-sm")}>This Week</Button>
+                <Button variant="ghost" size="sm" onClick={setLastWeek} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isLastWeek && "bg-white shadow-sm")}>Last Week</Button>
+                <Button variant="ghost" size="sm" onClick={setThisMonth} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isThisMonth && "bg-white shadow-sm")}>This Month</Button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
