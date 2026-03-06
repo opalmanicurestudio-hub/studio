@@ -63,24 +63,24 @@ const StaffMemberCard = ({
 
     return (
         <Card className={cn(
-            "relative transition-all border-2 rounded-[2rem] flex flex-col h-full overflow-hidden",
+            "relative transition-all border-2 rounded-[1.5rem] flex flex-col h-full overflow-hidden",
             isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.02] z-10" : "border-border/50 shadow-sm",
             !member.active && "opacity-40 grayscale"
         )}>
             {assignmentMode === 'ordered_list' && member.active && (
-                <div className="absolute top-3 left-3 z-20 w-7 h-7 rounded-xl bg-primary text-primary-foreground font-black text-[11px] flex items-center justify-center border-2 border-background shadow-lg">
+                <div className="absolute top-2 left-2 z-20 w-6 h-6 rounded-lg bg-primary text-primary-foreground font-black text-[10px] flex items-center justify-center border-2 border-background shadow-lg">
                     {turnOrder}
                 </div>
             )}
 
-            <CardContent className={cn("p-5 flex flex-col gap-4 flex-1", assignmentMode === 'ordered_list' && member.active && "pt-12")}>
+            <CardContent className={cn("p-4 flex flex-col gap-3 flex-1", assignmentMode === 'ordered_list' && member.active && "pt-10")}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="relative shrink-0">
-                        <Avatar className="w-14 h-14 border-2 border-background shadow-xl rounded-2xl">
+                        <Avatar className="w-10 h-10 border-2 border-background shadow-md rounded-xl">
                             <AvatarImage src={member.avatarUrl} alt={member.name} className="object-cover" />
-                            <AvatarFallback className="font-black bg-muted text-muted-foreground text-xs">{initials}</AvatarFallback>
+                            <AvatarFallback className="font-black bg-muted text-muted-foreground text-[10px]">{initials}</AvatarFallback>
                         </Avatar>
-                        <div className={cn("absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-background shadow-sm", {
+                        <div className={cn("absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background shadow-sm", {
                             'bg-green-500': member.status === 'idle' || !member.status,
                             'bg-destructive': member.status === 'busy',
                             'bg-amber-500': member.onBreak,
@@ -89,11 +89,11 @@ const StaffMemberCard = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
-                            <p className="font-black uppercase tracking-tight text-sm truncate text-slate-900 leading-tight">{member.name}</p>
-                            {nextAppointment?.checkInStatus === 'arrived' && <div className="w-2 h-2 rounded-full bg-green-500 animate-ping shrink-0" />}
+                            <p className="font-black uppercase tracking-tight text-xs truncate text-slate-900 leading-tight">{member.name}</p>
+                            {nextAppointment?.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping shrink-0" />}
                         </div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <Badge variant="outline" className={cn("font-black text-[8px] h-4 px-1.5 uppercase tracking-widest border-none", status.className)}>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                            <Badge variant="outline" className={cn("font-black text-[7px] h-3.5 px-1 uppercase tracking-widest border-none", status.className)}>
                                 {status.text}
                             </Badge>
                         </div>
@@ -101,8 +101,8 @@ const StaffMemberCard = ({
                     {canManage && (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5 -mt-1 -mr-1">
-                                    <MoreHorizontal className="h-4 w-4" />
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-primary/5 -mt-1 -mr-1">
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl p-1">
@@ -116,24 +116,24 @@ const StaffMemberCard = ({
                 </div>
 
                 {member.status === 'busy' && (
-                    <div className="mt-auto space-y-1">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">{member.availability?.status}</p>
+                    <div className="mt-auto">
+                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none truncate">{member.availability?.status}</p>
                     </div>
                 )}
             </CardContent>
 
             {isNextUp ? (
-                <div className="bg-primary px-3 py-2 text-[9px] font-black uppercase text-white tracking-[0.2em] text-center shrink-0">
+                <div className="bg-primary px-3 py-1.5 text-[8px] font-black uppercase text-white tracking-[0.2em] text-center shrink-0">
                     Next Up
                 </div>
             ) : (
                 assignmentMode === 'ordered_list' && member.active && (
                     <div className="grid grid-cols-2 border-t bg-muted/5">
-                        <Button variant="ghost" className="h-10 rounded-none border-r text-muted-foreground hover:text-primary" onClick={() => onMoveUp(member.id)} disabled={isFirst}>
-                            <ArrowUp className="h-4 w-4" />
+                        <Button variant="ghost" className="h-8 rounded-none border-r text-muted-foreground hover:text-primary" onClick={() => onMoveUp(member.id)} disabled={isFirst}>
+                            <ArrowUp className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" className="h-10 rounded-none text-muted-foreground hover:text-primary" onClick={() => onMoveDown(member.id)} disabled={isLast}>
-                            <ArrowDown className="h-4 w-4" />
+                        <Button variant="ghost" className="h-8 rounded-none text-muted-foreground hover:text-primary" onClick={() => onMoveDown(member.id)} disabled={isLast}>
+                            <ArrowDown className="h-3.5 w-3.5" />
                         </Button>
                     </div>
                 )
@@ -297,7 +297,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
             <ScrollArea className="w-full">
                 <div className="flex space-x-4 px-2 py-6">
                     {activeStaff.map((member, index) => (
-                        <div key={member.id} className="w-[300px] shrink-0">
+                        <div key={member.id} className="w-[220px] shrink-0">
                             <StaffMemberCard member={member} isNextUp={member.id === nextUpStaffId} turnOrder={index + 1} onMoveUp={(id) => handleMove(id, 'up')} onMoveDown={(id) => handleMove(id, 'down')} isFirst={index === 0} isLast={index === activeStaff.length - 1} assignmentMode={assignmentMode} nextAppointment={member.nextApt} onForceIdle={onForceIdle} canManage={canManage} services={services} />
                         </div>
                     ))}
