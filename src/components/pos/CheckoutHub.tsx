@@ -30,7 +30,8 @@ import {
     UserPlus,
     Cake,
     ChevronDown,
-    Zap
+    Zap,
+    Search
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -48,7 +49,7 @@ import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday, format } from 'date-fns';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
@@ -193,6 +194,7 @@ export const CheckoutHub = ({
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
+    const [clientSearch, setClientSearch] = useState('');
 
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -211,6 +213,17 @@ export const CheckoutHub = ({
     };
 
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
+    
+    const filteredClients = useMemo(() => {
+        if (!clientSearch.trim()) return payerOptions;
+        const search = clientSearch.toLowerCase();
+        return payerOptions.filter((c: Client) => 
+            c.name.toLowerCase().includes(search) || 
+            c.email?.toLowerCase().includes(search) || 
+            c.phone?.includes(search)
+        );
+    }, [payerOptions, clientSearch]);
+
     const isBirthdayToday = useMemo(() => {
         if (!selectedClient?.birthday) return false;
         const birth = safeDate(selectedClient.birthday);
@@ -279,6 +292,10 @@ export const CheckoutHub = ({
         return staff.filter(s => staffIds.has(s.id));
     }, [appointmentsData, staff]);
 
+    const handleRemoveDiscount = (code: string) => {
+        setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="mb-8 flex-shrink-0">
@@ -286,11 +303,33 @@ export const CheckoutHub = ({
                 <div className="flex gap-3 mt-2">
                     <Select value={selectedClientId || 'walk-in'} onValueChange={(v) => setSelectedClientId(v === 'walk-in' ? null : v)}>
                         <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5">
-                            <SelectValue placeholder={isGroupCheckout ? "Group Payer" : "Walk-in"} />
+                            <SelectValue placeholder={isGroupCheckout ? "Group Payer" : "Search Payer..."} />
                         </SelectTrigger>
-                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                            <SelectItem value="walk-in" className="font-bold">WALK-IN GUEST</SelectItem>
-                            {payerOptions.map((c: Client) => <SelectItem key={c.id} value={c.id} className="font-bold">{c.name.toUpperCase()}</SelectItem>)}
+                        <SelectContent className="rounded-2xl border-2 shadow-2xl p-0 overflow-hidden">
+                            <div className="p-3 border-b bg-muted/10">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                                    <Input 
+                                        placeholder="Find client..." 
+                                        value={clientSearch} 
+                                        onChange={e => setClientSearch(e.target.value)} 
+                                        className="pl-9 h-10 rounded-xl border-2 font-bold focus-visible:ring-primary/20"
+                                        onKeyDown={e => e.stopPropagation()}
+                                    />
+                                </div>
+                            </div>
+                            <ScrollArea className="h-64">
+                                <SelectItem value="walk-in" className="font-bold py-3">WALK-IN GUEST</SelectItem>
+                                {filteredClients.map((c: Client) => (
+                                    <SelectItem key={c.id} value={c.id} className="font-bold py-3">
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="h-6 w-6 rounded-lg"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{c.name.charAt(0)}</AvatarFallback></Avatar>
+                                            <span className="uppercase">{c.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                                {filteredClients.length === 0 && <div className="p-10 text-center text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-40">No matches found</div>}
+                            </ScrollArea>
                         </SelectContent>
                     </Select>
                     <div className="flex gap-2">
@@ -368,7 +407,7 @@ export const CheckoutHub = ({
                                                     <span className="text-[10px] font-black uppercase text-muted-foreground">Dynamic Overage Fee</span>
                                                     <div className="flex items-center gap-3">
                                                         <span className={cn("font-black font-mono text-xs", isWaived ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
-                                                        {isOwnerOrAdmin && (isWaive ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Undo</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
+                                                        {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Undo</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                     </div>
                                                 </div>
                                             )}
@@ -377,19 +416,19 @@ export const CheckoutHub = ({
                                 );
                             })}
 
-                            {cart.map(item => (
+                            {cart.map((item: any) => (
                                 <div key={item.id} className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-4 group">
                                     <div className="flex-1 min-w-0">
                                         <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}</p>
                                         <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
                                     </div>
                                     <p className="font-black font-mono text-sm tracking-tighter">${(item.price * item.quantity).toFixed(2)}</p>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4"/></Button>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="h-4 w-4"/></Button>
                                 </div>
                             ))}
 
                             {Array.from(appliedAdjustments).map(id => {
-                                const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id);
+                                const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                                 return (
                                     <div key={id} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-4 animate-in fade-in slide-in-from-left-2">
                                         <div className="p-2 bg-destructive/10 rounded-xl"><Wallet className="w-4 h-4 text-destructive" /></div>
@@ -398,7 +437,7 @@ export const CheckoutHub = ({
                                             <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Historical Balance</p>
                                         </div>
                                         <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${fee?.feeAmount.toFixed(2)}</p>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onApplyAdjustmentToggle(id, false)}><X className="h-4 w-4"/></Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onApplyAdjustmentToggle(id as string, false)}><X className="h-4 w-4"/></Button>
                                     </div>
                                 );
                             })}
@@ -420,7 +459,7 @@ export const CheckoutHub = ({
 
                         {appliedDiscountCodes.length > 0 && (
                             <div className="space-y-2">
-                                {appliedDiscountCodes.map(code => (
+                                {appliedDiscountCodes.map((code: string) => (
                                     <div key={code} className="p-3 rounded-xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95">
                                         <div className="flex items-center gap-2">
                                             <CheckCircle className="h-4 w-4 text-primary" />
@@ -434,7 +473,7 @@ export const CheckoutHub = ({
 
                         {suggestedDiscounts.length > 0 && (
                             <div className="space-y-3 pt-2">
-                                <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> Growth Engine Recommendations</p>
+                                <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> Growth Recommendations</p>
                                 {suggestedDiscounts.map(d => (
                                     <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-4 px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl group transition-all" onClick={() => handleApplyDiscount(d.code)}>
                                         <div className="text-left min-w-0 flex-1">
@@ -465,7 +504,7 @@ export const CheckoutHub = ({
                         <div className="flex justify-between items-center text-[11px] text-destructive font-black uppercase tracking-tighter">
                             <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Settling Historical Debt</span>
                             <span className="font-mono text-xs">+${Array.from(appliedAdjustments).reduce((sum, id) => {
-                                const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id);
+                                const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                                 return sum + (fee?.feeAmount || 0);
                             }, 0).toFixed(2)}</span>
                         </div>
@@ -481,7 +520,7 @@ export const CheckoutHub = ({
                     {allInvolvedStaff.length > 1 && (
                         <div className="p-4 rounded-2xl border-2 bg-muted/10 space-y-3">
                             <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Users className="w-3 h-3" /> Split Tip Distribution</p>
-                            {allInvolvedStaff.map(member => (
+                            {allInvolvedStaff.map((member: any) => (
                                 <div key={member.id} className="flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-2 min-w-0">
                                         <Avatar className="h-6 w-6 border shadow-sm"><AvatarImage src={member.avatarUrl} className="object-cover" /><AvatarFallback>{member.name.charAt(0)}</AvatarFallback></Avatar>

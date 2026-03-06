@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -661,16 +662,18 @@ function POSPageContent() {
     };
 
     const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
-    const payerOptionsList = (clients || []).filter(c => Array.from(selectedAppointmentIds).some(id => readyForCheckoutAppointments.find(a => a.id === id)?.client?.id === c.id));
+    
+    // REQUIREMENT FIX: Load ALL clients for selection, not just those with appointments.
+    const allClientOptions = clients || [];
 
     const checkoutHubProps = {
         cart: retailItems, 
         onCartChange: setRetailItems,
         appointmentsData: selectedAptsData,
         onSelectAppointment: handleSelectAppointment, 
-        clients: clients || [], 
+        clients: allClientOptions, 
         isGroupCheckout: isGroupCheckoutValue,
-        payerOptions: payerOptionsList,
+        payerOptions: allClientOptions,
         selectedClientId, 
         setSelectedClientId, 
         onAddClientClick: () => setIsAddClientOpen(true), 
@@ -737,7 +740,7 @@ function POSPageContent() {
                     </div>
 
                     <div className="grid gap-10 grid-cols-1">
-                        <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={() => {}} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
+                        <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
                         <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                         <div className="space-y-4">
                             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
