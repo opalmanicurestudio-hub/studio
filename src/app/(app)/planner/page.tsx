@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -250,7 +250,7 @@ function PlannerPageContent() {
     const finalInstanceId = isVirtual ? doc(collection(firestore, 'tenants', tenantId, 'billInstances')).id : selectedBill.id;
     if (isVirtual) batch.set(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { id: finalInstanceId, billDefinitionId: selectedBill.billDefinitionId, dueDate: selectedBill.dueDate, amountDue: newAmountDue, amountPaid: newAmountPaid, status: newStatus });
     else batch.update(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus });
-    batch.set(doc(collection(firestore, 'tenants', tenantId, 'transactions')), { date: paymentData.date.toISOString(), description: `Payment for ${selectedBill.definition.name}`, clientOrVendor: selectedBill.definition.name, type: 'payment', context: selectedBill.definition.context, category: selectedBill.definition.category, amount: paymentData.amount, paymentMethod: paymentData.paymentMethod, hasReceipt: !!paymentData.receiptUrl, receiptUrl: paymentData.receiptUrl, relatedBillInstanceId: finalInstanceId });
+    batch.set(doc(collection(firestore, 'tenants', tenantId, 'transactions')), { date: paymentData.date.toISOString(), description: `Payment for ${selectedBill.definition.name}`, clientOrVendor: selectedBill.definition.name, type: 'payment', context: 'Business', category: selectedBill.definition.category, amount: paymentData.amount, paymentMethod: paymentData.paymentMethod, hasReceipt: !!paymentData.receiptUrl, receiptUrl: paymentData.receiptUrl, relatedBillInstanceId: finalInstanceId });
     batch.commit().then(() => { toast({ title: "Payment Logged" }); });
     setSelectedBill(null);
   };
@@ -364,11 +364,12 @@ function PlannerPageContent() {
         onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
         onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)}
         onWaiveFee={(id, aut, res) => {
-            const batch = writeBatch(firestore!);
+            if (!firestore || !tenantId) return;
+            const batch = writeBatch(firestore);
             const apt = appointments.find(a=>a.id===id);
             if(!apt) return;
-            batch.update(doc(firestore!, `tenants/${tenantId}/appointments`, id), { cancellationFeeWaived: true, waivedBy: aut.id, waivedReason: res, waivedAt: new Date().toISOString() });
-            batch.update(doc(firestore!, `tenants/${tenantId}/clients`, apt.clientId), { outstandingBalance: increment(-(apt.cancellationFeeApplied||0)) });
+            batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), { cancellationFeeWaived: true, waivedBy: aut.id, waivedReason: res, waivedAt: new Date().toISOString() });
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId), { outstandingBalance: increment(-(apt.cancellationFeeApplied||0)) });
             batch.commit().then(() => toast({ title: "Fee Absorbed" }));
         }}
       />
@@ -389,26 +390,48 @@ function PlannerPageContent() {
 
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
       {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={(aid, st) => {
-          const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', aid);
+          if (!firestore || !tenantId) return;
+          const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aid);
           const allPartIds = [selectedAppointment.serviceId, ...(selectedAppointment.addOnIds || [])];
-          const allDone = (st.completedServiceIds || []).length >= allPartIds.length;
-          const batch = writeBatch(firestore!);
+          const completedIds = st.completedServiceIds || [];
+          const allDone = completedIds.length >= allPartIds.length;
+          const batch = writeBatch(firestore);
           batch.update(appointmentRef, { status: allDone ? 'ready_for_checkout' : 'servicing', checkoutState: st, actualEndTime: allDone ? new Date().toISOString() : null });
-          involvedStaffIds(selectedAppointment, st).forEach(sid => batch.set(doc(firestore!, 'tenants', tenantId!, 'staff', sid), { status: 'idle' }, { merge: true }));
+          
+          if (allDone) {
+              involvedStaffIds(selectedAppointment, st).forEach(sid => batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }));
+          } else {
+              // HAND-OFF LOGIC
+              // Current provider becomes idle
+              if (currentUser) {
+                  batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
+              }
+              // Next sequential provider becomes busy
+              const concurrentIds = st.concurrentServiceIds || [];
+              const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !concurrentIds.includes(id));
+              const nextStaffId = st.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === selectedAppointment.serviceId ? selectedAppointment.staffId : null);
+              
+              if (nextStaffId) {
+                  batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
+              }
+          }
+
           batch.commit().then(() => { toast({ title: allDone ? "Sent to Desk" : "Part Complete" }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); });
       }} />}
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={async (data) => {
+          if (!firestore || !tenantId) return;
           const id = nanoid();
           const token = nanoid(16);
           const apt = { ...data, id, tenantId, checkInToken: token, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString(), source: 'manual' };
-          await setDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id), apt, {});
-          await setDocumentNonBlocking(doc(firestore!, 'appointmentCheckIns', token), apt, {});
+          await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), apt, {});
+          await setDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), apt, {});
           setIsAddAppointmentOpen(false); toast({ title: "Booked" });
       }} client={clientForNewApt} appointmentToRebook={appointmentToRebook} memberships={memberships || []} />
       <AddEventDialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen} onConfirm={async (data) => {
+          if (!firestore || !tenantId) return;
           const id = nanoid();
-          await setDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id), { ...data, id, tenantId, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() }, {});
+          await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), { ...data, id, tenantId, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() }, {});
           setIsAddEventOpen(false); toast({ title: "Event Added" });
       }} staff={allStaff || []} />
       <FloatingActionButton onNewAppointmentClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }} onNewEventClick={() => setIsAddEventOpen(true)} />
@@ -422,7 +445,11 @@ function PlannerPageContent() {
 const involvedStaffIds = (apt: Appointment, st: AppointmentCheckoutState) => {
     const ids = new Set<string>();
     if (apt.staffId) ids.add(apt.staffId);
-    if (st.serviceStaffOverrides) Object.values(st.serviceStaffOverrides).forEach(id => ids.add(id));
+    if (st.serviceStaffOverrides) {
+        Object.values(st.serviceStaffOverrides).forEach((id: any) => {
+            if (id && typeof id === 'string') ids.add(id);
+        });
+    }
     return Array.from(ids);
 };
 

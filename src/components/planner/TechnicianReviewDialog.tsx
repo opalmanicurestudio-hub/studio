@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen } from 'lucide-react';
+import { FlaskConical, PlusCircle, Trash2, Info, Clock, CheckCircle, Package, MessageSquare, Workflow, Zap, PackageOpen, Square } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -34,12 +34,11 @@ import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '../ui/badge';
-import { useUser, useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useUser, useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { doc, writeBatch } from 'firebase/firestore';
+import { Textarea } from '@/components/ui/textarea';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -82,7 +81,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const { services: allServices, inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const { user: currentUser } = useUser();
-  const { firestore } = useFirebase();
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -159,28 +157,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       );
   };
 
-  const handleToggleConcurrency = async (serviceId: string, isConcurrent: boolean) => {
+  const handleToggleConcurrency = (serviceId: string, isConcurrent: boolean) => {
       setConcurrentServiceIds(prev => 
           isConcurrent ? [...new Set([...prev, serviceId])] : prev.filter(id => id !== serviceId)
       );
-
-      if (appointment?.status === 'servicing' && firestore && selectedTenant) {
-          const assignedStaffId = serviceStaffOverrides[serviceId];
-          if (assignedStaffId) {
-              updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'staff', assignedStaffId), { 
-                  status: isConcurrent ? 'busy' : 'idle' 
-              });
-          }
-      }
-  };
-
-  const handleUpdateAddOns = async (newAddOns: Service[]) => {
-    if (!firestore || !selectedTenant || !appointment) return;
-    const appointmentRef = doc(firestore, 'tenants', selectedTenant.id, 'appointments', appointment.id);
-    const newIds = newAddOns.map(s => s.id);
-    updateDocumentNonBlocking(appointmentRef, { addOnIds: newIds });
-    setSelectedAddOns(newAddOns);
-    toast({ title: "Appointment Updated", description: "Extra parts added to the review." });
   };
 
   const allServiceIds = useMemo(() => {
@@ -192,15 +172,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
       return allServiceIds.every(id => completedServiceIds.includes(id));
   }, [allServiceIds, completedServiceIds]);
 
-  const handleStaffOverride = async (serviceId: string, staffId: string) => {
+  const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
-    
-    const isConcurrent = concurrentServiceIds.includes(serviceId);
-    if (appointment?.status === 'servicing' && isConcurrent && firestore && selectedTenant) {
-        updateDocumentNonBlocking(doc(firestore, 'tenants', selectedTenant.id, 'staff', staffId), { 
-            status: 'busy' 
-        });
-    }
   };
 
   const handleAddProduct = (products: InventoryItem[]) => {

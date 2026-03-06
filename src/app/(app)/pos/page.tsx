@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -225,6 +224,7 @@ function POSPageContent() {
         if (walkIn?.assignedStaffId) {
             const staffRef = doc(firestore, 'tenants', tenantId, 'staff', walkIn.assignedStaffId);
             batch.set(staffRef, { status: 'idle' }, { merge: true });
+            const aptRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`);
             batch.delete(doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkInId}`));
         }
         batch.commit().then(() => toast({ title: "Returned to Queue" }));
@@ -445,7 +445,9 @@ function POSPageContent() {
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (checkoutState.serviceStaffOverrides) {
-                Object.values(checkoutState.serviceStaffOverrides).forEach(id => involvedIds.add(id));
+                Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => {
+                    if (id && typeof id === 'string') involvedIds.add(id);
+                });
             }
             involvedIds.forEach(sid => {
                 batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
@@ -459,7 +461,7 @@ function POSPageContent() {
 
             const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
             const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
-            const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''];
+            const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
             if (nextStaffId) {
                 batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
             }
@@ -568,7 +570,17 @@ function POSPageContent() {
                 hasReceipt: true
             });
 
-            if (tech.id) batch.set(doc(firestore, 'tenants', tenantId, 'staff', tech.id), { status: 'idle' }, { merge: true });
+            // Set all involved staff to idle
+            const involvedIds = new Set<string>();
+            if (apt.staffId) involvedIds.add(apt.staffId);
+            if (apt.checkoutState?.serviceStaffOverrides) {
+                Object.values(apt.checkoutState.serviceStaffOverrides).forEach((id: any) => {
+                    if (id && typeof id === 'string') involvedIds.add(id);
+                });
+            }
+            involvedIds.forEach(sid => {
+                batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+            });
         }
 
         retailItems.forEach(item => {
