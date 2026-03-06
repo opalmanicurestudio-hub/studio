@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -694,7 +693,7 @@ function POSPageContent() {
     const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
     const allClientOptions = clients || [];
 
-    // Corrected payerOptions logic: Provide all clients for retail sales, or filter by selected appointments if any.
+    // Provide full list of clients if no appointments are selected (retail sale mode)
     const payerOptionsList = useMemo(() => {
         if (selectedAppointmentIds.size === 0) return allClientOptions;
         const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
@@ -817,7 +816,7 @@ function POSPageContent() {
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
                     <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                         <SheetTrigger asChild>
-                            <Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/20">
+                            <Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">
                                 View Cart (${total.toFixed(2)})
                             </Button>
                         </SheetTrigger>

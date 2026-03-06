@@ -34,7 +34,8 @@ import {
     ChevronRight,
     User,
     Plus,
-    Minus
+    Minus,
+    Check
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -308,11 +309,10 @@ export const CheckoutHub = ({
             <div className="mb-6 flex-shrink-0 px-1">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-3 mt-2">
-                    <Popover open={isPayerPopoverOpen} onOpenChange={isPayerPopoverOpen ? () => setIsPayerPopoverOpen(false) : undefined}>
+                    <Popover open={isPayerPopoverOpen} onOpenChange={setIsPayerPopoverOpen}>
                         <PopoverTrigger asChild>
                             <Button 
                                 variant="outline" 
-                                onClick={() => setIsPayerPopoverOpen(true)}
                                 className="h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4"
                             >
                                 {selectedClient ? (
