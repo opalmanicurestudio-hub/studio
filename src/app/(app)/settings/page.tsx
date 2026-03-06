@@ -39,7 +39,11 @@ import {
   Palette,
   Eye,
   EyeOff,
-  Image as ImageIcon
+  Image as ImageIcon,
+  CircleHelp,
+  Award,
+  Star,
+  Repeat
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
