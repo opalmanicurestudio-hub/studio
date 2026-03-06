@@ -38,7 +38,9 @@ import {
   Printer, 
   ShieldAlert,
   Mail,
-  Phone
+  Phone,
+  Sparkles,
+  Loader
 } from 'lucide-react';
 import { Button, buttonVariants } from '../ui/button';
 import {
@@ -57,7 +59,6 @@ import { Calendar } from '../ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Sparkles, Loader } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 
 interface StaffDetailsSheetProps {
@@ -338,7 +339,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                 <div className="flex items-center gap-4 mb-4">
                     <Avatar className="h-16 w-16 border-4 border-background shadow-xl rounded-2xl">
                         <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{staffMember.name.charAt(0)}</AvatarFallback>
+                        <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div>
                         <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none mb-1">{staffMember.name}</SheetTitle>
