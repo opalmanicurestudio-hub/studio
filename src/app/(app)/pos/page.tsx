@@ -67,7 +67,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 function POSPageContent() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, discounts, memberships, packages, resources } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, discounts, memberships, packages, resources, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -134,7 +134,6 @@ function POSPageContent() {
 
         if (nextIds.has(id)) {
             nextIds.delete(id);
-            // Only clear client if we are clearing the last appointment
             if (nextIds.size === 0) nextClientId = null;
         } else {
             nextIds.add(id);
@@ -665,7 +664,6 @@ function POSPageContent() {
     const handleScan = useCallback((data: string) => {
         if (!inventory) return;
         
-        // Check for product match by SKU or full ID
         const matchedProduct = inventory.find(p => p.sku === data || p.id === data);
         if (matchedProduct) {
             handleAddToCart(matchedProduct);
@@ -678,7 +676,6 @@ function POSPageContent() {
             return;
         }
 
-        // Handle other ClarityFlow codes
         if (data.startsWith('clarityflow://checkout/')) {
             const appointmentId = data.split('/').pop();
             if (appointmentId && readyForCheckoutAppointments.some(a => a.id === appointmentId)) {
@@ -691,14 +688,12 @@ function POSPageContent() {
         }
     }, [inventory, readyForCheckoutAppointments, handleAddToCart, handleSelectAppointment, toast]);
 
-    const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
     const allClientOptions = clients || [];
 
     const payerOptionsList = useMemo(() => {
         if (!allClientOptions) return [];
         const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
         
-        // If we have appointments, sort those clients to the top
         return [...allClientOptions].sort((a, b) => {
             const aInvolved = involvedClientIds.has(a.id);
             const bInvolved = involvedClientIds.has(b.id);
@@ -714,7 +709,7 @@ function POSPageContent() {
         appointmentsData: selectedAptsData,
         onSelectAppointment: handleSelectAppointment, 
         clients: allClientOptions, 
-        isGroupCheckout: isGroupCheckoutValue,
+        isGroupCheckout: selectedAppointmentIds.size > 1,
         payerOptions: payerOptionsList,
         selectedClientId, 
         setSelectedClientId, 
@@ -793,6 +788,15 @@ function POSPageContent() {
         const todayStart = startOfDay(new Date());
         return (appointmentsFromInventory || []).filter(a => isSameDay(new Date(a.startTime), todayStart));
     }, [appointmentsFromInventory]);
+
+    if (isInventoryLoading) {
+        return (
+            <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
+                <Loader className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Syncing Terminal...</p>
+            </div>
+        )
+    }
 
     return (
         <div className="h-[100dvh] w-full flex flex-col bg-background">
