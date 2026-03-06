@@ -12,6 +12,7 @@ import { isSameDay, parseISO, addMonths, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { AnimatePresence, motion, useScroll, useTransform } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 import { BookingHeader } from '@/components/booking/BookingHeader';
 import { BookingGallery } from '@/components/booking/BookingGallery';
@@ -184,10 +185,6 @@ export default function BookingPage() {
   };
 
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading || membershipsLoading || packagesLoading || pricingTiersLoading;
-
-  const { scrollYProgress } = useScroll();
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
-  const heroScale = useTransform(scrollYProgress, [0, 0.2], [1, 0.9]);
 
   if (isLoading) {
       return (

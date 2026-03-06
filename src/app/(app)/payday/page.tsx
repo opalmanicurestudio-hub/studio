@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -243,10 +244,10 @@ export default function PaydayPage() {
   const suggestions = useMemo(() => {
       const amt = allocationAmount || 0;
       return [
-          { label: 'Profit', pct: 5, amount: amt * 0.05, color: 'bg-green-500' },
-          { label: 'Owner Comp', pct: 50, amount: amt * 0.50, color: 'bg-primary' },
-          { label: 'Tax', pct: 15, amount: amt * 0.15, color: 'bg-orange-500' },
-          { label: 'OpEx / Bills', pct: 30, amount: amt * 0.30, color: 'bg-blue-500' },
+          { label: 'Profit', pct: 5, amount: Number((amt * 0.05).toFixed(2)), color: 'bg-green-500' },
+          { label: 'Owner Comp', pct: 50, amount: Number((amt * 0.50).toFixed(2)), color: 'bg-primary' },
+          { label: 'Tax', pct: 15, amount: Number((amt * 0.15).toFixed(2)), color: 'bg-orange-500' },
+          { label: 'OpEx / Bills', pct: 30, amount: Number((amt * 0.30).toFixed(2)), color: 'bg-blue-500' },
       ];
   }, [allocationAmount]);
 
