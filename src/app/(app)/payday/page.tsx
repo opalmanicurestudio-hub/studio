@@ -56,7 +56,8 @@ import {
     endOfWeek, 
     subWeeks, 
     startOfMonth, 
-    endOfMonth 
+    endOfMonth,
+    isSameDay
 } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
