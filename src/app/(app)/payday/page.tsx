@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -30,7 +30,9 @@ import {
     AlertCircle,
     Calendar as CalendarIcon,
     Filter,
-    CalendarDays
+    ChevronLeft,
+    ChevronRight,
+    CheckCircle2
 } from 'lucide-react';
 import {
   Accordion,
@@ -57,11 +59,12 @@ import {
     subWeeks, 
     startOfMonth, 
     endOfMonth,
-    isSameDay
+    isSameDay,
+    addDays,
+    addWeeks,
+    subMonths,
+    addMonths
 } from 'date-fns';
-import { DateRange } from 'react-day-picker';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const safeDate = (val: any): Date => {
@@ -94,41 +97,65 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
     </div>
 );
 
+type Cadence = 'weekly' | 'bi-weekly' | 'monthly';
+
 export default function PaydayPage() {
   const { billDefinitions, billInstances, transactions, staff, activityLogs } = useInventory();
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
+  const [cadence, setCadence] = useState<Cadence>('bi-weekly');
   
-  // Default to current calendar week (Sun-Sat)
-  const [date, setDate] = React.useState<DateRange | undefined>({
-      from: startOfWeek(new Date(), { weekStartsOn: 0 }),
-      to: endOfWeek(new Date(), { weekStartsOn: 0 }),
+  // Initialize date to current Bi-Weekly period
+  const [dateRange, setDateRange] = useState<{ from: Date, to: Date }>(() => {
+      const now = new Date();
+      return {
+          from: startOfDay(subDays(now, 13)),
+          to: endOfDay(now)
+      };
   });
 
-  const setThisWeek = () => setDate({ 
-    from: startOfWeek(new Date(), { weekStartsOn: 0 }), 
-    to: endOfWeek(new Date(), { weekStartsOn: 0 }) 
-  });
-
-  const setLastWeek = () => {
-    const lastWeek = subWeeks(new Date(), 1);
-    setDate({ 
-        from: startOfWeek(lastWeek, { weekStartsOn: 0 }), 
-        to: endOfWeek(lastWeek, { weekStartsOn: 0 }) 
-    });
+  const handlePrevPeriod = () => {
+      setDateRange(prev => {
+          let daysToShift = 7;
+          if (cadence === 'bi-weekly') daysToShift = 14;
+          if (cadence === 'monthly') {
+              const prevMonth = subMonths(prev.from, 1);
+              return { from: startOfMonth(prevMonth), to: endOfMonth(prevMonth) };
+          }
+          return { from: startOfDay(subDays(prev.from, daysToShift)), to: endOfDay(subDays(prev.to, daysToShift)) };
+      });
   };
 
-  const setThisMonth = () => setDate({ 
-    from: startOfMonth(new Date()), 
-    to: endOfMonth(new Date()) 
-  });
+  const handleNextPeriod = () => {
+      setDateRange(prev => {
+          let daysToShift = 7;
+          if (cadence === 'bi-weekly') daysToShift = 14;
+          if (cadence === 'monthly') {
+              const nextMonth = addMonths(prev.from, 1);
+              return { from: startOfMonth(nextMonth), to: endOfMonth(nextMonth) };
+          }
+          return { from: startOfDay(addDays(prev.from, daysToShift)), to: endOfDay(addDays(prev.to, daysToShift)) };
+      });
+  };
+
+  const handleCadenceChange = (newCadence: Cadence) => {
+      setCadence(newCadence);
+      const now = new Date();
+      if (newCadence === 'weekly') {
+          setDateRange({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+      } else if (newCadence === 'bi-weekly') {
+          setDateRange({ from: startOfDay(subDays(now, 13)), to: endOfDay(now) });
+      } else if (newCadence === 'monthly') {
+          setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
+      }
+  };
 
   const filteredTransactions = useMemo(() => {
-      if (!transactions || !date?.from || !date?.to) return transactions || [];
+      if (!transactions) return [];
       return transactions.filter(t => {
           const d = safeDate(t.date);
-          return d >= date.from! && d <= date.to!;
+          return d >= dateRange.from && d <= dateRange.to;
       });
-  }, [transactions, date]);
+  }, [transactions, dateRange]);
 
   const currentBalance = useMemo(() => {
       const income = filteredTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
@@ -137,7 +164,7 @@ export default function PaydayPage() {
   }, [filteredTransactions]);
 
   const staffObligations = useMemo(() => {
-    if (!staff || !filteredTransactions || !date?.from || !date?.to) return [];
+    if (!staff || !filteredTransactions) return [];
 
     return staff.map(member => {
         const staffTransactions = filteredTransactions.filter(t => t.staffId === member.id && t.type === 'income');
@@ -161,8 +188,8 @@ export default function PaydayPage() {
         } else if (member.payStructure === 'hourly' && member.hourlyRate) {
             const logs = activityLogs.filter(l => 
                 l.staffId === member.id && 
-                safeDate(l.timestamp) >= date.from! && 
-                safeDate(l.timestamp) <= date.to!
+                safeDate(l.timestamp) >= dateRange.from && 
+                safeDate(l.timestamp) <= dateRange.to
             );
             const totalMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
             earnings = (totalMinutes / 60) * member.hourlyRate;
@@ -178,17 +205,17 @@ export default function PaydayPage() {
             details: `${member.payStructure === 'commission' ? 'Commission' : 'Hourly'} + Tips`
         };
     }).filter(o => o.amount > 0);
-  }, [staff, filteredTransactions, activityLogs, date]);
+  }, [staff, filteredTransactions, activityLogs, dateRange]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 
   const unpaidInstancesInPeriod = useMemo(() => {
-      if (!billInstances || !date?.from || !date?.to) return [];
+      if (!billInstances) return [];
       return billInstances.filter(i => {
           const d = safeDate(i.dueDate);
-          return i.status !== 'paid' && d >= date.from! && d <= date.to!;
+          return i.status !== 'paid' && d >= dateRange.from && d <= dateRange.to;
       });
-  }, [billInstances, date]);
+  }, [billInstances, dateRange]);
 
   const upcomingBusiness = useMemo(() => {
       return unpaidInstancesInPeriod
@@ -221,75 +248,35 @@ export default function PaydayPage() {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
   };
 
-  const periodDays = useMemo(() => {
-      if (!date?.from || !date?.to) return 0;
-      return differenceInDays(date.to, date.from) + 1;
-  }, [date]);
-
-  const isCurrentWeek = useMemo(() => {
-    if (!date?.from || !date?.to) return false;
-    const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
-    return isSameDay(date.from, thisWeekStart) && periodDays === 7;
-  }, [date, periodDays]);
-
-  const isLastWeek = useMemo(() => {
-    if (!date?.from || !date?.to) return false;
-    const lastWeekStart = startOfWeek(subWeeks(new Date(), 1), { weekStartsOn: 0 });
-    return isSameDay(date.from, lastWeekStart) && periodDays === 7;
-  }, [date, periodDays]);
-
-  const isThisMonth = useMemo(() => {
-    if (!date?.from || !date?.to) return false;
-    const thisMonthStart = startOfMonth(new Date());
-    return isSameDay(date.from, thisMonthStart) && isSameDay(date.to, endOfMonth(new Date()));
-  }, [date]);
-
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-2xl mx-auto space-y-8">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                    <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
-                    <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-                        Allocate revenue by calendar period
-                    </p>
-                </div>
-                <div className="w-full sm:w-auto">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button variant='outline' className='w-full h-11 justify-start text-left font-normal border-2 shadow-sm'>
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {date?.from ? (
-                                    date.to ? (
-                                        <>{format(date.from, "LLL dd, y")} - {format(date.to, "LLL dd, y")}</>
-                                    ) : (
-                                        format(date.from, "LLL dd, y")
-                                    )
-                                ) : (
-                                    "Select Payout Period"
-                                )}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                                initialFocus
-                                mode="range"
-                                defaultMonth={date?.from}
-                                selected={date}
-                                onSelect={setDate}
-                                numberOfMonths={2}
-                            />
-                        </PopoverContent>
-                    </Popover>
-                </div>
+            <div className="text-center space-y-1">
+                <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
+                <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
+                    Reconcile Period & Allocate Revenue
+                </p>
             </div>
 
-            <div className="flex gap-2 p-1 bg-muted rounded-xl">
-                <Button variant="ghost" size="sm" onClick={setThisWeek} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isCurrentWeek && "bg-white shadow-sm")}>This Week</Button>
-                <Button variant="ghost" size="sm" onClick={setLastWeek} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isLastWeek && "bg-white shadow-sm")}>Last Week</Button>
-                <Button variant="ghost" size="sm" onClick={setThisMonth} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", isThisMonth && "bg-white shadow-sm")}>This Month</Button>
+            <div className="space-y-4">
+                <div className="flex gap-2 p-1 bg-muted rounded-xl">
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'weekly' && "bg-white shadow-sm")}>Weekly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'bi-weekly' && "bg-white shadow-sm")}>Bi-Weekly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'monthly' && "bg-white shadow-sm")}>Monthly</Button>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20">
+                    <Button variant="ghost" size="icon" onClick={handlePrevPeriod} className="h-10 w-10 hover:bg-white rounded-full shadow-sm"><ChevronLeft className="w-5 h-5"/></Button>
+                    <div className="text-center">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-0.5">Reconciling Period</p>
+                        <p className="text-sm md:text-lg font-black text-slate-900">
+                            {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
+                        </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={handleNextPeriod} className="h-10 w-10 hover:bg-white rounded-full shadow-sm"><ChevronRight className="w-5 h-5"/></Button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -310,7 +297,7 @@ export default function PaydayPage() {
                                 <TooltipProvider>
                                     <Tooltip>
                                         <TooltipTrigger><AlertCircle className="w-5 h-5 text-destructive animate-pulse" /></TooltipTrigger>
-                                        <TooltipContent><p>Period income is less than total obligations.</p></TooltipContent>
+                                        <TooltipContent><p>Warning: Obligations exceed period income.</p></TooltipContent>
                                     </Tooltip>
                                 </TooltipProvider>
                             )}
@@ -325,7 +312,7 @@ export default function PaydayPage() {
                         <Calculator className="w-5 h-5 text-primary" />
                         Allocation Engine
                     </CardTitle>
-                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Running for {date?.from ? format(date.from, 'MMM d') : '...'} - {date?.to ? format(date.to, 'MMM d') : '...'}</CardDescription>
+                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Suggestions based on Profit First methodology</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                     <div className="space-y-2">
@@ -349,7 +336,7 @@ export default function PaydayPage() {
                     {allocationAmount > 0 && (
                         <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-500">
                             <Separator />
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Suggested Profit First Distribution</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Suggested Distribution</p>
                             <div className="grid gap-2">
                                 {suggestions.map(s => (
                                     <AllocationItem key={s.label} label={s.label} percentage={s.pct} amount={s.amount} color={s.color} />
@@ -358,7 +345,7 @@ export default function PaydayPage() {
                             <div className="p-3 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3">
                                 <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                                 <p className="text-[10px] text-muted-foreground leading-relaxed font-medium">
-                                    Your <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} will help cover the ${totalHardObligations.toFixed(2)} in obligations for this period.
+                                    Your <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} will be used to clear the ${totalHardObligations.toFixed(2)} in hard obligations for this period.
                                 </p>
                             </div>
                         </div>
@@ -435,7 +422,7 @@ export default function PaydayPage() {
                 </CardContent>
                 <CardFooter className="p-6 pt-0">
                     <Button size="lg" className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-xl shadow-primary/20" disabled={allocationAmount <= 0}>
-                        <DollarSign className="mr-2" />
+                        <CheckCircle2 className="mr-2 h-6 w-6" />
                         Confirm Distributions
                     </Button>
                 </CardFooter>
