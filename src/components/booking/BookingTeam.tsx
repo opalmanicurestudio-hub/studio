@@ -3,27 +3,22 @@
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Staff } from '@/lib/data';
+import { Staff, Tenant } from '@/lib/data';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Instagram, Star, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export const BookingTeam = ({ tenantId, staff }: { tenantId: string; staff: Staff[] }) => {
-  if (!staff || staff.length === 0) {
+export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
+  if (!staff || staff.length === 0 || tenant?.bookingPageSettings?.showTeam === false) {
     return null;
   }
-
-  const getInitials = (name?: string | null) => {
-    if (!name || name.length < 2) return '??';
-    return name.substring(0, 2).toUpperCase();
-  };
 
   return (
     <section id="team" className="space-y-12 scroll-mt-24">
       <div className="text-center space-y-4">
-        <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">The Experts</h2>
+        <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.teamSectionTitle || 'The Experts'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">A team dedicated to your vision</p>
       </div>
 

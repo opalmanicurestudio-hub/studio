@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign, ArrowRight, Sparkles } from 'lucide-react';
-import { Service, Staff, PricingTier } from '@/lib/data';
+import { Service, Staff, PricingTier, Tenant } from '@/lib/data';
 import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from '@/lib/utils';
@@ -100,7 +100,7 @@ const Badge = ({ children, className }: { children: React.ReactNode, className?:
     </div>
 );
 
-export const BookingServices = ({ services, onServiceSelect, staffMember, showPrivateServices = false }: { services: Service[], onServiceSelect: (service: Service) => void, staffMember?: Staff, showPrivateServices?: boolean }) => {
+export const BookingServices = ({ services, onServiceSelect, staffMember, showPrivateServices = false, tenant }: { services: Service[], onServiceSelect: (service: Service) => void, staffMember?: Staff, showPrivateServices?: boolean, tenant?: Tenant | null }) => {
 
     const servicesByCategory = useMemo(() => {
         if (!services) return {};
@@ -129,7 +129,7 @@ export const BookingServices = ({ services, onServiceSelect, staffMember, showPr
     return (
         <section className="space-y-12">
             <div className="text-center space-y-4">
-                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">The Menu</h2>
+                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.servicesSectionTitle || 'The Menu'}</h2>
                 <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Curated treatments for your well-being</p>
             </div>
             

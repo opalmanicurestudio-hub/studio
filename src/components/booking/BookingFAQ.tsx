@@ -7,8 +7,10 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { HelpCircle } from 'lucide-react';
+import { useFirebase, useDoc } from '@/firebase';
+import { doc } from 'firebase/firestore';
+import { useParams } from 'next/navigation';
+import { type Tenant } from '@/lib/data';
 
 const faqItems = [
   {
@@ -31,10 +33,18 @@ const faqItems = [
 
 
 export const BookingFAQ = () => {
+  const { firestore } = useFirebase();
+  const params = useParams();
+  const tenantId = params.tenantId as string;
+
+  const { data: tenant } = useDoc<Tenant>(doc(firestore, `tenants/${tenantId}`));
+
+  if (tenant?.bookingPageSettings?.showFaq === false) return null;
+
   return (
     <section className="space-y-12">
       <div className="space-y-4">
-        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Intel</h2>
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.faqSectionTitle || 'Intel'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Answers to common questions</p>
       </div>
 

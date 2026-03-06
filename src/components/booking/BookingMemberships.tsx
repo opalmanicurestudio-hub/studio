@@ -1,9 +1,10 @@
+
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Award, CheckCircle, Percent, Sparkles, Star } from 'lucide-react';
-import { type Membership } from '@/lib/data';
+import { type Membership, type Tenant } from '@/lib/data';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { motion } from 'framer-motion';
@@ -69,8 +70,8 @@ const MembershipPurchaseCard = ({ membership, onPurchase }: { membership: Member
     );
 };
 
-export const BookingMemberships = ({ memberships, onPurchase }: { memberships: Membership[], onPurchase: (membership: Membership) => void }) => {
-    if (!memberships || memberships.length === 0) return null;
+export const BookingMemberships = ({ memberships, onPurchase, tenant }: { memberships: Membership[], onPurchase: (membership: Membership) => void, tenant?: Tenant | null }) => {
+    if (!memberships || memberships.length === 0 || tenant?.bookingPageSettings?.showMemberships === false) return null;
 
     const publicMemberships = memberships.filter(m => !m.isPrivate);
 
@@ -79,7 +80,7 @@ export const BookingMemberships = ({ memberships, onPurchase }: { memberships: M
     return (
         <section id="memberships" className="space-y-12 scroll-mt-24">
             <div className="text-center space-y-4">
-                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">Access</h2>
+                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.membershipsSectionTitle || 'Access'}</h2>
                 <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Elevate your experience with exclusive tiers</p>
             </div>
 

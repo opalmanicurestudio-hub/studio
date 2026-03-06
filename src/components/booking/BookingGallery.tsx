@@ -4,8 +4,12 @@
 import Image from 'next/image';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { motion } from 'framer-motion';
+import { useFirebase, useDoc } from '@/firebase';
+import { doc } from 'firebase/firestore';
+import { useParams } from 'next/navigation';
+import { type Tenant } from '@/lib/data';
 
-const galleryImages = [
+const defaultImages = [
   { src: 'https://images.unsplash.com/photo-1599334752327-9a4c5a3c0e5a?q=80&w=600&auto=format&fit=crop', alt: 'Stylish haircut', caption: 'Precision Cut', width: 1, height: 1 },
   { src: 'https://images.unsplash.com/photo-1604654894610-df62318589c8?q=80&w=600&auto=format&fit=crop', alt: 'Manicure', caption: 'Classic Gloss', width: 1, height: 1.2 },
   { src: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?q=80&w=600&auto=format&fit=crop', alt: 'Facial', caption: 'Hydra-Glow', width: 1, height: 1 },
@@ -15,16 +19,24 @@ const galleryImages = [
 ];
 
 export const BookingGallery = () => {
+  const { firestore } = useFirebase();
+  const params = useParams();
+  const tenantId = params.tenantId as string;
+
+  const { data: tenant } = useDoc<Tenant>(doc(firestore, `tenants/${tenantId}`));
+
+  if (tenant?.bookingPageSettings?.showGallery === false) return null;
+
   return (
     <section id="gallery" className="space-y-12 scroll-mt-24">
       <div className="text-center space-y-4">
-        <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">The Vibe</h2>
+        <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.gallerySectionTitle || 'The Vibe'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Capturing our favorite moments</p>
       </div>
 
       <ScrollArea className="w-full pb-8">
         <div className="flex items-end space-x-6 px-4">
-          {galleryImages.map((image, index) => (
+          {defaultImages.map((image, index) => (
             <motion.div 
                 key={index} 
                 initial={{ opacity: 0, scale: 0.9 }}

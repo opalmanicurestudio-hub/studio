@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -195,8 +196,13 @@ export default function BookingPage() {
       )
   }
 
+  const customPrimaryColor = tenant?.bookingPageSettings?.primaryColor;
+
   return (
-    <div className="relative min-h-screen w-full bg-background selection:bg-primary/20">
+    <div 
+        className="relative min-h-screen w-full bg-background selection:bg-primary/20"
+        style={customPrimaryColor ? { '--primary': customPrimaryColor } as React.CSSProperties : {}}
+    >
         <AnimatePresence>
             {!entered && (
                 <motion.div
@@ -207,7 +213,7 @@ export default function BookingPage() {
                 >
                     <div className="absolute inset-0 z-0">
                         <Image 
-                            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=2074&auto=format&fit=crop"
+                            src={tenant?.bookingPageSettings?.heroImageUrl || "https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=2074&auto=format&fit=crop"}
                             alt="Salon backdrop"
                             fill
                             className="object-cover opacity-20 scale-110"
@@ -287,14 +293,14 @@ export default function BookingPage() {
                 <BookingWelcome tenant={tenant} />
                 
                 <section id="services" className="scroll-mt-24">
-                    <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
+                    <BookingServices services={services || []} onServiceSelect={handleServiceSelect} tenant={tenant} />
                 </section>
 
-                <BookingMemberships memberships={memberships || []} onPurchase={(item) => handlePurchase(item, 'membership')} />
+                <BookingMemberships memberships={memberships || []} onPurchase={(item) => handlePurchase(item, 'membership')} tenant={tenant} />
                 
-                <BookingPackages packages={packages || []} services={services || []} onPurchase={(item) => handlePurchase(item, 'package')} />
+                <BookingPackages packages={packages || []} services={services || []} onPurchase={(item) => handlePurchase(item, 'package')} tenant={tenant} />
                 
-                <BookingTeam tenantId={tenantId} staff={staff || []} />
+                <BookingTeam tenantId={tenantId} staff={staff || []} tenant={tenant} />
                 
                 <div className="grid md:grid-cols-2 gap-20">
                     <BookingFAQ />

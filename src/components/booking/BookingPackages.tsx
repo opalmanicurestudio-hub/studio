@@ -1,9 +1,10 @@
+
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Repeat, CheckCircle, Clock, Sparkles } from 'lucide-react';
-import { type Package, type Service } from '@/lib/data';
+import { type Package, type Service, type Tenant } from '@/lib/data';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { motion } from 'framer-motion';
@@ -59,8 +60,8 @@ const PackagePurchaseCard = ({ pack, service, onPurchase }: { pack: Package, ser
     );
 };
 
-export const BookingPackages = ({ packages, services, onPurchase }: { packages: Package[], services: Service[], onPurchase: (pack: Package) => void }) => {
-    if (!packages || packages.length === 0) return null;
+export const BookingPackages = ({ packages, services, onPurchase, tenant }: { packages: Package[], services: Service[], onPurchase: (pack: Package) => void, tenant?: Tenant | null }) => {
+    if (!packages || packages.length === 0 || tenant?.bookingPageSettings?.showPackages === false) return null;
 
     const publicPackages = packages.filter(p => !p.isPrivate);
 
@@ -69,7 +70,7 @@ export const BookingPackages = ({ packages, services, onPurchase }: { packages: 
     return (
         <section id="packages" className="space-y-12 scroll-mt-24">
             <div className="text-center space-y-4">
-                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">Bundles</h2>
+                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.packagesSectionTitle || 'Bundles'}</h2>
                 <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Secure your series of transformations</p>
             </div>
 

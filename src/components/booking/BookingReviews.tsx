@@ -1,12 +1,13 @@
+
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { motion } from 'framer-motion';
 import { Star, Loader, Quote } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
-import { type Review } from '@/lib/data';
+import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { collection, query, where, doc } from 'firebase/firestore';
+import { type Review, type Tenant } from '@/lib/data';
 import { useParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,9 @@ export const BookingReviews = () => {
   const { firestore } = useFirebase();
   const params = useParams();
   const tenantId = params.tenantId as string;
+
+  const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const { data: tenant } = useDoc<Tenant>(tenantDocRef);
 
   const reviewsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
@@ -25,13 +29,13 @@ export const BookingReviews = () => {
 
   const { data: reviews, isLoading } = useCollection<Review>(reviewsQuery);
   
-  if (isLoading) return null;
+  if (isLoading || tenant?.bookingPageSettings?.showReviews === false) return null;
   if (!reviews || reviews.length === 0) return null;
 
   return (
     <section id="reviews" className="space-y-12">
       <div className="space-y-4">
-        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Voices</h2>
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.reviewsSectionTitle || 'Voices'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Real stories from our clients</p>
       </div>
 

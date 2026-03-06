@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -535,6 +536,27 @@ export type TicketData = {
   service: Service;
 };
 
+export type BookingPageSettings = {
+    heroImageUrl?: string;
+    heroTitle?: string;
+    heroSubtitle?: string;
+    welcomeMessage?: string;
+    primaryColor?: string;
+    showTeam?: boolean;
+    showReviews?: boolean;
+    showFaq?: boolean;
+    showGallery?: boolean;
+    showMemberships?: boolean;
+    showPackages?: boolean;
+    servicesSectionTitle?: string;
+    teamSectionTitle?: string;
+    faqSectionTitle?: string;
+    reviewsSectionTitle?: string;
+    gallerySectionTitle?: string;
+    policiesSectionTitle?: string;
+    contactSectionTitle?: string;
+};
+
 export type Tenant = {
   id: string;
   name: string;
@@ -565,6 +587,7 @@ export type Tenant = {
     master?: string;
   };
   tmhr?: number;
+  bookingPageSettings?: BookingPageSettings;
 };
 
 export type Resource = {

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,7 +12,7 @@ export const BookingContact = ({ tenant }: { tenant: Tenant | null }) => {
   return (
     <section id="contact" className="space-y-12 scroll-mt-24">
       <div className="space-y-4">
-        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Connect</h2>
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.contactSectionTitle || 'Connect'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Visit us in person</p>
       </div>
 
@@ -46,8 +47,8 @@ export const BookingContact = ({ tenant }: { tenant: Tenant | null }) => {
                                 <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
                                     <Phone className="w-4 h-4" />
                                 </div>
-                                <a href="tel:555-123-4567" className="text-sm font-black uppercase tracking-tight hover:text-primary transition-colors">
-                                    (555) 123-4567
+                                <a href={`tel:${tenant?.twilioPhoneNumber || '555-123-4567'}`} className="text-sm font-black uppercase tracking-tight hover:text-primary transition-colors">
+                                    {tenant?.twilioPhoneNumber || '(555) 123-4567'}
                                 </a>
                             </div>
 

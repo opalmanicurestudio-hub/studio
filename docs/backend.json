@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "User": {
@@ -124,6 +125,30 @@
         "twilioPhoneNumber": {
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
+        },
+        "bookingPageSettings": {
+            "type": "object",
+            "description": "Customization settings for the public booking page.",
+            "properties": {
+                "heroImageUrl": { "type": "string" },
+                "heroTitle": { "type": "string" },
+                "heroSubtitle": { "type": "string" },
+                "welcomeMessage": { "type": "string" },
+                "primaryColor": { "type": "string" },
+                "showTeam": { "type": "boolean", "default": true },
+                "showReviews": { "type": "boolean", "default": true },
+                "showFaq": { "type": "boolean", "default": true },
+                "showGallery": { "type": "boolean", "default": true },
+                "showMemberships": { "type": "boolean", "default": true },
+                "showPackages": { "type": "boolean", "default": true },
+                "servicesSectionTitle": { "type": "string", "default": "The Menu" },
+                "teamSectionTitle": { "type": "string", "default": "The Experts" },
+                "faqSectionTitle": { "type": "string", "default": "Intel" },
+                "reviewsSectionTitle": { "type": "string", "default": "Voices" },
+                "gallerySectionTitle": { "type": "string", "default": "The Vibe" },
+                "policiesSectionTitle": { "type": "string", "default": "The Standard" },
+                "contactSectionTitle": { "type": "string", "default": "Connect" }
+            }
         }
       },
       "required": [

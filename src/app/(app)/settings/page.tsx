@@ -34,7 +34,12 @@ import {
   Ban,
   ShieldAlert,
   Calculator,
-  Loader
+  Loader,
+  Globe,
+  Palette,
+  Eye,
+  EyeOff,
+  Image as ImageIcon
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -48,13 +53,14 @@ import {
 } from '@/components/ui/select';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
-import { type Tenant } from '@/lib/data';
+import { type Tenant, type BookingPageSettings } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -118,6 +124,7 @@ export default function SettingsPage() {
   const [isPoliciesEditing, setIsPoliciesEditing] = useState(false);
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
+  const [isBookingBuilderEditing, setIsBookingBuilderEditing] = useState(false);
 
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
@@ -217,6 +224,28 @@ export default function SettingsPage() {
     }
   };
 
+  const handleBookingBuilderEdit = () => {
+    setBackupTenantData(tenantData);
+    setIsBookingBuilderEditing(true);
+  }
+
+  const handleBookingBuilderCancel = () => {
+    setTenantData(backupTenantData);
+    setIsBookingBuilderEditing(false);
+  }
+
+  const handleBookingBuilderSave = async () => {
+    if (!selectedTenant || !firestore) return;
+    try {
+        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+        updateDocumentNonBlocking(tenantRef, { bookingPageSettings: tenantData.bookingPageSettings });
+        toast({ title: 'Booking Page Settings Saved!' });
+        setIsBookingBuilderEditing(false);
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Save Failed' });
+    }
+  }
+
   const handleQueueEdit = () => {
     setBackupTenantData(tenantData);
     setIsQueueEditing(true);
@@ -288,6 +317,7 @@ export default function SettingsPage() {
     { value: "profile", label: "Profile", icon: <Building className="w-4 h-4" /> },
     { value: "hours", label: "Hours", icon: <Clock className="w-4 h-4" /> },
     { value: "policies", label: "Policies", icon: <FileText className="w-4 h-4" /> },
+    { value: "builder", label: "Page Builder", icon: <Globe className="w-4 h-4" /> },
     { value: "queue", label: "Queue", icon: <ListChecks className="w-4 h-4" /> },
     { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
   ];
@@ -525,6 +555,106 @@ export default function SettingsPage() {
                                     <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
                                     {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Regenerate</Button>}
                                 </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="builder" className="mt-6 space-y-6">
+                <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                                <Globe className="w-5 h-5 text-primary" />
+                                Booking Page Builder
+                            </CardTitle>
+                            <CardDescription>Skin your booking experience and customize section headers.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {isBookingBuilderEditing ? (
+                                <>
+                                    <Button variant="outline" onClick={handleBookingBuilderCancel}>Cancel</Button>
+                                    <Button onClick={handleBookingBuilderSave}>Save Layout</Button>
+                                </>
+                            ) : (
+                                <Button onClick={handleBookingBuilderEdit}><Edit className="mr-2 h-4 w-4"/>Edit Design</Button>
+                            )}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-10">
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><ImageIcon className="w-4 h-4"/> Landing Hook</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label>Custom Hero Image</Label>
+                                    <ImageUpload onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} initialImage={tenantData.bookingPageSettings?.heroImageUrl} />
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Label>Hero Headline</Label>
+                                        <Input value={tenantData.bookingPageSettings?.heroTitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroTitle: e.target.value}}))} placeholder="e.g., Welcome to Excellence" disabled={!isBookingBuilderEditing} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Welcome Text (Hero)</Label>
+                                        <Input value={tenantData.bookingPageSettings?.heroSubtitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroSubtitle: e.target.value}}))} placeholder="e.g., Your transformation starts here." disabled={!isBookingBuilderEditing} />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Welcome Quote (Intro Section)</Label>
+                                <Textarea value={tenantData.bookingPageSettings?.welcomeMessage || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, welcomeMessage: e.target.value}}))} placeholder="A personalized welcome note for your clients..." disabled={!isBookingBuilderEditing} />
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><Palette className="w-4 h-4"/> Brand Theme</h3>
+                            <div className="space-y-2">
+                                <Label>Primary Brand Color</Label>
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl border shadow-sm" style={{ backgroundColor: tenantData.bookingPageSettings?.primaryColor || 'hsl(var(--primary))' }} />
+                                    <Input value={tenantData.bookingPageSettings?.primaryColor || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, primaryColor: e.target.value}}))} placeholder="e.g., #000000 or hsl(210, 40%, 55%)" disabled={!isBookingBuilderEditing} className="font-mono" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><ListChecks className="w-4 h-4"/> Visibility & Copy</h3>
+                            <p className="text-xs text-muted-foreground">Toggle sections on/off and customize the terminology used.</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                {[
+                                    { key: 'Team', label: 'Pro Team', icon: <Users className="w-4 h-4"/>, titleKey: 'teamSectionTitle', showKey: 'showTeam' },
+                                    { key: 'Reviews', label: 'Reviews', icon: <Star className="w-4 h-4"/>, titleKey: 'reviewsSectionTitle', showKey: 'showReviews' },
+                                    { key: 'Gallery', label: 'Portfolio/Gallery', icon: <ImageIcon className="w-4 h-4"/>, titleKey: 'gallerySectionTitle', showKey: 'showGallery' },
+                                    { key: 'Faq', label: 'FAQ', icon: <CircleHelp className="w-4 h-4"/>, titleKey: 'faqSectionTitle', showKey: 'showFaq' },
+                                    { key: 'Memberships', label: 'Memberships', icon: <Award className="w-4 h-4"/>, titleKey: 'membershipsSectionTitle', showKey: 'showMemberships' },
+                                    { key: 'Packages', label: 'Packages', icon: <Repeat className="w-4 h-4"/>, titleKey: 'packagesSectionTitle', showKey: 'showPackages' }
+                                ].map(section => (
+                                    <div key={section.key} className="space-y-3 p-4 rounded-xl border bg-muted/10">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2 font-bold text-sm">{section.icon}{section.label}</div>
+                                            <Switch 
+                                                checked={tenantData.bookingPageSettings?.[section.showKey as keyof BookingPageSettings] !== false} 
+                                                onCheckedChange={(val) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, [section.showKey]: val}}))}
+                                                disabled={!isBookingBuilderEditing}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] uppercase font-black text-muted-foreground">Display Title</Label>
+                                            <Input 
+                                                value={tenantData.bookingPageSettings?.[section.titleKey as keyof BookingPageSettings] as string || ''} 
+                                                onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, [section.titleKey]: e.target.value}}))}
+                                                placeholder={`e.g., ${section.label}`}
+                                                disabled={!isBookingBuilderEditing}
+                                                className="h-8 text-xs"
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </CardContent>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { ShieldCheck, Clock, Ban, AlertCircle } from 'lucide-react';
@@ -38,7 +39,7 @@ export const BookingPolicies = ({ tenant }: { tenant: Tenant | null }) => {
   return (
     <section id="policies" className="space-y-12 scroll-mt-24">
       <div className="space-y-4">
-        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">The Standard</h2>
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.policiesSectionTitle || 'The Standard'}</h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Studio guidelines & expectations</p>
       </div>
 
