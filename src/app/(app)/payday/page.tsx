@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -268,7 +267,7 @@ export default function PaydayPage() {
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
       <main className="flex-1 p-4 md:p-8">
-        <div className="max-w-2xl mx-auto px-2 md:px-0 space-y-10">
+        <div className="max-w-2xl mx-auto px-4 md:px-0 space-y-10">
             <div className="text-center space-y-1">
                 <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
                 <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
@@ -277,21 +276,21 @@ export default function PaydayPage() {
             </div>
 
             <div className="space-y-6">
-                <div className="flex gap-2 p-2 bg-muted rounded-2xl">
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'weekly' ? "bg-white shadow-sm" : "hover:bg-white/50")}>Weekly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'bi-weekly' ? "bg-white shadow-sm" : "hover:bg-white/50")}>Bi-Weekly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'monthly' ? "bg-white shadow-sm" : "hover:bg-white/50")}>Monthly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('custom')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'custom' ? "bg-white shadow-sm" : "hover:bg-white/50")}>Custom</Button>
+                <div className="flex gap-2 p-3 bg-muted border-2 border-muted rounded-2xl shadow-inner">
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Weekly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'bi-weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Bi-Weekly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'monthly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Monthly</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('custom')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'custom' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Custom</Button>
                 </div>
 
                 {cadence === 'custom' ? (
-                    <div className="p-6 md:p-8 bg-muted/30 rounded-[2.5rem] border-2 border-dashed border-muted-foreground/20 space-y-6">
-                        <div className="flex items-center gap-2 justify-center text-[10px] font-black uppercase tracking-widest text-primary mb-2">
-                            <CalendarRange className="w-3 h-3" /> Select Custom Window
+                    <div className="p-8 md:p-12 bg-muted/30 rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-8 shadow-inner">
+                        <div className="flex items-center gap-3 justify-center text-[11px] font-black uppercase tracking-widest text-primary">
+                            <CalendarRange className="w-4 h-4" /> Select Custom Window
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Start Date</Label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                            <div className="space-y-3">
+                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Start Date</Label>
                                 <input 
                                     type="date" 
                                     value={format(dateRange.from, 'yyyy-MM-dd')}
@@ -299,11 +298,11 @@ export default function PaydayPage() {
                                         const newDate = e.target.value ? startOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.from;
                                         setDateRange(prev => ({ ...prev, from: newDate }));
                                     }}
-                                    className="w-full h-14 rounded-2xl border-2 bg-background px-4 font-bold text-base focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-sm"
+                                    className="w-full h-16 rounded-2xl border-2 bg-background px-4 font-black text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">End Date</Label>
+                            <div className="space-y-3">
+                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">End Date</Label>
                                 <input 
                                     type="date" 
                                     value={format(dateRange.to, 'yyyy-MM-dd')}
@@ -311,13 +310,13 @@ export default function PaydayPage() {
                                         const newDate = e.target.value ? endOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.to;
                                         setDateRange(prev => ({ ...prev, to: newDate }));
                                     }}
-                                    className="w-full h-14 rounded-2xl border-2 bg-background px-4 font-bold text-base focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-sm"
+                                    className="w-full h-16 rounded-2xl border-2 bg-background px-4 font-black text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
                                 />
                             </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 mx-1 md:mx-0">
+                    <div className="flex items-center justify-between p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 mx-1 md:mx-0 shadow-inner">
                         <Button 
                             variant="ghost" 
                             size="icon" 
