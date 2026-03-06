@@ -55,7 +55,9 @@ import {
     endOfMonth,
     addDays,
     subMonths,
-    addMonths
+    addMonths,
+    isSameDay,
+    differenceInDays
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useUser } from '@/firebase';
@@ -259,7 +261,6 @@ export default function PaydayPage() {
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
-    // 1. Record Staff Payouts as expenses
     staffObligations.forEach(obligation => {
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         const newTxn: Omit<Transaction, 'id'> = {
@@ -277,8 +278,6 @@ export default function PaydayPage() {
         batch.set(txnRef, { ...newTxn, id: txnRef.id });
     });
 
-    // 2. Record Profit First bucket allocations as transfers (excluding OpEx to avoid double-entry)
-    // We only log the movement OUT of the main account into these specific buckets.
     suggestions.forEach(bucket => {
         if (bucket.amount > 0 && bucket.label !== 'OpEx / Bills') {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
