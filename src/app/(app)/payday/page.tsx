@@ -276,7 +276,7 @@ export default function PaydayPage() {
             </div>
 
             <div className="space-y-6">
-                <div className="max-w-sm mx-auto flex gap-2 p-2 bg-muted border-2 border-muted rounded-2xl shadow-inner">
+                <div className="max-w-[340px] mx-auto flex gap-2 p-3 bg-muted border-2 border-muted rounded-2xl shadow-inner">
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'bi-weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Bi-Weekly</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'monthly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Monthly</Button>
@@ -284,11 +284,11 @@ export default function PaydayPage() {
                 </div>
 
                 {cadence === 'custom' ? (
-                    <div className="p-8 md:p-12 bg-muted/30 rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-8 shadow-inner">
+                    <div className="p-10 md:p-16 bg-muted/30 rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-8 shadow-inner">
                         <div className="flex items-center gap-3 justify-center text-[11px] font-black uppercase tracking-widest text-primary">
                             <CalendarRange className="w-4 h-4" /> Select Custom Window
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 px-2 md:px-4">
                             <div className="space-y-3">
                                 <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Start Date</Label>
                                 <input 
