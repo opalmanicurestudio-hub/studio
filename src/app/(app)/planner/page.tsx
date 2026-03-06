@@ -273,7 +273,7 @@ function PlannerPageContent() {
             <div className="max-w-7xl mx-auto space-y-4 sm:space-y-8">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
                     <div className="space-y-0.5 sm:space-y-1">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
+                        <h1 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
                         <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
@@ -287,7 +287,7 @@ function PlannerPageContent() {
                             </div>
                         )}
                         <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
-                        <Button size="lg" className="flex-1 md:flex-none h-10 sm:h-14 px-4 sm:px-8 rounded-xl sm:rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4"/>New Session</Button>
+                        <Button size="lg" className="flex-1 md:flex-none h-10 sm:h-14 px-4 sm:px-8 rounded-xl sm:rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4"/>{isMobile ? 'New' : 'New Session'}</Button>
                     </div>
                 </div>
 
@@ -313,9 +313,9 @@ function PlannerPageContent() {
                 <ScrollArea className="w-full">
                     <div className="flex w-full gap-1.5 sm:gap-2 px-1">
                         {weekDays.map(day => (
-                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-4 min-w-[60px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-4 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
+                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-4 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-4 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
                                 <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
-                                <p className={cn("text-lg sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                                <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
                             </button>
                         ))}
                     </div>
@@ -403,4 +403,4 @@ const involvedStaffIds = (apt: Appointment, st: AppointmentCheckoutState) => {
     return Array.from(ids);
 };
 
-export default function PlannerPageWrapper() { return <Suspense fallback={<div className="flex h-screen w-full flex-col"><AppHeader /><div className="flex items-center justify-center flex-1"><Loader className="h-8 w-8 animate-spin" /></div></div>}><PlannerPageContent /></Suspense> }
+export default function PlannerPageWrapper() { return <Suspense fallback={<div>Loading...</div>}><PlannerPageContent /></Suspense> }

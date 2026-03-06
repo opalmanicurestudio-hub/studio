@@ -192,7 +192,7 @@ export const DayTimeline = ({
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max md:min-w-full">
-                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-12 sm:h-16 border-b border-r" style={{ width: isMobile ? '40px' : '64px' }} />
+                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-12 sm:h-16 border-b border-r" style={{ width: isMobile ? '32px' : '64px' }} />
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background/80 backdrop-blur-md" style={gridStyle}>
                     {displayedColumns.map(column => (
                         <div key={column.id} className="p-2 sm:p-3 h-12 sm:h-16 border-b border-r text-center flex items-center justify-center">
@@ -232,8 +232,8 @@ export const DayTimeline = ({
                         </div>
                     ))}
                 </div>
-                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-16")}>
-                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start"><span className="text-[8px] sm:text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-8" : "w-16")}>
+                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start"><span className="text-[7px] sm:text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
                 </div>
                 <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
