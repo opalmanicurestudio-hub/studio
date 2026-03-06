@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -128,24 +129,23 @@ function POSPageContent() {
     }, [appointmentsFromInventory, clients, services, staff]);
 
     const handleSelectAppointment = useCallback((id: string) => {
-        setSelectedAppointmentIds(prev => {
-            const next = new Set(prev);
-            let targetClientId = selectedClientId;
-            
-            if (prev.has(id)) {
-                next.delete(id);
-                if (next.size === 0) targetClientId = null;
-            } else {
-                next.add(id);
-                const aptData = readyForCheckoutAppointments.find(a => a.id === id);
-                if (aptData?.client?.id) {
-                    targetClientId = aptData.client.id;
-                }
+        const nextIds = new Set(selectedAppointmentIds);
+        let nextClientId = selectedClientId;
+
+        if (nextIds.has(id)) {
+            nextIds.delete(id);
+            if (nextIds.size === 0) nextClientId = null;
+        } else {
+            nextIds.add(id);
+            const aptData = readyForCheckoutAppointments.find(a => a.id === id);
+            if (aptData?.client?.id) {
+                nextClientId = aptData.client.id;
             }
-            setSelectedClientId(targetClientId);
-            return next;
-        });
-    }, [readyForCheckoutAppointments, selectedClientId]);
+        }
+        
+        setSelectedAppointmentIds(nextIds);
+        setSelectedClientId(nextClientId);
+    }, [readyForCheckoutAppointments, selectedClientId, selectedAppointmentIds]);
 
     const selectedAptsData = useMemo(() => 
         Array.from(selectedAppointmentIds)
@@ -693,12 +693,19 @@ function POSPageContent() {
     const isGroupCheckoutValue = selectedAppointmentIds.size > 1;
     const allClientOptions = clients || [];
 
-    // Provide full list of clients if no appointments are selected (retail sale mode)
     const payerOptionsList = useMemo(() => {
-        if (selectedAppointmentIds.size === 0) return allClientOptions;
         const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
-        return allClientOptions.filter(c => involvedClientIds.has(c.id));
-    }, [selectedAppointmentIds, selectedAptsData, allClientOptions]);
+        if (involvedClientIds.size === 0) return allClientOptions;
+        
+        // Return all clients but sort involved ones to the top
+        return [...allClientOptions].sort((a, b) => {
+            const aInvolved = involvedClientIds.has(a.id);
+            const bInvolved = involvedClientIds.has(b.id);
+            if (aInvolved && !bInvolved) return -1;
+            if (!aInvolved && bInvolved) return 1;
+            return 0;
+        });
+    }, [selectedAptsData, allClientOptions]);
 
     const checkoutHubProps = {
         cart: retailItems, 

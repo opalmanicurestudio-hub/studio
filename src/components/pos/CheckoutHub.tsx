@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -38,7 +39,7 @@ import {
     Check
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
-import { ScrollArea } from '../ui/scroll-area';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
@@ -223,12 +224,13 @@ export const CheckoutHub = ({
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
     
     const filteredClients = useMemo(() => {
+        if (!payerOptions) return [];
         if (!clientSearch.trim()) return payerOptions;
         const search = clientSearch.toLowerCase();
         return payerOptions.filter((c: Client) => 
             c.name.toLowerCase().includes(search) || 
-            c.email?.toLowerCase().includes(search) || 
-            c.phone?.includes(search)
+            (c.email && c.email.toLowerCase().includes(search)) || 
+            (c.phone && c.phone.includes(search))
         );
     }, [payerOptions, clientSearch]);
 
@@ -365,6 +367,12 @@ export const CheckoutHub = ({
                                         <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40">No matching accounts</p>
                                     </div>
                                 )}
+                            </div>
+                            <div className="p-2 bg-muted/5 border-t">
+                                <Button variant="outline" className="w-full h-10 rounded-xl font-bold uppercase text-[9px] tracking-widest" onClick={() => { setIsPayerPopoverOpen(false); onAddClientClick(); }}>
+                                    <UserPlus className="w-3 h-3 mr-2" />
+                                    Register New Client
+                                </Button>
                             </div>
                         </PopoverContent>
                     </Popover>
