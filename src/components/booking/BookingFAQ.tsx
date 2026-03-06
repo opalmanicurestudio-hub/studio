@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -7,11 +8,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { HelpCircle } from 'lucide-react';
 
 const faqItems = [
   {
     question: "What is your cancellation policy?",
-    answer: "We require at least 24 hours notice for any cancellations. Cancellations made within 24 hours of the appointment may be subject to a fee.",
+    answer: "We require at least 24 hours notice for any cancellations. Cancellations made within 24 hours of the appointment may be subject to a fee to recover our overhead costs.",
   },
   {
     question: "How should I prepare for my appointment?",
@@ -19,29 +21,37 @@ const faqItems = [
   },
   {
     question: "Do you accept walk-ins?",
-    answer: "We primarily operate by appointment to ensure each client gets our full attention. However, we do accept walk-ins if there are openings in the schedule. We recommend calling ahead to check for availability.",
+    answer: "We primarily operate by appointment to ensure each client gets our full attention. However, we do accept walk-ins if there are openings in the schedule. Check our live kiosk for real-time status.",
   },
-    {
+  {
     question: "What if I'm running late?",
-    answer: "We have a 15-minute grace period. If you are running more than 15 minutes late, we may need to reschedule your appointment to avoid impacting other clients. Please call us as soon as you know you will be late.",
+    answer: "We have a 15-minute grace period. Beyond that, your appointment may be auto-cancelled to respect the time of our other guests. Please let us know as soon as possible via your check-in link.",
   },
 ];
 
 
 export const BookingFAQ = () => {
   return (
-    <section className="space-y-6">
-      <h2 className="text-3xl font-bold text-center">Frequently Asked Questions</h2>
-      <Accordion type="single" collapsible className="w-full">
+    <section className="space-y-12">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Intel</h2>
+        <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Answers to common questions</p>
+      </div>
+
+      <div className="space-y-2">
         {faqItems.map((item, index) => (
-          <AccordionItem key={index} value={`item-${index}`}>
-            <AccordionTrigger className="text-left">{item.question}</AccordionTrigger>
-            <AccordionContent>
-              {item.answer}
-            </AccordionContent>
-          </AccordionItem>
+          <Accordion type="single" collapsible key={index}>
+            <AccordionItem value={`item-${index}`} className="border-2 border-border/50 rounded-2xl px-6 bg-card mb-3 overflow-hidden transition-all hover:border-primary/30">
+                <AccordionTrigger className="text-left font-black uppercase text-[11px] tracking-widest hover:no-underline py-6">
+                    {item.question}
+                </AccordionTrigger>
+                <AccordionContent className="text-muted-foreground leading-relaxed pb-6">
+                {item.answer}
+                </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         ))}
-      </Accordion>
+      </div>
     </section>
   );
 };

@@ -1,16 +1,17 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, Membership, Package, PricingTier } from '@/lib/data';
-import { Loader, ArrowDown, Users } from 'lucide-react';
+import { Loader, ArrowDown, Users, Sparkles, MapPin, Phone, Instagram } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO, addMonths, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useScroll, useTransform } from 'framer-motion';
 
 import { BookingHeader } from '@/components/booking/BookingHeader';
 import { BookingGallery } from '@/components/booking/BookingGallery';
@@ -26,10 +27,10 @@ import { BookingMemberships } from '@/components/booking/BookingMemberships';
 import { BookingPackages } from '@/components/booking/BookingPackages';
 import { PurchaseSheet } from '@/components/booking/PurchaseSheet';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function BookingPage() {
   const params = useParams();
-  const router = useRouter();
   const tenantId = params.tenantId as string;
   const { firestore } = useFirebase();
   const { toast } = useToast();
@@ -148,7 +149,6 @@ export default function BookingPage() {
         batch.set(appointmentRef, newAppointment);
         batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
 
-        // Save signed consent forms
         signedForms.forEach(form => {
             const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`));
             batch.set(consentDocRef, {
@@ -159,7 +159,6 @@ export default function BookingPage() {
             });
         });
 
-        // Notify staff member
         if (newAppointment.staffId) {
             const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
             batch.set(notificationRef, {
@@ -184,84 +183,152 @@ export default function BookingPage() {
     }
   };
 
-  const handleConfirmPurchase = async (formData: { clientName: string; clientEmail: string; clientPhone?: string }, item: Membership | Package, type: 'membership' | 'package') => {
-    // Placeholder for future logic
-  };
-
-
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading || membershipsLoading || packagesLoading || pricingTiersLoading;
+
+  const { scrollYProgress } = useScroll();
+  const heroOpacity = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
+  const heroScale = useTransform(scrollYProgress, [0, 0.2], [1, 0.9]);
 
   if (isLoading) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
-            <Loader className="h-8 w-8 animate-spin" />
-            <p className="text-muted-foreground">Loading booking page...</p>
+        <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
+            <Loader className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Studio...</p>
         </div>
       )
   }
 
   return (
-    <div className="w-full">
+    <div className="relative min-h-screen w-full bg-background selection:bg-primary/20">
         <AnimatePresence>
             {!entered && (
                 <motion.div
                     initial={{ opacity: 1 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.5 }}
-                    className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center text-center p-4"
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background overflow-hidden"
                 >
-                    <BookingHeader tenant={tenant} />
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5, duration: 0.5 }}
-                        className="flex flex-col sm:flex-row gap-4 items-center"
+                    <div className="absolute inset-0 z-0">
+                        <Image 
+                            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=2074&auto=format&fit=crop"
+                            alt="Salon backdrop"
+                            fill
+                            className="object-cover opacity-20 scale-110"
+                            priority
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background" />
+                    </div>
+
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        transition={{ delay: 0.2, duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                        className="relative z-10 flex flex-col items-center text-center px-6"
                     >
-                        <Button size="lg" onClick={() => setEntered(true)}>
-                            Book an Appointment
-                        </Button>
-                        <Button size="lg" variant="outline" asChild>
-                            <Link href={`/kiosk/${tenantId}`}>
-                                <Users className="mr-2 h-5 w-5" />
-                                Join Walk-in List
-                            </Link>
-                        </Button>
+                        <BookingHeader tenant={tenant} />
+                        
+                        <div className="mt-12 flex flex-col sm:flex-row gap-4 w-full max-w-sm">
+                            <Button 
+                                size="lg" 
+                                onClick={() => setEntered(true)}
+                                className="h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30 group"
+                            >
+                                View Service Menu
+                                <ArrowDown className="ml-2 h-5 w-5 transition-transform group-hover:translate-y-1" />
+                            </Button>
+                            <Button 
+                                size="lg" 
+                                variant="outline" 
+                                asChild
+                                className="h-16 rounded-2xl text-lg font-black uppercase tracking-tight border-2 bg-background/50 backdrop-blur-sm"
+                            >
+                                <Link href={`/kiosk/${tenantId}`}>
+                                    <Users className="mr-2 h-5 w-5" />
+                                    Join Queue
+                                </Link>
+                            </Button>
+                        </div>
                     </motion.div>
+
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        transition={{ delay: 1, duration: 1 }}
-                        className="absolute bottom-10"
+                        transition={{ delay: 1.5, duration: 1 }}
+                        className="absolute bottom-12 flex flex-col items-center gap-2 text-muted-foreground"
                     >
-                        <ArrowDown className="w-6 h-6 animate-bounce text-muted-foreground" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Discover Excellence</p>
+                        <ArrowDown className="w-5 h-5 animate-bounce" />
                     </motion.div>
                 </motion.div>
             )}
         </AnimatePresence>
 
-        <AnimatePresence>
-        {entered && (
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.2 }}
-                className="space-y-20"
-            >
-                <BookingHeader tenant={tenant} />
+        <main className={cn(
+            "relative transition-all duration-1000",
+            !entered ? "opacity-0 translate-y-10" : "opacity-100 translate-y-0"
+        )}>
+            {/* Sticky Header */}
+            <div className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-xl px-4 md:px-8 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <Sparkles className="w-6 h-6 text-primary" />
+                    <span className="font-black uppercase tracking-tighter text-xl">{tenant?.name}</span>
+                </div>
+                <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" asChild className="hidden sm:flex font-bold uppercase text-[10px] tracking-widest">
+                        <Link href="#services">Services</Link>
+                    </Button>
+                    <Button size="sm" onClick={() => {
+                        const servicesEl = document.getElementById('services');
+                        servicesEl?.scrollIntoView({ behavior: 'smooth' });
+                    }} className="font-black uppercase text-[10px] tracking-widest rounded-full px-6">
+                        Book Now
+                    </Button>
+                </div>
+            </div>
+
+            <div className="space-y-32 py-20 px-4 md:px-8 max-w-6xl mx-auto">
                 <BookingWelcome tenant={tenant} />
-                <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
+                
+                <section id="services" className="scroll-mt-24">
+                    <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
+                </section>
+
                 <BookingMemberships memberships={memberships || []} onPurchase={(item) => handlePurchase(item, 'membership')} />
+                
                 <BookingPackages packages={packages || []} services={services || []} onPurchase={(item) => handlePurchase(item, 'package')} />
+                
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
-                <BookingFAQ />
-                <BookingReviews />
+                
+                <div className="grid md:grid-cols-2 gap-20">
+                    <BookingFAQ />
+                    <BookingReviews />
+                </div>
+
                 <BookingGallery />
-                <BookingPolicies tenant={tenant} />
-                <BookingContact tenant={tenant} />
-            </motion.div>
-        )}
-        </AnimatePresence>
-      
+                
+                <div className="grid md:grid-cols-2 gap-8 items-start">
+                    <BookingPolicies tenant={tenant} />
+                    <BookingContact tenant={tenant} />
+                </div>
+            </div>
+
+            <footer className="border-t bg-muted/30 py-20 px-8 text-center mt-20">
+                <div className="max-w-md mx-auto space-y-6">
+                    <Sparkles className="w-10 h-10 text-primary mx-auto opacity-20" />
+                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">
+                        Handcrafted by {tenant?.name}
+                    </p>
+                    <div className="flex justify-center gap-6">
+                        <Link href="#" className="text-muted-foreground hover:text-primary transition-colors"><Instagram className="w-5 h-5" /></Link>
+                        <Link href="#" className="text-muted-foreground hover:text-primary transition-colors"><MapPin className="w-5 h-5" /></Link>
+                        <Link href="#" className="text-muted-foreground hover:text-primary transition-colors"><Phone className="w-5 h-5" /></Link>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground opacity-50 uppercase font-black">
+                        &copy; {new Date().getFullYear()} ClarityFlow Booking Engine
+                    </p>
+                </div>
+            </footer>
+        </main>
 
         {selectedService && (
             <BookingSheet 
@@ -285,7 +352,7 @@ export default function BookingPage() {
                 onOpenChange={setIsPurchaseSheetOpen}
                 item={itemToPurchase}
                 type={purchaseType}
-                onConfirm={async (f, i, t) => {}} // Placeholder
+                onConfirm={async (f, i, t) => {}} 
             />
         )}
     </div>

@@ -4,32 +4,11 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { motion } from 'framer-motion';
-import { Star, Loader } from 'lucide-react';
+import { Star, Loader, Quote } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { type Review } from '@/lib/data';
 import { useParams } from 'next/navigation';
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.2,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { y: 20, opacity: 0 },
-  visible: {
-    y: 0,
-    opacity: 1,
-    transition: {
-      duration: 0.5,
-    },
-  },
-};
 
 export const BookingReviews = () => {
   const { firestore } = useFirebase();
@@ -46,63 +25,54 @@ export const BookingReviews = () => {
 
   const { data: reviews, isLoading } = useCollection<Review>(reviewsQuery);
   
-  if (isLoading) {
-      return (
-          <section id="reviews" className="space-y-6 scroll-mt-20">
-              <h2 className="text-3xl font-bold text-center">What Our Clients Say</h2>
-              <div className="flex justify-center">
-                <Loader className="animate-spin" />
-              </div>
-          </section>
-      )
-  }
-  
-  if (!reviews || reviews.length === 0) {
-      return null; // Don't render the section if there are no public reviews
-  }
+  if (isLoading) return null;
+  if (!reviews || reviews.length === 0) return null;
 
   return (
-    <section id="reviews" className="space-y-6 scroll-mt-20">
-      <h2 className="text-3xl font-bold text-center">What Our Clients Say</h2>
-      <motion.div
-        className="grid md:grid-cols-3 gap-6"
-        variants={containerVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.3 }}
-      >
-        {reviews.map((review) => (
-          <motion.div key={review.id} variants={itemVariants} className="h-full">
-            <Card className="bg-card h-full flex flex-col text-left">
-              <CardContent className="p-6 flex flex-col flex-1">
-                <div className="flex items-center gap-4 mb-4">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={review.clientAvatarUrl} />
-                    <AvatarFallback>{review.clientName.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-semibold">{review.clientName}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Client for <span className="font-medium text-primary">{review.serviceName}</span>
+    <section id="reviews" className="space-y-12">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Voices</h2>
+        <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Real stories from our clients</p>
+      </div>
+
+      <div className="space-y-6">
+        {reviews.slice(0, 3).map((review, idx) => (
+          <motion.div 
+            key={review.id}
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ delay: idx * 0.1 }}
+            viewport={{ once: true }}
+          >
+            <div className="relative group">
+                <Quote className="absolute -top-4 -left-4 w-12 h-12 text-primary opacity-10 group-hover:opacity-20 transition-opacity" />
+                <div className="space-y-4 pl-6">
+                    <p className="text-lg md:text-xl font-medium text-slate-700 leading-relaxed italic">
+                        "{review.text}"
                     </p>
-                  </div>
+                    <div className="flex items-center gap-4">
+                        <Avatar className="w-10 h-10 border-2 border-primary/20">
+                            <AvatarImage src={review.clientAvatarUrl} />
+                            <AvatarFallback>{review.clientName.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <p className="font-black uppercase text-[10px] tracking-widest">{review.clientName}</p>
+                            <div className="flex mt-0.5">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                    <Star key={i} className={cn("w-2.5 h-2.5", i < review.rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} />
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex mb-4">
-                  {Array.from({ length: review.rating }).map((_, i) => (
-                    <Star key={i} className="w-5 h-5 text-amber-400 fill-amber-400" />
-                  ))}
-                  {Array.from({ length: 5 - review.rating }).map((_, i) => (
-                    <Star key={`empty-${i}`} className="w-5 h-5 text-amber-200/50" />
-                  ))}
-                </div>
-                <blockquote className="text-muted-foreground flex-1 border-l-2 border-primary pl-4 italic">
-                  "{review.text}"
-                </blockquote>
-              </CardContent>
-            </Card>
+            </div>
+            {idx < 2 && <Separator className="my-8 border-dashed" />}
           </motion.div>
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 };
+
+const cn = (...classes: any[]) => classes.filter(Boolean).join(' ');
+const Separator = ({ className }: { className?: string }) => <div className={cn("h-px w-full bg-border", className)} />;

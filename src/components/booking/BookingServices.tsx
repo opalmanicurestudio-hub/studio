@@ -1,27 +1,18 @@
 
-
 'use client';
 
 import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+  Card,
+  CardContent,
+} from '@/components/ui/card';
 import Image from 'next/image';
-import { Clock, DollarSign } from 'lucide-react';
+import { Clock, DollarSign, ArrowRight, Sparkles } from 'lucide-react';
 import { Service, Staff, PricingTier } from '@/lib/data';
 import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onSelect: () => void, staffMember?: Staff }) => {
     const { priceText, durationText } = useMemo(() => {
@@ -40,89 +31,74 @@ const ServiceCard = ({ service, onSelect, staffMember }: { service: Service, onS
         if (service.serviceTiers && service.serviceTiers.length > 0) {
             const prices = service.serviceTiers.map(t => t.price);
             const minPrice = Math.min(...prices);
-            
-            if (service.price > 0 && service.price < minPrice) {
-                 return { priceText: `From $${service.price.toFixed(2)}`, durationText: `${service.duration} min` };
-            }
-            
-            if (minPrice === Math.max(...prices)) {
-                return { priceText: `$${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
-            }
-
             return { priceText: `From $${minPrice.toFixed(2)}`, durationText: `${service.duration} min` };
         }
         
         return { priceText: `$${price.toFixed(2)}`, durationText: `${duration} min` };
     }, [service, staffMember]);
 
-  if (service.imageUrl) {
     return (
-      <div className="cursor-pointer group h-full" onClick={onSelect}>
-        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col">
+      <motion.div 
+        layout
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        whileHover={{ y: -8 }}
+        className="cursor-pointer group h-full" 
+        onClick={onSelect}
+      >
+        <Card className="overflow-hidden border-2 border-border/50 bg-card hover:border-primary/50 transition-all duration-500 shadow-sm hover:shadow-2xl hover:shadow-primary/10 h-full flex flex-col rounded-3xl">
           <CardContent className="p-0 flex flex-col flex-1">
-            <div className="relative aspect-[4/3] w-full bg-muted/30">
-              <Image
-                src={service.imageUrl}
-                alt={service.name}
-                fill
-                className="object-cover transition-transform duration-300 group-hover:scale-110"
-              />
+            <div className="relative aspect-[4/3] w-full bg-muted overflow-hidden">
+              {service.imageUrl ? (
+                <Image
+                  src={service.imageUrl}
+                  alt={service.name}
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-primary/5">
+                    <Sparkles className="w-12 h-12 text-primary/20" />
+                </div>
+              )}
+              <div className="absolute top-4 right-4">
+                <Badge className="bg-background/80 backdrop-blur-md text-foreground border-none font-black text-[10px] uppercase tracking-widest px-3 py-1 shadow-sm">
+                    {durationText}
+                </Badge>
+              </div>
             </div>
-            <div className="p-4 space-y-2 flex flex-col flex-1">
-              <h3 className="font-semibold truncate">{service.name}</h3>
-              <div className="flex-grow min-h-[32px]">
+            <div className="p-6 space-y-4 flex flex-col flex-1">
+              <div className="space-y-1">
+                <h3 className="font-black uppercase tracking-tight text-lg line-clamp-1 group-hover:text-primary transition-colors">{service.name}</h3>
                 {service.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2">
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed font-medium">
                     {service.description}
                   </p>
                 )}
               </div>
-              <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  <span>{durationText}</span>
+              
+              <div className="flex items-center justify-between pt-4 border-t border-dashed mt-auto">
+                <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Investment</span>
+                    <span className="text-xl font-black text-primary tracking-tighter">{priceText}</span>
                 </div>
-                <div className="flex items-center gap-2 font-medium text-foreground">
-                  <DollarSign className="w-4 h-4" />
-                  <span>{priceText}</span>
-                </div>
+                <Button size="sm" className="rounded-full font-black uppercase text-[10px] tracking-widest px-5 h-9 group-hover:shadow-lg group-hover:shadow-primary/30 transition-all">
+                    Book <ArrowRight className="ml-1.5 w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     );
-  }
-
-  // Text-based card
-  return (
-    <div className="cursor-pointer group h-full" onClick={onSelect}>
-      <Card className="transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col bg-muted/30">
-        <CardContent className="p-4 flex flex-col flex-1">
-          <div className="flex-grow">
-            <h3 className="font-semibold text-lg mb-2">{service.name}</h3>
-            {service.description && (
-              <p className="text-xs text-muted-foreground line-clamp-3">
-                {service.description}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t mt-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span>{durationText}</span>
-            </div>
-            <div className="flex items-center gap-2 font-medium text-foreground">
-                <DollarSign className="w-4 h-4" />
-                <span>{priceText}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
 };
 
+const Badge = ({ children, className }: { children: React.ReactNode, className?: string }) => (
+    <div className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2", className)}>
+        {children}
+    </div>
+);
 
 export const BookingServices = ({ services, onServiceSelect, staffMember, showPrivateServices = false }: { services: Service[], onServiceSelect: (service: Service) => void, staffMember?: Staff, showPrivateServices?: boolean }) => {
 
@@ -140,58 +116,51 @@ export const BookingServices = ({ services, onServiceSelect, staffMember, showPr
             }, {} as Record<string, Service[]>);
     }, [services, showPrivateServices]);
 
-    const categories = useMemo(() => Object.keys(servicesByCategory).sort(), [servicesByCategory]);
-    const [selectedCategory, setSelectedCategory] = useState('');
+    const categories = useMemo(() => ['All', ...Object.keys(servicesByCategory).sort()], [servicesByCategory]);
+    const [selectedCategory, setSelectedCategory] = useState('All');
 
-    useEffect(() => {
-        if (categories.length > 0 && !categories.includes(selectedCategory)) {
-            setSelectedCategory(categories[0]);
+    const filteredServices = useMemo(() => {
+        if (selectedCategory === 'All') {
+            return Object.values(servicesByCategory).flat();
         }
-    }, [categories, selectedCategory]);
-
-    const servicesToShow = servicesByCategory[selectedCategory] || [];
+        return servicesByCategory[selectedCategory] || [];
+    }, [selectedCategory, servicesByCategory]);
 
     return (
-        <section className="space-y-6">
-            <h2 className="text-3xl font-bold text-center">Our Services</h2>
+        <section className="space-y-12">
+            <div className="text-center space-y-4">
+                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">The Menu</h2>
+                <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Curated treatments for your well-being</p>
+            </div>
             
-            {categories.length > 0 && (
-                <div className="w-full max-w-sm mx-auto">
-                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {categories.map(category => (
-                                <SelectItem key={category} value={category}>{category}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
-            
-            {selectedCategory && (
-                 <ScrollArea>
-                    <Carousel
-                        opts={{
-                            align: "start",
-                            dragFree: true,
-                        }}
-                        className="w-full"
-                        >
-                        <CarouselContent>
-                            {servicesToShow.map((service) => (
-                                <CarouselItem key={service.id} className="basis-4/5 sm:basis-1/2 md:basis-1/3">
-                                    <ServiceCard service={service} onSelect={() => onServiceSelect(service)} staffMember={staffMember} />
-                                </CarouselItem>
-                            ))}
-                        </CarouselContent>
-                        <CarouselPrevious className="hidden sm:flex" />
-                        <CarouselNext className="hidden sm:flex" />
-                    </Carousel>
-                    <ScrollBar orientation="horizontal" className="md:hidden" />
+            <div className="w-full">
+                <ScrollArea className="w-full pb-4">
+                    <div className="flex justify-center gap-2 min-w-max px-4">
+                        {categories.map(category => (
+                            <Button 
+                                key={category}
+                                variant={selectedCategory === category ? 'default' : 'outline'}
+                                onClick={() => setSelectedCategory(category)}
+                                className={cn(
+                                    "rounded-full h-10 px-6 font-black uppercase text-[10px] tracking-widest transition-all",
+                                    selectedCategory === category ? "shadow-lg shadow-primary/20" : "bg-card border-2"
+                                )}
+                            >
+                                {category}
+                            </Button>
+                        ))}
+                    </div>
+                    <ScrollBar orientation="horizontal" className="hidden" />
                 </ScrollArea>
-            )}
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 px-4">
+                <AnimatePresence mode="popLayout">
+                    {filteredServices.map((service) => (
+                        <ServiceCard key={service.id} service={service} onSelect={() => onServiceSelect(service)} staffMember={staffMember} />
+                    ))}
+                </AnimatePresence>
+            </div>
         </section>
     );
 };
