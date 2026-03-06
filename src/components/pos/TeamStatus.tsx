@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -64,11 +63,10 @@ const StaffMemberCard = ({
 
     return (
         <Card className={cn(
-            "relative transition-all border-2 rounded-[2rem] overflow-hidden flex flex-col h-full",
+            "relative transition-all border-2 rounded-[2rem] flex flex-col h-full",
             isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.02] z-10" : "border-border/50 shadow-sm",
             !member.active && "opacity-40 grayscale"
         )}>
-            {/* Turn order indicator - positioned more cleanly to avoid squashing */}
             {assignmentMode === 'ordered_list' && member.active && (
                 <div className="absolute top-3 left-3 z-20 w-7 h-7 rounded-xl bg-primary text-primary-foreground font-black text-[11px] flex items-center justify-center border-2 border-background shadow-lg">
                     {turnOrder}
@@ -117,7 +115,6 @@ const StaffMemberCard = ({
                     )}
                 </div>
 
-                {/* Sub-details for busy staff */}
                 {member.status === 'busy' && (
                     <div className="mt-auto space-y-1">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">{member.availability?.status}</p>
@@ -125,7 +122,6 @@ const StaffMemberCard = ({
                 )}
             </CardContent>
 
-            {/* Bottom Controls / Indicator */}
             {isNextUp ? (
                 <div className="bg-primary px-3 py-2 text-[9px] font-black uppercase text-white tracking-[0.2em] text-center shrink-0">
                     Next Up
@@ -299,7 +295,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
             </div>
 
             <ScrollArea className="w-full pb-4">
-                <div className="flex space-x-4">
+                <div className="flex space-x-4 px-2 py-6">
                     {activeStaff.map((member, index) => (
                         <div key={member.id} className="w-[300px] shrink-0">
                             <StaffMemberCard member={member} isNextUp={member.id === nextUpStaffId} turnOrder={index + 1} onMoveUp={(id) => handleMove(id, 'up')} onMoveDown={(id) => handleMove(id, 'down')} isFirst={index === 0} isLast={index === activeStaff.length - 1} assignmentMode={assignmentMode} nextAppointment={member.nextApt} onForceIdle={onForceIdle} canManage={canManage} services={services} />

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -49,7 +48,7 @@ import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday, format } from 'date-fns';
-import { Alert, AlertTitle, AlertDescription } from '@/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
@@ -541,8 +540,8 @@ export const CheckoutHub = ({
                 <div className="mt-8 space-y-4 pb-10">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-3">
                         <div><RadioGroupItem value="cash" id="pos-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-cash" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><Banknote className="mb-1.5 h-6 w-6 opacity-40" />Cash</RadioLabel></div>
-                        <div><RadioGroupItem value="card" id="pos-pay-card" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-card" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><CreditCard className="mb-1.5 h-6 w-6 opacity-40" />Card</RadioLabel></div>
-                        <div><RadioGroupItem value="scan" id="pos-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-scan" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><Scan className="mb-1.5 h-6 w-6 opacity-40" />Scan</RadioLabel></div>
+                        <div><RadioGroupItem value="card" id="pos-pay-card" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-card" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><CreditCard className="mb-1.5 h-6 w-6 opacity-40" />Card</Label></div>
+                        <div><RadioGroupItem value="scan" id="pos-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="pos-pay-scan" className="flex flex-col items-center justify-center rounded-[1.25rem] border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer h-20 shadow-sm"><Scan className="mb-1.5 h-6 w-6 opacity-40" />Scan</Label></div>
                     </RadioGroup>
 
                     {paymentTab === 'cash' && (
