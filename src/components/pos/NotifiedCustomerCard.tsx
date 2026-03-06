@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -5,16 +6,23 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type WalkIn, type Service, Staff } from '@/lib/data';
 import { parseISO, differenceInMinutes } from 'date-fns';
-import { Clock, SkipForward, Play, XCircle, Users, AlertTriangle, Cake, Undo2, MoreHorizontal } from 'lucide-react';
+import { 
+    Clock, 
+    SkipForward, 
+    Play, 
+    XCircle, 
+    Users, 
+    Undo2, 
+    Cake 
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 
-export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, services, staff, onStartService, onSkip, onCancel, onReturnToQueue }) => {
+export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartService, onSkip, onCancel, onReturnToQueue }) => {
     const { selectedTenant } = useTenant();
     const { clients } = useInventory();
     const [timeSinceNotified, setTimeSinceNotified] = useState('');
@@ -51,7 +59,7 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, services, staff, o
             isOverTime ? "border-destructive bg-destructive/[0.03] animate-pulse" : "border-green-500/20 bg-white"
         )}>
             <CardContent className="p-5 space-y-4">
-                <div className="flex items-start gap-4">
+                <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{walkIn.customerName}</p>
@@ -75,19 +83,43 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, services, staff, o
                     </div>
                 </div>
             </CardContent>
-            <CardFooter className="p-2 flex items-center gap-2 border-t bg-muted/5">
-                <Button size="sm" className="flex-1 h-11 rounded-xl font-black uppercase text-[11px] tracking-[0.2em] shadow-xl shadow-primary/20" onClick={() => onStartService(walkIn.id)}>
+            
+            <div className="p-2 pt-0 grid grid-cols-1 gap-2">
+                <Button size="sm" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-primary/20" onClick={() => onStartService(walkIn.id)}>
                     <Play className="w-4 h-4 mr-2" /> Start Session
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl"><MoreHorizontal className="h-5 w-5"/></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl">
-                        <DropdownMenuItem onClick={() => onReturnToQueue(walkIn.id)} className="font-bold text-[10px] uppercase tracking-widest"><Users className="w-3.5 h-3.5 mr-2" /> Return to Queue</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onSkip(walkIn.id)} className="text-amber-600 font-bold text-[10px] uppercase tracking-widest"><SkipForward className="w-3.5 h-3.5 mr-2" /> Mark as No-Show</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onCancel(walkIn.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><XCircle className="w-3.5 h-3.5 mr-2" /> Terminate Walk-in</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </CardFooter>
+                
+                <div className="grid grid-cols-3 gap-2">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onReturnToQueue(walkIn.id)}>
+                                    <Users className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Return to Queue</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-amber-600 hover:bg-amber-50" onClick={() => onSkip(walkIn.id)}>
+                                    <SkipForward className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Mark No-Show</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(walkIn.id)}>
+                                    <XCircle className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Terminate Walk-in</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            </div>
         </Card>
     );
 };

@@ -2,20 +2,14 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { type Appointment, type Service, type Staff } from '@/lib/data';
+import { type Appointment, type Service, Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, MoreHorizontal, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square } from 'lucide-react';
+import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
@@ -85,7 +79,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
         <Card className={cn("transition-all border-2 rounded-2xl overflow-hidden shadow-sm", isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-white", isRunningOver && "border-destructive ring-4 ring-destructive/10 shadow-destructive/10")}>
             <CardContent className="p-5 space-y-4" onClick={onViewDetails}>
                  <div className="flex justify-between items-start gap-3 cursor-pointer">
-                    <div className="space-y-4 flex-1 min-w-0">
+                    <div className="space-y-4 flex-1 min-w-0 text-left">
                         <div className="flex items-center gap-2">
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
                             {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
@@ -113,7 +107,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                                         <TooltipProvider key={sid}>
                                                             <Tooltip>
                                                                 <TooltipTrigger>{isCon ? <Zap className="w-2.5 h-2.5 text-primary" /> : <Workflow className="w-2.5 h-2.5 text-muted-foreground opacity-40" />}</TooltipTrigger>
-                                                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">{services?.find(s => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
+                                                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">{services?.find((s: Service) => s.id === sid)?.name} ({isCon ? 'Concurrent' : 'Turn'})</TooltipContent>
                                                             </Tooltip>
                                                         </TooltipProvider>
                                                     );
@@ -141,19 +135,35 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                     </div>
                 )}
             </CardContent>
-             <CardFooter className="p-2 border-t gap-2 bg-muted/5">
-                <Button variant="secondary" size="sm" className="flex-1 font-black uppercase text-[10px] tracking-widest h-11 rounded-xl shadow-xl shadow-primary/5" onClick={onSendToCheckout} disabled={isReady}>
-                    <Square className="w-3.5 h-3.5 mr-2" />
+            
+            <div className="p-2 pt-0 grid grid-cols-1 gap-2">
+                <Button size="sm" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-primary/20" onClick={onSendToCheckout} disabled={isReady}>
+                    <Square className="w-4 h-4 mr-2" />
                     Finish & Checkout
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl"><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl">
-                        <DropdownMenuItem onClick={onViewDetails} className="font-bold text-[10px] uppercase tracking-widest"><PlusCircle className="w-3.5 h-3.5 mr-2" /> Add Part / Technician</DropdownMenuItem>
-                        <DropdownMenuItem onClick={onRevertToReady} className="text-muted-foreground font-bold text-[10px] uppercase tracking-widest"><Undo2 className="w-3.5 h-3.5 mr-2" /> Revert to Waiting</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </CardFooter>
+                
+                <div className="grid grid-cols-2 gap-2">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-primary hover:bg-primary/5" onClick={onViewDetails}>
+                                    <PlusCircle className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Add Part / Tech</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-muted-foreground hover:bg-muted/50" onClick={onRevertToReady}>
+                                    <Undo2 className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Revert to Waiting</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            </div>
         </Card>
     );
 };

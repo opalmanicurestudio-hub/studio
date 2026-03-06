@@ -1,14 +1,27 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { type WalkIn, type Service, Staff, Appointment } from '@/lib/data';
+import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format, isSameMonth } from 'date-fns';
-import { User, Clock, UserPlus, Play, Users, GripVertical, ChevronDown, Trash2, TrendingUp, Printer, MessageSquare, Car, MapPin, AlertTriangle, MoreHorizontal, Fingerprint, Cake } from 'lucide-react';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuPortal, DropdownMenuSubContent } from '../ui/dropdown-menu';
+import { 
+    Clock, 
+    Play, 
+    Users, 
+    Trash2, 
+    TrendingUp, 
+    Printer, 
+    Car, 
+    MapPin, 
+    AlertTriangle, 
+    Fingerprint, 
+    Cake, 
+    UserPlus 
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Badge } from '../ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Input } from '../ui/input';
@@ -22,19 +35,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useInventory } from '@/context/InventoryContext';
-
-interface WaitingCustomerCardProps {
-    item: (WalkIn | Appointment) & { type: 'walk-in' | 'appointment' };
-    services: Service[] | null;
-    staffList: Staff[] | null;
-    onAssign: () => void;
-    onCancel: (id: string, isWalkIn: boolean) => void;
-    onMoveToFront?: (id: string) => void;
-    onPrintTicket: (id: string) => void;
-    groupSize?: number;
-    onUpdateStatus: (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => void;
-    onResolve: () => void;
-}
 
 const statusOptions = [
     { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-slate-400' },
@@ -51,7 +51,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
+export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
     const { clients } = useInventory();
     const isWalkIn = item.type === 'walk-in';
     const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
@@ -61,11 +61,11 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
     const lateTimeMinutes = (item as any).lateTimeMinutes || 0;
     const isPotentialAlias = (item as any).isPotentialAlias || false;
     
-    const primaryServices = services?.filter(s => serviceIds.includes(s.id));
+    const primaryServices = services?.filter((s: Service) => serviceIds.includes(s.id));
     const waitTime = isWalkIn ? formatDistanceToNow(safeDate(checkInTime), { addSuffix: true }) : format(safeDate(checkInTime), 'h:mm a');
     
     const preferredStaffId = isWalkIn ? (item as WalkIn).preferredStaffId : (item as Appointment).staffId;
-    const preferredStaff = staffList?.find(s => s.id === preferredStaffId);
+    const preferredStaff = staffList?.find((s: Staff) => s.id === preferredStaffId);
     
     const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
     const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
@@ -104,7 +104,7 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                         </p>
                     </div>
                     <div className="text-right shrink-0">
-                        {primaryServices?.slice(0, 1).map(s => <p key={s.id} className="text-[10px] font-black uppercase text-primary tracking-tight">{s.name}</p>)}
+                        {primaryServices?.slice(0, 1).map((s: Service) => <p key={s.id} className="text-[10px] font-black uppercase text-primary tracking-tight">{s.name}</p>)}
                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40">{groupSize > 1 ? `Group of ${groupSize}` : `${(item as any).estimatedDuration || 0} min`}</p>
                     </div>
                 </div>
@@ -145,23 +145,49 @@ export const WaitingCustomerCard: React.FC<WaitingCustomerCardProps> = ({ item, 
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-2 border-t bg-muted/5 gap-2">
-                {isWalkIn && onMoveToFront && <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary hover:bg-primary/10" onClick={() => onMoveToFront(item.id)}><TrendingUp className="w-4 h-4" /></Button>}
-                <Button variant="secondary" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-sm" onClick={onAssign}>
-                    <UserPlus className="w-3.5 h-3.5 mr-2" />
+            
+            <div className="p-2 pt-0 grid grid-cols-1 gap-2">
+                <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={onAssign}>
+                    <UserPlus className="w-4 h-4 mr-2" />
                     Assign Session
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl"><MoreHorizontal className="w-4 h-4"/></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl">
-                        <DropdownMenuItem onClick={() => onPrintTicket(item.id)} className="font-bold text-[10px] uppercase tracking-widest"><Printer className="w-3.5 h-3.5 mr-2" /> Print Ticket</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onCancel(item.id, isWalkIn)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="w-3.5 h-3.5 mr-2" /> Cancel {isWalkIn ? 'Walk-in' : 'Appointment'}</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </CardFooter>
+                
+                <div className="grid grid-cols-3 gap-2">
+                    <TooltipProvider>
+                        {isWalkIn && onMoveToFront && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-primary hover:bg-primary/5" onClick={() => onMoveToFront(item.id)}>
+                                        <TrendingUp className="w-4 h-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px]">Move to Front</TooltipContent>
+                            </Tooltip>
+                        )}
+                        
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onPrintTicket(item.id)}>
+                                    <Printer className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Print Ticket</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px]">Cancel Visit</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            </div>
 
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
-                <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4">
+                <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl">
                     <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">Minutes Late</DialogTitle></DialogHeader>
                     <div className="p-8">
                         <div className="grid grid-cols-4 gap-2 mb-6">
