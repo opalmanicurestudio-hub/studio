@@ -211,19 +211,7 @@ export default function BillsPage() {
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
   const { toast } = useToast();
 
-  const billDefinitionsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'bills');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const billInstancesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'billInstances');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const { data: billDefinitions, isLoading: definitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
-  const { data: billInstances, isLoading: instancesLoading } = useCollection<BillInstance>(billInstancesQuery);
-  
+  const { billDefinitions, billInstances, isLoading } = useInventory();
 
   const instancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
