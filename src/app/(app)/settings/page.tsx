@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -39,7 +38,7 @@ import {
   Palette,
   Eye,
   EyeOff,
-  Image as ImageIcon,
+  ImageIcon,
   CircleHelp,
   Award,
   Star,
@@ -819,8 +818,8 @@ export default function SettingsPage() {
                                 {isBookingBuilderEditing && (
                                     <div className="aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 text-center">
                                         <ImagePlus className="w-8 h-8 text-muted-foreground mb-2" />
-                                        <p className="text-[10px] font-black uppercase text-muted-foreground mb-4">Add Image</p>
-                                        <ImageUpload onImageUploaded={handleAddGalleryImage} />
+                                        <p className="text-[10px] font-black uppercase text-muted-foreground mb-4">Add Images</p>
+                                        <ImageUpload onImageUploaded={handleAddGalleryImage} multiple={true} clearOnUpload={true} />
                                     </div>
                                 )}
                             </div>
