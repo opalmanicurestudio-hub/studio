@@ -107,7 +107,6 @@ export default function PaydayPage() {
   const [cadence, setCadence] = useState<Cadence>('bi-weekly');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Initialize date to current Bi-Weekly period
   const [dateRange, setDateRange] = useState<{ from: Date, to: Date }>(() => {
       const now = new Date();
       return {
@@ -270,7 +269,7 @@ export default function PaydayPage() {
             type: 'expense',
             context: 'Business',
             category: 'Payroll',
-            amount: obligation.amount,
+            amount: Number(obligation.amount.toFixed(2)),
             paymentMethod: 'Distribution',
             hasReceipt: false,
             staffId: obligation.id,
@@ -278,9 +277,10 @@ export default function PaydayPage() {
         batch.set(txnRef, { ...newTxn, id: txnRef.id });
     });
 
-    // 2. Record Profit First bucket allocations as expenses (distributions)
+    // 2. Record Profit First bucket allocations as transfers (excluding OpEx to avoid double-entry)
+    // We only log the movement OUT of the main account into these specific buckets.
     suggestions.forEach(bucket => {
-        if (bucket.amount > 0) {
+        if (bucket.amount > 0 && bucket.label !== 'OpEx / Bills') {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             const newTxn: Omit<Transaction, 'id'> = {
                 date: now,
@@ -289,7 +289,7 @@ export default function PaydayPage() {
                 type: 'expense',
                 context: 'Business',
                 category: 'Distribution',
-                amount: bucket.amount,
+                amount: Number(bucket.amount.toFixed(2)),
                 paymentMethod: 'Internal Transfer',
                 hasReceipt: false,
             };
@@ -301,12 +301,12 @@ export default function PaydayPage() {
         await batch.commit();
         toast({
             title: "Distributions Confirmed",
-            description: `Successfully logged ${staffObligations.length + suggestions.filter(s => s.amount > 0).length} distribution transactions to the ledger.`
+            description: `Logged ${staffObligations.length + suggestions.filter(s => s.amount > 0 && s.label !== 'OpEx / Bills').length} distribution transactions.`
         });
         setAllocationAmount(0);
     } catch (e) {
         console.error("Distributions failed:", e);
-        toast({ variant: 'destructive', title: "Distribution Failed", description: "Could not save transactions. Please try again." });
+        toast({ variant: 'destructive', title: "Distribution Failed", description: "Could not save transactions." });
     } finally {
         setIsSubmitting(false);
     }
@@ -471,7 +471,7 @@ export default function PaydayPage() {
                             <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3">
                                 <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                                 <p className="text-xs text-muted-foreground leading-relaxed font-medium">
-                                    Your <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} will be used to clear the ${totalHardObligations.toFixed(2)} in hard obligations for this period.
+                                    Your <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} stays in your main business account to cover the ${totalHardObligations.toFixed(2)} in hard obligations for this period.
                                 </p>
                             </div>
                         </div>
