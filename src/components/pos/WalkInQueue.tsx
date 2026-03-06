@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { WaitingCustomerCard } from './WaitingCustomerCard';
+import { NotifiedCustomerCard } from './NotifiedCustomerCard';
 import { type WalkIn, type Staff, type Service, type Appointment, type Client } from '@/lib/data';
 import { AssignStaffDialog } from './AssignStaffDialog';
 import { Button } from '../ui/button';

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -78,6 +77,7 @@ const safeDate = (val: any): Date => {
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -534,7 +534,7 @@ export const CheckoutHub = ({
                                             <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
                                         </div>
                                         <div className="text-right ml-4 shrink-0">
-                                            <p className="text-xs md:text-sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF</p>
+                                            <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF</p>
                                         </div>
                                     </Button>
                                 ))}

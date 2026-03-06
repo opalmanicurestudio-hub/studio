@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, KeyboardEvent, useEffect } from 'react';
@@ -158,25 +157,17 @@ const ClientIntelCategory = ({
         </div>
       </AccordionTrigger>
       <AccordionContent className="p-3 md:p-4 space-y-4">
-        <Controller
-          name={flagsFieldName}
-          control={control}
-          defaultValue={[]}
-          render={({ field }) => (
-            <div className="grid grid-cols-2 gap-3 md:gap-4">
-              {predefinedItems.map(item => (
-                <div key={item} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`check-${title}-${item}`}
-                    checked={field.value?.includes(item)}
-                    onCheckedChange={() => handleFlagToggle(item)}
-                  />
-                  <Label htmlFor={`check-${title}-${item}`} className="text-xs md:text-sm">{item}</Label>
-                </div>
-              ))}
+        <div className="grid grid-cols-2 gap-3 md:gap-4">
+          {predefinedItems.map(item => (
+            <div key={item} className="flex items-center space-x-2">
+              <Checkbox
+                id={`check-${title}-${item}`}
+                onCheckedChange={() => handleFlagToggle(item)}
+              />
+              <Label htmlFor={`check-${title}-${item}`} className="text-xs md:text-sm">{item}</Label>
             </div>
-          )}
-        />
+          ))}
+        </div>
         <div className="space-y-2">
              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Custom Fields</Label>
              <div className="flex gap-2">
@@ -531,7 +522,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     <AccordionItem value="goals" className="border rounded-xl overflow-hidden">
                         <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Client Goals</AccordionTrigger>
                         <AccordionContent className="p-3">
-                            <Textarea placeholder="What is the client hoping to achieve?" className="text-xs min-h-[80px]" {...register('notes.goals')} />
+                            <Textarea placeholder="What is the client hoping to achieve today and in the long term?" className="text-xs min-h-[80px]" {...register('notes.goals')} />
                         </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="routine" className="border rounded-xl overflow-hidden">
