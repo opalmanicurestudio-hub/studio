@@ -79,12 +79,12 @@ export const DayTimeline = ({
                 const cols: any[][] = [];
                 for(const item of cluster) {
                     const start = safeDate(item.startTime || item.dueDate);
-                    const end = safeDate(item.endTime || addMinutes(start, 60));
+                    const end = safeDate(item.endTime || (item.itemType === 'bill' ? addMinutes(start, 60) : item.endTime));
                     let placed = false;
                     for (let i = 0; i < cols.length; i++) {
                         if (!cols[i].some(ex => {
                             const exStart = safeDate(ex.startTime || ex.dueDate);
-                            const exEnd = safeDate(ex.endTime || addMinutes(exStart, 60));
+                            const exEnd = safeDate(ex.endTime || (ex.itemType === 'bill' ? addMinutes(exStart, 60) : ex.endTime));
                             return areIntervalsOverlapping({ start, end }, { start: exStart, end: exEnd }, { inclusive: false });
                         })) {
                             cols[i].push(item); item.layout.col = i; placed = true; break;
@@ -99,7 +99,7 @@ export const DayTimeline = ({
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
                 const start = safeDate(item.startTime || item.dueDate);
-                const end = safeDate(item.endTime || addMinutes(start, 60));
+                const end = safeDate(item.endTime || (item.itemType === 'bill' ? addMinutes(start, 60) : item.endTime));
                 if (lastEventEnd !== null && start.getTime() >= lastEventEnd.getTime()) { 
                     positionCluster(currentCluster); 
                     currentCluster = []; 
@@ -123,7 +123,7 @@ export const DayTimeline = ({
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <Card className="h-full border-4 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-xl rounded-2xl">
-                    <CardContent className="p-3 flex flex-col justify-center h-full gap-1">
+                    <CardContent className="p-3 flex flex-col justify-center h-full gap-1 text-left">
                         <div className="flex items-center gap-2">
                             <Landmark className="w-4 h-4 text-orange-600" />
                             <p className="text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>

@@ -68,6 +68,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -290,7 +291,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
           </div>
         </ScrollArea>
-        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="grid grid-cols-2 gap-4 w-full">
             <Button variant="outline" className="h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => { onOpenChange(false); setTimeout(() => onEdit(appointment), 150); }}>Edit Dossier</Button>
             <Button variant="ghost" className="h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onDelete(appointment.id); }}>Delete Permanently</Button>

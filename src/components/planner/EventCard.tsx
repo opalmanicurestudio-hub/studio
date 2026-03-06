@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks, Check, X } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks, Check, X, Sparkles } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
@@ -14,15 +14,12 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
-  SheetTrigger,
   SheetFooter,
 } from '@/components/ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
 import { Button } from '../ui/button';
-import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
-import { Progress } from '../ui/progress';
 import { useTenant } from '@/context/TenantContext';
 import { useUser } from '@/firebase';
 import { Badge } from '@/components/ui/badge';
@@ -44,81 +41,84 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
     onEditEvent: (event: Event) => void;
     onLogExpenseClick: () => void;
 }) => {
-    const { user } = useUser();
-    const { role } = useTenant();
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
-    
     if (event.type === 'blocked') {
         return (
-            <div className='p-6 text-center flex-1 flex flex-col items-center justify-center'>
-                 <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                 <h3 className='font-semibold text-lg'>Blocked Time</h3>
-                 <p className='text-muted-foreground'>This time is marked as unavailable.</p>
+            <div className='p-12 text-center flex-1 flex flex-col items-center justify-center opacity-40'>
+                 <Lock className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                 <h3 className='font-black uppercase tracking-widest text-sm'>Access Restricted</h3>
+                 <p className='text-xs font-bold uppercase tracking-tight'>This slot is blocked for studio operations.</p>
             </div>
         )
     }
 
     return (
         <>
-            <ScrollArea className="flex-1 -mr-6 pr-6">
-                <div className="p-6 space-y-6">
-                    <div className="space-y-3">
-                        <h4 className="font-medium text-sm flex items-center gap-2"><FileText className="w-4 h-4 text-primary"/> Details</h4>
-                        {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
+            <ScrollArea className="flex-1">
+                <div className="p-8 space-y-10">
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                            <FileText className="w-3.5 h-3.5 text-primary opacity-40"/> Session Dossier
+                        </h4>
+                        {event.notes && <p className="text-sm font-medium text-slate-700 leading-relaxed italic">"{event.notes}"</p>}
                         
-                        <div className='flex flex-col gap-2 text-sm text-muted-foreground'>
-                            {event.location && (
-                                <div className="flex items-center gap-2">
-                                    <MapPin className="w-4 h-4 flex-shrink-0" />
-                                    <span>{event.location}</span>
-                                </div>
-                            )}
-                        </div>
+                        {event.location && (
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-muted/50 border-2">
+                                <MapPin className="w-3.5 h-3.5 text-primary opacity-40" />
+                                <span className="text-[10px] font-black uppercase tracking-tight">{event.location}</span>
+                            </div>
+                        )}
                     </div>
 
                     {event.checklist && event.checklist.length > 0 && (
-                        <div className="space-y-3">
-                            <div className="flex justify-between items-center text-sm">
-                                <h4 className="font-medium flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary"/> Checklist</h4>
-                            </div>
-                            <div className="space-y-2">
+                        <div className="space-y-4">
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                                <ListChecks className="w-3.5 h-3.5 text-primary opacity-40"/> Operations Checklist
+                            </h4>
+                            <div className="grid gap-2">
                             {event.checklist.map((item) => (
-                                <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
-                                    <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
-                                    <label htmlFor={item.id} className={cn("text-sm flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
+                                <div key={item.id} className="flex items-center gap-3 p-4 rounded-2xl bg-muted/20 border-2 transition-all hover:bg-muted/30 group">
+                                    <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} className="h-5 w-5 border-2" />
+                                    <label htmlFor={item.id} className={cn("text-xs font-bold uppercase tracking-tight flex-1 cursor-pointer", item.completed && "line-through text-muted-foreground opacity-40")}>{item.text}</label>
                                 </div>
                             ))}
                             </div>
                         </div>
                     )}
                     
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                         <div className="flex justify-between items-center">
-                            <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4 text-primary"/> Financials</h4>
-                             <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log Expense</Button>
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                                <DollarSign className="w-3.5 h-3.5 text-primary opacity-40"/> Resource Allocation
+                            </h4>
+                             <Button variant="ghost" size="sm" onClick={onLogExpenseClick} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                                <FilePlus className="w-3 h-3 mr-1.5"/> Log Expense
+                            </Button>
                         </div>
                         {transactions.length > 0 ? (
-                             <div className="space-y-2">
+                             <div className="grid gap-2">
                                 {transactions.map(t => (
-                                    <div key={t.id} className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
-                                        <div className='text-sm'>
-                                            <p className='font-medium'>{t.description}</p>
-                                            <p className='text-xs text-muted-foreground'>{t.paymentMethod}</p>
+                                    <div key={t.id} className="flex justify-between items-center bg-muted/20 p-4 rounded-2xl border-2">
+                                        <div className='min-w-0'>
+                                            <p className='font-black text-[11px] uppercase tracking-tight truncate'>{t.description}</p>
+                                            <p className='text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-40'>{t.paymentMethod}</p>
                                         </div>
-                                        <p className="font-semibold text-sm text-destructive">-${t.amount.toFixed(2)}</p>
+                                        <p className="font-black font-mono text-sm text-destructive tracking-tighter">-${t.amount.toFixed(2)}</p>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No expenses logged for this event.</p>
+                            <div className="p-10 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                <Receipt className="w-8 h-8" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">No Expenditures</p>
+                            </div>
                         )}
                     </div>
                 </div>
             </ScrollArea>
-             <SheetFooter className="p-4 pt-4 border-t pr-6">
-                <Button variant="outline" className="w-full" onClick={() => onEditEvent(event)}>
+             <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+                <Button variant="outline" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2" onClick={onEditEvent}>
                     <Edit className="w-4 h-4 mr-2" />
-                    Edit Event
+                    Modify Event
                 </Button>
             </SheetFooter>
         </>
@@ -143,17 +143,14 @@ export function EventCard({
     const duration = differenceInMinutes(event.endTime, event.startTime);
 
     const typeStyles = {
-        personal: 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300',
-        business: 'bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300',
-        blocked: 'border-gray-500/30',
+        personal: 'bg-blue-500/10 border-blue-500/30 text-blue-800',
+        business: 'bg-primary/5 border-primary/20 text-primary',
+        blocked: 'border-slate-300',
     };
 
-    let Icon;
-    switch(event.type) {
-        case 'personal': Icon = User; break;
-        case 'business': Icon = Briefcase; break;
-        case 'blocked': Icon = Lock; break;
-    }
+    let Icon = Briefcase;
+    if (event.type === 'personal') Icon = User;
+    if (event.type === 'blocked') Icon = Lock;
 
     const totalCost = transactions.reduce((acc, t) => acc + t.amount, 0);
 
@@ -167,50 +164,45 @@ export function EventCard({
     const TriggerCard = (
         <div 
             className={cn(
-                "p-3 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
+                "p-3 rounded-xl bg-card border-2 w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden relative group", 
                 typeStyles[event.type],
                 event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,hsl(var(--card)),hsl(var(--card))_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]",
-                event.status === 'pending' && 'opacity-60 hover:opacity-100'
+                event.status === 'pending' && 'opacity-60 hover:opacity-100 border-dashed'
             )}
         >
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
-                    <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    <p className="font-black uppercase tracking-tight text-[11px] truncate flex-1">{event.title}</p>
+                    <Icon className="w-3.5 h-3.5 text-muted-foreground opacity-40 flex-shrink-0 mt-0.5" />
+                    <p className="font-black uppercase tracking-tight text-[11px] truncate flex-1 leading-none">{event.title}</p>
                 </div>
-                {event.status === 'pending' && <Badge variant="outline" className="text-[8px] h-4 px-1 uppercase font-black">Pending</Badge>}
+                {event.status === 'pending' && <Badge variant="outline" className="text-[8px] h-4 px-1.5 uppercase font-black bg-white/50">REQ</Badge>}
             </div>
             
-            <div className='flex-grow mt-2 overflow-y-auto space-y-2'>
+            <div className='flex-grow mt-2 overflow-hidden'>
                 {event.notes && (
-                    <p className="text-[10px] font-medium text-muted-foreground line-clamp-2 leading-relaxed italic">"{event.notes}"</p>
+                    <p className="text-[10px] font-bold text-muted-foreground line-clamp-2 leading-relaxed italic opacity-60">"{event.notes}"</p>
                 )}
             </div>
 
             <div className="mt-auto pt-2 flex items-end justify-between">
                 {duration >= 30 ? (
-                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40 tracking-[0.1em]">{format(event.startTime, 'h:mm a')}</p>
                 ) : <div />}
-                {event.type !== 'blocked' && (
-                    <div className="space-y-2">
-                        {totalCost > 0 && (
-                            <div className="flex items-center justify-end gap-1 text-[10px] font-black text-destructive tracking-tighter">
-                                <DollarSign className="w-2.5 h-2.5" />
-                                <span>{totalCost.toFixed(2)}</span>
-                            </div>
-                        )}
+                {event.type !== 'blocked' && totalCost > 0 && (
+                    <div className="flex items-center gap-1 text-[10px] font-black text-destructive tracking-tighter px-1.5 py-0.5 rounded bg-destructive/5 border border-destructive/10">
+                        <DollarSign className="w-2.5 h-2.5" />
+                        <span>{totalCost.toFixed(2)}</span>
                     </div>
                 )}
             </div>
             {isOwnerOrAdmin && event.status === 'pending' && (
-                <div className="p-1 border-t mt-1 -mx-3 -mb-3 bg-muted/20">
-                    <div className="flex w-full gap-1">
-                         <Button size="xs" variant="ghost" className="w-full text-destructive font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
-                            <X className="w-3 h-3 mr-1" />
+                <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest mb-1">Approval Required</p>
+                    <div className="flex w-full gap-2">
+                        <Button size="xs" variant="destructive" className="flex-1 h-8 rounded-lg font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
                             Deny
                         </Button>
-                        <Button size="xs" variant="ghost" className="w-full text-primary font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onUpdateEvent({ ...event, status: 'approved', approvedBy: user?.uid, approvedAt: new Date().toISOString() }); }}>
-                            <Check className="w-3 h-3 mr-1" />
+                        <Button size="xs" className="flex-1 h-8 rounded-lg font-black text-[8px] uppercase shadow-lg shadow-primary/20" onClick={(e) => { e.stopPropagation(); onUpdateEvent({ ...event, status: 'approved', approvedBy: user?.uid, approvedAt: new Date().toISOString() }); }}>
                             Approve
                         </Button>
                     </div>
@@ -222,13 +214,11 @@ export function EventCard({
     return (
         <>
             <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-                <SheetTrigger asChild>
-                    <div className="h-full" onClick={() => setIsSheetOpen(true)}>
-                        {TriggerCard}
-                    </div>
-                </SheetTrigger>
-                <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-md", "flex flex-col p-0")}>
-                    <SheetHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
+                <div className="h-full" onClick={() => setIsSheetOpen(true)}>
+                    {TriggerCard}
+                </div>
+                <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90vh] rounded-t-[3rem]" : "sm:max-w-xl", "flex flex-col p-0 border-none bg-background shadow-3xl")}>
+                    <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
                         <div className="flex items-center gap-3 mb-2">
                             <Sparkles className="w-5 h-5 text-primary" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Event Dossier</span>
@@ -242,11 +232,10 @@ export function EventCard({
                         event={event} 
                         transactions={transactions} 
                         onChecklistItemToggle={onChecklistItemToggle} 
-                        onUpdateEvent={onUpdateEvent} 
                         onEditEvent={() => { setIsSheetOpen(false); setTimeout(() => onEditEvent(event), 150); }}
                         onLogExpenseClick={handleLogExpenseClick}
                     />
-                </DialogOrSheetContent>
+                </SheetContent>
             </Sheet>
 
             <AddTransactionDialog
