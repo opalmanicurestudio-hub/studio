@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +8,7 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { type Review } from '@/lib/data';
 import { useParams } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
 export const BookingReviews = () => {
   const { firestore } = useFirebase();
@@ -66,13 +66,10 @@ export const BookingReviews = () => {
                     </div>
                 </div>
             </div>
-            {idx < 2 && <Separator className="my-8 border-dashed" />}
+            {idx < 2 && <div className="h-px w-full bg-border my-8 border-dashed" />}
           </motion.div>
         ))}
       </div>
     </section>
   );
 };
-
-const cn = (...classes: any[]) => classes.filter(Boolean).join(' ');
-const Separator = ({ className }: { className?: string }) => <div className={cn("h-px w-full bg-border", className)} />;

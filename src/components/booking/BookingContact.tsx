@@ -5,6 +5,7 @@ import { Phone, Mail, MapPin, Navigation, MessageSquare, Clock } from 'lucide-re
 import { Tenant } from '@/lib/data';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 export const BookingContact = ({ tenant }: { tenant: Tenant | null }) => {
   return (
