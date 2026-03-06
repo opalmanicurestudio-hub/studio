@@ -24,7 +24,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles } from 'lucide-react';
+import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -442,6 +442,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   };
 
   const bookedStaff = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
+  const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -735,13 +736,33 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <p className="text-xs font-medium text-muted-foreground">Finalize your session details.</p>
                                 </div>
                                 <Card className="bg-primary/5 border-primary/20 overflow-hidden shadow-2xl rounded-[2.5rem] border-2">
-                                    <CardContent className="p-10 space-y-6">
-                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Professional</span> <span className="font-black text-lg uppercase tracking-tight">{selectedStaffId === 'any' ? 'First Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
+                                    <CardContent className="p-8 md:p-10 space-y-6">
+                                        <div className="flex justify-between items-center gap-4">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Professional</span> 
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className="font-black text-xs md:text-sm uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
+                                                {selectedStaff && (
+                                                    <Avatar className="h-6 w-6 border shadow-sm shrink-0">
+                                                        <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
+                                                        <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                )}
+                                            </div>
+                                        </div>
                                         {selectedStaffId === 'any' && selectedTierId !== 'any' && (
-                                            <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tier Pref</span> <span className="font-black text-lg uppercase tracking-tight text-primary">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span></div>
+                                            <div className="flex justify-between items-center gap-4">
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Tier Pref</span> 
+                                                <span className="font-black text-xs md:text-sm uppercase tracking-tight text-primary truncate">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span>
+                                            </div>
                                         )}
-                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</span> <span className="font-black text-lg uppercase tracking-tight">{format(date, 'MMM d, yyyy')}</span></div>
-                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Start Time</span> <span className="font-black text-2xl uppercase tracking-tight text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span></div>
+                                        <div className="flex justify-between items-center gap-4">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span> 
+                                            <span className="font-black text-xs md:text-sm uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center gap-4">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Start Time</span> 
+                                            <span className="font-black text-lg md:text-xl uppercase tracking-tight text-primary truncate">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
+                                        </div>
                                         <Separator className="bg-primary/10 border-dashed" />
                                         <div className="flex justify-between items-center text-3xl font-black uppercase tracking-tighter"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
                                         {depositAmount > 0 && (
