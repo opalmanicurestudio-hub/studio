@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, KeyboardEvent, useEffect } from 'react';
@@ -151,20 +149,20 @@ const ClientIntelCategory = ({
   }
 
   return (
-    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border rounded-lg">
-      <AccordionTrigger className={cn("p-4 hover:no-underline rounded-t-lg", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
-        <div className="flex items-center gap-3">
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border rounded-lg overflow-hidden">
+      <AccordionTrigger className={cn("p-3 md:p-4 hover:no-underline", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
+        <div className="flex items-center gap-2 md:gap-3">
           {icon}
-          <span className="font-semibold text-base">{title}</span>
+          <span className="font-semibold text-sm md:text-base">{title}</span>
         </div>
       </AccordionTrigger>
-      <AccordionContent className="p-4 space-y-4">
+      <AccordionContent className="p-3 md:p-4 space-y-4">
         <Controller
           name={flagsFieldName}
           control={control}
           defaultValue={[]}
           render={({ field }) => (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3 md:gap-4">
               {predefinedItems.map(item => (
                 <div key={item} className="flex items-center space-x-2">
                   <Checkbox
@@ -172,29 +170,30 @@ const ClientIntelCategory = ({
                     checked={field.value?.includes(item)}
                     onCheckedChange={() => handleFlagToggle(item)}
                   />
-                  <Label htmlFor={`check-${title}-${item}`}>{item}</Label>
+                  <Label htmlFor={`check-${title}-${item}`} className="text-xs md:text-sm">{item}</Label>
                 </div>
               ))}
             </div>
           )}
         />
         <div className="space-y-2">
-             <Label className="text-xs">Custom Fields</Label>
+             <Label className="text-[10px] uppercase font-bold text-muted-foreground">Custom Fields</Label>
              <div className="flex gap-2">
                 <Input 
-                    placeholder="Add custom field..." 
+                    placeholder="Add..." 
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    className="h-9"
                 />
-                <Button type="button" variant="outline" onClick={handleAddItem}>Add</Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem} className="h-9 px-3">Add</Button>
             </div>
-             <div className="flex flex-wrap gap-2 pt-2">
+             <div className="flex flex-wrap gap-1.5 pt-1">
                 {customItems.map(item => (
-                    <Badge key={item} variant="secondary">
+                    <Badge key={item} variant="secondary" className="text-[10px] h-6">
                         {item}
-                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
-                            <Trash2 className="h-3 w-3" />
+                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
+                            <X className="h-3 w-3" />
                         </button>
                     </Badge>
                 ))}
@@ -205,7 +204,8 @@ const ClientIntelCategory = ({
             control={control}
             render={({ field }) => (
                 <Textarea 
-                    placeholder={`Add detailed ${title.toLowerCase()} notes...`} 
+                    placeholder={`Detailed notes...`} 
+                    className="text-xs md:text-sm min-h-[80px]"
                     {...field}
                 />
             )}
@@ -215,25 +215,31 @@ const ClientIntelCategory = ({
   )
 };
 
+const X = ({ className }: { className?: string }) => (
+    <svg className={className} width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.50001L3.21846 10.9684C2.99391 11.193 2.99391 11.5571 3.21846 11.7816C3.44301 12.0062 3.80708 12.0062 4.03164 11.7816L7.50005 8.3132L10.9685 11.7816C11.193 12.0062 11.5571 12.0062 11.7816 11.7816C12.0062 11.5571 12.0062 11.193 11.7816 10.9684L8.31322 7.50001L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path>
+    </svg>
+);
+
 const ClientIntelAccordion = () => (
-  <Accordion type="multiple" className="w-full space-y-4">
+  <Accordion type="multiple" className="w-full space-y-3">
     <ClientIntelCategory
         title="Medical & Health"
-        icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+        icon={<ShieldAlert className="w-4 h-4 md:w-5 md:h-5 text-red-500" />}
         color="red"
         predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']}
         categoryKey="medical"
     />
     <ClientIntelCategory
         title="Allergies & Sensitivities"
-        icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+        icon={<AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />}
         color="amber"
         predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']}
         categoryKey="allergies"
     />
     <ClientIntelCategory
-        title="Disabilities & Sensory Needs"
-        icon={<Ear className="w-5 h-5 text-blue-500" />}
+        title="Sensory Needs"
+        icon={<Ear className="w-4 h-4 md:w-5 md:h-5 text-blue-500" />}
         color="blue"
         predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']}
         categoryKey="sensory"
@@ -288,54 +294,59 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6 md:space-y-8">
             {/* Section 1: Basic Info */}
             <div className="space-y-4">
-                <h3 className="text-lg font-medium">Basic Information</h3>
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">1. Basic Information</h3>
                  <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-4">
                     <Controller
                         name="avatarUrl"
                         control={control}
                         render={({ field }) => (
                             <>
-                            <Avatar className="w-24 h-24 text-lg">
+                            <Avatar className="w-16 h-16 md:w-24 md:h-24 text-lg">
                                 <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
-                                <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
+                                <AvatarFallback><Upload className="h-6 w-6 md:h-8 md:w-8 text-muted-foreground" /></AvatarFallback>
                             </Avatar>
-                            <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                            <div className="flex-1 w-full sm:w-auto">
+                                <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                            </div>
                             </>
                         )}
                     />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div className="space-y-2">
-                        <Label htmlFor="full-name">Full Name</Label>
-                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} />
-                        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                     <div className="space-y-1.5">
+                        <Label htmlFor="full-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Full Name</Label>
+                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} className="h-11 md:h-12" />
+                        {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} />
-                        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+                    <div className="space-y-1.5">
+                        <Label htmlFor="email" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Email</Label>
+                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} className="h-11 md:h-12" />
+                        {errors.email && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.email.message}</p>}
                     </div>
                 </div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <PhoneInput name="phone" label="Phone Number" placeholder="e.g., (555) 123-4567" />
-                     <div className="space-y-2">
-                        <Label>Birthday</Label>
-                        <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Phone Number</Label>
+                        <PhoneInput name="phone" label="" placeholder="e.g., (555) 123-4567" className="h-11 md:h-12" />
+                    </div>
+                     <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Birthday</Label>
+                        <div className="grid grid-cols-3 gap-1.5">
                             <Select value={birthMonth} onValueChange={setBirthMonth}>
-                                <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Mo" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 12 }, (_, i) => (
                                         <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                            {format(new Date(2000, i, 1), 'MMMM')}
+                                            {format(new Date(2000, i, 1), 'MMM')}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select value={birthDay} onValueChange={setBirthDay}>
-                                <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Day" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 31 }, (_, i) => (
                                         <SelectItem key={i + 1} value={(i + 1).toString()}>
@@ -345,7 +356,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                 </SelectContent>
                             </Select>
                             <Select value={birthYear} onValueChange={setBirthYear}>
-                                <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+                                <SelectTrigger className="h-11 md:h-12"><SelectValue placeholder="Yr" /></SelectTrigger>
                                 <SelectContent>
                                     {Array.from({ length: 100 }, (_, i) => {
                                         const year = new Date().getFullYear() - i;
@@ -363,39 +374,56 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             </div>
 
             <div className="space-y-4">
-                <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
-                <div className="space-y-2">
-                    <Label htmlFor="street">Street Address</Label>
-                    <Input id="street" placeholder="123 Main St" {...register('address.street')}/>
-                </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Input placeholder="City" {...register('address.city')} />
-                    <Input placeholder="State / Province" {...register('address.state')} />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <Input placeholder="ZIP / Postal Code" {...register('address.zip')} />
-                    <Input placeholder="Country" {...register('address.country')} />
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary flex items-center gap-2"><Home className="w-4 h-4 md:w-5 md:h-5"/>2. Address</h3>
+                <div className="space-y-3 p-4 md:p-5 rounded-2xl border-2 bg-muted/5">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="street" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Street Address</Label>
+                        <Input id="street" placeholder="123 Main St" {...register('address.street')} className="h-11 md:h-12" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">City</Label>
+                            <Input placeholder="City" {...register('address.city')} className="h-11 md:h-12" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">State</Label>
+                            <Input placeholder="State" {...register('address.state')} className="h-11 md:h-12" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">ZIP</Label>
+                            <Input placeholder="ZIP" {...register('address.zip')} className="h-11 md:h-12" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Country</Label>
+                            <Input placeholder="Country" {...register('address.country')} className="h-11 md:h-12" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div className="space-y-4">
-                <h3 className="text-lg font-medium flex items-center gap-2"><User className="w-5 h-5"/>Emergency Contact</h3>
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary flex items-center gap-2"><User className="w-4 h-4 md:w-5 md:h-5"/>3. Emergency Contact</h3>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div className="space-y-2">
-                        <Label htmlFor="emergency-name">Contact Name</Label>
-                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} />
+                     <div className="space-y-1.5">
+                        <Label htmlFor="emergency-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Name</Label>
+                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} className="h-11 md:h-12" />
                     </div>
-                    <PhoneInput name="emergencyContact.phone" label="Contact Phone" />
+                    <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Phone</Label>
+                        <PhoneInput name="emergencyContact.phone" label="" className="h-11 md:h-12" />
+                    </div>
                 </div>
-                 <div className="space-y-2">
-                    <Label htmlFor="emergency-relationship">Relationship</Label>
+                 <div className="space-y-1.5">
+                    <Label htmlFor="emergency-relationship" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Relationship</Label>
                     <Controller
                         name="emergencyContact.relationship"
                         control={control}
                         render={({ field }) => (
                             <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="emergency-relationship">
-                                    <SelectValue placeholder="Select a relationship" />
+                                <SelectTrigger id="emergency-relationship" className="h-11 md:h-12">
+                                    <SelectValue placeholder="Select..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="Spouse">Spouse</SelectItem>
@@ -415,33 +443,34 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
              {/* Section 2: Tags & Referral */}
              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Acquisition & Marketing</h3>
-                <div className="space-y-2">
-                    <Label htmlFor="referral-code">Referral or Promo Code</Label>
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">4. Marketing Intel</h3>
+                <div className="space-y-1.5">
+                    <Label htmlFor="referral-code" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Promo Code</Label>
                     <div className="relative">
                         <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9" />
+                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9 h-11 md:h-12" />
                     </div>
                 </div>
-                <div className="space-y-2">
-                    <Label htmlFor="custom-tags">Custom Tags</Label>
+                <div className="space-y-1.5">
+                    <Label htmlFor="custom-tags" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Custom Tags</Label>
                     <div className="flex items-center gap-2">
                         <Input 
                             id="custom-tags" 
-                            placeholder="Type a tag and press Enter..." 
+                            placeholder="Add tag..." 
                             value={tagInput}
                             onChange={(e) => setTagInput(e.target.value)}
                             onKeyDown={handleTagInputKeyDown}
+                            className="h-11 md:h-12"
                         />
-                        <Button type="button" onClick={handleAddTag}>Add</Button>
+                        <Button type="button" onClick={handleAddTag} variant="secondary" className="h-11 md:h-12">Add</Button>
                     </div>
-                    <div className="flex flex-wrap gap-2 pt-2">
+                    <div className="flex flex-wrap gap-1.5 pt-1">
                         {tags.map(tag => (
-                            <Badge key={tag} variant="secondary">
+                            <Badge key={tag} variant="secondary" className="text-[10px] h-6">
                                 {tag}
                                 <button
                                     type="button"
-                                    className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
+                                    className="ml-1 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
                                     onClick={() => removeTag(tag)}
                                 >
                                     <Trash2 className="h-3 w-3" />
@@ -450,14 +479,14 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         ))}
                     </div>
                 </div>
-                <div className="space-y-2">
-                    <Label htmlFor="referral-source">Referral Source</Label>
+                <div className="space-y-1.5">
+                    <Label htmlFor="referral-source" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Referral Source</Label>
                      <Controller
                         name="intel.referralSource"
                         control={control}
                         render={({ field }) => (
                             <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="referral-source">
+                                <SelectTrigger id="referral-source" className="h-11 md:h-12">
                                     <SelectValue placeholder="How did they find you?" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -475,11 +504,11 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         name="referringClientId"
                         control={control}
                         render={({ field }) => (
-                            <div className="space-y-2">
-                                <Label htmlFor="referring-client">Referring Client</Label>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="referring-client" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Referring Client</Label>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger id="referring-client">
-                                    <SelectValue placeholder="Select referring client" />
+                                    <SelectTrigger id="referring-client" className="h-11 md:h-12">
+                                    <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {clients.map(client => (
@@ -495,36 +524,36 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
              {/* Section 3: Client Intel */}
              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Client Intel</h3>
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">5. Health & Safety</h3>
                 <ClientIntelAccordion />
              </div>
 
             {/* Section 4: Notes */}
             <div className="space-y-4">
-                <h3 className="text-lg font-medium">Initial Consultation Notes</h3>
-                <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals', 'routine', 'history', 'general']}>
-                    <AccordionItem value="goals" className="border rounded-lg">
-                        <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
-                        <AccordionContent className="p-4">
-                            <Textarea placeholder="What is the client hoping to achieve today and in the long term?" {...register('notes.goals')} />
+                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">6. Discovery Notes</h3>
+                <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals']}>
+                    <AccordionItem value="goals" className="border rounded-xl overflow-hidden">
+                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Client Goals</AccordionTrigger>
+                        <AccordionContent className="p-3">
+                            <Textarea placeholder="What is the client hoping to achieve?" className="text-xs min-h-[80px]" {...register('notes.goals')} />
                         </AccordionContent>
                     </AccordionItem>
-                    <AccordionItem value="routine" className="border rounded-lg">
-                        <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
-                        <AccordionContent className="p-4">
-                            <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" {...register('notes.routine')} />
+                    <AccordionItem value="routine" className="border rounded-xl overflow-hidden">
+                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Routine & Products</AccordionTrigger>
+                        <AccordionContent className="p-3">
+                            <Textarea placeholder="Current home care and products..." className="text-xs min-h-[80px]" {...register('notes.routine')} />
                         </AccordionContent>
                     </AccordionItem>
-                    <AccordionItem value="history" className="border rounded-lg">
-                        <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
-                        <AccordionContent className="p-4">
-                            <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" {...register('notes.history')} />
+                    <AccordionItem value="history" className="border rounded-xl overflow-hidden">
+                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Service History</AccordionTrigger>
+                        <AccordionContent className="p-3">
+                            <Textarea placeholder="Past experiences, good or bad..." className="text-xs min-h-[80px]" {...register('notes.history')} />
                         </AccordionContent>
                     </AccordionItem>
-                     <AccordionItem value="other" className="border rounded-lg">
-                        <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
-                        <AccordionContent className="p-4">
-                             <Textarea placeholder="Any other relevant details, preferences, or notes." {...register('notes.general')}/>
+                     <AccordionItem value="other" className="border rounded-xl overflow-hidden">
+                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Miscellaneous</AccordionTrigger>
+                        <AccordionContent className="p-3">
+                             <Textarea placeholder="Other relevant details..." className="text-xs min-h-[80px]" {...register('notes.general')}/>
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
@@ -566,8 +595,8 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   };
   
   const formId = "add-client-form";
-  const title = "Add New Client";
-  const description = "Capture all the important details for your new client.";
+  const title = "New Client Record";
+  const description = "Register a guest account in the rolodex.";
   
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
@@ -575,21 +604,25 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   const FormBody = (
     <FormProvider {...methods}>
       <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col flex-1 min-h-0">
-        <DialogHeader className={isMobile ? 'p-4 border-b text-left flex-shrink-0' : 'p-6 pb-4 flex-shrink-0'}>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+        <DialogHeader className={isMobile ? 'p-6 pb-4 border-b text-left flex-shrink-0 bg-muted/5' : 'p-6 pb-4 flex-shrink-0'}>
+          <div className="flex items-center gap-3 mb-2">
+            <UserPlus className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Guest Registration</span>
+          </div>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">{title}</DialogTitle>
+          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="p-6">
+        <div className="flex-1 min-h-0 overflow-y-auto bg-background">
+          <div className={cn("p-6", isMobile && "pb-24")}>
             <AddClientForm clients={clients} />
           </div>
         </div>
              
-        <DialogFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
-          <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
-            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-            <Button type="submit">Save Client</Button>
+        <DialogFooter className={cn("flex-shrink-0 bg-white", isMobile ? "p-6 border-t fixed bottom-0 left-0 right-0 z-20" : "p-6 border-t")}>
+          <div className={cn("flex w-full gap-3", isMobile ? "grid grid-cols-2" : "justify-end")}>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-sm text-slate-400">Cancel</Button>
+            <Button type="submit" className="h-12 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-sm rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30">Complete Registration</Button>
           </div>
         </DialogFooter>
       </form>
@@ -602,8 +635,8 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
         side={isMobile ? 'bottom' : undefined}
         className={
           isMobile
-            ? "h-[95vh] flex flex-col p-0"
-            : "max-w-3xl max-h-[90vh] flex flex-col p-0"
+            ? "h-[95vh] flex flex-col p-0 border-none rounded-t-[3rem] overflow-hidden"
+            : "max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden"
         }
       >
         {FormBody}
