@@ -16,7 +16,30 @@ import { type Staff, type Transaction, type Service, type Appointment, type Acti
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer, ShieldAlert } from 'lucide-react';
+import { 
+  TrendingUp, 
+  DollarSign, 
+  PackageX, 
+  Clock, 
+  Info, 
+  Briefcase, 
+  User, 
+  MessageSquare, 
+  Coffee, 
+  Hourglass, 
+  BarChart, 
+  Percent, 
+  Users, 
+  List, 
+  FileText, 
+  Shield, 
+  Search, 
+  Calendar as CalendarIcon, 
+  Printer, 
+  ShieldAlert,
+  Mail,
+  Phone
+} from 'lucide-react';
 import { Button, buttonVariants } from '../ui/button';
 import {
   Tooltip,
