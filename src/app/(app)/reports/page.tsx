@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -76,8 +77,6 @@ export default function ReportsPage() {
     walkIns,
     activityLogs,
     transactions,
-    businessProfiles,
-    lifestyleProfiles,
     clients,
     isLoading
   } = useInventory();

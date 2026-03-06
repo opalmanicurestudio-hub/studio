@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -97,15 +98,15 @@ const BillFilters = ({
           <RadioGroup value={context} onValueChange={(value) => onContextChange(value as ContextFilter)} className="grid grid-cols-3 gap-2">
             <div>
               <RadioGroupItem value="all" id="all" className="peer sr-only" />
-              <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">All</Label>
+              <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">All</Label>
             </div>
             <div>
               <RadioGroupItem value="Business" id="business" className="peer sr-only" />
-              <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+              <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Business</Label>
             </div>
             <div>
               <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
-              <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+              <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
             </div>
           </RadioGroup>
         </div>
@@ -279,9 +280,11 @@ export default function BillsPage() {
     
     const batch = writeBatch(firestore);
 
+    let finalInstanceId = selectedBill.id;
     if (isVirtual) {
+        finalInstanceId = billInstanceRef.id;
         batch.set(billInstanceRef, {
-            id: billInstanceRef.id,
+            id: finalInstanceId,
             billDefinitionId: selectedBill.billDefinitionId,
             dueDate: selectedBill.dueDate,
             amountDue: newAmountDue,
@@ -308,7 +311,7 @@ export default function BillsPage() {
         paymentMethod: paymentData.paymentMethod,
         hasReceipt: !!paymentData.receiptUrl,
         receiptUrl: paymentData.receiptUrl,
-        relatedBillInstanceId: isVirtual ? billInstanceRef.id : selectedBill.id,
+        relatedBillInstanceId: finalInstanceId,
     };
     
     const transactionsRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
@@ -387,7 +390,7 @@ export default function BillsPage() {
             </Accordion>
         </div>
 
-        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
+        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
             <div className="hidden md:block md:col-span-1 lg:col-span-1">
                 <BillFilters 
                     onStatusChange={setStatusFilter} 

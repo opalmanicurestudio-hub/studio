@@ -194,17 +194,6 @@ export function AppSidebar() {
                 </SidebarGroup>
                 <SidebarSeparator />
                 <SidebarGroup>
-                    <SidebarGroupLabel>Intelligence</SidebarGroupLabel>
-                    <SidebarMenu>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
-                                <Link href="/ai-cfo"><Sparkles /><span>AI CFO</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                    </SidebarMenu>
-                </SidebarGroup>
-                <SidebarSeparator />
-                <SidebarGroup>
                     <SidebarGroupLabel>Public Pages</SidebarGroupLabel>
                     <SidebarMenu>
                         <SidebarMenuItem>

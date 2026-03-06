@@ -3,7 +3,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard, ShieldCheck } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car, Check, X, CreditCard, ShieldCheck, Briefcase, Landmark } from 'lucide-react';
 import { type Event, type Staff, type Appointment, type AppointmentCheckoutState, type Resource, type Membership } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours, differenceInDays } from 'date-fns';
@@ -590,6 +590,11 @@ function PlannerPageContent() {
     setSelectedBill(null);
   };
 
+  const handleViewChange = (v: 'staff' | 'resources') => {
+      setActiveView(v);
+      setMobileSelectedColumnId(''); // Reset selection to default first
+  }
+
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
@@ -599,7 +604,7 @@ function PlannerPageContent() {
                     <div className="flex items-center gap-2">
                         <Button variant="outline" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
                         <Button variant="outline" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 text-xs">Today</Button>
                         <Separator orientation="vertical" className="h-6" />
                         <RadioGroup value={activeView} onValueChange={(v: any) => handleViewChange(v)} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5">
                             <Label htmlFor="staff-view" className="flex items-center justify-center rounded-sm p-1 cursor-pointer transition-colors peer-data-[state=checked]:bg-background"><User className="h-3.5 w-3.5" /><RadioGroupItem value="staff" id="staff-view" className="sr-only" /></Label>
@@ -642,8 +647,8 @@ function PlannerPageContent() {
                     <div className="flex w-full px-4 md:px-0">
                         {weekDays.map(day => (
                             <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 text-center md:p-3 transition-colors hover:bg-muted/50 rounded-md", isSameDay(day, currentDate) && "bg-muted")}>
-                                <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-bold" : "text-muted-foreground")}>{format(day, 'EEE')}</p>
-                                <p className={cn("text-lg md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>{format(day, 'd')}</p>
+                                <p className={cn("text-[10px] md:text-xs", isSameDay(day, currentDate) ? "text-primary font-black uppercase" : "text-muted-foreground font-bold uppercase")}>{format(day, 'EEE')}</p>
+                                <p className={cn("text-lg md:text-2xl font-black mt-1", isSameDay(day, currentDate) ? "text-primary" : "text-muted-foreground")}>{format(day, 'd')}</p>
                             </button>
                         ))}
                     </div>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO, addMinutes } from 'date-fns';
@@ -145,6 +146,7 @@ export const DayTimeline = ({
                     }
                     if (!placed) { cols.push([item]); item.layout.col = cols.length - 1; }
                 }
+                cluster.forEach(item => item.layout.col = item.layout.col);
                 cluster.forEach(item => item.layout.cols = cols.length);
             }
 
