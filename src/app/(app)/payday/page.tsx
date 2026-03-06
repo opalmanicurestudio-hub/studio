@@ -32,7 +32,8 @@ import {
     ChevronLeft,
     ChevronRight,
     CheckCircle2,
-    CalendarSearch
+    CalendarSearch,
+    CalendarRange
 } from 'lucide-react';
 import {
   Accordion,
@@ -66,9 +67,6 @@ import {
     addMonths
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { type DateRange } from 'react-day-picker';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -151,13 +149,6 @@ export default function PaydayPage() {
           setDateRange({ from: startOfDay(subDays(now, 13)), to: endOfDay(now) });
       } else if (newCadence === 'monthly') {
           setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
-      }
-      // If 'custom', we keep the current range until they pick a new one
-  };
-
-  const handleCustomRangeSelect = (range: DateRange | undefined) => {
-      if (range?.from && range?.to) {
-          setDateRange({ from: startOfDay(range.from), to: endOfDay(range.to) });
       }
   };
 
@@ -280,55 +271,66 @@ export default function PaydayPage() {
                     <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('custom')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", cadence === 'custom' && "bg-white shadow-sm")}>Custom</Button>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20">
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={handlePrevPeriod} 
-                        disabled={cadence === 'custom'}
-                        className="h-10 w-10 hover:bg-white rounded-full shadow-sm disabled:opacity-20"
-                    >
-                        <ChevronLeft className="w-5 h-5"/>
-                    </Button>
-                    
-                    <div className="text-center">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-0.5">
-                            {cadence === 'custom' ? 'Custom Range' : 'Reconciling Period'}
-                        </p>
-                        {cadence === 'custom' ? (
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="text-sm md:text-lg font-black text-slate-900 border-b-2 border-primary border-dashed hover:text-primary transition-colors">
-                                        {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="center">
-                                    <Calendar
-                                        initialFocus
-                                        mode="range"
-                                        selected={{ from: dateRange.from, to: dateRange.to }}
-                                        onSelect={handleCustomRangeSelect}
-                                        numberOfMonths={2}
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        ) : (
+                {cadence === 'custom' ? (
+                    <div className="p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 space-y-4">
+                        <div className="flex items-center gap-2 justify-center text-[10px] font-black uppercase tracking-widest text-primary mb-2">
+                            <CalendarRange className="w-3 h-3" /> Select Custom Window
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Start Date</Label>
+                                <input 
+                                    type="date" 
+                                    value={format(dateRange.from, 'yyyy-MM-dd')}
+                                    onChange={(e) => {
+                                        const newDate = e.target.value ? startOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.from;
+                                        setDateRange(prev => ({ ...prev, from: newDate }));
+                                    }}
+                                    className="w-full h-12 rounded-xl border-2 bg-background px-3 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">End Date</Label>
+                                <input 
+                                    type="date" 
+                                    value={format(dateRange.to, 'yyyy-MM-dd')}
+                                    onChange={(e) => {
+                                        const newDate = e.target.value ? endOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.to;
+                                        setDateRange(prev => ({ ...prev, to: newDate }));
+                                    }}
+                                    className="w-full h-12 rounded-xl border-2 bg-background px-3 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={handlePrevPeriod} 
+                            className="h-10 w-10 hover:bg-white rounded-full shadow-sm"
+                        >
+                            <ChevronLeft className="w-5 h-5"/>
+                        </Button>
+                        
+                        <div className="text-center">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-0.5">Reconciling Period</p>
                             <p className="text-sm md:text-lg font-black text-slate-900">
                                 {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
                             </p>
-                        )}
-                    </div>
+                        </div>
 
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={handleNextPeriod} 
-                        disabled={cadence === 'custom'}
-                        className="h-10 w-10 hover:bg-white rounded-full shadow-sm disabled:opacity-20"
-                    >
-                        <ChevronRight className="w-5 h-5"/>
-                    </Button>
-                </div>
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={handleNextPeriod} 
+                            className="h-10 w-10 hover:bg-white rounded-full shadow-sm"
+                        >
+                            <ChevronRight className="w-5 h-5"/>
+                        </Button>
+                    </div>
+                )}
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
