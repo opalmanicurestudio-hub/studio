@@ -24,7 +24,7 @@ import {
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles } from 'lucide-react';
+import { Clock, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard, Award, Star, Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock, ArrowRight, Sparkles, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -740,7 +740,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         <div className="flex justify-between items-center gap-4">
                                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Professional</span> 
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <span className="font-black text-xs md:text-sm uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
+                                                <span className="font-black text-[11px] sm:text-sm uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
                                                 {selectedStaff && (
                                                     <Avatar className="h-6 w-6 border shadow-sm shrink-0">
                                                         <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
@@ -752,22 +752,22 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         {selectedStaffId === 'any' && selectedTierId !== 'any' && (
                                             <div className="flex justify-between items-center gap-4">
                                                 <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Tier Pref</span> 
-                                                <span className="font-black text-xs md:text-sm uppercase tracking-tight text-primary truncate">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span>
+                                                <span className="font-black text-[11px] sm:text-sm uppercase tracking-tight text-primary truncate">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span>
                                             </div>
                                         )}
                                         <div className="flex justify-between items-center gap-4">
                                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span> 
-                                            <span className="font-black text-xs md:text-sm uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')}</span>
+                                            <span className="font-black text-[11px] sm:text-sm uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')}</span>
                                         </div>
                                         <div className="flex justify-between items-center gap-4">
                                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Start Time</span> 
-                                            <span className="font-black text-lg md:text-xl uppercase tracking-tight text-primary truncate">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
+                                            <span className="font-black text-sm sm:text-xl uppercase tracking-tight text-primary truncate">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
                                         </div>
                                         <Separator className="bg-primary/10 border-dashed" />
-                                        <div className="flex justify-between items-center text-3xl font-black uppercase tracking-tighter"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
+                                        <div className="flex justify-between items-center text-2xl sm:text-3xl font-black uppercase tracking-tighter"><span>Total</span> <span>${price?.toFixed(2)}</span></div>
                                         {depositAmount > 0 && (
                                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Required Deposit: <strong className="text-base tracking-tighter">${depositAmount.toFixed(2)}</strong></p>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Required Deposit: <strong className="text-sm sm:text-base tracking-tighter">${depositAmount.toFixed(2)}</strong></p>
                                             </div>
                                         )}
                                     </CardContent>
