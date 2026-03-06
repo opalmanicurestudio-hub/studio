@@ -1,4 +1,3 @@
-
 'use client';
 
 import { format, differenceInMinutes, isSameDay, isToday, subMinutes, areIntervalsOverlapping, setHours, startOfDay, parseISO, addMinutes } from 'date-fns';
@@ -20,16 +19,8 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -49,14 +40,12 @@ export const DayTimeline = ({
     onUpdateEvent,
     dailyTransactions,
     allTransactions,
-    onAddTransaction,
     onReschedule,
     onRebook,
     onStartService,
     onFinishService,
     onBookNewForClient,
     onDeleteEvent,
-    onDeleteAppointment: onDelete,
     onViewDetails,
     walkIns,
     clients,
@@ -67,54 +56,14 @@ export const DayTimeline = ({
     allStaff,
     mobileSelectedColumnId,
     onMobileColumnChange,
-}: { 
-    date: Date; 
-    columns: (Staff | Resource | { id: string, name: string, isBusiness?: boolean })[];
-    itemsByColumn: Map<string, (Appointment | Event | BillInstance)[]>;
-    showColumnHeader: boolean;
-    onCompleteClick: (apt: Appointment) => void; 
-    onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
-    onDeleteAppointment: (appointmentId: string) => void; 
-    onPrintReceipt: (data: Omit<ReceiptData, 'business'>) => void; 
-    onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
-    onEditAppointment: (appointment: Appointment) => void; 
-    onEditEvent: (event: Event) => void;
-    onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
-    onUpdateEvent: (updatedEvent: Event) => void;
-    dailyTransactions: Transaction[] | null;
-    allTransactions: Transaction[];
-    onAddTransaction: (transaction: any) => void;
-    onReschedule: (appointment: Appointment) => void;
-    onRebook: (appointment: Appointment) => void;
-    onStartService: (appointmentId: string) => void;
-    onFinishService: (appointment: Appointment) => void;
-    onBookNewForClient: (clientId: string) => void;
-    onDeleteEvent: (eventId: string) => void;
-    onViewDetails: (appointment: Appointment) => void;
-    walkIns: any[] | null;
-    clients: any[] | null;
-    services: Service[] | null;
-    resources: Resource[];
-    isMobile: boolean;
-    activeView: 'staff' | 'resources';
-    allStaff: Staff[];
-    mobileSelectedColumnId: string;
-    onMobileColumnChange: (id: string) => void;
-}) => {
+}: any) => {
     const START_HOUR = 0;
     const hours = Array.from({ length: 24 }, (_, i) => i);
-    const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-      if (typeof window !== 'undefined') {
-        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-      }
-    }, []);
 
     const displayedColumns = useMemo(() => {
         if (!isMobile) return columns;
-        const selected = columns.find(c => c.id === mobileSelectedColumnId);
+        const selected = columns.find((c:any) => c.id === mobileSelectedColumnId);
         return selected ? [selected] : (columns.length > 0 ? [columns[0]] : []);
     }, [isMobile, columns, mobileSelectedColumnId]);
 
@@ -125,7 +74,6 @@ export const DayTimeline = ({
         for (const column of columns) {
             const columnId = column.id;
             const items = itemsByColumn.get(columnId) || [];
-
             let layoutInfo = items.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
             
             function positionCluster(cluster: any[]) {
@@ -146,8 +94,7 @@ export const DayTimeline = ({
                     }
                     if (!placed) { cols.push([item]); item.layout.col = cols.length - 1; }
                 }
-                cluster.forEach(item => item.layout.col = item.layout.col);
-                cluster.forEach(item => item.layout.cols = cols.length);
+                cluster.forEach(item => { item.layout.cols = cols.length; });
             }
 
             let lastEventEnd: Date | null = null;
@@ -177,14 +124,14 @@ export const DayTimeline = ({
         
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <Card className="h-full border-2 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <CardContent className="p-2 flex flex-col justify-center h-full gap-1">
-                        <div className="flex items-center gap-1.5">
-                            <Landmark className="w-3 h-3 text-orange-600" />
-                            <p className="text-[10px] font-black uppercase text-orange-700 truncate">{item.definition?.name || 'Bill'}</p>
+                <Card className="h-full border-4 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-all cursor-pointer overflow-hidden shadow-xl rounded-2xl">
+                    <CardContent className="p-3 flex flex-col justify-center h-full gap-1">
+                        <div className="flex items-center gap-2">
+                            <Landmark className="w-4 h-4 text-orange-600" />
+                            <p className="text-[10px] font-black uppercase text-orange-700 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
                         </div>
-                        <p className="font-black text-sm text-orange-800">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
-                        <Badge variant="outline" className="w-fit h-4 text-[8px] border-orange-500/20 text-orange-600 uppercase">Due Today</Badge>
+                        <p className="font-black text-lg text-orange-800 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
+                        <Badge variant="outline" className="w-fit h-5 text-[9px] border-orange-500/20 text-orange-600 uppercase font-black">Due Today</Badge>
                     </CardContent>
                 </Card>
             </div>
@@ -204,13 +151,13 @@ export const DayTimeline = ({
         const totalDuration = differenceInMinutes(endTime, startTime) + padBefore + (service.padAfter || 0);
         const top = differenceInMinutes(subMinutes(startTime, padBefore), dayStart) * (160/60);
         const height = totalDuration * (160/60);
-        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left };
        
         return (
-            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-2 z-10", item.isSecondary && "opacity-80")} style={style}>
+            <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-1 z-10", item.isSecondary && "opacity-80")} style={style}>
                 <AppointmentCard
                     appointment={item} client={client} service={service} style={{ height: '100%'}}
-                    tmhr={tmhr} onUpdateStatus={onUpdateStatus} onDelete={onDelete}
+                    onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
                     onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
                     onStartService={onStartService} onFinishService={onFinishService}
@@ -230,7 +177,7 @@ export const DayTimeline = ({
         const style = { top: `${mins * (160/60)}px`, height: `${differenceInMinutes(endTime, startTime) * (160/60)}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
         return (
              <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <EventCard event={item} transactions={dailyTransactions?.filter(t => t.relatedEventId === item.id) || []} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} onDeleteEvent={onDeleteEvent} />
+                <EventCard event={item} transactions={dailyTransactions?.filter(t => t.relatedEventId === item.id) || []} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={() => {}} onDeleteEvent={onDeleteEvent} />
             </div>
         )
     };
@@ -242,72 +189,58 @@ export const DayTimeline = ({
         }
     }, [date, columns]);
 
-    const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` };
+    const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '280px'}, 1fr))` };
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
-                <div className="sticky top-0 z-30 bg-background h-14 border-b border-r" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
+                <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md h-16 border-b border-r" style={{ width: isMobile ? '50px' : '64px' }} />
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background/80 backdrop-blur-md" style={gridStyle}>
                     {displayedColumns.map(column => (
-                        <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                        <div key={column.id} className="p-3 h-16 border-b border-r text-center flex items-center justify-center">
                             {isMobile ? (
                                 <Select value={mobileSelectedColumnId} onValueChange={onMobileColumnChange}>
-                                    <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
+                                    <SelectTrigger className="border-none h-full p-0 focus:ring-0 w-full bg-transparent">
                                         <div className="flex items-center justify-center gap-2 h-full w-full">
                                             <SelectValue />
                                         </div>
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
                                         {columns.map(c => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'isBusiness' in c ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Briefcase className="w-4 h-4 text-primary" />
-                                                            <span>Business</span>
-                                                        </div>
-                                                    ) : 'role' in c ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Avatar className="w-6 h-6">
-                                                                <AvatarImage src={(c as Staff).avatarUrl} />
-                                                                <AvatarFallback>{c.name.charAt(0)}</AvatarFallback>
-                                                            </Avatar>
-                                                            <span>{c.name}</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex items-center gap-2">
-                                                            {(c as Resource).type === 'room' ? <Building className="w-4 h-4 text-muted-foreground" /> : <HardHat className="w-4 h-4 text-muted-foreground" />}
-                                                            <span>{c.name}</span>
-                                                        </div>
-                                                    )}
+                                                    {'isBusiness' in c ? <Briefcase className="w-4 h-4 text-primary" /> : 'role' in c ? <Avatar className="w-6 h-6"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[8px] bg-primary/10 text-primary">{c.name.charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-4 h-4" /> : <HardHat className="w-4 h-4" />)}
+                                                    <span className="font-black uppercase text-[10px] tracking-widest">{c.name}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             ) : (
-                                <div className="flex items-center justify-center gap-2 h-full">
+                                <div className="flex items-center justify-center gap-3 h-full">
                                     {'isBusiness' in column ? (
                                         <Briefcase className="w-5 h-5 text-primary" />
                                     ) : 'role' in column ? (
-                                        <Avatar className="w-8 h-8"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
+                                        <Avatar className="w-9 h-9 border-2 border-background shadow-md rounded-xl">
+                                            <AvatarImage src={(column as Staff).avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{column.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
                                     ) : (
                                         (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                     )}
-                                    <p className="font-semibold text-sm truncate">{column.name}</p>
+                                    <p className="font-black uppercase tracking-tight text-xs truncate max-w-[180px]">{column.name}</p>
                                 </div>
                             )}
                         </div>
                     ))}
                 </div>
-                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-12")}>
-                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end"><span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-12" : "w-16")}>
+                    {hours.map(hour => (<div key={hour} className="h-40 border-r border-b text-right pr-3 pt-1 flex justify-end items-start"><span className="text-[10px] font-black uppercase text-muted-foreground -mt-2.5 opacity-40 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span></div>))}
                 </div>
-                <div className="col-start-2 grid relative" style={gridStyle}>
+                <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
-                        <div key={column.id} className="relative border-r">
-                            {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed" />))}
+                        <div key={column.id} className="relative border-r border-slate-200">
+                            {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed border-slate-100" />))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => {
                                 if (item.itemType === 'bill') return renderBill(item);
                                 if (item.itemType === 'event') return renderEvent(item);
@@ -320,8 +253,8 @@ export const DayTimeline = ({
                             className="absolute w-full flex items-center z-20 pointer-events-none" 
                             style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}
                         >
-                            <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1.25 border-2 border-background shadow-sm"></div>
-                            <div className="h-px w-full bg-red-500/50"></div>
+                            <div className="h-3 w-3 rounded-full bg-red-500 -ml-1.5 border-4 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
+                            <div className="h-0.5 w-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"></div>
                         </div>
                     )}
                 </div>
