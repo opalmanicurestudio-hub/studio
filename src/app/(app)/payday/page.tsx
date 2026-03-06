@@ -84,13 +84,13 @@ export default function PaydayPage() {
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   
   const [date, setDate] = React.useState<DateRange | undefined>({
-      from: startOfDay(subDays(new Date(), 14)), // Default to Bi-weekly (14 days)
+      from: startOfDay(subDays(new Date(), 13)), // Default to Bi-weekly (14 days total)
       to: endOfDay(new Date()),
   });
 
-  const setWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 7)), to: endOfDay(new Date()) });
-  const setBiWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 14)), to: endOfDay(new Date()) });
-  const setMonthly = () => setDate({ from: startOfDay(subDays(new Date(), 30)), to: endOfDay(new Date()) });
+  const setWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 6)), to: endOfDay(new Date()) });
+  const setBiWeekly = () => setDate({ from: startOfDay(subDays(new Date(), 13)), to: endOfDay(new Date()) });
+  const setMonthly = () => setDate({ from: startOfDay(subDays(new Date(), 29)), to: endOfDay(new Date()) });
 
   const filteredTransactions = useMemo(() => {
       if (!transactions || !date?.from || !date?.to) return transactions || [];
@@ -191,6 +191,11 @@ export default function PaydayPage() {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
   };
 
+  const periodDays = useMemo(() => {
+      if (!date?.from || !date?.to) return 0;
+      return differenceInDays(date.to, date.from) + 1;
+  }, [date]);
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
@@ -234,9 +239,9 @@ export default function PaydayPage() {
             </div>
 
             <div className="flex gap-2 p-1 bg-muted rounded-xl">
-                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) <= 7 && "bg-white shadow-sm")}>Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) > 7 && differenceInDays(date?.to || new Date(), date?.from || new Date()) <= 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
-                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", differenceInDays(date?.to || new Date(), date?.from || new Date()) > 14 && "bg-white shadow-sm")}>Monthly</Button>
+                <Button variant="ghost" size="sm" onClick={setWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 7 && "bg-white shadow-sm")}>Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setBiWeekly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 14 && "bg-white shadow-sm")}>Bi-Weekly</Button>
+                <Button variant="ghost" size="sm" onClick={setMonthly} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-lg transition-all", periodDays === 30 && "bg-white shadow-sm")}>Monthly</Button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -391,4 +396,4 @@ export default function PaydayPage() {
       </main>
     </div>
   );
-};
+}
