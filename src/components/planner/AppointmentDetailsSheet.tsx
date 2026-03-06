@@ -70,6 +70,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch, arrayUnion, increment, collection } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -108,6 +109,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
+  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -159,9 +161,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   };
 
+  const handleUpdateAddOns = async (newAddOns: Service[]) => {
+    if (!firestore || !tenantId || !appointment) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const newIds = newAddOns.map(s => s.id);
+    updateDocumentNonBlocking(appointmentRef, { addOnIds: newIds });
+    toast({ title: "Appointment Updated", description: "Extra parts added to the session." });
+  };
+
+  const currentAddOns = (appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className={cn(isMobile ? "h-[95vh] rounded-t-[3rem]" : "sm:max-w-xl", "flex flex-col p-0 border-none bg-background shadow-2xl")}>
         <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
@@ -231,7 +243,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <Separator className="bg-muted/50" />
 
             <div className="space-y-6">
-                <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3>
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                        <PlusCircle className="w-3 h-3 mr-1.5" />
+                        Add Part
+                    </Button>
+                </div>
                 <Card className="rounded-[2.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
                     <CardContent className="p-6 space-y-6">
                         <div className="flex justify-between items-start gap-4">
@@ -300,5 +318,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+
+    <SelectAddOnsDialog 
+        open={isAddOnSelectorOpen} 
+        onOpenChange={setIsAddOnSelectorOpen} 
+        allAddOns={allServices.filter(s => s.type === 'addon')} 
+        initialSelected={currentAddOns} 
+        onSelect={handleUpdateAddOns} 
+    />
+    </>
   );
 };
