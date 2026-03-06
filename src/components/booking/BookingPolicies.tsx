@@ -1,8 +1,9 @@
-
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ShieldCheck, Clock, Ban, AlertCircle } from 'lucide-react';
 import { Tenant } from '@/lib/data';
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 export const BookingPolicies = ({ tenant }: { tenant: Tenant | null }) => {
   if (!tenant) return null;
@@ -10,31 +11,59 @@ export const BookingPolicies = ({ tenant }: { tenant: Tenant | null }) => {
 
   if (!hasPolicies) return null;
 
+  const policyItems = [
+    {
+      title: 'Cancellations',
+      text: tenant.cancellationPolicy,
+      icon: <Ban className="w-5 h-5" />,
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-500/5',
+    },
+    {
+      title: 'Late Arrivals',
+      text: tenant.lateArrivalPolicy,
+      icon: <Clock className="w-5 h-5" />,
+      color: 'text-amber-500',
+      bgColor: 'bg-amber-500/5',
+    },
+    {
+      title: 'No-Show Policy',
+      text: tenant.noShowPolicy,
+      icon: <AlertCircle className="w-5 h-5" />,
+      color: 'text-destructive',
+      bgColor: 'bg-destructive/5',
+    },
+  ].filter(item => item.text);
+
   return (
-    <section className="space-y-6">
-      <h2 className="text-3xl font-bold text-center">Our Policies</h2>
-      <Card>
-        <CardContent className="p-6 space-y-4 text-sm text-muted-foreground">
-          {tenant.cancellationPolicy && (
-            <div>
-              <h4 className="font-semibold text-foreground mb-1">Cancellation Policy</h4>
-              <p>{tenant.cancellationPolicy}</p>
+    <section id="policies" className="space-y-12 scroll-mt-24">
+      <div className="space-y-4">
+        <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">The Standard</h2>
+        <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px]">Studio guidelines & expectations</p>
+      </div>
+
+      <div className="grid gap-6">
+        {policyItems.map((item, idx) => (
+          <motion.div 
+            key={item.title}
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.1 }}
+            viewport={{ once: true }}
+            className="group flex flex-col md:flex-row md:items-center gap-6 p-8 rounded-[2rem] border-2 border-border/50 bg-card hover:border-primary/30 transition-all"
+          >
+            <div className={cn("p-4 rounded-2xl shrink-0 self-start md:self-center shadow-inner", item.bgColor, item.color)}>
+              {item.icon}
             </div>
-          )}
-          {tenant.lateArrivalPolicy && (
-            <div>
-              <h4 className="font-semibold text-foreground mb-1">Late Arrival Policy</h4>
-              <p>{tenant.lateArrivalPolicy}</p>
+            <div className="space-y-2">
+              <h4 className="font-black uppercase tracking-tight text-sm text-slate-900">{item.title}</h4>
+              <p className="text-sm text-muted-foreground leading-relaxed font-medium">
+                {item.text}
+              </p>
             </div>
-          )}
-           {tenant.noShowPolicy && (
-            <div>
-              <h4 className="font-semibold text-foreground mb-1">No-Show Policy</h4>
-              <p>{tenant.noShowPolicy}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </motion.div>
+        ))}
+      </div>
     </section>
   );
 };

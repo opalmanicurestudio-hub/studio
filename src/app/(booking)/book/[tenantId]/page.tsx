@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -11,8 +10,9 @@ import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO, addMonths, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { AnimatePresence, motion, useScroll, useTransform } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 import { BookingHeader } from '@/components/booking/BookingHeader';
 import { BookingGallery } from '@/components/booking/BookingGallery';
@@ -303,7 +303,7 @@ export default function BookingPage() {
 
                 <BookingGallery />
                 
-                <div className="grid md:grid-cols-2 gap-8 items-start">
+                <div className="grid md:grid-cols-2 gap-20 items-start">
                     <BookingPolicies tenant={tenant} />
                     <BookingContact tenant={tenant} />
                 </div>
