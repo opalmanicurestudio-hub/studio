@@ -36,6 +36,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
