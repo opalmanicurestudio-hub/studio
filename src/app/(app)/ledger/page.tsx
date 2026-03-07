@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef } from 'react';
@@ -27,6 +26,7 @@ import {
   Filter,
   X,
   Loader,
+  Search,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -55,7 +55,7 @@ import {
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay, parseISO, subDays } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import {
   Accordion,
@@ -63,7 +63,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -72,8 +72,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Calendar } from '../ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
 import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
@@ -86,6 +84,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { collection, doc } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -124,6 +123,8 @@ const TransactionFilters = ({
     transactions,
     date, 
     setDate,
+    periodPreset,
+    setPeriodPreset,
     searchTerm,
     setSearchTerm,
     contextFilter,
@@ -135,6 +136,8 @@ const TransactionFilters = ({
     transactions: Transaction[];
     date: DateRange | undefined;
     setDate: (date: DateRange | undefined) => void;
+    periodPreset: string;
+    setPeriodPreset: (preset: string) => void;
     searchTerm: string;
     setSearchTerm: (term: string) => void;
     contextFilter: 'all' | 'Business' | 'Personal';
@@ -157,31 +160,56 @@ const TransactionFilters = ({
         <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 pt-6">
-        <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
-                <input 
-                    type="date" 
-                    value={date?.from ? format(date.from, 'yyyy-MM-dd') : ''}
-                    onChange={(e) => {
-                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                        setDate({ from: d || date?.from, to: date?.to });
-                    }}
-                    className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
-                />
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-2">Analyze Period</Label>
+                <Select value={periodPreset} onValueChange={setPeriodPreset}>
+                    <SelectTrigger className="h-12 rounded-2xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                        <SelectItem value="today" className="font-bold">TODAY</SelectItem>
+                        <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
+                        <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
+                        <SelectItem value="thisMonth" className="font-bold">THIS MONTH</SelectItem>
+                        <SelectItem value="lastMonth" className="font-bold">LAST MONTH</SelectItem>
+                        <SelectItem value="custom" className="font-bold">CUSTOM RANGE...</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
-            <div className="space-y-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
-                <input 
-                    type="date" 
-                    value={date?.to ? format(date.to, 'yyyy-MM-dd') : ''}
-                    onChange={(e) => {
-                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                        setDate({ from: date?.from, to: d || date?.to });
-                    }}
-                    className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
-                />
-            </div>
+
+            <AnimatePresence>
+                {periodPreset === 'custom' && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                        <div className="grid grid-cols-1 gap-3 pt-2">
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">From</Label>
+                                <input 
+                                    type="date" 
+                                    value={date?.from ? format(date.from, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => {
+                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                        setDate({ from: d || date?.from, to: date?.to });
+                                    }}
+                                    className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">To</Label>
+                                <input 
+                                    type="date" 
+                                    value={date?.to ? format(date.to, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => {
+                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                        setDate({ from: date?.from, to: d || date?.to });
+                                    }}
+                                    className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
+                                />
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
 
         <div className="space-y-4">
@@ -222,7 +250,7 @@ const TransactionFilters = ({
 
         <Separator />
 
-        <div className='p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-4'>
+        <div className='p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-4 text-left'>
             <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
             <div className='space-y-2.5 text-xs'>
                 <div className='flex justify-between font-bold'><span>Total Revenue:</span><span className='font-mono text-green-600'>${financialSummary.revenue.toFixed(2)}</span></div>
@@ -250,7 +278,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
           <div className={cn("p-2 rounded-full", transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
             <TransactionIcon type={transaction.type} />
           </div>
-          <div className='flex flex-col min-w-0'>
+          <div className='flex flex-col min-w-0 text-left'>
             <span className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{transaction.description}</span>
             <span className='text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate'>{transaction.clientOrVendor}</span>
           </div>
@@ -327,7 +355,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                     })}>
                         <TransactionIcon type={transaction.type} />
                     </div>
-                    <div className="flex-1 space-y-1 min-w-0">
+                    <div className="flex-1 space-y-1 min-w-0 text-left">
                         <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{transaction.description}</p>
                         <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60">{transaction.clientOrVendor} &middot; {format(safeDate(transaction.date), 'MMM d, p')}</p>
                         {staffMember && (
@@ -396,15 +424,38 @@ export default function LedgerPage() {
 
   const { transactions, staff, isLoading: areTransactionsLoading } = useInventory();
 
-  const [date, setDate] = React.useState<DateRange | undefined>({
-      from: startOfDay(subDays(new Date(), 30)),
-      to: endOfDay(new Date()),
-  });
+  const [periodPreset, setPeriodPreset] = useState('30days');
+  const [date, setDate] = React.useState<DateRange | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
   const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
+
+  useEffect(() => {
+    const now = new Date();
+    switch (periodPreset) {
+        case 'today':
+            setDate({ from: startOfDay(now), to: endOfDay(now) });
+            break;
+        case '7days':
+            setDate({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+            break;
+        case '30days':
+            setDate({ from: startOfDay(subDays(now, 29)), to: endOfDay(now) });
+            break;
+        case 'thisMonth':
+            setDate({ from: startOfMonth(now), to: endOfMonth(now) });
+            break;
+        case 'lastMonth':
+            const lastMonth = subMonths(now, 1);
+            setDate({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
+            break;
+        case 'custom':
+            // Manual
+            break;
+    }
+  }, [periodPreset]);
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
@@ -519,6 +570,8 @@ export default function LedgerPage() {
                                 transactions={transactions || []}
                                 date={date}
                                 setDate={setDate}
+                                periodPreset={periodPreset}
+                                setPeriodPreset={setPeriodPreset}
                                 searchTerm={searchTerm}
                                 setSearchTerm={setSearchTerm}
                                 contextFilter={contextFilter}
@@ -535,6 +588,8 @@ export default function LedgerPage() {
                     transactions={transactions || []}
                     date={date}
                     setDate={setDate}
+                    periodPreset={periodPreset}
+                    setPeriodPreset={setPeriodPreset}
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}
                     contextFilter={contextFilter}
@@ -546,19 +601,19 @@ export default function LedgerPage() {
             )}
           </div>
           
-          <div className="md:col-span-2 lg:col-span-3 space-y-6 min-w-0">
+          <div className="md:col-span-2 lg:col-span-3 space-y-6 min-w-0 text-left">
             <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden">
               <CardContent className='p-0 overflow-x-auto'>
                 <Table>
                   <TableHeader className="bg-muted/30 border-b-2">
                     <TableRow>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6">Description & Entity</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em]">Timestamp</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em]">Provider</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em]">Context</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em]">Account</TableHead>
-                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em]">Category</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10">Amount</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Description & Entity</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Timestamp</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Provider</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Context</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Account</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Category</TableHead>
+                      <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10 text-primary">Amount</TableHead>
                       <TableHead><span className='sr-only'>Actions</span></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -664,7 +719,7 @@ export default function LedgerPage() {
                 You are about to create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;. This will permanently record an opposite entry to zero-out this balance.
             </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+            <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3 text-left">
                 <Button onClick={handleRevertTransaction} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, Revert Entry</Button>
                 <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
             </AlertDialogFooter>

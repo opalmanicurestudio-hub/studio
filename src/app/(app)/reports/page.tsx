@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,18 +19,24 @@ import {
   ShieldCheck,
   Loader,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays } from 'date-fns';
+import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type Staff } from '@/lib/data';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { Label } from '@/components/ui/label';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -69,7 +74,8 @@ export default function ReportsPage() {
   const isMobile = useIsMobile();
   const { user: currentUser } = useUser();
   const { role } = useTenant();
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
+  const [periodPreset, setPeriodPreset] = useState('30days');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   
   const {
     inventory,
@@ -82,6 +88,31 @@ export default function ReportsPage() {
     clients,
     isLoading
   } = useInventory();
+
+  useEffect(() => {
+    const now = new Date();
+    switch (periodPreset) {
+        case 'today':
+            setDateRange({ from: startOfDay(now), to: endOfDay(now) });
+            break;
+        case '7days':
+            setDateRange({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+            break;
+        case '30days':
+            setDateRange({ from: startOfDay(subDays(now, 29)), to: endOfDay(now) });
+            break;
+        case 'thisMonth':
+            setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
+            break;
+        case 'lastMonth':
+            const lastMonth = subMonths(now, 1);
+            setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
+            break;
+        case 'custom':
+            // Manual
+            break;
+    }
+  }, [periodPreset]);
 
   const dateRangeString = useMemo(() => {
     if (!dateRange?.from) return 'All Time';
@@ -186,6 +217,7 @@ export default function ReportsPage() {
             ...staffMember,
             stats: {
                 totalServices: completedAppointmentsCount,
+                avgActualServiceTime: 0, // Placeholder
                 avgVariance,
                 totalInServiceHours: totalInServiceMinutes / 60,
                 utilizationRate,
@@ -361,7 +393,7 @@ export default function ReportsPage() {
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Reports" />
         <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-            <Loader className="h-8 w-8 animate-spin" />
+            <Loader className="h-8 w-8 animate-spin text-primary" />
         </main>
       </div>
     );
@@ -370,78 +402,102 @@ export default function ReportsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-white overflow-x-hidden">
       <AppHeader title="Reports & Analytics" />
-      <main className="flex-1 p-4 md:p-8 space-y-6 md:space-y-8 w-full max-w-full min-w-0 overflow-y-auto">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <main className="flex-1 p-4 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 overflow-y-auto">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Studio Reports</h1>
-            <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-              Insights into your salon's performance
-            </p>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Insights</h1>
+            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Performance & yield dossier</p>
           </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            <div className="flex flex-col sm:flex-row gap-2 border-2 p-2 rounded-2xl bg-muted/10">
-                <div className="space-y-1">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
-                    <input 
-                        type="date" 
-                        value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => {
-                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                            setDateRange({ from: d || dateRange?.from, to: dateRange?.to });
-                        }}
-                        className="h-9 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary"
-                    />
-                </div>
-                <div className="space-y-1">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
-                    <input 
-                        type="date" 
-                        value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => {
-                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                            setDateRange({ from: dateRange?.from, to: d || dateRange?.to });
-                        }}
-                        className="h-9 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary"
-                    />
-                </div>
-            </div>
-             <Button variant="outline" className="h-11 border-2 shadow-sm font-bold uppercase tracking-tight" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print Report</Button>
+          <div className="flex items-center gap-3 w-full md:w-auto">
+             <Button variant="outline" className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" /> Print Dossier</Button>
           </div>
         </div>
 
+        <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">
+            <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="flex-1 w-full space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
+                    <Select value={periodPreset} onValueChange={setPeriodPreset}>
+                        <SelectTrigger className="h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
+                            <SelectValue placeholder="Select Period" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                            <SelectItem value="today" className="font-bold">TODAY</SelectItem>
+                            <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
+                            <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
+                            <SelectItem value="thisMonth" className="font-bold">THIS MONTH</SelectItem>
+                            <SelectItem value="lastMonth" className="font-bold">LAST MONTH</SelectItem>
+                            <SelectItem value="custom" className="font-bold">CUSTOM RANGE...</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                
+                <AnimatePresence>
+                    {periodPreset === 'custom' && (
+                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
+                                <input 
+                                    type="date" 
+                                    value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => {
+                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                        setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
+                                    }}
+                                    className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                />
+                            </div>
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
+                                <input 
+                                    type="date" 
+                                    value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => {
+                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                        setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
+                                    }}
+                                    className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full">
-            <Card className="border-2 shadow-sm min-w-0">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Avg. Ticket Size</CardTitle></CardHeader>
+            <Card className="border-2 shadow-sm min-w-0 text-left">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><DollarSign className="w-3 h-3"/>Avg. Ticket Size</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-2xl md:text-3xl font-black tracking-tighter">${kpiData.avgSalePerAppointment.toFixed(2)}</div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Revenue per completed appointment</p>
+                    <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${kpiData.avgSalePerAppointment.toFixed(2)}</div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-40">Per session yield</p>
                 </CardContent>
             </Card>
-            <Card className="border-2 shadow-sm min-w-0">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Target className="w-3 h-3"/>Stylist Utilization</CardTitle></CardHeader>
+            <Card className="border-2 shadow-sm min-w-0 text-left">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Target className="w-3 h-3"/>Studio Util.</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.utilizationRate.toFixed(1)}%</div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Clocked-in time spent in-service</p>
+                    <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">{kpiData.utilizationRate.toFixed(1)}%</div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-40">In-service percentage</p>
                 </CardContent>
             </Card>
-            <Card className="bg-destructive/[0.03] border-destructive/20 border-2 shadow-sm min-w-0">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-destructive/70 flex items-center gap-2"><AlertTriangle className="w-3 h-3"/>Absorbed Costs</CardTitle></CardHeader>
+            <Card className="bg-destructive/[0.03] border-destructive/20 border-2 shadow-sm min-w-0 text-left">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-destructive/70 flex items-center gap-2 opacity-60"><AlertTriangle className="w-3 h-3"/>Absorbed Costs</CardTitle></CardHeader>
                 <CardContent>
                     <div className="text-2xl md:text-3xl font-black tracking-tighter text-destructive">${financials.totalAbsorbedCosts.toFixed(2)}</div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tight opacity-60">Waived Fees & Discounts</p>
+                    <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tight opacity-40">Waived Fees & Discounts</p>
                 </CardContent>
             </Card>
-            <Card className="border-2 shadow-sm min-w-0">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><BanIcon className="w-3 h-3"/>Cancellation Rate</CardTitle></CardHeader>
+            <Card className="border-2 shadow-sm min-w-0 text-left">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><BanIcon className="w-3 h-3"/>Churn Rate</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.cancellationRate.toFixed(1)}%</div>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">Appointments marked as cancelled</p>
+                    <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">{kpiData.cancellationRate.toFixed(1)}%</div>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight opacity-40">Cancellations & No-Shows</p>
                 </CardContent>
             </Card>
         </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full">
-            <Card className="border-2 border-primary/20 bg-primary/[0.02] min-w-0">
+            <Card className="border-2 border-primary/20 bg-primary/[0.02] min-w-0 text-left">
                 <CardHeader className="pb-4">
                     <CardTitle className="flex items-center gap-2 text-primary font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Revenue Recovery</CardTitle>
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Tracking unpaid balances</CardDescription>
@@ -465,7 +521,7 @@ export default function ReportsPage() {
                 </CardContent>
             </Card>
 
-            <Card className="border-2 shadow-sm min-w-0">
+            <Card className="border-2 shadow-sm min-w-0 text-left">
                 <CardHeader className="pb-4">
                     <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Users className="w-5 h-5" /> Top Accounts Receivable</CardTitle>
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Clients with highest debt</CardDescription>
@@ -475,13 +531,13 @@ export default function ReportsPage() {
                         {clients?.filter(c => (c.outstandingBalance || 0) > 0).sort((a,b) => (b.outstandingBalance || 0) - (a.outstandingBalance || 0)).slice(0, 5).map(client => (
                             <div key={client.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/20 border-2">
                                 <div className="flex items-center gap-3 truncate">
-                                    <Avatar className="h-8 w-8 border-2 border-white shadow-sm shrink-0">
+                                    <Avatar className="h-8 w-8 border-2 border-white shadow-sm shrink-0 rounded-xl">
                                         <AvatarImage src={client.avatarUrl} className="object-cover" />
-                                        <AvatarFallback>{(client.name || 'C').substring(0,2).toUpperCase()}</AvatarFallback>
+                                        <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'C').substring(0,2).toUpperCase()}</AvatarFallback>
                                     </Avatar>
-                                    <span className="font-bold text-sm tracking-tight truncate">{client.name}</span>
+                                    <span className="font-bold text-sm tracking-tight truncate uppercase">{client.name}</span>
                                 </div>
-                                <Badge variant="destructive" className="font-mono font-black border-none h-6 px-2 shrink-0">-${client.outstandingBalance?.toFixed(2)}</Badge>
+                                <Badge variant="destructive" className="font-mono font-black border-none h-6 px-2 shrink-0 shadow-sm">-${client.outstandingBalance?.toFixed(2)}</Badge>
                             </div>
                         ))}
                         {(!clients || clients.filter(c => (c.outstandingBalance || 0) > 0).length === 0) && (
@@ -503,19 +559,19 @@ export default function ReportsPage() {
                     renderItem={(data) => (
                         <div className="space-y-3">
                             <div className="flex items-center gap-3">
-                                <Avatar className="h-10 w-10 border-2">
+                                <Avatar className="h-10 w-10 border-2 rounded-xl">
                                     <AvatarImage src={data.avatarUrl} className="object-cover" />
-                                    <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                    <AvatarFallback className="font-black text-xs">{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
                                 </Avatar>
                                 <div>
-                                    <p className="font-bold text-sm">{data.name || 'Staff'}</p>
-                                    <p className="text-[10px] font-black uppercase text-muted-foreground">{data.payStructure}</p>
+                                    <p className="font-bold text-sm uppercase tracking-tight">{data.name || 'Staff'}</p>
+                                    <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{data.payStructure}</p>
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="p-2 bg-muted/20 rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Service Rev</p><p className="font-bold">${data.stats.serviceRevenue.toFixed(2)}</p></div>
-                                <div className="p-2 bg-muted/20 rounded-lg border"><p className="text-[9px] font-bold text-muted-foreground uppercase">Tips</p><p className="font-bold text-green-600">${data.stats.tips.toFixed(2)}</p></div>
-                                <div className="p-2 bg-primary/5 rounded-lg border border-primary/20 col-span-2 flex justify-between items-center"><p className="text-[9px] font-black text-primary uppercase">Total Payout</p><p className="font-black text-primary text-base">${data.stats.totalPay.toFixed(2)}</p></div>
+                                <div className="p-3 bg-muted/20 rounded-xl border shadow-inner text-left"><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Service Rev</p><p className="font-black text-slate-900">${data.stats.serviceRevenue.toFixed(2)}</p></div>
+                                <div className="p-3 bg-muted/20 rounded-xl border shadow-inner text-left"><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Tips</p><p className="font-black text-green-600">${data.stats.tips.toFixed(2)}</p></div>
+                                <div className="p-3 bg-primary/[0.03] rounded-xl border-2 border-primary/10 col-span-2 flex justify-between items-center"><p className="text-[9px] font-black text-primary uppercase tracking-widest">Total Payout</p><p className="font-black text-primary text-xl tracking-tighter font-mono">${data.stats.totalPay.toFixed(2)}</p></div>
                             </div>
                         </div>
                     )}
@@ -524,29 +580,12 @@ export default function ReportsPage() {
                     title="Service Performance"
                     items={servicePerformanceData}
                     renderItem={(service) => (
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center text-left">
                             <div className="min-w-0">
-                                <p className="font-bold text-sm truncate">{service.name}</p>
-                                <p className="text-[9px] font-black text-muted-foreground uppercase">{service.totalBookings} Bookings &middot; {service.avgTime.toFixed(0)}m Avg</p>
+                                <p className="font-black text-sm uppercase tracking-tight truncate">{service.name}</p>
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{service.totalBookings} Bookings &middot; {service.avgTime.toFixed(0)}m Avg</p>
                             </div>
-                            <p className="font-black text-primary font-mono text-base">${service.totalRevenue.toFixed(2)}</p>
-                        </div>
-                    )}
-                />
-                <MobileDataCard 
-                    title="Stylist Effectiveness"
-                    items={performanceAndPayrollData}
-                    renderItem={(data) => (
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                                <p className="font-bold text-sm">{data.name || 'Staff'}</p>
-                                <Badge variant="outline" className={cn("text-[9px] h-4", data.stats.avgVariance > 0 ? "text-destructive" : "text-green-600")}>{data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m</Badge>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase text-muted-foreground text-center">
-                                <div className="p-1 bg-muted/20 rounded">Util: {data.stats.utilizationRate.toFixed(0)}%</div>
-                                <div className="p-1 bg-muted/20 rounded">Tkt: ${data.stats.avgSalePerAppointment.toFixed(0)}</div>
-                                <div className="p-1 bg-muted/20 rounded">Retail: {data.stats.retailAttachmentRate.toFixed(0)}%</div>
-                            </div>
+                            <p className="font-black text-primary font-mono text-lg tracking-tighter ml-4">${service.totalRevenue.toFixed(2)}</p>
                         </div>
                     )}
                 />
@@ -554,7 +593,7 @@ export default function ReportsPage() {
         ) : (
             <>
                 <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-                    <CardHeader className="pb-4 border-b bg-muted/10">
+                    <CardHeader className="pb-4 border-b bg-muted/10 text-left">
                         <CardTitle className="flex items-center gap-2 font-black uppercase tracking-tighter text-base md:text-lg"><Wallet className="w-5 h-5" /> Payroll & Earnings</CardTitle>
                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Payout summary for {dateRangeString}</CardDescription>
                     </CardHeader>
@@ -576,16 +615,16 @@ export default function ReportsPage() {
                                     {performanceAndPayrollData.map(data => (
                                         <tr key={data.id} className="border-b transition-colors hover:bg-muted/30">
                                             <td className="p-4">
-                                                <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
+                                                <Avatar className="h-9 w-9 border-2 border-white shadow-sm rounded-xl">
                                                     <AvatarImage src={data.avatarUrl} alt={data.name || 'Staff'} className="object-cover" />
-                                                    <AvatarFallback>{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                                    <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(data.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
                                                 </Avatar>
                                             </td>
-                                            <td className="p-4 font-bold tracking-tight">{data.name || 'Staff'}</td>
-                                            <td className="p-4 uppercase text-[10px] font-bold">
+                                            <td className="p-4 font-black uppercase tracking-tight text-slate-900">{data.name || 'Staff'}</td>
+                                            <td className="p-4 uppercase text-[10px] font-bold text-muted-foreground">
                                                 {data.payStructure}
                                                 {data.payStructure === 'commission' && (
-                                                    <div className="text-[9px] text-muted-foreground font-medium opacity-60">
+                                                    <div className="text-[9px] font-medium opacity-60">
                                                         {data.commissionRate}% Svc / {data.retailCommissionRate || 0}% Ret.
                                                     </div>
                                                 )}
@@ -603,7 +642,7 @@ export default function ReportsPage() {
                 </Card>
                 
                 <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-                    <CardHeader className="pb-4">
+                    <CardHeader className="pb-4 text-left border-b bg-muted/5">
                         <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Service Performance</CardTitle>
                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Popularity & Efficiency by Treatment</CardDescription>
                     </CardHeader>
@@ -615,16 +654,16 @@ export default function ReportsPage() {
                                         <th className="text-left p-4 font-black text-[10px] uppercase tracking-widest">Service</th>
                                         <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Bookings</th>
                                         <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Avg. Time</th>
-                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Revenue</th>
+                                        <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest pr-8">Revenue</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {servicePerformanceData.map(service => (
                                         <tr key={service.id} className="border-b transition-colors hover:bg-muted/30">
-                                            <td className="p-4 font-bold tracking-tight">{service.name}</td>
-                                            <td className="p-4 text-right font-mono font-bold text-xs">{service.totalBookings}</td>
-                                            <td className="p-4 text-right font-mono font-bold text-xs">{service.avgTime.toFixed(0)} min</td>
-                                            <td className="p-4 text-right font-mono font-black text-sm text-primary">${service.totalRevenue.toFixed(2)}</td>
+                                            <td className="p-4 font-black uppercase tracking-tight text-slate-900">{service.name}</td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs text-slate-600">{service.totalBookings}</td>
+                                            <td className="p-4 text-right font-mono font-bold text-xs text-slate-600">{service.avgTime.toFixed(0)} min</td>
+                                            <td className="p-4 text-right font-mono font-black text-sm text-primary pr-8">${service.totalRevenue.toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -635,16 +674,16 @@ export default function ReportsPage() {
             </>
         )}
 
-        <div className="mt-4 border-t p-4 space-y-2 bg-muted/5 text-sm rounded-xl border-2">
-              <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
-              <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px]"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
-              <div className="flex justify-between font-black border-t-2 pt-2 text-base"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
+        <div className="mt-4 border-t p-6 space-y-3 bg-muted/5 text-sm rounded-[2.5rem] border-2 shadow-inner text-left">
+              <div className="flex justify-between font-black uppercase text-[10px] text-muted-foreground tracking-widest opacity-60"><span>Total Gross Revenue</span><span className="font-mono text-black">${financials.totalGrossRevenue.toFixed(2)}</span></div>
+              <div className="flex justify-between text-muted-foreground pl-4 font-bold uppercase text-[9px] tracking-tight opacity-40"><span>COGS</span><span className="text-destructive">-${financials.totalCOGS.toFixed(2)}</span></div>
+              <div className="flex justify-between font-black border-t-2 border-primary/10 pt-3 text-xl md:text-2xl text-primary tracking-tighter"><span>Gross Profit</span><span className="font-mono">${financials.grossProfit.toFixed(2)}</span></div>
         </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 w-full pb-20">
           {!isMobile && (
-            <Card className="border-2 shadow-sm overflow-hidden min-w-0">
-                <CardHeader className="pb-4">
+            <Card className="border-2 shadow-sm overflow-hidden min-w-0 text-left">
+                <CardHeader className="pb-4 border-b bg-muted/5">
                 <CardTitle className="font-black uppercase tracking-tighter text-base md:text-lg">Stylist Effectiveness</CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Efficiency metrics per provider</CardDescription>
                 </CardHeader>
@@ -657,17 +696,17 @@ export default function ReportsPage() {
                                 <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Util.</th>
                                 <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Avg. Ticket</th>
                                 <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Retail</th>
-                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest">Variance</th>
+                                <th className="text-right p-4 font-black text-[10px] uppercase tracking-widest pr-8">Variance</th>
                             </tr>
                         </thead>
                         <tbody>
                             {performanceAndPayrollData.map(data => (
                             <tr key={data.id} className="border-b transition-colors hover:bg-muted/30">
-                                <td className="p-4 font-bold tracking-tight truncate max-w-[100px]">{data.name || 'Staff'}</td>
-                                <td className="p-4 text-right font-mono font-bold text-xs">{data.stats.utilizationRate.toFixed(1)}%</td>
-                                <td className="p-4 text-right font-mono font-bold text-xs">${data.stats.avgSalePerAppointment.toFixed(2)}</td>
-                                <td className="p-4 text-right font-mono font-bold text-xs">{data.stats.retailAttachmentRate.toFixed(1)}%</td>
-                                <td className={cn('p-4 text-right font-mono font-black text-[10px] uppercase', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
+                                <td className="p-4 font-black uppercase text-xs tracking-tight text-slate-900 truncate max-w-[150px]">{data.name || 'Staff'}</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs text-slate-600">{data.stats.utilizationRate.toFixed(1)}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs text-slate-600">${data.stats.avgSalePerAppointment.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono font-bold text-xs text-slate-600">{data.stats.retailAttachmentRate.toFixed(1)}%</td>
+                                <td className={cn('p-4 text-right font-mono font-black text-[10px] uppercase pr-8', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-600')}>
                                     {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)}m
                                 </td>
                             </tr>

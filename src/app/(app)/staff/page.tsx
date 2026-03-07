@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -12,33 +11,38 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { 
-  MoreHorizontal, 
   PlusCircle, 
   Users, 
   Calendar as CalendarIcon, 
-  AlertTriangle, 
   Clock, 
   Coffee, 
   ShieldAlert, 
-  Phone, 
   Mail, 
+  Phone, 
   Trash2, 
   KeyRound, 
-  Loader, 
   RefreshCw,
   EyeOff,
   BarChart,
-  Pencil
+  Pencil,
+  ArrowRight,
+  Check
 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
@@ -47,7 +51,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
-import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
@@ -73,6 +77,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -81,10 +86,8 @@ import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { firebaseConfig } from '@/firebase/config';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { motion, AnimatePresence } from 'framer-motion';
 
-/**
- * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -157,7 +160,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                  <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                         <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize font-black text-[9px] tracking-widest px-3 h-6 border-2", {
-                            'bg-green-500 text-white border-none': member.active && !member.onBreak,
+                            'bg-green-50 text-white border-none': member.active && !member.onBreak,
                             'bg-amber-500 text-white border-none': member.active && member.onBreak,
                         })}>
                             {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
@@ -335,7 +338,7 @@ const PricingTierCard = ({
                         )}
                     </div>
                 </CardHeader>
-                <CardContent className="p-6 space-y-3">
+                <CardContent className="p-6 space-y-3 text-left">
                     {localTiers.sort((a,b) => a.rank - b.rank).map((tier, index) => (
                         <div key={tier.id} className="flex items-center gap-3">
                              <p className="text-[10px] font-black text-muted-foreground w-4">{index + 1}.</p>
@@ -363,7 +366,7 @@ const PricingTierCard = ({
                 </CardContent>
             </Card>
             <AlertDialog open={!!tierToDelete} onOpenChange={() => setTierToDelete(null)}>
-                <AlertDialogContent className="rounded-[3rem] border-4">
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0">
                         <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Deletion</AlertDialogTitle>
                         <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
@@ -388,6 +391,7 @@ export default function StaffPage() {
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+  const [periodPreset, setPeriodPreset] = useState('30days');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
@@ -420,8 +424,29 @@ export default function StaffPage() {
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
 
   useEffect(() => {
-    setDateRange({ from: subDays(new Date(), 29), to: new Date() });
-  }, []);
+    const now = new Date();
+    switch (periodPreset) {
+        case 'today':
+            setDateRange({ from: startOfDay(now), to: endOfDay(now) });
+            break;
+        case '7days':
+            setDateRange({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+            break;
+        case '30days':
+            setDateRange({ from: startOfDay(subDays(now, 29)), to: endOfDay(now) });
+            break;
+        case 'thisMonth':
+            setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
+            break;
+        case 'lastMonth':
+            const lastMonth = subMonths(now, 1);
+            setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
+            break;
+        case 'custom':
+            // Don't change if already custom
+            break;
+    }
+  }, [periodPreset]);
 
   const staffWithStats = useMemo(() => {
     if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs || !services || !inventory) return [];
@@ -731,55 +756,78 @@ export default function StaffPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Staff Management" />
-      <main className="flex-1 p-4 md:p-8">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Team Intelligence" />
+      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         {isLoading || staffLoading || pricingTiersLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[400px]">
-                <Loader className="h-8 w-8 animate-spin" />
+                <Loader className="h-8 w-8 animate-spin text-primary" />
             </div>
         ) : (
             <>
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-                <div className="space-y-1">
-                    <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Your Team</h1>
-                    <p className="text-sm text-muted-foreground font-black uppercase tracking-widest opacity-60">Add, edit, and manage your staff members.</p>
-                </div>
-                <Button onClick={() => setIsAddStaffOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Staff Member
-                </Button>
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+                    <div className="space-y-1">
+                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
+                        <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
+                    </div>
+                    <Button onClick={() => setIsAddStaffOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+                        <PlusCircle className="mr-2 h-4 w-4" /> New Provider
+                    </Button>
                 </div>
                 
-                <div className="mb-8 p-4 bg-muted/30 rounded-[2rem] border-2 border-dashed border-border/50">
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="w-full space-y-1.5">
-                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze From</Label>
-                            <input 
-                                type="date" 
-                                value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
-                                onChange={(e) => {
-                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                                    setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
-                                }}
-                                className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
-                            />
+                <div className="mb-10 p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                        <div className="flex-1 w-full space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
+                            <Select value={periodPreset} onValueChange={setPeriodPreset}>
+                                <SelectTrigger className="h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
+                                    <SelectValue placeholder="Select Period" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                    <SelectItem value="today" className="font-bold">TODAY</SelectItem>
+                                    <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
+                                    <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
+                                    <SelectItem value="thisMonth" className="font-bold">THIS MONTH</SelectItem>
+                                    <SelectItem value="lastMonth" className="font-bold">LAST MONTH</SelectItem>
+                                    <SelectItem value="custom" className="font-bold">CUSTOM RANGE...</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
-                        <div className="w-full space-y-1.5">
-                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze To</Label>
-                            <input 
-                                type="date" 
-                                value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
-                                onChange={(e) => {
-                                    const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                                    setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
-                                }}
-                                className="w-full h-12 rounded-2xl border-2 bg-background px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
-                            />
-                        </div>
+                        
+                        <AnimatePresence>
+                            {periodPreset === 'custom' && (
+                                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
+                                        <input 
+                                            type="date" 
+                                            value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => {
+                                                const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                                setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
+                                            }}
+                                            className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
+                                        <input 
+                                            type="date" 
+                                            value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => {
+                                                const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                                setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
+                                            }}
+                                            className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                        />
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
                 </div>
                 
-                <div className="grid lg:grid-cols-3 gap-8 items-start">
+                <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
                     <div className="lg:col-span-1 space-y-6">
                         <PricingTierCard 
                             pricingTiers={pricingTiers || []}
@@ -788,19 +836,19 @@ export default function StaffPage() {
                         />
                     </div>
 
-                    <div className="lg:col-span-2">
+                    <div className="lg:col-span-2 xl:col-span-3">
                         {(staff || []).length > 0 ? (
-                            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+                            <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {staffWithStats.map((member) => (
                                 <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
                             <Card className="border-4 border-dashed rounded-[3rem] opacity-40">
-                                <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
+                                <CardContent className="py-24 flex flex-col items-center justify-center text-center text-muted-foreground">
                                     <Users className="w-16 h-16 mb-4"/>
-                                <h3 className="text-xl font-black uppercase tracking-widest">No staff members yet</h3>
-                                <p className="mb-4 font-bold text-xs uppercase opacity-60">Click the button to add your first team member.</p>
+                                <h3 className="text-2xl font-black uppercase tracking-widest text-slate-900">Team Empty</h3>
+                                <p className="mt-2 font-bold text-sm uppercase opacity-60 tracking-tight">Onboard your first provider to activate studio management.</p>
                                 </CardContent>
                             </Card>
                         )}
@@ -843,7 +891,7 @@ export default function StaffPage() {
        )}
       
       <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4">
+        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
             <DialogHeader className="p-6 pb-0">
                 <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
                     <KeyRound className="w-6 h-6 text-primary" />
@@ -859,7 +907,7 @@ export default function StaffPage() {
                     <Input 
                         type="password" 
                         maxLength={4} 
-                        className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20" 
+                        className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20 shadow-inner" 
                         value={authPin} 
                         onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
                         autoFocus

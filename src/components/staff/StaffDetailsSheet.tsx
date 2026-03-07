@@ -14,72 +14,62 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog, type ConsentForm } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
+import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { 
   TrendingUp, 
   DollarSign, 
-  PackageX, 
   Clock, 
-  Info, 
-  Briefcase, 
-  User, 
-  MessageSquare, 
-  Coffee, 
-  Hourglass, 
-  BarChart, 
-  Percent, 
-  Users, 
-  List, 
   FileText, 
-  Shield, 
+  Coffee, 
+  BarChart, 
+  Users, 
   Search, 
-  Calendar as CalendarIcon, 
   Printer, 
-  ShieldAlert,
-  Mail,
-  Phone,
-  Sparkles,
+  Mail, 
+  Phone, 
+  Sparkles, 
   Loader,
-  Square,
-  Zap,
-  Workflow,
-  PackageOpen
+  CalendarDays,
+  Target
 } from 'lucide-react';
-import { Button, buttonVariants } from '../ui/button';
+import { Button } from '../ui/button';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { DateRange } from 'react-day-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
 import { Input } from '../ui/input';
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
-import { Calendar } from '../ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Alert, AlertDescription } from '../ui/alert';
 import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
 
-interface StaffDetailsSheetProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  staffMember: (Staff & { stats: any }) | null;
-  dateRange: DateRange | undefined;
-  transactions: Transaction[];
-  services: Service[];
-  appointments: Appointment[];
-  activityLogs: ActivityLog[];
-  consentForms: ConsentForm[];
-}
+const safeDateWrapper = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
+    return new Date(val);
+};
 
 const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
     <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden">
-        <CardContent className="p-3">
+        <CardContent className="p-3 text-left">
              <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
                     <p className="font-bold text-xs uppercase tracking-tight flex items-center gap-2">
@@ -103,7 +93,7 @@ const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
 );
 
 const TransactionCard = ({ transaction, service, timeVariance }: { transaction: Transaction, service?: Service, timeVariance: number | null }) => (
-    <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden">
+    <Card className="bg-background border-2 shadow-sm rounded-xl overflow-hidden text-left">
         <CardContent className="p-3">
             <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1 min-w-0">
@@ -129,23 +119,6 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
     </Card>
 );
 
-const safeDateWrapper = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
-    return new Date(val);
-};
-
 export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   open,
   onOpenChange,
@@ -160,17 +133,38 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const isMobile = useIsMobile();
   const [activitySearch, setActivitySearch] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
-  
+  const [periodPreset, setPeriodPreset] = useState('30days');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
   
+  useEffect(() => {
+    const now = new Date();
+    switch (periodPreset) {
+        case 'today':
+            setDateRange({ from: startOfDay(now), to: endOfDay(now) });
+            break;
+        case '7days':
+            setDateRange({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+            break;
+        case '30days':
+            setDateRange({ from: startOfDay(subDays(now, 29)), to: endOfDay(now) });
+            break;
+        case 'thisMonth':
+            setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
+            break;
+        case 'lastMonth':
+            const lastMonth = subMonths(now, 1);
+            setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
+            break;
+        case 'custom':
+            // Keep existing or use initial
+            break;
+    }
+  }, [periodPreset]);
+
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services) return [];
     return services.filter(s => staffMember.services?.includes(s.id));
   }, [staffMember, services]);
-
-  useEffect(() => {
-    setDateRange(initialDateRange);
-  }, [initialDateRange]);
 
   const filteredActivityLogs = useMemo(() => {
     if (!activityLogs || !staffMember) return [];
@@ -204,12 +198,9 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
     
-  if (!staffMember) {
-    return null;
-  }
+  if (!staffMember) return null;
   
   const stats = staffMember.stats || {};
-
   const performanceKpis = [
       { label: "Utilization", value: `${(stats.utilizationRate || 0).toFixed(1)}%` },
       { label: "Avg. Ticket", value: `$${(stats.avgSalePerAppointment || 0).toFixed(2)}` },
@@ -219,36 +210,63 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   const content = (
     <div className="space-y-8 md:space-y-10">
-          <div className={cn("flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
-              <div className="flex flex-col sm:flex-row gap-3 flex-1">
-                  <div className="flex-1 space-y-1">
-                      <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period From</Label>
-                      <input 
-                          type="date" 
-                          value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
-                          onChange={(e) => {
-                              const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                              setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
-                          }}
-                          className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-sm"
-                      />
+          <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
+              <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                      <div className="flex-1 w-full">
+                          <Label className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
+                          <Select value={periodPreset} onValueChange={setPeriodPreset}>
+                              <SelectTrigger className="h-12 rounded-2xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
+                                  <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                  <SelectItem value="today" className="font-bold">TODAY</SelectItem>
+                                  <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
+                                  <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
+                                  <SelectItem value="thisMonth" className="font-bold">THIS MONTH</SelectItem>
+                                  <SelectItem value="lastMonth" className="font-bold">LAST MONTH</SelectItem>
+                                  <SelectItem value="custom" className="font-bold">CUSTOM RANGE...</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => window.print()} className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest mt-auto bg-white shadow-sm shrink-0">
+                          <Printer className="mr-2 h-4 w-4 opacity-40" /> Print
+                      </Button>
                   </div>
-                  <div className="flex-1 space-y-1">
-                      <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-2">Period To</Label>
-                      <input 
-                          type="date" 
-                          value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
-                          onChange={(e) => {
-                              const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                              setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
-                          }}
-                          className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-sm"
-                      />
-                  </div>
+
+                  <AnimatePresence>
+                      {periodPreset === 'custom' && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                              <div className="grid grid-cols-2 gap-3 pt-2">
+                                  <div className="space-y-1">
+                                      <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground ml-1">From</Label>
+                                      <input 
+                                          type="date" 
+                                          value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
+                                          onChange={(e) => {
+                                              const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                              setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
+                                          }}
+                                          className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
+                                      />
+                                  </div>
+                                  <div className="space-y-1">
+                                      <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground ml-1">To</Label>
+                                      <input 
+                                          type="date" 
+                                          value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
+                                          onChange={(e) => {
+                                              const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
+                                              setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
+                                          }}
+                                          className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
+                                      />
+                                  </div>
+                              </div>
+                          </motion.div>
+                      )}
+                  </AnimatePresence>
               </div>
-              <Button variant="outline" size="sm" onClick={() => window.print()} className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 mt-auto sm:self-end bg-white shadow-sm">
-                  <Printer className="mr-2 h-3.5 w-3.5" /> Print Intel
-              </Button>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -272,7 +290,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
               <TabsContent value="activity" className="mt-0 space-y-4">
                   <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                      <Input placeholder="SEARCH ACTIONS..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
+                      <Input placeholder="SEARCH ACTIONS..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 shadow-inner bg-muted/5" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30"><Clock className="w-12 h-12 mx-auto mb-2"/><p className="text-xs font-black uppercase tracking-widest">No activity</p></div>)}
@@ -282,7 +300,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
               <TabsContent value="transactions" className="mt-0 space-y-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                    <Input placeholder="SEARCH LEDGER..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
+                    <Input placeholder="SEARCH LEDGER..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 shadow-inner bg-muted/5" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                       {filteredTransactions.length > 0 ? (
@@ -318,12 +336,12 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                   </Card>
                </TabsContent>
 
-               <TabsContent value="profile" className="mt-0 space-y-6">
+               <TabsContent value="profile" className="mt-0 space-y-6 text-left">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Contact & Compliance</CardTitle></CardHeader>
-                    <CardContent className="p-6 space-y-6 text-sm font-bold text-left">
+                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Contact & Compliance</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-6 text-sm font-bold">
                         <div className="space-y-3">
-                            <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900">{staffMember.email}</span></div>
+                            <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900 truncate">{staffMember.email}</span></div>
                             <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900">{staffMember.phone ? formatPhoneNumber(staffMember.phone) : 'No Phone'}</span></div>
                         </div>
                         {staffMember.emergencyContact?.name && (
@@ -347,10 +365,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                   </Card>
                   
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Treatment Catalog</CardTitle></CardHeader>
+                    <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Treatment Catalog</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-2">
                         {staffServices.length > 0 ? staffServices.map(s => (
-                            <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-left">
+                            <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
                                 <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate mr-2">{s.name}</span>
                                 <span className="font-mono font-black text-primary text-[10px] shrink-0">${s.price.toFixed(2)}</span>
                             </div>
@@ -364,8 +382,8 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background", isMobile ? "h-[92dvh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
-        <div className="flex flex-col h-full">
+      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
+        <div className="flex flex-col h-full overflow-hidden">
             <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-5" : "p-8 pb-6")}>
                 <div className="flex items-center gap-4">
                     <Avatar className={cn("border-4 border-background shadow-xl rounded-2xl", isMobile ? "h-12 w-12" : "h-16 w-16")}>
