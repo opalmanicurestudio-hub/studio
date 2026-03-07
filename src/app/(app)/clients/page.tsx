@@ -12,15 +12,32 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package, Loader, Wallet } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { 
+  MoreHorizontal, 
+  PlusCircle, 
+  Search, 
+  FileDown, 
+  UserPlus, 
+  Merge, 
+  Users, 
+  ShieldPlus, 
+  AlertTriangle, 
+  Ear, 
+  ShieldAlert, 
+  BadgeInfo, 
+  Ban, 
+  FileText, 
+  Package, 
+  Loader, 
+  Wallet,
+  TrendingUp,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  SlidersHorizontal
+} from 'lucide-react';
 import { type Client, type Appointment } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -29,44 +46,40 @@ import { Input } from '@/components/ui/input';
 import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
-import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
-import { type Transaction } from '@/lib/financial-data';
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
 
-
 const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
-    <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
-        <div className='flex justify-center mb-6'>
-            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
-                <Users className='w-10 h-10 text-muted-foreground' />
-            </div>
+    <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
+        <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
+            <Users className='w-12 h-12 text-muted-foreground' />
         </div>
-        <h3 className="text-2xl font-semibold">Start Building Your Client List</h3>
-        <p className="text-muted-foreground max-w-sm mx-auto mt-2 mb-6">
-            Your client log is where you'll manage your entire rolodex. Add your first client to get started.
-        </p>
-        <Button onClick={onAddClient}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add New Client
+        <div className="space-y-2">
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Rolodex is Empty</h3>
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+                Start building your client base to unlock automated loyalty tracking and custom formulas.
+            </p>
+        </div>
+        <Button size="lg" onClick={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+            <UserPlus className="mr-2 h-5 w-5" />
+            Add First Client
         </Button>
     </div>
 );
 
-
 export default function ClientsPage() {
-  const { firestore, user } = useFirebase();
+  const { firestore } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
   const router = useRouter();
   const tenantId = selectedTenant?.id;
@@ -88,17 +101,17 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-    useEffect(() => {
-        if (!isTenantLoading && role === 'staff') {
-            router.replace('/dashboard');
-        }
-    }, [role, isTenantLoading, router]);
+  useEffect(() => {
+      if (!isTenantLoading && role === 'staff') {
+          router.replace('/dashboard');
+      }
+  }, [role, isTenantLoading, router]);
 
   const handleAddClient = (data: ClientFormData) => {
     if (!firestore || !tenantId) return;
 
     const { referringClientId, ...clientData } = data;
-    const firstName = data.name.split(' ')[0].toUpperCase();
+    const firstName = (data.name || 'GUEST').split(' ')[0].toUpperCase();
     const referralCode = `${firstName}${nanoid(4)}`;
 
     const newClient: Omit<Client, 'id'> = {
@@ -245,10 +258,6 @@ export default function ClientsPage() {
   const hasClients = clients && clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
 
-  const handleMergeConfirm = (primaryClientId: string, clientIdsToDelete: string[]) => {
-    // Firestore logic handled in MergeClientsDialog confirmation
-  };
-
   const handleExport = () => {
     const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen', 'Outstanding Balance'];
     const clientData = filteredClients.map(client => [
@@ -266,11 +275,8 @@ export default function ClientsPage() {
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    if (link.href) {
-      URL.revokeObjectURL(link.href);
-    }
     const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', `clients_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
@@ -300,10 +306,6 @@ export default function ClientsPage() {
             return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
-        const allCompletedAppointments = filteredClients.flatMap(c => 
-            (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed')
-        );
-
         const totalRevenue = filteredClients.reduce((acc, c) => acc + (c.lifetimeValue || 0), 0);
         const totalPendingDebt = filteredClients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
 
@@ -311,10 +313,12 @@ export default function ClientsPage() {
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const tipRevenue = relevantTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
+        const completedApts = (appointments || []).filter(a => a.status === 'completed' && filteredClientIds.has(a.clientId));
+
         return {
             totalActiveClients: totalClients,
             retentionRate: totalClients > 0 ? (clientsWithMultipleAppointments / totalClients) * 100 : 0,
-            avgSpend: allCompletedAppointments.length > 0 ? totalRevenue / allCompletedAppointments.length : 0,
+            avgSpend: completedApts.length > 0 ? totalRevenue / completedApts.length : 0,
             serviceRevenue,
             retailRevenue,
             tipRevenue,
@@ -323,144 +327,180 @@ export default function ClientsPage() {
     }, [filteredClients, appointments, transactions]);
 
     return (
-        <Card className="lg:sticky top-24">
-            <CardHeader>
-                <CardTitle>Client Stats</CardTitle>
-                <CardDescription>Metrics for the current client view.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                 <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Total Displayed Clients</div>
-                    <div className="text-2xl font-bold">{stats.totalActiveClients}</div>
+        <div className="space-y-6 lg:sticky top-24">
+            <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
+                <div className="absolute top-0 right-0 p-6 opacity-5 transition-opacity group-hover:opacity-10">
+                    <Sparkles className="w-24 h-24 text-primary" />
                 </div>
-                 <div className="p-3 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-                    <div className="text-sm font-bold flex items-center gap-2 uppercase tracking-tighter"><Wallet className="w-4 h-4"/> Outstanding Balances</div>
-                    <div className="text-2xl font-black">${stats.totalPendingDebt.toFixed(2)}</div>
-                </div>
-                 <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
-                    <div className="text-2xl font-bold">{stats.retentionRate.toFixed(0)}%</div>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Avg. Spend / Appointment</div>
-                    <div className="text-2xl font-bold">${stats.avgSpend.toFixed(2)}</div>
-                </div>
-                <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</h4>
-                    <div className="space-y-1 text-xs">
-                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">${stats.serviceRevenue.toFixed(2)}</span></div>
-                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">${stats.retailRevenue.toFixed(2)}</span></div>
-                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">${stats.tipRevenue.toFixed(2)}</span></div>
+                <CardHeader className="p-8 pb-4">
+                    <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
+                        <BadgeInfo className="w-3 h-3" />
+                        Intelligence Hub
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="p-8 pt-0">
+                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Active Portfolio</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">{stats.totalActiveClients}</p>
+                    <div className="mt-6 space-y-4">
+                        <div className="p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Retention</span>
+                                <span className="text-sm font-black text-primary">{stats.retentionRate.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-primary" style={{ width: `${stats.retentionRate}%` }} />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </CardContent>
-        </Card>
+                </CardContent>
+            </Card>
+
+            <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden">
+                <CardHeader className="bg-muted/5 border-b p-6">
+                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                        <TrendingUp className="w-3 h-3" /> Financial Performance
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                    <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 text-destructive space-y-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Arrears Recovery</p>
+                        <p className="text-2xl font-black font-mono tracking-tighter">${stats.totalPendingDebt.toFixed(2)}</p>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                            <span>Services</span>
+                            <span className="font-mono">${stats.serviceRevenue.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                            <span>Retail</span>
+                            <span className="font-mono">${stats.retailRevenue.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                            <span>Tips</span>
+                            <span className="font-mono">${stats.tipRevenue.toFixed(2)}</span>
+                        </div>
+                        <Separator className="bg-muted/50" />
+                        <div className="flex justify-between items-center font-black">
+                            <span className="text-[10px] uppercase tracking-widest text-slate-900">Avg. Ticket</span>
+                            <span className="text-lg tracking-tighter font-mono text-primary">${stats.avgSpend.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
     );
   };
   
-    if (isTenantLoading || role === 'staff') {
-        return (
-            <div className="flex min-h-screen w-full flex-col">
-                <AppHeader title="Client Log" />
-                <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-                    <Loader className="w-8 h-8 animate-spin" />
-                </main>
-            </div>
-        );
-    }
-
+  if (isTenantLoading || role === 'staff') {
+      return (
+          <div className="flex min-h-screen w-full flex-col">
+              <AppHeader title="Client Log" />
+              <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+                  <Loader className="w-8 h-8 animate-spin text-primary" />
+              </main>
+          </div>
+      );
+  }
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Client Log" />
       <ClientOnly>
-        <main className="flex-1 p-4 md:p-8">
-          <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
-              <div className="space-y-6">
-                  <Card>
-                      <CardHeader className="space-y-6">
-                          {/* Row 1: Search & Filter */}
+        <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
+          <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
+              <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2">
+                      <div className="space-y-1">
+                          <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Rolodex</h1>
+                          <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
+                      </div>
+                      <div className="flex items-center gap-3 w-full md:w-auto">
+                          <Button variant="outline" onClick={handleExport} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>
+                          <Button onClick={() => setIsAddClientOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><UserPlus className="mr-2 h-4 w-4" /> New Guest</Button>
+                      </div>
+                  </div>
+
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                      <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8">
                           <div className="flex flex-col md:flex-row items-center gap-4">
-                              <div className="relative w-full sm:max-w-xs">
-                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <div className="relative flex-1 w-full">
+                                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                   <Input 
-                                      placeholder="Search by name, email, or last 4 of phone..." 
-                                      className="pl-9"
+                                      placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
+                                      className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
                                       value={searchTerm}
                                       onChange={(e) => setSearchTerm(e.target.value)}
                                   />
                               </div>
-                              <div className="flex-1 w-full sm:w-auto">
-                                  <select
-                                      value={lastSeenFilter}
-                                      onChange={(e) => setLastSeenFilter(e.target.value)}
-                                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                  >
-                                      <option value="all">Filter by last seen...</option>
-                                      <option value="30">Over 30 days ago</option>
-                                      <option value="90">Over 90 days ago</option>
-                                      <option value="180">Over 180 days ago</option>
-                                  </select>
+                              <div className="w-full md:w-auto">
+                                  <Select value={lastSeenFilter} onValueChange={setLastSeenFilter}>
+                                      <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-64 bg-white shadow-inner">
+                                          <SelectValue placeholder="ACTIVITY WINDOW" />
+                                      </SelectTrigger>
+                                      <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                          <SelectItem value="all" className="font-bold">ALL TIME ACTIVITY</SelectItem>
+                                          <SelectItem value="30" className="font-bold">OVER 30 DAYS AGO</SelectItem>
+                                          <SelectItem value="90" className="font-bold">OVER 90 DAYS AGO</SelectItem>
+                                          <SelectItem value="180" className="font-bold">OVER 180 DAYS AGO</SelectItem>
+                                      </SelectContent>
+                                  </Select>
                               </div>
                           </div>
 
-                          {/* Row 2: Actions */}
-                          <div className="flex flex-wrap items-center gap-2">
-                              <Button variant="outline" size="sm" className='flex-1 sm:flex-none' onClick={() => setIsMergeClientsOpen(true)}>
-                                  <Merge className="mr-2 h-4 w-4"/>Merge Duplicates
-                              </Button>
-                              <Button variant="outline" size="sm" className='flex-1 sm:flex-none' onClick={handleExport}>
-                                  <FileDown className="mr-2 h-4 w-4"/>Export List
-                              </Button>
-                              <Button size="sm" className='w-full sm:w-auto ml-auto' onClick={() => setIsAddClientOpen(true)}>
-                                  <UserPlus className="mr-2 h-4 w-4" /> New Client
-                              </Button>
-                          </div>
-
-                          <Separator />
-
-                          {/* Row 3: Reorganized Toggles */}
-                          <div className="p-4 bg-muted/30 rounded-xl border-2 border-dashed border-border/50 flex flex-wrap items-center gap-x-8 gap-y-4">
-                              <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest w-full mb-1">View Settings</h4>
-                              <div className="flex items-center space-x-3">
-                                  <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
-                                  <Label htmlFor="show-archived" className="text-xs font-bold uppercase tracking-tight cursor-pointer">Archived</Label>
+                          <div className="p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-10 gap-y-6">
+                              <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
+                                  <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Filter Matrix</h4>
                               </div>
-                              <div className="flex items-center space-x-3">
-                                  <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
-                                  <Label htmlFor="show-banned" className="text-xs font-bold uppercase tracking-tight text-destructive cursor-pointer">Banned</Label>
+                              <div className="flex items-center gap-8">
+                                  <div className="flex items-center space-x-3">
+                                      <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
+                                      <Label htmlFor="show-archived" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-3">
+                                      <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
+                                      <Label htmlFor="show-banned" className="text-[10px] font-black uppercase tracking-widest text-destructive cursor-pointer">Banned</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-3">
+                                      <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
+                                      <Label htmlFor="owes-balance" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+                                          <Wallet className="w-3.5 h-3.5 text-destructive" /> 
+                                          Arrears Only
+                                      </Label>
+                                  </div>
                               </div>
-                              <div className="flex items-center space-x-3">
-                                  <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
-                                  <Label htmlFor="owes-balance" className="flex items-center gap-2 text-xs font-bold uppercase tracking-tight cursor-pointer">
-                                      <Wallet className="w-3.5 h-3.5 text-destructive" /> 
-                                      Debt Only
-                                  </Label>
-                              </div>
+                              <Button variant="ghost" size="sm" className='ml-auto font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
+                                  <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
+                              </Button>
                           </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="p-6 md:p-8">
                           {selectedItems.size > 0 && (
-                              <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
-                                  <p className="text-sm font-medium">{selectedItems.size} client(s) selected</p>
+                              <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
+                                  <div className="flex items-center gap-4">
+                                      <div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div>
+                                      <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
+                                  </div>
                                   <div className="flex gap-2">
                                       {showArchived || showBanned ? (
-                                          <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Restore Access</Button>
+                                          <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore Access</Button>
                                       ) : (
-                                          <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                                          <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
                                       )}
-                                      <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                                      <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={handleBulkDeleteClick}>Purge</Button>
                                   </div>
                               </div>
                           )}
                           {!hasClients ? (
                               <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
                           ) : !hasFilteredClients ? (
-                              <div className="text-center py-20 px-6">
-                                  <p className="text-muted-foreground">No clients found matching your filters.</p>
+                              <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                                  <Filter className="w-16 h-16" />
+                                  <p className="font-black uppercase tracking-widest text-sm">No Matches Found</p>
                               </div>
                           ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                   {paginatedClients.map((client) => (
                                       <ClientCard 
                                           key={client.id} 
@@ -473,27 +513,29 @@ export default function ClientsPage() {
                           )}
                       </CardContent>
                       {totalPages > 1 && (
-                          <CardFooter>
+                          <CardFooter className="p-8 pt-0 border-t bg-muted/5">
                               <div className="flex items-center justify-between w-full">
-                                  <span className="text-sm text-muted-foreground">
-                                      Page {currentPage} of {totalPages}
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                      Segment {currentPage} of {totalPages}
                                   </span>
                                   <div className="flex items-center gap-2">
                                       <Button
-                                          variant="outline"
+                                          variant="ghost"
                                           size="sm"
                                           onClick={handlePrevPage}
                                           disabled={currentPage === 1}
+                                          className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"
                                       >
-                                          Previous
+                                          <ChevronLeft className="mr-2 h-4 w-4" /> Previous
                                       </Button>
                                       <Button
-                                          variant="outline"
+                                          variant="ghost"
                                           size="sm"
                                           onClick={handleNextPage}
                                           disabled={currentPage === totalPages}
+                                          className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"
                                       >
-                                          Next
+                                          Next <ChevronRight className="ml-2 h-4 w-4" />
                                       </Button>
                                   </div>
                               </div>
@@ -501,7 +543,7 @@ export default function ClientsPage() {
                       )}
                   </Card>
               </div>
-              <div className="hidden lg:block">
+              <div className="hidden lg:block lg:col-span-1">
                   <ClientStatsSidebar />
               </div>
           </div>
@@ -514,22 +556,20 @@ export default function ClientsPage() {
           onOpenChange={setIsMergeClientsOpen} 
           allClients={clients || []} 
           allAppointments={appointments || []}
-          onMerge={handleMergeConfirm}
+          onMerge={() => {}} 
         />
         
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
-              <AlertDialogContent>
-                  <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                          This will permanently delete {selectedItems.size} client(s) and all their associated data. This action cannot be undone.
+              <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                  <AlertDialogHeader className="p-6 pb-0">
+                      <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Confirm Purge</AlertDialogTitle>
+                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                          You are about to permanently delete {selectedItems.size} guest records. This will wipe all associated dossiers, formulas, and history. <strong>This action is non-reversible.</strong>
                       </AlertDialogDescription>
                   </AlertDialogHeader>
-                  <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
-                          Delete
-                      </AlertDialogAction>
+                  <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                      <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>
+                      <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
                   </AlertDialogFooter>
               </AlertDialogContent>
           </AlertDialog>

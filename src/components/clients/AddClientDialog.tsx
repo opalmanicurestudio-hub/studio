@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, KeyboardEvent, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -18,7 +19,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,15 +36,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift, UserPlus, Check, X as XIcon } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, UserPlus, Gift, Home, Trash2, X as XIcon, Sparkles, Check, User, Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client } from '@/lib/data';
+import { type Client } from '@/lib/data';
 import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -95,8 +94,7 @@ const clientSchema = z.object({
 
 export type ClientFormData = z.infer<typeof clientSchema>;
 
-
-const ClientIntelCategory = ({
+const IntelCategory = ({
   title,
   icon,
   color,
@@ -149,97 +147,72 @@ const ClientIntelCategory = ({
   }
 
   return (
-    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border rounded-lg overflow-hidden">
-      <AccordionTrigger className={cn("p-3 md:p-4 hover:no-underline", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
-        <div className="flex items-center gap-2 md:gap-3">
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border-2 rounded-2xl overflow-hidden mb-3">
+      <AccordionTrigger className={cn("p-4 hover:no-underline font-black uppercase text-[10px] tracking-widest", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
+        <div className="flex items-center gap-3">
           {icon}
-          <span className="font-semibold text-sm md:text-base">{title}</span>
+          <span>{title}</span>
         </div>
       </AccordionTrigger>
-      <AccordionContent className="p-3 md:p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-3 md:gap-4">
+      <AccordionContent className="p-5 space-y-6">
+        <div className="grid grid-cols-2 gap-4">
           {predefinedItems.map(item => (
-            <div key={item} className="flex items-center space-x-2">
+            <div key={item} className="flex items-center space-x-3">
               <Checkbox
                 id={`check-${title}-${item}`}
                 onCheckedChange={() => handleFlagToggle(item)}
+                className="h-5 w-5 rounded-lg border-2"
               />
-              <Label htmlFor={`check-${title}-${item}`} className="text-xs md:text-sm">{item}</Label>
+              <Label htmlFor={`check-${title}-${item}`} className="text-xs font-bold uppercase tracking-tight text-slate-600">{item}</Label>
             </div>
           ))}
         </div>
-        <div className="space-y-2">
-             <Label className="text-[10px] uppercase font-bold text-muted-foreground">Custom Fields</Label>
+        <div className="space-y-3">
+             <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Custom Markers</Label>
              <div className="flex gap-2">
                 <Input 
-                    placeholder="Add..." 
+                    placeholder="Type and enter..." 
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="h-9"
+                    className="h-10 rounded-xl border-2"
                 />
-                <Button type="button" variant="outline" size="sm" onClick={handleAddItem} className="h-9 px-3">Add</Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem} className="h-10 px-4 rounded-xl font-bold uppercase text-[10px] tracking-widest border-2">Add</Button>
             </div>
-             <div className="flex flex-wrap gap-1.5 pt-1">
+             <div className="flex flex-wrap gap-2 pt-1">
                 {customItems.map(item => (
-                    <Badge key={item} variant="secondary" className="text-[10px] h-6">
+                    <Badge key={item} variant="secondary" className="text-[10px] font-black uppercase h-7 px-3 rounded-lg border-2">
                         {item}
-                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
+                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-2 -mr-1 rounded-full p-0.5 hover:bg-destructive/20 text-destructive">
                             <XIcon className="h-3 w-3" />
                         </button>
                     </Badge>
                 ))}
             </div>
         </div>
-        <Controller
-            name={notesFieldName}
-            control={control}
-            render={({ field }) => (
-                <Textarea 
-                    placeholder={`Detailed notes...`} 
-                    className="text-xs md:text-sm min-h-[80px]"
-                    {...field}
-                />
-            )}
-        />
+        <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Detailed Intel</Label>
+            <Controller
+                name={notesFieldName}
+                control={control}
+                render={({ field }) => (
+                    <Textarea 
+                        placeholder={`Provide context for ${title.toLowerCase()}...`} 
+                        className="text-sm rounded-xl border-2 bg-muted/5 min-h-[100px]"
+                        {...field}
+                    />
+                )}
+            />
+        </div>
       </AccordionContent>
     </AccordionItem>
   )
 };
 
-const ClientIntelAccordion = () => (
-  <Accordion type="multiple" className="w-full space-y-3">
-    <ClientIntelCategory
-        title="Medical & Health"
-        icon={<ShieldAlert className="w-4 h-4 md:w-5 md:h-5 text-red-500" />}
-        color="red"
-        predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']}
-        categoryKey="medical"
-    />
-    <ClientIntelCategory
-        title="Allergies & Sensitivities"
-        icon={<AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />}
-        color="amber"
-        predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']}
-        categoryKey="allergies"
-    />
-    <ClientIntelCategory
-        title="Sensory Needs"
-        icon={<Ear className="w-4 h-4 md:w-5 md:h-5 text-blue-500" />}
-        color="blue"
-        predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']}
-        categoryKey="sensory"
-    />
-  </Accordion>
-);
-
-
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
     const isMobile = useIsMobile();
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const referralSource = watch('intel.referralSource');
-    const [tags, setTags] = useState<string[]>([]);
-    const [tagInput, setTagInput] = useState('');
     
     const [birthDay, setBirthDay] = useState('');
     const [birthMonth, setBirthMonth] = useState('');
@@ -253,103 +226,86 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             } else {
                 setValue('birthday', undefined, { shouldValidate: true, shouldDirty: true });
             }
-        } else {
-            setValue('birthday', undefined, { shouldValidate: true, shouldDirty: true });
         }
     }, [birthDay, birthMonth, birthYear, setValue]);
-    
-    const handleAddTag = () => {
-        if (tagInput.trim()) {
-            const newTag = tagInput.trim();
-            if (!tags.includes(newTag)) {
-                setTags([...tags, newTag]);
-            }
-            setTagInput('');
-        }
-    };
 
-    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAddTag();
-        }
-    };
-
-    const removeTag = (tagToRemove: string) => {
-        setTags(tags.filter(tag => tag !== tagToRemove));
-    };
-
+    const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
+        <div className="flex items-center gap-4 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+                <Icon className="w-5 h-5" />
+            </div>
+            <div className="space-y-0.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            </div>
+        </div>
+    );
 
     return (
-        <div className="space-y-6 md:space-y-8">
-            <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">1. Basic Information</h3>
-                 <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-4">
+        <div className="space-y-12">
+            <div className="space-y-8">
+                <SectionHeader icon={User} title="Primary Identity" step={1} />
+                 <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2rem] border-2 bg-muted/5">
                     <Controller
                         name="avatarUrl"
                         control={control}
                         render={({ field }) => (
-                            <>
-                            <Avatar className={cn("border-2 shadow-sm", isMobile ? "w-16 h-16" : "w-24 h-24")}>
-                                <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
-                                <AvatarFallback><Upload className="h-6 w-6 text-muted-foreground" /></AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 w-full sm:w-auto">
-                                <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                            <div className="relative group">
+                                <Avatar className="w-24 h-24 border-4 border-background shadow-2xl rounded-3xl overflow-hidden transition-all group-hover:scale-105">
+                                    <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
+                                    <AvatarFallback className="bg-primary/10 text-primary font-black uppercase"><Upload className="h-8 w-8 opacity-40" /></AvatarFallback>
+                                </Avatar>
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer">
+                                    <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                                </div>
                             </div>
-                            </>
                         )}
                     />
+                    <div className="flex-1 space-y-4 w-full">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="full-name" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
+                            <Input id="full-name" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base" />
+                            {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="email" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Secure Email</Label>
+                            <Input id="email" type="email" placeholder="ALEX@EXAMPLE.COM" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        </div>
+                    </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div className="space-y-1.5">
-                        <Label htmlFor="full-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Full Name</Label>
-                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} className="h-10 md:h-12" />
-                        {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
-                    </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-1.5">
-                        <Label htmlFor="email" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Email</Label>
-                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} className="h-10 md:h-12" />
-                        {errors.email && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.email.message}</p>}
-                    </div>
-                </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Phone Number</Label>
-                        <PhoneInput name="phone" label="" placeholder="e.g., (555) 123-4567" className="h-10 md:h-12" />
+                        <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
+                        <PhoneInput name="phone" label="" placeholder="(555) 000-0000" className="h-12 rounded-xl border-2 font-black text-lg" />
                     </div>
                      <div className="space-y-1.5">
-                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Birthday</Label>
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Birth Milestone</Label>
+                        <div className="grid grid-cols-3 gap-2">
                             <Select value={birthMonth} onValueChange={setBirthMonth}>
-                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Mo" /></SelectTrigger>
-                                <SelectContent>
+                                <SelectTrigger className="h-12 rounded-xl border-2 font-bold"><SelectValue placeholder="MO" /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
                                     {Array.from({ length: 12 }, (_, i) => (
-                                        <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                            {format(new Date(2000, i, 1), 'MMM')}
+                                        <SelectItem key={i + 1} value={(i + 1).toString()} className="font-bold">
+                                            {format(new Date(2000, i, 1), 'MMM').toUpperCase()}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select value={birthDay} onValueChange={setBirthDay}>
-                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Day" /></SelectTrigger>
-                                <SelectContent>
+                                <SelectTrigger className="h-12 rounded-xl border-2 font-bold"><SelectValue placeholder="DAY" /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
                                     {Array.from({ length: 31 }, (_, i) => (
-                                        <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                            {i + 1}
-                                        </SelectItem>
+                                        <SelectItem key={i + 1} value={(i + 1).toString()} className="font-bold">{i + 1}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select value={birthYear} onValueChange={setBirthYear}>
-                                <SelectTrigger className="h-10 md:h-12"><SelectValue placeholder="Yr" /></SelectTrigger>
-                                <SelectContent>
+                                <SelectTrigger className="h-12 rounded-xl border-2 font-bold"><SelectValue placeholder="YR" /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
                                     {Array.from({ length: 100 }, (_, i) => {
                                         const year = new Date().getFullYear() - i;
                                         return (
-                                            <SelectItem key={year} value={year.toString()}>
-                                                {year}
-                                            </SelectItem>
+                                            <SelectItem key={year} value={year.toString()} className="font-bold">{year}</SelectItem>
                                         );
                                     })}
                                 </SelectContent>
@@ -359,192 +315,136 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 </div>
             </div>
 
-            <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary flex items-center gap-2"><Home className="w-4 h-4 md:w-5 md:h-5"/>2. Address</h3>
-                <div className="space-y-3 p-4 md:p-5 rounded-2xl border-2 bg-muted/5">
+            <div className="space-y-8">
+                <SectionHeader icon={Home} title="Domicile" step={2} />
+                <div className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/5">
                     <div className="space-y-1.5">
-                        <Label htmlFor="street" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Street Address</Label>
-                        <Input id="street" placeholder="123 Main St" {...register('address.street')} className="h-10 md:h-12" />
+                        <Label htmlFor="street" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Street Address</Label>
+                        <Input id="street" placeholder="123 AVENUE OF THE STARS" {...register('address.street')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">City</Label>
-                            <Input placeholder="City" {...register('address.city')} className="h-10 md:h-12" />
+                            <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">City</Label>
+                            <Input placeholder="CITY" {...register('address.city')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                         </div>
                         <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">State</Label>
-                            <Input placeholder="State" {...register('address.state')} className="h-10 md:h-12" />
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">ZIP</Label>
-                            <Input placeholder="ZIP" {...register('address.zip')} className="h-10 md:h-12" />
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Country</Label>
-                            <Input placeholder="Country" {...register('address.country')} className="h-10 md:h-12" />
+                            <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">State</Label>
+                            <Input placeholder="STATE" {...register('address.state')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary flex items-center gap-2"><User className="w-4 h-4 md:w-5 md:h-5"/>3. Emergency Contact</h3>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-8">
+                <SectionHeader icon={Heart} title="Emergency Data" step={3} />
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2rem] border-2 bg-muted/5">
                      <div className="space-y-1.5">
-                        <Label htmlFor="emergency-name" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Name</Label>
-                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} className="h-10 md:h-12" />
+                        <Label htmlFor="emergency-name" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Name</Label>
+                        <Input id="emergency-name" placeholder="CONTACT NAME" {...register('emergencyContact.name')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     </div>
                     <div className="space-y-1.5">
-                        <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Contact Phone</Label>
-                        <PhoneInput name="emergencyContact.phone" label="" className="h-10 md:h-12" />
+                        <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
+                        <PhoneInput name="emergencyContact.phone" label="" className="h-12 rounded-xl border-2" />
                     </div>
-                </div>
-                 <div className="space-y-1.5">
-                    <Label htmlFor="emergency-relationship" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Relationship</Label>
-                    <Controller
-                        name="emergencyContact.relationship"
-                        control={control}
-                        render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="emergency-relationship" className="h-10 md:h-12">
-                                    <SelectValue placeholder="Select..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Spouse">Spouse</SelectItem>
-                                    <SelectItem value="Partner">Partner</SelectItem>
-                                    <SelectItem value="Parent">Parent</SelectItem>
-                                    <SelectItem value="Guardian">Guardian</SelectItem>
-                                    <SelectItem value="Sibling">Sibling</SelectItem>
-                                    <SelectItem value="Child">Child</SelectItem>
-                                    <SelectItem value="Friend">Friend</SelectItem>
-                                    <SelectItem value="Other">Other</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        )}
-                    />
-                </div>
-            </div>
-
-             <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">4. Marketing Intel</h3>
-                <div className="space-y-1.5">
-                    <Label htmlFor="referral-code" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Promo Code</Label>
-                    <div className="relative">
-                        <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9 h-10 md:h-12" />
-                    </div>
-                </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="custom-tags" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Custom Tags</Label>
-                    <div className="flex items-center gap-2">
-                        <Input 
-                            id="custom-tags" 
-                            placeholder="Add tag..." 
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            onKeyDown={handleTagInputKeyDown}
-                            className="h-10 md:h-12"
-                        />
-                        <Button type="button" onClick={handleAddTag} variant="secondary" className="h-10 md:h-12">Add</Button>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                        {tags.map(tag => (
-                            <Badge key={tag} variant="secondary" className="text-[10px] h-6">
-                                {tag}
-                                <button
-                                    type="button"
-                                    className="ml-1 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
-                                    onClick={() => removeTag(tag)}
-                                >
-                                    <Trash2 className="h-3 w-3" />
-                                </button>
-                            </Badge>
-                        ))}
-                    </div>
-                </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="referral-source" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Referral Source</Label>
-                     <Controller
-                        name="intel.referralSource"
-                        control={control}
-                        render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="referral-source" className="h-10 md:h-12">
-                                    <SelectValue placeholder="How did they find you?" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="social-media">Social Media</SelectItem>
-                                    <SelectItem value="online-search">Online Search</SelectItem>
-                                    <SelectItem value="client-referral">Client Referral</SelectItem>
-                                    <SelectItem value="walk-in">Walk-in</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        )}
-                    />
-                </div>
-                {referralSource === 'client-referral' && (
-                    <Controller
-                        name="referringClientId"
-                        control={control}
-                        render={({ field }) => (
-                            <div className="space-y-1.5">
-                                <Label htmlFor="referring-client" className="text-[10px] uppercase font-black text-muted-foreground ml-1">Referring Client</Label>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger id="referring-client" className="h-10 md:h-12">
-                                    <SelectValue placeholder="Select..." />
+                    <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor="emergency-relationship" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Relationship</Label>
+                        <Controller
+                            name="emergencyContact.relationship"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger id="emergency-relationship" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
+                                        <SelectValue placeholder="SELECT RELATIONSHIP..." />
                                     </SelectTrigger>
-                                    <SelectContent>
-                                        {clients.map(client => (
-                                            <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => (
+                                            <SelectItem key={r} value={r} className="font-bold uppercase text-[10px] tracking-widest">{r.toUpperCase()}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
-                        )}
-                    />
-                )}
+                            )}
+                        />
+                    </div>
+                </div>
+            </div>
+
+             <div className="space-y-8">
+                <SectionHeader icon={Gift} title="Growth Intel" step={4} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="referral-source" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Discovery Source</Label>
+                        <Controller
+                            name="intel.referralSource"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger id="referral-source" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
+                                        <SelectValue placeholder="HOW DID THEY FIND YOU?" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        <SelectItem value="social-media" className="font-bold">SOCIAL MEDIA</SelectItem>
+                                        <SelectItem value="online-search" className="font-bold">ONLINE SEARCH</SelectItem>
+                                        <SelectItem value="client-referral" className="font-bold">CLIENT REFERRAL</SelectItem>
+                                        <SelectItem value="walk-in" className="font-bold">WALK-IN</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        />
+                    </div>
+                    {referralSource === 'client-referral' && (
+                        <Controller
+                            name="referringClientId"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="referring-client" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Referring Guest</Label>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <SelectTrigger id="referring-client" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
+                                        <SelectValue placeholder="SELECT REFERRER..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {clients.map(client => (
+                                                <SelectItem key={client.id} value={client.id} className="font-bold">{client.name.toUpperCase()}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+                        />
+                    )}
+                </div>
              </div>
 
-             <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">5. Health & Safety</h3>
-                <ClientIntelAccordion />
+             <div className="space-y-8">
+                <SectionHeader icon={ShieldAlert} title="Medical & Safety" step={5} />
+                <div className="space-y-2">
+                    <IntelCategory title="Medical & Health" icon={<ShieldAlert className="w-4 h-4 text-red-500" />} color="red" predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']} categoryKey="medical" />
+                    <IntelCategory title="Allergies & Sensitivities" icon={<AlertTriangle className="w-4 h-4 text-amber-500" />} color="amber" predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']} categoryKey="allergies" />
+                    <IntelCategory title="Sensory Needs" icon={<Ear className="w-4 h-4 text-blue-500" />} color="blue" predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']} categoryKey="sensory" />
+                </div>
              </div>
 
-            <div className="space-y-4">
-                <h3 className="text-sm md:text-lg font-black uppercase tracking-widest text-primary">6. Discovery Notes</h3>
-                <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals']}>
-                    <AccordionItem value="goals" className="border rounded-xl overflow-hidden">
-                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Client Goals</AccordionTrigger>
-                        <AccordionContent className="p-3">
-                            <Textarea placeholder="What is the client hoping to achieve..." className="text-xs min-h-[80px]" {...register('notes.goals')} />
-                        </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="routine" className="border rounded-xl overflow-hidden">
-                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Routine & Products</AccordionTrigger>
-                        <AccordionContent className="p-3">
-                            <Textarea placeholder="Current home care..." className="text-xs min-h-[80px]" {...register('notes.routine')} />
-                        </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="history" className="border rounded-xl overflow-hidden">
-                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Past Service History</AccordionTrigger>
-                        <AccordionContent className="p-3">
-                            <Textarea placeholder="Past experiences..." className="text-xs min-h-[80px]" {...register('notes.history')} />
-                        </AccordionContent>
-                    </AccordionItem>
-                     <AccordionItem value="other" className="border rounded-xl overflow-hidden">
-                        <AccordionTrigger className="p-3 text-sm font-bold bg-muted/20">Miscellaneous</AccordionTrigger>
-                        <AccordionContent className="p-3">
-                             <Textarea placeholder="Other relevant details..." className="text-xs min-h-[80px]" {...register('notes.general')}/>
-                        </AccordionContent>
-                    </AccordionItem>
+            <div className="space-y-8">
+                <SectionHeader icon={Sparkles} title="Discovery Notes" step={6} />
+                <Accordion type="multiple" className="w-full space-y-3" defaultValue={['goals']}>
+                    {[
+                        { id: 'goals', label: 'Client Strategic Goals', placeholder: 'What are we looking to achieve today and long-term?' },
+                        { id: 'routine', label: 'Current Maintenance & Routine', placeholder: 'Daily care and products currently in use.' },
+                        { id: 'history', label: 'Historical Service Context', placeholder: 'Past experiences and preferences.' },
+                        { id: 'other', label: 'Miscellaneous Intel', placeholder: 'Other relevant tactical details.' }
+                    ].map(section => (
+                        <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm">
+                            <AccordionTrigger className="px-6 py-4 text-xs font-black uppercase tracking-widest hover:no-underline bg-muted/10">{section.label}</AccordionTrigger>
+                            <AccordionContent className="p-6">
+                                <Textarea placeholder={section.placeholder} className="text-sm rounded-xl border-2 bg-muted/5 min-h-[120px]" {...register(`notes.${section.id === 'other' ? 'general' : section.id}` as any)} />
+                            </AccordionContent>
+                        </AccordionItem>
+                    ))}
                 </Accordion>
             </div>
         </div>
     );
 };
-
 
 export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], onSave: (data: ClientFormData) => void }) => {
   const isMobile = useIsMobile();
@@ -555,21 +455,14 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
       email: '',
       phone: '',
       avatarUrl: '',
-      notes: {
-        goals: '',
-        routine: '',
-        history: '',
-        general: ''
-      }
+      notes: { goals: '', routine: '', history: '', general: '' }
     },
   });
   
   const { handleSubmit, reset } = methods;
 
   useEffect(() => {
-    if(open) {
-        reset();
-    }
+    if(open) reset();
   }, [open, reset]);
 
   const handleSaveSubmit = (data: ClientFormData) => {
@@ -577,52 +470,43 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
     onOpenChange(false);
   };
   
-  const formId = "add-client-form";
-  const title = "New Client Record";
-  const description = "Register a guest account.";
-  
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
-
-  const FormBody = (
-    <FormProvider {...methods}>
-      <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col flex-1 min-h-0">
-        <DialogHeader className={isMobile ? 'p-4 pb-2 border-b text-left flex-shrink-0 bg-muted/5' : 'p-6 pb-4 flex-shrink-0'}>
-          <div className="flex items-center gap-3 mb-1 md:mb-2">
-            <UserPlus className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Guest Registration</span>
-          </div>
-          <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900">{title}</DialogTitle>
-          <DialogDescription className="text-[10px] md:text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex-1 min-h-0 overflow-y-auto bg-background">
-          <div className={cn("p-4 md:p-6", isMobile && "pb-24")}>
-            <AddClientForm clients={clients} />
-          </div>
-        </div>
-             
-        <DialogFooter className={cn("flex-shrink-0 bg-white", isMobile ? "p-4 border-t fixed bottom-0 left-0 right-0 z-20" : "p-6 border-t")}>
-          <div className={cn("flex w-full gap-3", isMobile ? "grid grid-cols-2" : "justify-end")}>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-10 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-sm text-slate-400">Cancel</Button>
-            <Button type="submit" className="h-10 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-sm rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30">Finish</Button>
-          </div>
-        </DialogFooter>
-      </form>
-    </FormProvider>
-  );
 
   return (
     <DialogOrSheet open={open} onOpenChange={onOpenChange}>
       <DialogOrSheetContent
         side={isMobile ? 'bottom' : undefined}
-        className={
-          isMobile
-            ? "h-[90vh] flex flex-col p-0 border-none rounded-t-[3rem] overflow-hidden"
-            : "max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden"
-        }
+        className={cn(
+          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
+          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "max-w-3xl max-h-[90dvh]"
+        )}
       >
-        {FormBody}
+        <FormProvider {...methods}>
+          <form id="add-client-form" onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col h-full overflow-hidden">
+            <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
+              <div className="flex items-center gap-3 mb-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
+              </div>
+              <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register New Guest</SheetTitle>
+              <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Populate the client dossier.</SheetDescription>
+            </SheetHeader>
+
+            <ScrollArea className="flex-1">
+              <div className={cn("p-8", isMobile && "p-6")}>
+                <AddClientForm clients={clients} />
+              </div>
+            </ScrollArea>
+                 
+            <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+              <div className="flex w-full gap-4">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button type="submit" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Create Record</Button>
+              </div>
+            </SheetFooter>
+          </form>
+        </FormProvider>
       </DialogOrSheetContent>
     </DialogOrSheet>
   );
