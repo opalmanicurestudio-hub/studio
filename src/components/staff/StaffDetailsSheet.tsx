@@ -49,6 +49,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const safeDateWrapper = (val: any): Date => {
     if (!val) return new Date();
@@ -119,7 +120,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
     </Card>
 );
 
-export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
+export const StaffDetailsSheet = ({
   open,
   onOpenChange,
   staffMember,
@@ -129,7 +130,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   appointments,
   activityLogs,
   consentForms,
-}) => {
+}: any) => {
   const isMobile = useIsMobile();
   const [activitySearch, setActivitySearch] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
@@ -163,7 +164,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services) return [];
-    return services.filter(s => staffMember.services?.includes(s.id));
+    return services.filter((s: any) => staffMember.services?.includes(s.id));
   }, [staffMember, services]);
 
   const filteredActivityLogs = useMemo(() => {
@@ -172,7 +173,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return activityLogs
-      .filter(log => {
+      .filter((log: any) => {
         if (log.staffId !== staffMember.id) return false;
         const logDate = log.timestamp;
         if (fromDate && logDate < fromDate) return false;
@@ -180,7 +181,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
         if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
         return true;
       })
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      .sort((a: any, b: any) => b.timestamp.getTime() - a.timestamp.getTime());
   }, [activityLogs, staffMember, activitySearch, dateRange]);
   
   const filteredTransactions = useMemo(() => {
@@ -188,14 +189,14 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
     
-    return transactions.filter(t => {
+    return transactions.filter((t: any) => {
       if(t.staffId !== staffMember.id) return false;
       const transactionDate = new Date(t.date);
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.clientOrVendor.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
-    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, staffMember, transactionSearch, dateRange]);
     
   if (!staffMember) return null;
@@ -293,7 +294,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                       <Input placeholder="SEARCH ACTIONS..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 shadow-inner bg-muted/5" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map(log => <ActivityLogCard key={log.id} log={log} />)) : (<div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30"><Clock className="w-12 h-12 mx-auto mb-2"/><p className="text-xs font-black uppercase tracking-widest">No activity</p></div>)}
+                    {filteredActivityLogs.length > 0 ? (filteredActivityLogs.map((log: any) => <ActivityLogCard key={log.id} log={log} />)) : (<div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30"><Clock className="w-12 h-12 mx-auto mb-2"/><p className="text-xs font-black uppercase tracking-widest">No activity</p></div>)}
                   </div>
               </TabsContent>
 
@@ -304,9 +305,9 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                   </div>
                   <div className="space-y-2">
                       {filteredTransactions.length > 0 ? (
-                          filteredTransactions.map(t => {
-                              const appointment = appointments.find(apt => apt.id === t.appointmentId);
-                              const service = services.find(s => s.id === appointment?.serviceId);
+                          filteredTransactions.map((t: any) => {
+                              const appointment = appointments.find((apt: any) => apt.id === t.appointmentId);
+                              const service = services.find((s: any) => s.id === appointment?.serviceId);
                               let timeVariance = null;
                               if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
                                   const actualDuration = differenceInMinutes(safeDateWrapper(appointment.actualEndTime), safeDateWrapper(appointment.actualStartTime));
@@ -367,7 +368,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
                     <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Treatment Catalog</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-2">
-                        {staffServices.length > 0 ? staffServices.map(s => (
+                        {staffServices.length > 0 ? staffServices.map((s: any) => (
                             <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
                                 <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate mr-2">{s.name}</span>
                                 <span className="font-mono font-black text-primary text-[10px] shrink-0">${s.price.toFixed(2)}</span>
