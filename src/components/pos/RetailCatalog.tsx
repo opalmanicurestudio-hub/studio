@@ -7,7 +7,7 @@ import { type InventoryItem, type Service, type Membership, type Package } from 
 import { MenuItemCard } from './MenuItemCard';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { Search, QrCode, Sparkles, ShoppingBag, Scissors, PlusCircle, Award, Box } from 'lucide-react';
+import { Search, QrCode, Sparkles, ShoppingBag, PlusCircle, Award, Box } from 'lucide-react';
 import { MembershipPOSCard } from './MembershipPOSCard';
 import { PackagePOSCard } from './PackagePOSCard';
 import { Label } from '@/components/ui/label';
@@ -131,7 +131,7 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                                     : "text-muted-foreground hover:bg-white/50"
                             )}
                         >
-                            {dept === 'SERVICES' && <Scissors className="w-3 h-3 mr-2 opacity-40" />}
+                            {dept === 'SERVICES' && <Sparkles className="w-3 h-3 mr-2 opacity-40" />}
                             {dept === 'ADD-ONS' && <PlusCircle className="w-3 h-3 mr-2 opacity-40" />}
                             {dept === 'RETAIL' && <ShoppingBag className="w-3 h-3 mr-2 opacity-40" />}
                             {dept === 'CLUBS' && <Award className="w-3 h-3 mr-2 opacity-40" />}

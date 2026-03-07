@@ -31,7 +31,8 @@ import {
     Target,
     Zap,
     Briefcase,
-    Calendar as CalendarIcon
+    Calendar as CalendarIcon,
+    Activity
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
@@ -341,7 +342,7 @@ export default function ServiceDetailPage() {
                                 className='object-cover transition-transform duration-700' 
                             />
                         ) : (
-                            <List className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/30" />
+                            <Sparkles className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/30" />
                         )}
                     </div>
                 </div>
@@ -367,7 +368,7 @@ export default function ServiceDetailPage() {
                             <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">${service.price.toFixed(2)}</p>
                         </div>
                     </div>
-                    <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided for this treatment.'}</p>
+                    <p className="text-xs md:sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided for this treatment.'}</p>
                 </div>
             </CardContent>
         </Card>

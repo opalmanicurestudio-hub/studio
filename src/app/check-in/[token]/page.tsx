@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
@@ -61,7 +61,7 @@ const ServicingView = ({ serviceName }: { serviceName: string }) => (
         <ViewHeader title="In Service" subtitle="Your session is active" icon={Clock} />
         <CardContent className="p-10 text-center space-y-6">
             <div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                <Scissors className="w-12 h-12 text-primary -rotate-6" />
+                <Activity className="w-12 h-12 text-primary -rotate-6" />
             </div>
             <div className="space-y-2">
                 <p className="font-black text-xl uppercase tracking-tight text-slate-900">Sit Back & Relax</p>
@@ -474,7 +474,7 @@ export default function CheckInPage() {
                      <div className="flex items-center gap-6">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 rounded-2xl border-4 border-background shadow-xl">
                             <AvatarImage src={service.imageUrl} className="object-cover" />
-                            <AvatarFallback className="bg-primary/10 text-primary"><Scissors className="w-8 h-8" /></AvatarFallback>
+                            <AvatarFallback className="bg-primary/10 text-primary"><Activity className="w-8 h-8" /></AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1 text-left">
                              <p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-2 truncate">{service.name}</p>

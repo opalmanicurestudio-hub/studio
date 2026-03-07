@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -6,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square } from 'lucide-react';
+import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';

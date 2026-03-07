@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -20,7 +19,7 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBloc
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Scissors, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2 } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -310,7 +309,7 @@ const ServiceSelectionCard = ({ service, isSelected, onToggle, staffTierId, pric
                         <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
-                            <Scissors className="w-8 h-8 md:w-12 md:h-12"/>
+                            <Sparkles className="w-8 h-8 md:w-12 md:h-12"/>
                         </div>
                     )}
                 </div>
@@ -394,7 +393,7 @@ const MemberSetup = ({
 }: any) => {
     const subStepTitles = {
         details: { title: 'Personal Info', icon: <User className="w-4 h-4 md:w-6 md:h-6" /> },
-        services: { title: 'Treatment', icon: <Scissors className="w-4 h-4 md:w-6 md:h-6" /> },
+        services: { title: 'Treatment', icon: <Sparkles className="w-4 h-4 md:w-6 md:h-6" /> },
         addons: { title: 'Add-ons', icon: <PlusCircle className="w-4 h-4 md:w-6 md:h-6" /> },
         consents: { title: 'Agreements', icon: <FileSignature className="w-4 h-4 md:w-6 md:h-6" /> },
         staff: { title: 'Preferences', icon: <Users className="w-4 h-4 md:w-6 md:h-6" /> },
@@ -525,6 +524,24 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
             <Button size="lg" onClick={onDone} className="h-16 md:h-28 px-16 md:px-32 text-2xl md:text-5xl font-black rounded-[2.5rem] md:rounded-[3.5rem] uppercase tracking-widest shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95">Complete</Button>
         </div>
     </motion.div>
+);
+
+const ConfirmationView = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
+    <ViewContainer>
+        <ViewHeader title="Finalize" subtitle="Dossier Complete" icon={ShieldCheck} />
+        <CardContent className="p-10 text-center space-y-8">
+            <div className="w-24 h-24 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
+                <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
+            </div>
+            <div className="space-y-2">
+                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Registered</p>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed">Your data is secured. Watch for our mobile notification once your professional is ready.</p>
+            </div>
+        </CardContent>
+        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
+            <Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Acknowledge</Button>
+        </CardFooter>
+    </ViewContainer>
 );
 
 export default function WalkInPage() {

@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -6,7 +5,7 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import Image from 'next/image';
-import { Clock, DollarSign, ArrowRight, Sparkles } from 'lucide-react';
+import { Clock, DollarSign, ArrowRight, Sparkles, Activity } from 'lucide-react';
 import { Service, Staff, PricingTier, Tenant } from '@/lib/data';
 import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
