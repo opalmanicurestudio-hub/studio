@@ -9,10 +9,11 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
-import { Undo2, Cake } from 'lucide-react';
+import { Undo2, Cake, Users } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useInventory } from '@/context/InventoryContext';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -24,8 +25,11 @@ const safeDate = (val: any): Date => {
 };
 
 export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, onSelect, onRevertToService }) => {
+  const { staff: allStaffList, clients } = useInventory();
+  
   if (!appointmentData || !appointmentData.appointment) return null;
-  const { appointment: apt, client, service, addOnServices, staff } = appointmentData;
+  const { appointment: apt, client, service, addOnServices, staff: primaryStaff } = appointmentData;
+
   const isBirthdayToday = useMemo(() => {
     if (!client?.birthday) return false;
     const birth = safeDate(client.birthday);
@@ -33,11 +37,26 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
   }, [client]);
 
   const totalPrice = useMemo(() => {
-    const mainPrice = getServicePrice(service, staff);
-    const addOnsTotal = addOnServices.reduce((acc: number, s: any) => acc + getServicePrice(s, staff), 0);
+    const mainPrice = getServicePrice(service, primaryStaff);
+    const addOnsTotal = addOnServices.reduce((acc: number, s: any) => {
+        const addonStaffId = apt.checkoutState?.serviceStaffOverrides?.[s.id] || apt.staffId;
+        const addonStaff = allStaffList.find(st => st.id === addonStaffId);
+        return acc + getServicePrice(s, addonStaff);
+    }, 0);
     const additional = apt.checkoutState?.additionalCharge || 0;
     return mainPrice + addOnsTotal + additional;
-  }, [service, addOnServices, staff, apt.checkoutState]);
+  }, [service, addOnServices, primaryStaff, apt.checkoutState, apt.staffId, allStaffList]);
+
+  const involvedStaff = useMemo(() => {
+      const ids = new Set<string>();
+      if (apt.staffId) ids.add(apt.staffId);
+      if (apt.checkoutState?.serviceStaffOverrides) {
+          Object.values(apt.checkoutState.serviceStaffOverrides).forEach((id: any) => {
+              if (id && typeof id === 'string') ids.add(id);
+          });
+      }
+      return allStaffList.filter(s => ids.has(s.id));
+  }, [apt, allStaffList]);
 
   return (
     <div className="w-full shrink-0">
@@ -57,19 +76,34 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                             </div>
                         </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                        <Avatar className="h-9 w-9 border-2 border-background shadow-xl rounded-xl">
-                            <AvatarImage src={staff?.avatarUrl} className="object-cover" />
-                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(staff?.name || 'S')[0]}</AvatarFallback>
-                        </Avatar>
+                    <div className="flex -space-x-3 overflow-hidden">
+                        {involvedStaff.map((member) => (
+                            <TooltipProvider key={member.id}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Avatar className="h-9 w-9 border-2 border-background shadow-xl rounded-xl">
+                                            <AvatarImage src={member.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(member.name || 'S')[0]}</AvatarFallback>
+                                        </Avatar>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[10px] tracking-widest">{member.name}</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ))}
                     </div>
                 </div>
                  <div className="flex items-end justify-between pt-4 border-t border-dashed mt-2">
-                    <div className="space-y-1 min-w-0 text-left">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Assigned Pro</p>
-                        <p className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate">{staff?.name}</p>
+                    <div className="space-y-2 min-w-0 text-left">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Session Pros</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {involvedStaff.map(member => (
+                                <p key={member.id} className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate max-w-[120px]">
+                                    {member.name.split(' ')[0]}
+                                </p>
+                            ))}
+                        </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                         <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60 mb-0.5">Grand Total</p>
                         <p className="text-2xl font-black text-primary tracking-tighter font-mono">${totalPrice.toFixed(2)}</p>
                     </div>
