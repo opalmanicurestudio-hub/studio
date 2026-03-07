@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift, ChevronDown, Activity, ListChecks, ShieldCheck, Zap, ArrowRight, X } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift, ChevronDown, Activity, ListChecks, ShieldCheck, Zap, ArrowRight, X, Tag } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +30,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
@@ -200,7 +201,7 @@ const ClientSelectorDialog = ({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg rounded-[3rem] border-4 p-0 overflow-hidden shadow-3xl">
                 <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Client Selection</DialogTitle>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Client Selection</DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Target specific individuals for this dispatch.</DialogDescription>
                 </DialogHeader>
                 <div className="p-8 space-y-6">
@@ -386,7 +387,7 @@ export default function NewCampaignPage() {
                             <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                     <div>
-                                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Configuration Matrix</CardTitle>
+                                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-slate-900">Configuration Matrix</CardTitle>
                                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Select a verified script or draft a custom message.</CardDescription>
                                     </div>
                                     <Select onValueChange={handleTemplateSelect}>
@@ -429,7 +430,7 @@ export default function NewCampaignPage() {
                                                             field.value === 'email' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
                                                         )}>
                                                             <Mail className={cn("mb-2 h-8 w-8", field.value === 'email' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                            <span className="text-xs font-black uppercase tracking-widest">Email</span>
+                                                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">Email</span>
                                                             <RadioGroupItem value="email" id="email-mode" className="sr-only" />
                                                         </div>
                                                     </label>
@@ -439,7 +440,7 @@ export default function NewCampaignPage() {
                                                             field.value === 'sms' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
                                                         )}>
                                                             <MessageSquare className={cn("mb-2 h-8 w-8", field.value === 'sms' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                            <span className="text-xs font-black uppercase tracking-widest">SMS</span>
+                                                            <span className="text-xs font-black uppercase tracking-widest text-slate-900">SMS</span>
                                                             <RadioGroupItem value="sms" id="sms-mode" className="sr-only" />
                                                         </div>
                                                     </label>
@@ -523,7 +524,7 @@ export default function NewCampaignPage() {
                                                 bodyTextareaRef.current = e;
                                             }}
                                             rows={10}
-                                            className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed focus-visible:ring-primary/20 p-6"
+                                            className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed focus-visible:ring-primary/20 p-6 text-slate-900"
                                         />
                                         <div className="flex justify-between items-center px-1">
                                             <p className="text-[9px] text-muted-foreground font-black uppercase tracking-tight opacity-40">Variable injection enabled</p>
