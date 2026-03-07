@@ -393,7 +393,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                     )}
                                     {editableOrder.notes && (
                                         <div className="space-y-2">
-                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Audit Notes</p>
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Audit Notes</p>
                                             <div className="p-4 rounded-2xl bg-muted/20 border-2 italic text-slate-600 text-sm font-medium leading-relaxed">
                                                 "{editableOrder.notes}"
                                             </div>
@@ -423,6 +423,361 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     )
 }
 
+const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    const { toast } = useToast();
+    
+    const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+    const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
+
+    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
+    
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+        if (!firestore || !tenantId) return;
+
+        const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+        
+        newOrderData.items.forEach(item => {
+            if (item.productId.startsWith('custom-')) {
+                const newProductId = nanoid();
+                const newProductShell: InventoryItem = {
+                    id: newProductId,
+                    name: item.productName,
+                    type: 'professional',
+                    category: 'Uncategorized',
+                    totalStock: 0,
+                    supplier: newOrderData.supplier,
+                    costPerUnit: item.costPerUnit,
+                    batches: [],
+                };
+                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+                setDocumentNonBlocking(productDocRef, newProductShell, {});
+                finalItems.push({ ...item, productId: newProductId });
+            } else {
+                finalItems.push(item);
+            }
+        });
+
+        const newOrder: Order = {
+            ...newOrderData,
+            id: nanoid(),
+            items: finalItems,
+            status: 'Placed',
+        };
+        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+        addDocumentNonBlocking(orderRef, newOrder);
+        
+        const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Purchase Order: ${newOrder.supplier}`,
+                clientOrVendor: newOrder.supplier,
+                type: 'expense',
+                context: newOrder.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: newOrder.paymentMethod || 'On Account',
+                paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
+                hasReceipt: !!newOrder.invoiceUrl,
+                receiptUrl: newOrder.invoiceUrl,
+                relatedOrderId: newOrder.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+        }
+
+        toast({
+            title: "Order Created!",
+            description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+        });
+    };
+
+    const handleUpdateOrder = (updatedOrder: Order) => {
+        if (!firestore || !tenantId) return;
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
+        updateDocumentNonBlocking(orderRef, updatedOrder);
+        toast({
+            title: "Order Updated",
+            description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
+        })
+    }
+
+    const handleCancelOrderClick = (orderId: string) => {
+        const order = orders?.find(o => o.id === orderId);
+        if (order) {
+            setSelectedOrder(null);
+            setOrderToCancel(order);
+        }
+    };
+
+    const handleConfirmCancelOrder = () => {
+        if (!firestore || !orderToCancel || !tenantId) return;
+
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id);
+        const existingNotes = orderToCancel.notes || '';
+        const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${existingNotes}`;
+        
+        updateDocumentNonBlocking(orderRef, { status: 'Cancelled', notes: newNotes });
+
+        const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Reversal for Order: ${orderToCancel.supplier}`,
+                clientOrVendor: orderToCancel.supplier,
+                type: 'reversal',
+                context: orderToCancel.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: 'On Account',
+                paymentMethodIdentifier: orderToCancel.paymentMethodIdentifier,
+                hasReceipt: !!orderToCancel.invoiceUrl,
+                receiptUrl: orderToCancel.invoiceUrl,
+                relatedOrderId: orderToCancel.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
+        }
+
+        toast({
+            title: "Order Cancelled",
+            description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.`
+        });
+        
+        setOrderToCancel(null);
+        setCancelReason('');
+    };
+    
+    const filteredOrders = useMemo(() => {
+        if (!orders) return [];
+        return orders.filter(order => {
+            const searchTermLower = searchTerm.toLowerCase();
+            const searchTermMatch = searchTerm === '' ||
+                order.supplier.toLowerCase().includes(searchTermLower) ||
+                order.id.toLowerCase().includes(searchTermLower) ||
+                order.items.some(item => item.productName.toLowerCase().includes(searchTermLower));
+
+            const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+
+            return searchTermMatch && statusMatch;
+        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+    }, [orders, searchTerm, statusFilter]);
+    
+    const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
+        e.stopPropagation();
+        if (!url) return;
+        let finalUrl = url;
+        if (!/^https?:\/\//i.test(url)) {
+            finalUrl = 'https://' + url;
+        }
+        window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
+      if (!firestore || !orderToReceive || !tenantId) return;
+
+      const batch = writeBatch(firestore);
+
+      receivedItems.forEach(item => {
+        const existingProduct = inventory.find(p => p.id === item.productId);
+        if (existingProduct) {
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+          
+          if (item.quantityReceived > 0) {
+              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
+                id: `batch-${nanoid()}`,
+                stock: item.quantityReceived,
+                costPerUnit: item.costPerUnit,
+                receivedDate: new Date().toISOString(),
+                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
+              };
+              
+              const updatedBatches = [...existingProduct.batches, newBatchData];
+              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+              batch.update(productRef, {
+                batches: updatedBatches,
+                totalStock: totalStock,
+                costPerUnit: item.costPerUnit,
+              });
+
+              const stockCorrection: Omit<StockCorrection, 'id'> = {
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: item.quantityReceived,
+                unit: existingProduct.unit || 'units',
+                reason: `Shipment from ${orderToReceive.supplier}`,
+              };
+              const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+              batch.set(scRef, stockCorrection);
+          }
+
+          if (item.quantityDamaged > 0) {
+              const damageCost = item.quantityDamaged * item.costPerUnit;
+              const damageTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
+                clientOrVendor: orderToReceive.supplier,
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: damageCost,
+                paymentMethod: 'Internal',
+                hasReceipt: !!orderToReceive.invoiceUrl,
+                receiptUrl: orderToReceive.invoiceUrl,
+                relatedOrderId: orderToReceive.id,
+              };
+              const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+              batch.set(dtRef, damageTransaction);
+          }
+        }
+      });
+      
+      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
+
+      let newStatus: Order['status'] = orderToReceive.status;
+      if (allItemsFullyOrPartiallyReceived) {
+        newStatus = 'Received';
+      } else if (someItemsReceived) {
+        newStatus = 'Partially Received';
+      }
+      
+      if (newStatus !== orderToReceive.status) {
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
+        batch.update(orderRef, { status: newStatus });
+      }
+
+      batch.commit().then(() => {
+          toast({
+              title: "Stock Updated!",
+              description: "Inventory has been updated with the received items.",
+          });
+          setOrderToReceive(null);
+      }).catch(error => {
+          console.error("Error receiving stock: ", error);
+          toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Failed to update stock.",
+          });
+      });
+    };
+    
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>Purchase Orders</CardTitle>
+                            <CardDescription>Track your inventory supply orders.</CardDescription>
+                        </div>
+                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
+                    </div>
+                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                        <div className="relative w-full flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by supplier, ID, or product..."
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
+                            <SelectTrigger className="w-full sm:w-[180px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                <SelectItem value="Draft">Draft</SelectItem>
+                                <SelectItem value="Placed">Placed</SelectItem>
+                                <SelectItem value="Shipped">Shipped</SelectItem>
+                                <SelectItem value="Partially Received">Partially Received</SelectItem>
+                                <SelectItem value="Received">Received</SelectItem>
+                                <SelectItem value="Cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                     {ordersLoading ? <p>Loading orders...</p> : orders && orders.length > 0 ? (
+                        filteredOrders.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
+                          </div>
+                        ) : (
+                            <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">No orders found matching your filters.</p>
+                            </div>
+                        )
+                    ) : (
+                         <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                            <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <h3 className="mt-2 text-sm font-semibold">No orders yet</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Create your first purchase order to start tracking supplies.</p>
+                         </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <AddOrderDialog
+                open={isAddOrderOpen}
+                onOpenChange={setIsAddOrderOpen}
+                onSave={handleAddOrder}
+            />
+            <ViewOrEditOrderDialog
+                order={selectedOrder}
+                open={!!selectedOrder}
+                onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
+                onSave={handleUpdateOrder}
+                onCancelOrder={handleCancelOrderClick}
+                onTrack={openTrackingUrl}
+            />
+             <ReceiveStockDialog
+                open={!!orderToReceive}
+                onOpenChange={() => setOrderToReceive(null)}
+                order={orderToReceive}
+                onConfirm={handleReceiveStock}
+            />
+            <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure you want to cancel this order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will mark the order as cancelled and create a reversal transaction for the cost. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="cancel-reason" className="mb-2 block">Reason for Cancellation (Optional)</Label>
+                        <Textarea
+                            id="cancel-reason"
+                            placeholder="e.g., Ordered by mistake, found a better price..."
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setOrderToCancel(null)}>Back</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmCancelOrder} className={buttonVariants({ variant: "destructive" })}>
+                            Yes, Cancel Order
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
+};
+
 const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
         <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
@@ -430,7 +785,7 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
         </div>
         <div className="space-y-2">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Inventory is Empty</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
                 Start tracking professional supplies, retail stock, and studio equipment to unlock automated yield analysis.
             </p>
         </div>
@@ -449,6 +804,7 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
+    staff,
     isLoading: isInventoryLoading
   } = useInventory();
   
@@ -772,12 +1128,13 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: product.unit || 'units',
-      reason: `Write-off: ${reason}`,
+      reason: `Write-off: ${reason} by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -801,7 +1158,7 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  }, [inventory, firestore, tenantId, toast]);
+  }, [inventory, firestore, tenantId, toast, currentUser, staff]);
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -858,12 +1215,13 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const newCorrection: Omit<StockCorrection, 'id'> = {
         productId: productId,
         date: new Date().toISOString(),
         change: -quantity,
         unit: unit,
-        reason: notes || 'Manual Use Log',
+        reason: notes || `Manual Use Log by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
@@ -899,12 +1257,13 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
+    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: `Manual Retail Sale: ${product.name} for Guest`,
+      reason: `Manual Retail Sale by ${currentStaff?.name || 'Staff'}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1471,3 +1830,358 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+
+const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    const { toast } = useToast();
+    
+    const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+    const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
+
+    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
+    
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+        if (!firestore || !tenantId) return;
+
+        const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+        
+        newOrderData.items.forEach(item => {
+            if (item.productId.startsWith('custom-')) {
+                const newProductId = nanoid();
+                const newProductShell: InventoryItem = {
+                    id: newProductId,
+                    name: item.productName,
+                    type: 'professional',
+                    category: 'Uncategorized',
+                    totalStock: 0,
+                    supplier: newOrderData.supplier,
+                    costPerUnit: item.costPerUnit,
+                    batches: [],
+                };
+                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+                setDocumentNonBlocking(productDocRef, newProductShell, {});
+                finalItems.push({ ...item, productId: newProductId });
+            } else {
+                finalItems.push(item);
+            }
+        });
+
+        const newOrder: Order = {
+            ...newOrderData,
+            id: nanoid(),
+            items: finalItems,
+            status: 'Placed',
+        };
+        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+        addDocumentNonBlocking(orderRef, newOrder);
+        
+        const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Purchase Order: ${newOrder.supplier}`,
+                clientOrVendor: newOrder.supplier,
+                type: 'expense',
+                context: newOrder.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: newOrder.paymentMethod || 'On Account',
+                paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
+                hasReceipt: !!newOrder.invoiceUrl,
+                receiptUrl: newOrder.invoiceUrl,
+                relatedOrderId: newOrder.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+        }
+
+        toast({
+            title: "Order Created!",
+            description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+        });
+    };
+
+    const handleUpdateOrder = (updatedOrder: Order) => {
+        if (!firestore || !tenantId) return;
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
+        updateDocumentNonBlocking(orderRef, updatedOrder);
+        toast({
+            title: "Order Updated",
+            description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
+        })
+    }
+
+    const handleCancelOrderClick = (orderId: string) => {
+        const order = orders?.find(o => o.id === orderId);
+        if (order) {
+            setSelectedOrder(null);
+            setOrderToCancel(order);
+        }
+    };
+
+    const handleConfirmCancelOrder = () => {
+        if (!firestore || !orderToCancel || !tenantId) return;
+
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id);
+        const existingNotes = orderToCancel.notes || '';
+        const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${existingNotes}`;
+        
+        updateDocumentNonBlocking(orderRef, { status: 'Cancelled', notes: newNotes });
+
+        const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Reversal for Order: ${orderToCancel.supplier}`,
+                clientOrVendor: orderToCancel.supplier,
+                type: 'reversal',
+                context: orderToCancel.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: 'On Account',
+                paymentMethodIdentifier: orderToCancel.paymentMethodIdentifier,
+                hasReceipt: !!orderToCancel.invoiceUrl,
+                receiptUrl: orderToCancel.invoiceUrl,
+                relatedOrderId: orderToCancel.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
+        }
+
+        toast({
+            title: "Order Cancelled",
+            description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.`
+        });
+        
+        setOrderToCancel(null);
+        setCancelReason('');
+    };
+    
+    const filteredOrders = useMemo(() => {
+        if (!orders) return [];
+        return orders.filter(order => {
+            const searchTermLower = searchTerm.toLowerCase();
+            const searchTermMatch = searchTerm === '' ||
+                order.supplier.toLowerCase().includes(searchTermLower) ||
+                order.id.toLowerCase().includes(searchTermLower) ||
+                order.items.some(item => item.productName.toLowerCase().includes(searchTermLower));
+
+            const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+
+            return searchTermMatch && statusMatch;
+        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+    }, [orders, searchTerm, statusFilter]);
+    
+    const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
+        e.stopPropagation();
+        if (!url) return;
+        let finalUrl = url;
+        if (!/^https?:\/\//i.test(url)) {
+            finalUrl = 'https://' + url;
+        }
+        window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
+      if (!firestore || !orderToReceive || !tenantId) return;
+
+      const batch = writeBatch(firestore);
+
+      receivedItems.forEach(item => {
+        const existingProduct = inventory.find(p => p.id === item.productId);
+        if (existingProduct) {
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+          
+          if (item.quantityReceived > 0) {
+              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
+                id: `batch-${nanoid()}`,
+                stock: item.quantityReceived,
+                costPerUnit: item.costPerUnit,
+                receivedDate: new Date().toISOString(),
+                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
+              };
+              
+              const updatedBatches = [...existingProduct.batches, newBatchData];
+              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+              batch.update(productRef, {
+                batches: updatedBatches,
+                totalStock: totalStock,
+                costPerUnit: item.costPerUnit,
+              });
+
+              const stockCorrection: Omit<StockCorrection, 'id'> = {
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: item.quantityReceived,
+                unit: existingProduct.unit || 'units',
+                reason: `Shipment from ${orderToReceive.supplier}`,
+              };
+              const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+              batch.set(scRef, stockCorrection);
+          }
+
+          if (item.quantityDamaged > 0) {
+              const damageCost = item.quantityDamaged * item.costPerUnit;
+              const damageTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
+                clientOrVendor: orderToReceive.supplier,
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: damageCost,
+                paymentMethod: 'Internal',
+                hasReceipt: !!orderToReceive.invoiceUrl,
+                receiptUrl: orderToReceive.invoiceUrl,
+                relatedOrderId: orderToReceive.id,
+              };
+              const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+              batch.set(dtRef, damageTransaction);
+          }
+        }
+      });
+      
+      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
+
+      let newStatus: Order['status'] = orderToReceive.status;
+      if (allItemsFullyOrPartiallyReceived) {
+        newStatus = 'Received';
+      } else if (someItemsReceived) {
+        newStatus = 'Partially Received';
+      }
+      
+      if (newStatus !== orderToReceive.status) {
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
+        batch.update(orderRef, { status: newStatus });
+      }
+
+      batch.commit().then(() => {
+          toast({
+              title: "Stock Updated!",
+              description: "Inventory has been updated with the received items.",
+          });
+          setOrderToReceive(null);
+      }).catch(error => {
+          console.error("Error receiving stock: ", error);
+          toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Failed to update stock.",
+          });
+      });
+    };
+    
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>Purchase Orders</CardTitle>
+                            <CardDescription>Track your inventory supply orders.</CardDescription>
+                        </div>
+                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
+                    </div>
+                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                        <div className="relative w-full flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by supplier, ID, or product..."
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
+                            <SelectTrigger className="w-full sm:w-[180px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                <SelectItem value="Draft">Draft</SelectItem>
+                                <SelectItem value="Placed">Placed</SelectItem>
+                                <SelectItem value="Shipped">Shipped</SelectItem>
+                                <SelectItem value="Partially Received">Partially Received</SelectItem>
+                                <SelectItem value="Received">Received</SelectItem>
+                                <SelectItem value="Cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                     {ordersLoading ? <p>Loading orders...</p> : orders && orders.length > 0 ? (
+                        filteredOrders.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
+                          </div>
+                        ) : (
+                            <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">No orders found matching your filters.</p>
+                            </div>
+                        )
+                    ) : (
+                         <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                            <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <h3 className="mt-2 text-sm font-semibold">No orders yet</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Create your first purchase order to start tracking supplies.</p>
+                         </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <AddOrderDialog
+                open={isAddOrderOpen}
+                onOpenChange={setIsAddOrderOpen}
+                onSave={handleAddOrder}
+            />
+            <ViewOrEditOrderDialog
+                order={selectedOrder}
+                open={!!selectedOrder}
+                onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
+                onSave={handleUpdateOrder}
+                onCancelOrder={handleCancelOrderClick}
+                onTrack={openTrackingUrl}
+            />
+             <ReceiveStockDialog
+                open={!!orderToReceive}
+                onOpenChange={() => setOrderToReceive(null)}
+                order={orderToReceive}
+                onConfirm={handleReceiveStock}
+            />
+            <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure you want to cancel this order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will mark the order as cancelled and create a reversal transaction for the cost. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="cancel-reason" className="mb-2 block">Reason for Cancellation (Optional)</Label>
+                        <Textarea
+                            id="cancel-reason"
+                            placeholder="e.g., Ordered by mistake, found a better price..."
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setOrderToCancel(null)}>Back</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmCancelOrder} className={buttonVariants({ variant: "destructive" })}>
+                            Yes, Cancel Order
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
+};
