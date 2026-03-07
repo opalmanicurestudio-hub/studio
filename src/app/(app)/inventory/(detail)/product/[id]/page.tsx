@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -124,8 +125,8 @@ export default function ProductDetailPage() {
           initialTotalUnits = product.totalStock - totalChange;
         }
     
-        let runningStock;
-        let runningPartial;
+        let runningStock: number;
+        let runningPartial: number;
     
         if (product.costingMethod === 'uses') {
             const usesPerContainer = product.estimatedUses || 1;
@@ -141,6 +142,9 @@ export default function ProductDetailPage() {
         }
       
         const result = correctionsOldestFirst.map(correction => {
+            const stockBefore = runningStock;
+            const partialBefore = runningPartial;
+
             if (product.costingMethod === 'uses') {
                 const usesPerContainer = product.estimatedUses || 1;
                 let currentTotalUses = (runningStock * usesPerContainer) + runningPartial;
@@ -167,7 +171,14 @@ export default function ProductDetailPage() {
                 displayReason = `Service for ${clientName} by ${staffName}`;
             }
     
-            return { ...correction, stockAfter: runningStock, partialAfter: runningPartial, displayReason };
+            return { 
+                ...correction, 
+                stockBefore,
+                partialBefore,
+                stockAfter: runningStock, 
+                partialAfter: runningPartial, 
+                displayReason 
+            };
         });
       
         return result.reverse(); 
@@ -347,11 +358,15 @@ export default function ProductDetailPage() {
                                                     <p className={cn("font-black font-mono text-sm tracking-tighter leading-none", correction.change > 0 ? "text-green-600" : "text-destructive")}>
                                                         {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
                                                     </p>
-                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mt-1">Variance</p>
+                                                    {correction.stockAfter !== correction.stockBefore && (
+                                                        <p className={cn("text-[8px] font-black uppercase mt-1", correction.stockAfter < correction.stockBefore ? "text-destructive/60" : "text-green-600/60")}>
+                                                            {correction.stockAfter < correction.stockBefore ? '-' : '+'}{Math.abs(correction.stockAfter - correction.stockBefore)} FULL UNIT
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <div className="text-right bg-primary/[0.03] p-2.5 rounded-xl border border-primary/5 shadow-inner">
                                                     <p className="font-black font-mono text-[11px] tracking-tighter text-primary leading-none">
-                                                        {correction.stockAfter}{product.costingMethod === 'uses' ? ` + ${correction.partialAfter}u` : ''}
+                                                        {correction.stockAfter}u {product.costingMethod === 'uses' ? `+ ${correction.partialAfter}${product.useUnit || 'u'}` : product.costingMethod === 'size' ? `+ ${correction.partialAfter}${product.unit || 'ml'}` : ''}
                                                     </p>
                                                     <p className="text-[8px] font-black uppercase text-primary/40 mt-1">Net Stock</p>
                                                 </div>
