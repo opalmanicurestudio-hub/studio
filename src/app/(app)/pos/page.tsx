@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -488,10 +489,14 @@ function POSPageContent() {
         let totalLtvIncrease = 0;
 
         for (const aptData of selectedAptsData) {
-            const { appointment: apt, service, addOnServices, staff: tech } = aptData;
+            const { appointment: apt, service, addOnServices } = aptData;
             const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', apt.id);
             
-            const formula = apt.checkoutState?.formula || [];
+            const checkoutState = apt.checkoutState || {};
+            const overrides = checkoutState.serviceStaffOverrides || {};
+            const additional = !waivedAppointmentFees.has(apt.id) ? (checkoutState.additionalCharge || 0) : 0;
+
+            const formula = checkoutState.formula || [];
             formula.forEach(item => {
                 const product = inventory.find(p => p.id === item.id);
                 if (!product) return;
@@ -533,48 +538,72 @@ function POSPageContent() {
                     date: now,
                     change: -item.quantity,
                     unit: item.unit || 'units',
-                    reason: `Service: ${service.name} (#${apt.id.slice(-6).toUpperCase()}) for ${selectedClient?.name || 'Guest'} by ${tech.name}`,
+                    reason: `Service: ${service.name} (#${apt.id.slice(-6).toUpperCase()}) for ${selectedClient?.name || 'Guest'}`,
                     appointmentId: apt.id,
-                    staffId: tech.id,
                 });
             });
 
-            const mainPrice = getServicePrice(service, tech);
-            const addOnsPrice = addOnServices.reduce((sum, s) => sum + getServicePrice(s, tech), 0);
-            const additional = !waivedAppointmentFees.has(apt.id) ? (apt.checkoutState?.additionalCharge || 0) : 0;
-            const itemRevenue = mainPrice + addOnsPrice + additional;
-            
-            totalLtvIncrease += itemRevenue;
+            // DISTRIBUTED SERVICE REVENUE ATTRIBUTION
+            // 1. Process Main Service Part
+            const mainStaffId = overrides[service.id] || apt.staffId;
+            const mainStaffMember = staff.find(s => s.id === mainStaffId);
+            const mainPrice = getServicePrice(service, mainStaffMember);
+            const mainPartRevenue = mainPrice + additional; // Overages attributed to the main part provider
+            totalLtvIncrease += mainPartRevenue;
 
-            batch.update(appointmentRef, { 
-                status: 'completed', 
-                revenue: itemRevenue,
-                actualEndTime: now
-            });
-
-            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
-            
-            const serviceTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(serviceTxnRef, {
+            const mainTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(mainTxnRef, {
                 date: now,
-                description: `Service: ${service.name} ${addOnServices.length > 0 ? `+ ${addOnServices.length} add-ons` : ''}`,
+                description: `Service: ${service.name}`,
                 clientOrVendor: selectedClient?.name || 'Client',
                 clientId: selectedClientId,
                 type: 'income',
                 context: 'Business',
                 category: 'Service Revenue',
-                amount: itemRevenue,
+                amount: mainPartRevenue,
                 paymentMethod: paymentTab,
-                staffId: tech.id,
+                staffId: mainStaffId,
                 appointmentId: apt.id,
                 hasReceipt: true
             });
 
+            // 2. Process each Add-on individually
+            addOnServices.forEach(addon => {
+                const addonStaffId = overrides[addon.id] || apt.staffId;
+                const addonStaffMember = staff.find(s => s.id === addonStaffId);
+                const addonPrice = getServicePrice(addon, addonStaffMember);
+                totalLtvIncrease += addonPrice;
+
+                const addonTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                batch.set(addonTxnRef, {
+                    date: now,
+                    description: `Add-on: ${addon.name}`,
+                    clientOrVendor: selectedClient?.name || 'Client',
+                    clientId: selectedClientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Service Revenue',
+                    amount: addonPrice,
+                    paymentMethod: paymentTab,
+                    staffId: addonStaffId,
+                    appointmentId: apt.id,
+                    hasReceipt: true
+                });
+            });
+
+            batch.update(appointmentRef, { 
+                status: 'completed', 
+                revenue: mainPartRevenue + addOnServices.reduce((sum, a) => sum + getServicePrice(a, staff.find(s => s.id === (overrides[a.id] || apt.staffId))), 0),
+                actualEndTime: now
+            });
+
+            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
+            
             // Set all involved staff to idle
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
-            if (apt.checkoutState?.serviceStaffOverrides) {
-                Object.values(apt.checkoutState.serviceStaffOverrides).forEach((id: any) => {
+            if (overrides) {
+                Object.values(overrides).forEach((id: any) => {
                     if (id && typeof id === 'string') involvedIds.add(id);
                 });
             }
@@ -610,7 +639,7 @@ function POSPageContent() {
                 date: now,
                 change: -item.quantity,
                 unit: 'units',
-                reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'} by ${currentUser?.displayName || 'Staff'}`,
+                reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}`,
             });
         });
 
@@ -659,7 +688,7 @@ function POSPageContent() {
 
         try {
             await batch.commit();
-            toast({ title: "Checkout Successful", description: "Inventory updated and transactions recorded." });
+            toast({ title: "Checkout Successful", description: "Performance and revenue data updated." });
             setRetailItems([]);
             setSelectedAppointmentIds(new Set());
             setTipAmount(0);
