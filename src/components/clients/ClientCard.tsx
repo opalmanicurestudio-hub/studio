@@ -8,13 +8,12 @@ import {
   ShieldPlus, 
   AlertTriangle, 
   Ear, 
-  Mail, 
-  Phone, 
   ShieldAlert, 
   Award, 
   Wallet,
   FileText,
-  DollarSign
+  DollarSign,
+  ArrowRight
 } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
@@ -38,7 +37,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
     const getInitials = (name: string) => {
         const parts = name.split(' ');
         if (parts.length > 1 && parts[parts.length - 1]) {
-            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            return (parts[0][0] + (parts[parts.length - 1][0]).toUpperCase()).toUpperCase();
         }
         return name.substring(0, 2).toUpperCase();
     };
@@ -84,27 +83,6 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                             </div>
                         </div>
                     </div>
-                    
-                    <div className="flex items-center gap-1.5 md:opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0">
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border-2 border-transparent hover:border-primary/20 hover:bg-primary/5 text-primary shadow-sm" asChild>
-                                        <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}><FileText className="h-4 w-4" /></Link>
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Open Dossier</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border-2 border-transparent hover:border-primary/20 hover:bg-primary/5 text-primary shadow-sm" asChild>
-                                        <Link href={`/pos?payer_id=${client.id}`} onClick={e => e.stopPropagation()}><DollarSign className="h-4 w-4" /></Link>
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Quick Checkout</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -133,19 +111,19 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                             {client.intel?.hasIncidents && (
                                 <Tooltip>
                                     <TooltipTrigger><ShieldAlert className="w-4 h-4 text-purple-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Incidents on file</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Incidents on file</TooltipContent>
                                 </Tooltip>
                             )}
                             {client.medicalNotes && (
                                 <Tooltip>
                                     <TooltipTrigger><ShieldPlus className="w-4 h-4 text-red-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Medical Alert</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Medical Alert</TooltipContent>
                                 </Tooltip>
                             )}
                             {client.allergyNotes && (
                                 <Tooltip>
                                     <TooltipTrigger><AlertTriangle className="w-4 h-4 text-orange-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Allergy Alert</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Allergy Alert</TooltipContent>
                                 </Tooltip>
                             )}
                         </div>
@@ -160,10 +138,44 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 </div>
             </CardContent>
             
-            <div className="p-2 pt-0 border-t bg-muted/5">
-                <Button variant="ghost" asChild className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all">
-                    <Link href={`/clients/${client.id}`}>
-                        <FileText className="mr-2 h-3.5 w-3.5" /> Open Complete Dossier
+            <div className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
+                <div className="flex gap-2">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                    asChild
+                                >
+                                    <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}>
+                                        <FileText className="h-5 w-5" />
+                                    </Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Open Dossier</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                    asChild
+                                >
+                                    <Link href={`/pos?payer_id=${client.id}`} onClick={e => e.stopPropagation()}>
+                                        <DollarSign className="h-5 w-5" />
+                                    </Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Quick Checkout</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+                <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
+                    <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}>
+                        View Record <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
                     </Link>
                 </Button>
             </div>
