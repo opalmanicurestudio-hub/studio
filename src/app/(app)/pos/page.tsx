@@ -15,12 +15,12 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, whe
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, isToday, isSameDay } from 'date-fns';
+import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart, Square } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,8 @@ import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentD
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -525,7 +527,6 @@ function POSPageContent() {
                     let currentSize = product.partialContainerSize || 0;
                     let currentStock = product.totalStock;
                     const sizePerContainer = product.size || 1;
-                    sizePerContainer;
                     currentSize -= item.quantity;
                     while (currentSize <= 0 && currentStock > 0) {
                         currentStock -= 1;
@@ -894,7 +895,7 @@ function POSPageContent() {
                             </div>
                         </div>
                     ) : (
-                        <>
+                        <div className="flex flex-col h-full w-full">
                             <div className="absolute top-6 left-[-24px] z-50">
                                 <Button 
                                     variant="outline" 
@@ -905,12 +906,10 @@ function POSPageContent() {
                                     <ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" />
                                 </Button>
                             </div>
-                            <ScrollArea className="flex-1">
-                                <div className="p-6">
-                                    <CheckoutHub {...checkoutHubProps} />
-                                </div>
-                            </ScrollArea>
-                        </>
+                            <div className="flex-1 overflow-y-auto p-6 pb-32">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
+                        </div>
                     )}
                 </aside>
             </div>
@@ -926,11 +925,9 @@ function POSPageContent() {
                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
                                 <SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
-                            <ScrollArea className="flex-1 bg-background">
-                                <div className="p-6">
-                                    <CheckoutHub {...checkoutHubProps} />
-                                </div>
-                            </ScrollArea>
+                            <div className="flex-1 bg-background overflow-y-auto p-6 pb-24">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
                         </SheetContent>
                     </Sheet>
                 </div>
