@@ -11,37 +11,25 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { 
     MoreHorizontal, 
     PlusCircle, 
     Clock, 
     DollarSign, 
     Sparkles, 
-    Box, 
-    List, 
     Pencil, 
     Search, 
     SlidersHorizontal, 
-    Info, 
-    ShoppingCart, 
-    Hammer, 
-    FileText, 
-    BarChart, 
-    Users, 
-    TrendingUp, 
-    MapPin, 
-    Book, 
-    Calendar as CalendarIcon, 
-    Landmark, 
-    Link as LinkIcon, 
-    EyeOff, 
     Trash2, 
     Calculator,
     ChevronLeft,
     ChevronRight,
     Filter,
-    Check
+    Check,
+    Link as LinkIcon,
+    BarChart,
+    ArrowRight
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -51,25 +39,22 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from '@/components/ui/label';
-import { type Service, type InventoryItem, type Appointment, type Resource, type Transaction, type PricingTier } from '@/lib/data';
-import { Progress } from '@/components/ui/progress';
-import Image from 'next/image';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Input } from '@/components/ui/input';
+import { type Service, type Appointment, type Transaction, type PricingTier } from '@/lib/data';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ServiceCardProps {
     service: Service;
@@ -83,7 +68,7 @@ interface ServiceCardProps {
     pricingTiers: PricingTier[];
 }
 
-const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, isSelected, onSelectItem, pricingTiers }) => {
+const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, tmhr, appointments, transactions, isSelected, onSelectItem, pricingTiers }) => {
   const { toast } = useToast();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -650,4 +635,8 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
             Add First Treatment
         </Button>
     </div>
+);
+
+const Book = ({ className }: { className?: string }) => (
+    <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
 );
