@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -5,14 +6,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,8 @@ import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { Textarea } from '@/components/ui/textarea';
+import { nanoid } from 'nanoid';
 
 /**
  * Utility to safely convert potential strings or Date objects into valid Date instances.
@@ -87,7 +90,7 @@ const CheckoutView = ({ qrCodeUrl, ticketId }: { qrCodeUrl: string, ticketId: st
     </ViewContainer>
 );
 
-const ThankYouView = ({ tenantId }: { tenantId: string }) => (
+const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveReview: () => void }) => (
     <ViewContainer>
         <ViewHeader title="Complete" subtitle="Session Finished" icon={CheckCircle2} />
         <CardContent className="p-10 text-center space-y-8">
@@ -101,7 +104,7 @@ const ThankYouView = ({ tenantId }: { tenantId: string }) => (
         </CardContent>
         <CardFooter className="p-8 pt-0 flex flex-col gap-3">
             <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><Link href={`/book/${tenantId}`}>Book Next Session</Link></Button>
-            <Button variant="ghost" className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
+            <Button variant="ghost" onClick={onLeaveReview} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
         </CardFooter>
     </ViewContainer>
 );
@@ -127,6 +130,86 @@ const CancelledView = ({ tenantId }: { tenantId?: string }) => (
             <Button asChild variant="ghost" className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
                 <Link href="/">Return to Homepage</Link>
             </Button>
+        </CardFooter>
+    </ViewContainer>
+);
+
+const ReviewFormView = ({ 
+    onSubmit, 
+    onCancel, 
+    serviceName, 
+    staffName 
+}: { 
+    onSubmit: (rating: number, text: string) => void, 
+    onCancel: () => void,
+    serviceName: string,
+    staffName: string 
+}) => {
+    const [rating, setRating] = useState(5);
+    const [text, setText] = useState('');
+    
+    return (
+        <ViewContainer>
+            <ViewHeader title="Feedback" subtitle={`How was your ${serviceName}?`} icon={Star} />
+            <CardContent className="p-8 space-y-8 text-center">
+                <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Rate your experience with {staffName}</p>
+                    <div className="flex justify-center gap-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                                key={star}
+                                type="button"
+                                onClick={() => setRating(star)}
+                                className="transition-all active:scale-90"
+                            >
+                                <Star 
+                                    className={cn(
+                                        "w-10 h-10 md:w-12 md:h-12 transition-colors",
+                                        star <= rating ? "text-amber-400 fill-current" : "text-muted opacity-30"
+                                    )} 
+                                />
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div className="space-y-3 text-left">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Your Story (Optional)</Label>
+                    <Textarea 
+                        placeholder="Share your thoughts on the treatment..." 
+                        className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20"
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                    />
+                </div>
+            </CardContent>
+            <CardFooter className="p-8 pt-0 flex flex-col gap-3">
+                <Button 
+                    onClick={() => onSubmit(rating, text)}
+                    className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30"
+                >
+                    Submit Review
+                </Button>
+                <Button variant="ghost" onClick={onCancel} className="w-full font-black uppercase tracking-widest text-[10px]">Maybe Later</Button>
+            </CardFooter>
+        </ViewContainer>
+    );
+};
+
+const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (
+    <ViewContainer>
+        <ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} />
+        <CardContent className="p-10 text-center space-y-6">
+            <div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
+                <Sparkles className="w-12 h-12 text-primary -rotate-6" />
+            </div>
+            <div className="space-y-2">
+                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p>
+            </div>
+        </CardContent>
+        <CardFooter className="p-8 pt-0">
+            <Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button>
         </CardFooter>
     </ViewContainer>
 );
@@ -221,6 +304,10 @@ export default function CheckInPage() {
     const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
     const [rescheduleTime, setRescheduleTime] = useState<string>('');
     
+    const [isReviewFlow, setIsReviewFlow] = useState(false);
+    const [reviewSubmitted, setReviewSubmitted] = useState(false);
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -330,6 +417,37 @@ export default function CheckInPage() {
         await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), { startTime: startDateTime.toISOString(), endTime: newEndTime.toISOString(), status: 'confirmed' as const, checkInStatus: 'pending' as const, lateTimeMinutes: 0, automatedRescheduleOffered: true, tenantId: tenantId });
         setRescheduleStep('confirmed');
     };
+
+    const handleSubmitReview = async (rating: number, text: string) => {
+        if (!appointment || !tenantId || !firestore) return;
+        setIsSubmittingReview(true);
+        
+        const reviewId = nanoid();
+        const newReview: any = {
+            id: reviewId,
+            tenantId: tenantId,
+            clientId: appointment.clientId,
+            clientName: client?.name || appointment.clientName || 'Guest',
+            clientAvatarUrl: client?.avatarUrl || '',
+            staffId: appointment.staffId || '',
+            serviceId: appointment.serviceId,
+            serviceName: service?.name || 'Service',
+            rating,
+            text,
+            isPublic: false, // Security: Let admin approve reviews before showing publicly
+            createdAt: new Date().toISOString(),
+        };
+
+        try {
+            await setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/reviews`, reviewId), newReview, {});
+            setReviewSubmitted(true);
+        } catch (e) {
+            console.error("Review submission failed", e);
+            toast({ variant: 'destructive', title: 'Submission Error', description: 'Could not log your feedback. Please try again.' });
+        } finally {
+            setIsSubmittingReview(false);
+        }
+    };
     
     const isLoading = appointmentLoading || clientLoading || serviceLoading || allAppointmentsLoading || scheduleProfilesLoading || tenantLoading || staffLoading;
 
@@ -337,12 +455,15 @@ export default function CheckInPage() {
     
     if (!appointment || !client || !service || !tenant) return <CancelledView />;
     
+    if (reviewSubmitted) return <ReviewSubmittedView onDone={() => { setReviewSubmitted(false); setIsReviewFlow(false); }} />;
+    if (isReviewFlow) return <ReviewFormView serviceName={service.name} staffName={assignedStaff?.name || 'your professional'} onSubmit={handleSubmitReview} onCancel={() => setIsReviewFlow(false)} />;
+
     if (appointment.status === 'servicing') return <ServicingView serviceName={service.name} />;
     if (appointment.status === 'ready_for_checkout') {
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://checkout/${appointment.id}`)}`;
         return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={appointment.id.slice(-6).toUpperCase()} />;
     }
-    if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} />;
+    if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
     if (appointment.status === 'cancelled' && currentStatus !== 'auto_cancelled') return <CancelledView tenantId={tenant.id} />;
 
     const renderCancellationFlow = () => {
@@ -586,7 +707,7 @@ export default function CheckInPage() {
                         </div>
                         <div className="space-y-2">
                             <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Checked In</h3>
-                            <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p>
+                            <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p>
                         </div>
                     </div>
                 ) : currentStatus === 'running_late' ? (
@@ -597,7 +718,7 @@ export default function CheckInPage() {
                             </div>
                             <div className="space-y-2">
                                 <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Noted: +{lateTime}m</h3>
-                                <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed">Thanks for the heads up! We've adjusted your arrival window on our end.</p>
+                                <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed text-center">Thanks for the heads up! We've adjusted your arrival window on our end.</p>
                             </div>
                         </div>
                         <Button size="lg" variant="outline" className="w-full h-20 rounded-[2rem] border-4 font-black uppercase tracking-[0.2em] text-lg hover:bg-green-50 hover:border-green-500/20 group" onClick={() => handleUpdateStatus('arrived')}>
