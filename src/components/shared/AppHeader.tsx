@@ -17,7 +17,7 @@ import { ClientOnly } from './ClientOnly';
 import { useUser, useAuth } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { useNotifications, type Notification } from '@/context/NotificationContext';
+import { useNotifications } from '@/context/NotificationContext';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useMemo } from 'react';
@@ -63,17 +63,21 @@ export function AppHeader({ title }: { title?: string }) {
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-8 print:hidden">
       <div className="flex flex-1 items-center gap-4">
         <SidebarTrigger className="hover:bg-primary/10 transition-colors" />
-        <h1 className="text-xl font-black uppercase tracking-tighter text-slate-900 md:text-2xl">{title}</h1>
+        {title && (
+          <h1 className="text-sm sm:text-lg font-black uppercase tracking-tighter text-slate-900 md:text-xl truncate max-w-[150px] sm:max-w-none">
+            {title}
+          </h1>
+        )}
       </div>
       
-      <div className="flex items-center gap-4 md:gap-6">
+      <div className="flex items-center gap-2 md:gap-6">
         <ClientOnly>
           <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-full relative hover:bg-primary/5 transition-all">
+                  <Button variant="ghost" size="icon" className="rounded-full relative hover:bg-primary/5 transition-all h-10 w-10">
                       <Bell className="h-5 w-5" />
                       {unreadCount > 0 && (
-                          <span className="absolute top-1 right-1 flex h-2.5 w-2.5">
+                          <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary border-2 border-background"></span>
                           </span>
@@ -88,14 +92,27 @@ export function AppHeader({ title }: { title?: string }) {
                         <span className="font-black uppercase tracking-[0.2em] text-[10px] text-slate-900">Studio Intel</span>
                       </div>
                       {hasUnread && (
-                        <Button variant="ghost" size="xs" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm" onClick={markAllAsRead}>Clear Alerts</Button>
+                        <Button 
+                          variant="ghost" 
+                          size="xs" 
+                          className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm" 
+                          onClick={markAllAsRead}
+                        >
+                          Clear Alerts
+                        </Button>
                       )}
                   </DropdownMenuLabel>
                   <div className="max-h-[450px] overflow-y-auto">
                     {notifications.length > 0 ? (
                         <div className="divide-y-2 divide-dashed divide-border/50">
                             {notifications.map(notification => (
-                                <DropdownMenuItem key={notification.id} className={cn("flex items-start gap-4 p-5 transition-all focus:bg-primary/[0.03]", notification.read ? 'opacity-40 grayscale-[0.5]' : 'bg-primary/[0.01]')}>
+                                <DropdownMenuItem 
+                                  key={notification.id} 
+                                  className={cn(
+                                    "flex items-start gap-4 p-5 transition-all focus:bg-primary/[0.03] cursor-pointer", 
+                                    notification.read ? 'opacity-40 grayscale-[0.5]' : 'bg-primary/[0.01]'
+                                  )}
+                                >
                                     <div className="mt-1 p-2 bg-background rounded-xl border shadow-inner shrink-0">{notification.icon}</div>
                                     <Link href={notification.link || '#'} className="flex-1 space-y-1 min-w-0">
                                         <p className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-relaxed text-slate-900 line-clamp-2">{notification.message}</p>
@@ -138,51 +155,55 @@ export function AppHeader({ title }: { title?: string }) {
             <DropdownMenuTrigger asChild>
                 <div className="flex items-center gap-3 cursor-pointer group transition-all">
                     <div className="hidden sm:flex flex-col items-end">
-                        <p className="text-sm font-black uppercase tracking-tight text-slate-900 group-hover:text-primary transition-colors">{displayName || 'Admin'}</p>
-                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60 leading-none">{role}</p>
+                        <p className="text-sm font-black uppercase tracking-tight text-slate-900 group-hover:text-primary transition-colors leading-none">{displayName || 'Admin'}</p>
+                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60 leading-none mt-1">{role}</p>
                     </div>
-                    <Avatar className="h-10 w-10 border-2 border-transparent group-hover:border-primary/20 transition-all shadow-sm">
+                    <Avatar className="h-10 w-10 border-2 border-transparent group-hover:border-primary/20 transition-all shadow-sm rounded-xl">
                         <AvatarImage src={avatarUrl || undefined} alt="User" className="object-cover" />
                         <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{initials}</AvatarFallback>
                     </Avatar>
                 </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60 rounded-2xl shadow-2xl border-2 p-2">
-              <DropdownMenuLabel className="px-3 py-2 font-black uppercase tracking-widest text-[10px] text-muted-foreground">My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator className="mx-1" />
+            <DropdownMenuContent align="end" className="w-64 rounded-[2rem] shadow-3xl border-4 p-2 overflow-hidden bg-background">
+              <DropdownMenuLabel className="px-4 py-3 font-black uppercase tracking-widest text-[10px] text-muted-foreground opacity-60 border-b mb-1">
+                Account Signature
+              </DropdownMenuLabel>
               {role === 'owner' && (
                 <div className="space-y-1">
-                  <DropdownMenuItem asChild className="rounded-xl">
-                    <Link href="/staff" className="flex items-center w-full font-bold">
-                      <Users className="w-4 h-4 mr-2 text-primary" />
+                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/staff" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                      <Users className="w-4 h-4 mr-3 text-primary opacity-40" />
                       <span>Team Manager</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="rounded-xl">
-                    <Link href="/settings" className="flex items-center w-full font-bold">
-                      <Settings className="w-4 h-4 mr-2 text-primary" />
+                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/settings" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                      <Settings className="w-4 h-4 mr-3 text-primary opacity-40" />
                       <span>Studio Settings</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="rounded-xl">
-                    <Link href="/subscriptions" className="flex items-center w-full font-bold">
-                      <CreditCard className="w-4 h-4 mr-2 text-primary" />
+                  <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href="/subscriptions" className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                      <CreditCard className="w-4 h-4 mr-3 text-primary opacity-40" />
                       <span>Billing & Pro</span>
                     </Link>
                   </DropdownMenuItem>
                 </div>
               )}
               {role === 'staff' && (
-                 <DropdownMenuItem asChild className="rounded-xl">
-                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full font-bold">
-                      <User className="w-4 h-4 mr-2 text-primary" />
+                 <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
+                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
+                      <User className="w-4 h-4 mr-3 text-primary opacity-40" />
                       <span>My Profile</span>
                     </Link>
                   </DropdownMenuItem>
               )}
-              <DropdownMenuSeparator className="mx-1" />
-              <DropdownMenuItem onClick={handleLogout} className="rounded-xl text-destructive font-bold focus:bg-destructive/5 focus:text-destructive">
-                <LogOut className="w-4 h-4 mr-2" />
+              <DropdownMenuSeparator className="mx-1 my-2" />
+              <DropdownMenuItem 
+                onClick={handleLogout} 
+                className="rounded-xl h-11 text-destructive font-black uppercase text-[10px] tracking-widest focus:bg-destructive/5 focus:text-destructive cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 mr-3" />
                 <span>Sign Out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
