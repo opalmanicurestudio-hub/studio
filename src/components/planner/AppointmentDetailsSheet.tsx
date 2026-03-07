@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -101,8 +102,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
-  // CRITICAL FIX: Synchronize with the live appointment from the global collection
-  // This ensures the UI updates immediately after "Add Part" completes.
+  // Synchronize with the live appointment from the global collection
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
     return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
@@ -234,36 +234,45 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
-          side="right"
+          side={isMobile ? "bottom" : "right"}
           className={cn(
-            isMobile ? 'h-[95vh] rounded-t-[3rem]' : 'sm:max-w-xl',
-            'flex flex-col p-0 border-none bg-background shadow-2xl'
+            isMobile ? 'h-[90vh] rounded-t-[2.5rem]' : 'sm:max-w-xl',
+            'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden'
           )}
         >
-          <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+          <SheetHeader className={cn(
+            "border-b bg-muted/5 flex-shrink-0 text-left",
+            isMobile ? "p-6" : "p-8 pb-6"
+          )}>
             <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
+              <Sparkles className="w-4 h-4 text-primary" />
               <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
                 Session Dossier
               </span>
             </div>
-            <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+            <SheetTitle className={cn(
+              "font-black uppercase tracking-tighter text-slate-900 leading-none",
+              isMobile ? "text-xl" : "text-3xl"
+            )}>
               Session Summary
             </SheetTitle>
-            <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60">
+            <SheetDescription className="text-[9px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
               ID: {ticketId}
             </SheetDescription>
           </SheetHeader>
 
           <ScrollArea className="flex-1">
-            <div className="p-8 space-y-10 pb-32">
+            <div className={cn("space-y-8 pb-32", isMobile ? "p-6" : "p-8")}>
               {appointment.status === 'confirmed' && (
                 <Button
                   onClick={() => onStartService(appointment.id)}
-                  className="w-full h-16 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/20"
+                  className={cn(
+                    "w-full rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20",
+                    isMobile ? "h-14 text-base" : "h-16 text-lg"
+                  )}
                   size="lg"
                 >
-                  <Play className="mr-3 h-6 w-6" /> Start Session
+                  <Play className="mr-3 h-5 w-5 sm:h-6 sm:w-6" /> Start Session
                 </Button>
               )}
 
@@ -271,26 +280,31 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <div className="space-y-4">
                   <Button
                     onClick={() => onFinishService(appointment)}
-                    className="w-full h-16 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/20"
+                    className={cn(
+                      "w-full rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20",
+                      isMobile ? "h-14 text-base" : "h-16 text-lg"
+                    )}
                     size="lg"
                   >
-                    <Square className="mr-3 h-6 w-6" /> Finish Service
+                    <Square className="mr-3 h-5 w-5 sm:h-6 sm:w-6" /> Finish Service
                   </Button>
                   {elapsedTime && (
                     <div
                       className={cn(
-                        'p-6 rounded-[2rem] border-4 text-center transition-all',
+                        'rounded-[1.5rem] md:rounded-[2rem] border-4 text-center transition-all',
+                        isMobile ? "p-4" : "p-6",
                         isRunningOver
                           ? 'bg-destructive/5 border-destructive animate-pulse'
                           : 'bg-primary/5 border-primary/20'
                       )}
                     >
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-1">
                         Live Session Time
                       </p>
                       <p
                         className={cn(
-                          'text-5xl font-black font-mono tracking-tighter',
+                          'font-black font-mono tracking-tighter',
+                          isMobile ? "text-4xl" : "text-5xl",
                           isRunningOver ? 'text-destructive' : 'text-primary'
                         )}
                       >
@@ -301,28 +315,28 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
               )}
 
-              <div className="space-y-8">
-                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6">
-                  <Avatar className="w-24 h-24 border-4 border-background shadow-2xl rounded-[2.5rem]">
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
+                  <Avatar className="w-20 h-20 md:w-24 md:h-24 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]">
                     <AvatarImage src={client.avatarUrl} className="object-cover" />
-                    <AvatarFallback className="text-2xl font-black bg-primary/10 text-primary">
+                    <AvatarFallback className="text-xl font-black bg-primary/10 text-primary">
                       {client.name.substring(0, 2)}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="space-y-2 flex-1 min-w-0">
-                    <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 truncate">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-2xl" : "text-3xl")}>
                       {client.name}
                     </h2>
-                    <div className="flex flex-wrap justify-center sm:justify-start gap-3">
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-2">
                       <Badge
                         variant="outline"
-                        className="h-6 px-3 rounded-full font-black uppercase text-[9px] tracking-widest border-2"
+                        className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2"
                       >
-                        <UserIcon className="w-3 h-3 mr-1.5 opacity-40" /> Guest Account
+                        <UserIcon className="w-2.5 h-2.5 mr-1 opacity-40" /> Guest
                       </Badge>
                       {client.activeMembershipId && (
-                        <Badge className="h-6 px-3 rounded-full font-black uppercase text-[9px] tracking-widest bg-indigo-600 text-white border-none shadow-md">
-                          <Award className="w-3 h-3 mr-1.5" /> Studio Member
+                        <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none shadow-md">
+                          <Award className="w-2.5 h-2.5 mr-1" /> Member
                         </Badge>
                       )}
                     </div>
@@ -333,71 +347,70 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <Alert
                       variant="destructive"
-                      className="bg-destructive/5 border-destructive/20 border-4 rounded-[2rem] p-6 shadow-xl shadow-destructive/5"
+                      className="bg-destructive/5 border-destructive/20 border-2 rounded-[1.5rem] p-4 shadow-xl shadow-destructive/5"
                     >
-                      <Wallet className="h-6 w-6" />
-                      <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">
+                      <Wallet className="h-5 w-5" />
+                      <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">
                         Accounting Alert
                       </AlertTitle>
-                      <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
-                        Client has an outstanding balance of <strong>${client.outstandingBalance.toFixed(2)}</strong>. Settle at
-                        checkout.
+                      <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
+                        Client owes <strong>${client.outstandingBalance.toFixed(2)}</strong>. Settle at checkout.
                       </AlertDescription>
                     </Alert>
                   </motion.div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Button variant="outline" className="h-12 rounded-2xl border-2 font-bold justify-start" asChild>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button variant="outline" className="h-11 rounded-xl border-2 font-bold justify-start text-xs" asChild>
                     <Link href={`/clients/${client.id}`}>
-                      <UserIcon className="mr-2 h-4 w-4" /> Client Profile
+                      <UserIcon className="mr-2 h-3.5 w-3.5" /> Client Profile
                     </Link>
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-12 rounded-2xl border-2 font-bold justify-start"
+                    className="h-11 rounded-xl border-2 font-bold justify-start text-xs"
                     onClick={handleCopyCheckInLink}
                   >
-                    <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
+                    <LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link
                   </Button>
                 </div>
               </div>
 
               <Separator className="bg-muted/50" />
 
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                     Treatment Details
                   </h3>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setIsAddAndConfigureOpen(true)}
-                    className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"
+                    className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"
                   >
-                    <PlusCircle className="w-3 h-3 mr-1.5" />
+                    <PlusCircle className="w-3 h-3 mr-1" />
                     Add Part
                   </Button>
                 </div>
-                <Card className="rounded-[2.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
-                  <CardContent className="p-6 space-y-6">
+                <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+                  <CardContent className="p-5 space-y-4">
                     <div className="flex justify-between items-start gap-4">
                       <div className="space-y-1">
-                        <p className="font-black text-xl uppercase tracking-tight text-slate-900 leading-tight">
+                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">
                           {service.name}
                         </p>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                          <Clock className="w-3 h-3" /> {service.duration}m duration
+                        <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                          <Clock className="w-2.5 h-2.5" /> {service.duration}m duration
                         </div>
                       </div>
-                      <p className="text-2xl font-black text-primary tracking-tighter font-mono">
+                      <p className="text-xl font-black text-primary tracking-tighter font-mono">
                         ${financialData?.revenue.toFixed(2)}
                       </p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
-                      <div className="space-y-2 pt-4 border-t border-dashed">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">
+                      <div className="space-y-1.5 pt-3 border-t border-dashed">
+                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest">
                           Add-ons Applied
                         </p>
                         {(appointment.addOnIds || []).map((id) => {
@@ -405,7 +418,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                           return s ? (
                             <div
                               key={id}
-                              className="flex justify-between text-sm font-bold uppercase tracking-tight text-slate-600"
+                              className="flex justify-between text-xs font-bold uppercase tracking-tight text-slate-600"
                             >
                               <span>+ {s.name}</span>
                               <span>${s.price.toFixed(2)}</span>
@@ -419,63 +432,63 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </div>
 
               {isOwnerOrAdmin && financialData && (
-                <div className="space-y-6">
-                  <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                <div className="space-y-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                     Yield Analysis
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-5 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-1">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-primary opacity-60">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">
                         Gross Yield
                       </p>
-                      <p className="text-2xl font-black font-mono tracking-tighter text-primary">
+                      <p className="text-xl font-black font-mono tracking-tighter text-primary">
                         ${financialData.revenue.toFixed(2)}
                       </p>
                     </div>
-                    <div className="p-5 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-1 text-right">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-destructive opacity-60">
+                    <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1 text-right">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-destructive opacity-60">
                         Est. COGS
                       </p>
-                      <p className="text-2xl font-black font-mono tracking-tighter text-destructive">
+                      <p className="text-xl font-black font-mono tracking-tighter text-destructive">
                         ${financialData.breakEven.toFixed(2)}
                       </p>
                     </div>
                     <div
                       className={cn(
-                        'col-span-2 p-6 rounded-[2rem] border-4 flex justify-between items-center',
+                        'col-span-2 p-5 rounded-2xl border-2 flex justify-between items-center',
                         financialData.profit >= 0
                           ? 'bg-green-500/5 border-green-500/20 text-green-700'
                           : 'bg-destructive/5 border-destructive/20 text-destructive'
                       )}
                     >
                       <div className="space-y-0.5 text-left">
-                        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
                           Net Transaction Profit
                         </p>
-                        <p className="text-3xl font-black tracking-tighter font-mono">
+                        <p className="text-2xl font-black tracking-tighter font-mono">
                           ${financialData.profit.toFixed(2)}
                         </p>
                       </div>
-                      <div className="p-3 bg-white rounded-2xl shadow-inner">
-                        <TrendingUp className="w-6 h-6" />
+                      <div className="p-2.5 bg-white rounded-xl shadow-inner">
+                        <TrendingUp className="w-5 h-5" />
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="space-y-6">
-                <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground opacity-60">
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                   Health & Intel
                 </h3>
                 <div className="space-y-3">
                   {client.medicalNotes && (
-                    <Alert variant="destructive" className="border-2 rounded-2xl bg-red-500/5">
+                    <Alert variant="destructive" className="border-2 rounded-xl bg-red-500/5">
                       <ShieldAlert className="h-4 w-4" />
-                      <AlertTitle className="text-[10px] font-black uppercase">
+                      <AlertTitle className="text-[9px] font-black uppercase">
                         Medical Alert
                       </AlertTitle>
-                      <AlertDescription className="text-xs font-bold opacity-80">
+                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase">
                         {client.medicalNotes}
                       </AlertDescription>
                     </Alert>
@@ -483,25 +496,25 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   {client.allergyNotes && (
                     <Alert
                       variant="destructive"
-                      className="border-2 rounded-2xl bg-amber-500/5 text-amber-700 border-amber-200"
+                      className="border-2 rounded-xl bg-amber-500/5 text-amber-700 border-amber-200"
                     >
                       <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle className="text-[10px] font-black uppercase">
+                      <AlertTitle className="text-[9px] font-black uppercase">
                         Allergy Warning
                       </AlertTitle>
-                      <AlertDescription className="text-xs font-bold opacity-80">
+                      <AlertDescription className="text-[10px] font-bold opacity-80 uppercase">
                         {client.allergyNotes}
                       </AlertDescription>
                     </Alert>
                   )}
-                  <Card className="rounded-[2rem] border-2 bg-muted/5">
-                    <CardHeader className="p-5 pb-2">
-                      <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                        <FileText className="w-3.5 h-3.5" /> Discovery Notes
+                  <Card className="rounded-[1.5rem] border-2 bg-muted/5">
+                    <CardHeader className="p-4 pb-1">
+                      <CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                        <FileText className="w-3 h-3" /> Discovery Notes
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-5 pt-0">
-                      <p className="text-xs font-medium text-slate-600 leading-relaxed italic">
+                    <CardContent className="p-4 pt-0">
+                      <p className="text-[11px] font-medium text-slate-600 leading-relaxed italic">
                         "{client.notes?.general || 'No session notes provided.'}"
                       </p>
                     </CardContent>
@@ -510,11 +523,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </div>
             </div>
           </ScrollArea>
-          <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
-            <div className="grid grid-cols-2 gap-4 w-full">
+          
+          <SheetFooter className="p-6 sm:p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+            <div className="grid grid-cols-2 gap-3 w-full">
               <Button
                 variant="outline"
-                className="h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2"
+                className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
                 onClick={() => {
                   onOpenChange(false);
                   setTimeout(() => onEdit(appointment), 150);
@@ -524,13 +538,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </Button>
               <Button
                 variant="ghost"
-                className="h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/5"
+                className="h-12 rounded-xl font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/5"
                 onClick={() => {
                   onOpenChange(false);
                   onDelete(appointment.id);
                 }}
               >
-                Delete Permanently
+                Purge Record
               </Button>
             </div>
           </SheetFooter>
