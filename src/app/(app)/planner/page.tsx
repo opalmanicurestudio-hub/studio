@@ -386,7 +386,6 @@ function PlannerPageContent() {
                             </div>
                         )}
                         <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
-                        <Button size="lg" className="flex-1 md:flex-none h-10 sm:h-14 px-4 sm:px-8 rounded-xl sm:rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20" onClick={() => { setClientForNewApt(null); setIsAddAppointmentOpen(true); }}><PlusCircle className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4"/>{isMobile ? 'New' : 'New Session'}</Button>
                     </div>
                 </div>
 
