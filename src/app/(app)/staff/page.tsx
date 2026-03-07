@@ -27,7 +27,8 @@ import {
   Trash2, 
   KeyRound, 
   Loader, 
-  RefreshCw 
+  RefreshCw,
+  EyeOff
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -77,6 +78,7 @@ import { useToast } from '@/hooks/use-toast';
 import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { firebaseConfig } from '@/firebase/config';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * Utility to safely convert potential strings, Timestamps or Date objects into valid Date instances.
@@ -151,12 +153,26 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
         <Card className={cn("text-center flex flex-col border-2 shadow-sm rounded-[2rem] overflow-hidden", !member.active && "opacity-60 grayscale-[0.5]")}>
             <CardHeader className="p-4 bg-muted/5 border-b">
                  <div className="flex justify-between items-center">
-                    <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize font-black text-[9px] tracking-widest px-3 h-6 border-2", {
-                        'bg-green-500 text-white border-none': member.active && !member.onBreak,
-                        'bg-amber-500 text-white border-none': member.active && member.onBreak,
-                    })}>
-                        {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                        <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize font-black text-[9px] tracking-widest px-3 h-6 border-2", {
+                            'bg-green-500 text-white border-none': member.active && !member.onBreak,
+                            'bg-amber-500 text-white border-none': member.active && member.onBreak,
+                        })}>
+                            {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
+                        </Badge>
+                        {member.showOnPublicPage === false && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="p-1 bg-muted rounded-full">
+                                            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Hidden from Public Booking</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1">
@@ -548,6 +564,7 @@ export default function StaffPage() {
         retailCommissionRate: data.retailCommissionRate || 10,
         hourlyRate: data.hourlyRate,
         pin: data.pin,
+        showOnPublicPage: data.showOnPublicPage,
       };
 
       const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));

@@ -11,7 +11,12 @@ import { Instagram, Star, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
-  if (!staff || staff.length === 0 || tenant?.bookingPageSettings?.showTeam === false) {
+  const visibleStaff = useMemo(() => {
+    if (!staff) return [];
+    return staff.filter(member => member.showOnPublicPage !== false);
+  }, [staff]);
+
+  if (visibleStaff.length === 0 || tenant?.bookingPageSettings?.showTeam === false) {
     return null;
   }
 
@@ -24,7 +29,7 @@ export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; sta
 
       <ScrollArea className="w-full pb-8">
         <div className="flex space-x-8 px-4">
-          {staff.map((member, idx) => (
+          {visibleStaff.map((member, idx) => (
             <motion.div 
                 key={member.id}
                 initial={{ opacity: 0, x: 20 }}
@@ -47,7 +52,7 @@ export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; sta
                             
                             <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end text-white">
                                 <div className="space-y-1">
-                                    <p className="font-black text-xl md:text-2xl uppercase tracking-tighter leading-none">{member.name?.split(' ')[0]}<br/>{member.name?.split(' ')[1]}</p>
+                                    <p className="font-black text-xl md:text-2xl uppercase tracking-tighter leading-none">{(member.name || 'Staff').split(' ')[0]}<br/>{(member.name || '').split(' ')[1] || ''}</p>
                                     <div className="flex items-center gap-1 text-[10px] font-black text-primary-foreground/80 uppercase tracking-widest">
                                         <Star className="w-3 h-3 fill-current text-primary" /> 
                                         <span>4.9 Mastery</span>
@@ -84,3 +89,4 @@ const Image = ({ src, alt, fill, className }: any) => (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={src} alt={alt} className={cn(className, fill ? "absolute inset-0 w-full h-full" : "")} />
 );
+import { useMemo } from 'react';

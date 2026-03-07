@@ -94,6 +94,7 @@ export type Staff = {
   }[];
   assignedFormIds?: string[];
   active?: boolean;
+  showOnPublicPage?: boolean;
   onBreak?: boolean;
   breakStartTime?: string; // ISO date string
   status?: 'idle' | 'busy';

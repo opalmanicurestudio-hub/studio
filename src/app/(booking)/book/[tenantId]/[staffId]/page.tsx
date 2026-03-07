@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -227,11 +228,11 @@ export default function StaffDetailPage() {
       )
   }
 
-  if (!staffMember) {
+  if (!staffMember || staffMember.showOnPublicPage === false) {
     return (
       <div className="text-center py-20">
         <h2 className="text-2xl font-bold">Staff Member Not Found</h2>
-        <p className="text-muted-foreground mt-2">The profile you're looking for doesn't exist.</p>
+        <p className="text-muted-foreground mt-2">The profile you're looking for doesn't exist or is not visible.</p>
         <Button asChild className="mt-6">
             <Link href={`/book/${tenantId}`}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
@@ -269,7 +270,7 @@ export default function StaffDetailPage() {
                 <div className="text-center space-y-4">
                     <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
                         <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
-                        <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
+                        <AvatarFallback>{(staffMember.name || 'S').substring(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div>
                         <h1 className="text-3xl font-bold">{staffMember.name}</h1>

@@ -40,7 +40,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin as PinIcon, Youtube, Clock, KeyRound, RefreshCw } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin as PinIcon, Youtube, Clock, KeyRound, RefreshCw, EyeOff } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -149,6 +149,7 @@ const editStaffSchema = z.object({
       documentUrl: z.string().optional(),
   }).optional(),
   pin: z.string().length(4, "PIN must be exactly 4 digits."),
+  showOnPublicPage: z.boolean().default(true),
 }).superRefine((data, ctx) => {
     if (data.payStructure === 'commission') {
         if (data.commissionRate === undefined || data.commissionRate === null) {
@@ -294,6 +295,24 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                                 </div>
                             </div>
 
+                            <div className="flex items-center justify-between p-4 border-2 border-dashed rounded-xl mt-4 bg-muted/5">
+                                <div className="space-y-0.5">
+                                    <Label htmlFor="show-on-public" className="text-xs font-black uppercase tracking-tight">Public Visibility</Label>
+                                    <p className="text-[10px] text-muted-foreground font-medium">Show this provider on the client-facing booking page.</p>
+                                </div>
+                                <Controller
+                                    name="showOnPublicPage"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Switch
+                                            id="show-on-public"
+                                            checked={field.value}
+                                            onCheckedChange={field.onChange}
+                                        />
+                                    )}
+                                />
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
@@ -389,18 +408,18 @@ const EditStaffForm = ({ services, consentForms, pricingTiers, staffMember, onSe
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Wallet className="w-5 h-5 text-primary"/>Pay Structure</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <Controller name="payStructure" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="payStructure-edit">Pay Structure</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="payStructure-edit"><SelectValue placeholder="Select a pay structure" /></SelectTrigger><SelectContent><SelectItem value="commission">Commission</SelectItem><SelectItem value="hourly">Hourly</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select>{errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}</div> )}/>
+                             <Controller name="payStructure" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="payStructure-edit">Pay Structure</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="payStructure-edit"><SelectValue placeholder="Select a pay structure" /></SelectTrigger><SelectContent><SelectItem value="commission">Commission</SelectItem><SelectItem value="hourly">Hourly</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select>{errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}</div> )}/>
                             {payStructure === 'commission' && (
                                 <>
-                                <Controller name="commissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="commissionRate-edit">Service Commission Rate (%)</Label><Input id="commissionRate-edit" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
-                                <Controller name="retailCommissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="retailCommissionRate-edit">Retail Commission Rate (%)</Label><Input id="retailCommissionRate-edit" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
+                                <Controller name="commissionRate" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="commissionRate-edit">Service Commission Rate (%)</Label><Input id="commissionRate-edit" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
+                                <Controller name="retailCommissionRate" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="retailCommissionRate-edit">Retail Commission Rate (%)</Label><Input id="retailCommissionRate-edit" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
                                  <Controller
                                     name="payoutFrequency"
                                     control={control}
                                     render={({ field }) => (
                                         <div className="space-y-2">
                                             <Label htmlFor="payoutFrequency-edit">Payout Frequency</Label>
-                                            <Select onValueChange={field.onChange} value={field.value}>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <SelectTrigger id="payoutFrequency-edit">
                                                     <SelectValue placeholder="Select frequency" />
                                                 </SelectTrigger>
@@ -589,6 +608,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             documents: staffMember.documents || [],
             assignedFormIds: staffMember.assignedFormIds || [],
             pin: staffMember.pin || '',
+            showOnPublicPage: staffMember.showOnPublicPage !== false,
         });
     }
   }, [staffMember, reset]);
@@ -671,6 +691,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
             : undefined,
         pin: data.pin,
+        showOnPublicPage: data.showOnPublicPage,
     };
 
     // Sanitize the object to remove undefined values

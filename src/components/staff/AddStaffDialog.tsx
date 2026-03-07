@@ -92,6 +92,7 @@ const addStaffSchema = z.object({
       documentUrl: z.string().optional(),
   }).optional(),
   pin: z.string().length(4, "PIN must be exactly 4 digits."),
+  showOnPublicPage: z.boolean().default(true),
 }).superRefine(({ confirmPassword, password }, ctx) => {
     if (confirmPassword !== password) {
         ctx.addIssue({
@@ -200,6 +201,24 @@ const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Serv
                                     />
                                     <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tighter">This PIN is required for clocking in/out and overrides.</p>
                                 </div>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg mt-4">
+                                <div className="space-y-0.5">
+                                    <Label htmlFor="showOnPublicPage">Show on Public Booking Page</Label>
+                                    <p className="text-xs text-muted-foreground">If disabled, this staff member will be hidden from the public team list and booking selection.</p>
+                                </div>
+                                <Controller
+                                    name="showOnPublicPage"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Switch
+                                            id="showOnPublicPage"
+                                            checked={field.value}
+                                            onCheckedChange={field.onChange}
+                                        />
+                                    )}
+                                />
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
@@ -437,6 +456,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       services: [],
       assignedFormIds: [],
       pin: '',
+      showOnPublicPage: true,
     },
   });
 
@@ -470,6 +490,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         services: [],
         assignedFormIds: [],
         pin: newPin,
+        showOnPublicPage: true,
       });
     }
   }, [open, reset, pricingTiers, existingStaff]);
