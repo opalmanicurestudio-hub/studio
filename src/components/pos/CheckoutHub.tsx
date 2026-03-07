@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -187,7 +187,7 @@ export const CheckoutHub = ({
     const [promoCodeInput, setPromoCodeInput] = useState('');
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
-    const { appointments: allAppointments, staff, services } = useInventory();
+    const { appointments: allAppointments, staff, services, inventory } = useInventory();
     const { role, selectedTenant } = useTenant();
     const { toast } = useToast();
     const isMobile = useIsMobile();
@@ -293,9 +293,66 @@ export const CheckoutHub = ({
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
+    const FinancialSummary = ({ isInsideScroll }: { isInsideScroll: boolean }) => (
+        <div className={cn("space-y-1.5 md:space-y-2 text-sm px-1", isInsideScroll ? "pt-6 border-t border-dashed" : "pt-4 md:pt-6")}>
+            <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
+                <p>Subtotal</p>
+                <p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p>
+            </div>
+            {(discount + membershipDiscount) > 0 && (
+                <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
+                    <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Savings Applied</span>
+                    <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
+                </div>
+            )}
+            {appliedAdjustments.size > 0 && (
+                <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter">
+                    <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
+                    <span className="font-mono text-[11px] md:text-xs">+{Array.from(appliedAdjustments).reduce((sum, id) => {
+                        const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+                        return sum + (fee?.feeAmount || 0);
+                    }, 0).toFixed(2)}</span>
+                </div>
+            )}
+            <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
+                <p>Studio Tax (7%)</p>
+                <p className="font-mono text-[11px] md:text-xs">${tax.toFixed(2)}</p>
+            </div>
+            
+            <div className="flex justify-between items-center py-1 md:py-2">
+                <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
+                <div className="relative w-32 md:w-36">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
+                    <Input type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
+                </div>
+            </div>
+
+            {allInvolvedStaff.length > 1 && (
+                <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
+                    <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 h-3" /> Distribution Matrix</p>
+                    {allInvolvedStaff.map((member: any) => (
+                        <div key={member.id} className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
+                                    <AvatarImage src={member.avatarUrl} className="object-cover" />
+                                    <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
+                            </div>
+                            <div className="relative w-20 md:w-24">
+                                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
+                                <Input type="number" value={tipAllocations[member.id] || ''} onChange={(e) => setTipAllocations({...tipAllocations, [member.id]: parseFloat(e.target.value) || 0})} className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
     return (
         <div className="flex flex-col h-full">
-            <div className="mb-4 md:mb-8 flex-shrink-0">
+            <div className={cn("mb-4 md:mb-8 flex-shrink-0", isMobile && "mb-3 px-1")}>
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
@@ -421,9 +478,9 @@ export const CheckoutHub = ({
                                     
                                     return (
                                         <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
-                                            <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
+                                            <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
                                                 <div className="flex justify-between items-start gap-4">
-                                                    <div className="flex-1 min-w-0 text-left">
+                                                    <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2 mb-1">
                                                             <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
                                                             {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
@@ -541,63 +598,41 @@ export const CheckoutHub = ({
                             </div>
                         )}
                     </div>
+
+                    {isMobile && !isCartEmpty && (
+                        <div className="pb-10">
+                            <FinancialSummary isInsideScroll={true} />
+                        </div>
+                    )}
                 </div>
             </ScrollArea>
             
             <div className="flex-shrink-0 pt-4 md:pt-6 border-t-4 border-muted/30 bg-white">
-                <div className="space-y-1.5 md:space-y-2 text-sm px-1">
-                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60"><p>Subtotal</p><p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p></div>
-                    {(discount + membershipDiscount) > 0 && (
-                        <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-                            <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Savings Applied</span>
-                            <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
-                        </div>
-                    )}
-                    {appliedAdjustments.size > 0 && (
-                        <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter">
-                            <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
-                            <span className="font-mono text-[11px] md:text-xs">+{Array.from(appliedAdjustments).reduce((sum, id) => {
-                                const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                                return sum + (fee?.feeAmount || 0);
-                            }, 0).toFixed(2)}</span>
-                        </div>
-                    )}
-                    <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60"><p>Studio Tax (7%)</p><p className="font-mono text-[11px] md:text-xs">${tax.toFixed(2)}</p></div>
-                    <div className="flex justify-between items-center py-1 md:py-2">
-                        <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-                        <div className="relative w-32 md:w-36">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-                            <Input type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
-                        </div>
-                    </div>
-                    {allInvolvedStaff.length > 1 && (
-                        <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
-                            <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 h-3" /> Distribution Matrix</p>
-                            {allInvolvedStaff.map((member: any) => (
-                                <div key={member.id} className="flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg"><AvatarImage src={member.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback></Avatar>
-                                        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
-                                    </div>
-                                    <div className="relative w-20 md:w-24">
-                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
-                                        <Input type="number" value={tipAllocations[member.id] || ''} onChange={(e) => setTipAllocations({...tipAllocations, [member.id]: parseFloat(e.target.value) || 0})} className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    <Separator className="my-2 md:my-4" />
-                    <div className="flex justify-between items-baseline font-black text-2xl md:text-4xl text-primary tracking-tighter px-1 pb-2">
-                        <div className="space-y-0.5">
+                {!isMobile && (
+                    <FinancialSummary isInsideScroll={false} />
+                )}
+                
+                {isMobile && !isCartEmpty && (
+                    <div className="flex justify-between items-baseline font-black text-2xl text-primary tracking-tighter px-1 pb-4">
+                        <div className="space-y-0.5 text-left">
                             <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Total Due</p>
-                            <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">INC. TAX & TIPS</p>
+                            <p className="text-[8px] font-bold uppercase text-primary/40">INC. TAX & TIPS</p>
+                        </div>
+                        <p className="font-mono text-3xl">${total.toFixed(2)}</p>
+                    </div>
+                )}
+
+                {!isMobile && (
+                    <div className="flex justify-between items-baseline font-black text-2xl md:text-4xl text-primary tracking-tighter px-1 pb-2">
+                        <div className="space-y-0.5 text-left">
+                            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Grand Total</p>
+                            <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON FINALIZE</p>
                         </div>
                         <p className="font-mono text-3xl md:text-4xl">${total.toFixed(2)}</p>
                     </div>
-                </div>
-                
-                <div className="mt-4 md:mt-6 space-y-3 md:space-y-4 pb-10 px-1">
+                )}
+
+                <div className={cn("space-y-3 md:space-y-4 px-1", isMobile ? "pb-4" : "mt-4 md:mt-6 pb-10")}>
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2 md:gap-3">
                         <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-cash" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
                         <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
