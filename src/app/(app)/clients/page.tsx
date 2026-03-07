@@ -62,7 +62,7 @@ import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, query, where, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
@@ -80,7 +80,7 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
         </div>
         <Button size="lg" onClick={onAddClient} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
             <UserPlus className="mr-2 h-5 w-5" />
-            Add First Client
+            Add First Guest
         </Button>
     </div>
 );
@@ -177,10 +177,12 @@ export default function ClientsPage() {
   const handleBulkDeleteConfirm = useCallback(() => {
     if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;
+    const batch = writeBatch(firestore);
     selectedItems.forEach(id => {
-      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
-      deleteDocumentNonBlocking(clientDoc);
+      const itemDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      batch.delete(itemDoc);
     });
+    batch.commit();
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
     toast({
@@ -208,6 +210,60 @@ export default function ClientsPage() {
     toast({ title: `${selectedItems.size} client(s) have been restored.` });
     setSelectedItems(new Set());
   }, [selectedItems, toast, firestore, tenantId]);
+
+  const handleMergeClients = async (primaryId: string, secondaryClients: Client[]) => {
+    if (!firestore || !tenantId) return;
+    
+    const batch = writeBatch(firestore);
+    const primaryRef = doc(firestore, `tenants/${tenantId}/clients`, primaryId);
+    
+    let totalLtvGain = 0;
+    let totalBalanceGain = 0;
+
+    for (const secondary of secondaryClients) {
+        totalLtvGain += (secondary.lifetimeValue || 0);
+        totalBalanceGain += (secondary.outstandingBalance || 0);
+
+        // 1. Find all appointments for this secondary client
+        const aptsRef = collection(firestore, `tenants/${tenantId}/appointments`);
+        const aptsQuery = query(aptsRef, where("clientId", "==", secondary.id));
+        const aptsSnap = await getDocs(aptsQuery);
+        
+        aptsSnap.forEach(aptDoc => {
+            batch.update(aptDoc.ref, { clientId: primaryId });
+        });
+
+        // 2. Find all transactions for this secondary client
+        const txnsRef = collection(firestore, `tenants/${tenantId}/transactions`);
+        const txnsQuery = query(txnsRef, where("clientId", "==", secondary.id));
+        const txnsSnap = await getDocs(txnsQuery);
+        
+        txnsSnap.forEach(txnDoc => {
+            batch.update(txnDoc.ref, { clientId: primaryId });
+        });
+
+        // 3. Delete the secondary profile
+        const secondaryRef = doc(firestore, `tenants/${tenantId}/clients`, secondary.id);
+        batch.delete(secondaryRef);
+    }
+
+    // 4. Update primary with consolidated financials
+    batch.update(primaryRef, {
+        lifetimeValue: increment(totalLtvGain),
+        outstandingBalance: increment(totalBalanceGain)
+    });
+
+    try {
+        await batch.commit();
+        toast({
+            title: "Merge Complete",
+            description: "Dossiers consolidated and history re-attributed."
+        });
+    } catch (e) {
+        console.error("Merge failure", e);
+        toast({ variant: 'destructive', title: "Merge Failed", description: "Could not finalize record consolidation." });
+    }
+  };
   
   const filteredClients = useMemo(() => {
     if (!clients) return [];
@@ -563,7 +619,7 @@ export default function ClientsPage() {
           onOpenChange={setIsMergeClientsOpen} 
           allClients={clients || []} 
           allAppointments={appointments || []}
-          onMerge={() => {}} 
+          onMerge={handleMergeClients} 
         />
         
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
