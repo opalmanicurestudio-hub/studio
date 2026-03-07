@@ -174,6 +174,21 @@ export default function ClientsPage() {
     setIsBulkDeleteConfirmOpen(true);
   };
   
+  const handleBulkDeleteConfirm = useCallback(() => {
+    if (!firestore || !tenantId) return;
+    const itemCount = selectedItems.size;
+    selectedItems.forEach(id => {
+      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      deleteDocumentNonBlocking(clientDoc);
+    });
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Clients Deleted",
+        description: `${itemCount} client(s) have been removed.`,
+    })
+  }, [selectedItems, toast, firestore, tenantId]);
+  
   const handleBulkArchive = useCallback(() => {
     if (!firestore || !tenantId) return;
     selectedItems.forEach(id => {
@@ -192,21 +207,6 @@ export default function ClientsPage() {
     });
     toast({ title: `${selectedItems.size} client(s) have been restored.` });
     setSelectedItems(new Set());
-  }, [selectedItems, toast, firestore, tenantId]);
-
-  const handleBulkDeleteConfirm = useCallback(() => {
-    if (!firestore || !tenantId) return;
-    const itemCount = selectedItems.size;
-    selectedItems.forEach(id => {
-      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
-      deleteDocumentNonBlocking(clientDoc);
-    });
-    setSelectedItems(new Set());
-    setIsBulkDeleteConfirmOpen(false);
-    toast({
-        title: "Clients Deleted",
-        description: `${itemCount} client(s) have been removed.`,
-    })
   }, [selectedItems, toast, firestore, tenantId]);
   
   const filteredClients = useMemo(() => {
@@ -455,29 +455,29 @@ export default function ClientsPage() {
                               </div>
                           </div>
 
-                          <div className="p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-10 gap-y-6">
-                              <div className="flex items-center gap-3">
+                          <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
+                              <div className="flex items-center gap-3 w-full md:w-auto">
                                   <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
                                   <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Filter Matrix</h4>
                               </div>
-                              <div className="flex items-center gap-8">
-                                  <div className="flex items-center space-x-3">
+                              <div className="flex flex-wrap items-center gap-4 md:gap-8">
+                                  <div className="flex items-center space-x-2">
                                       <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
                                       <Label htmlFor="show-archived" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
                                   </div>
-                                  <div className="flex items-center space-x-3">
+                                  <div className="flex items-center space-x-2">
                                       <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
                                       <Label htmlFor="show-banned" className="text-[10px] font-black uppercase tracking-widest text-destructive cursor-pointer">Banned</Label>
                                   </div>
-                                  <div className="flex items-center space-x-3">
+                                  <div className="flex items-center space-x-2">
                                       <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
-                                      <Label htmlFor="owes-balance" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
-                                          <Wallet className="w-3.5 h-3.5 text-destructive" /> 
+                                      <Label htmlFor="owes-balance" className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+                                          <Wallet className="w-3 h-3 text-destructive" /> 
                                           Arrears Only
                                       </Label>
                                   </div>
                               </div>
-                              <Button variant="ghost" size="sm" className='ml-auto font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
+                              <Button variant="ghost" size="sm" className='w-full md:w-auto md:ml-auto font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
                                   <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
                               </Button>
                           </div>
