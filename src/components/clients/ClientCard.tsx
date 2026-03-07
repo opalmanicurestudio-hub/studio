@@ -1,33 +1,36 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { 
   ShieldPlus, 
   AlertTriangle, 
   Ear, 
-  Edit, 
   Mail, 
   Phone, 
   ShieldAlert, 
-  Ban, 
   Award, 
   Wallet,
-  Clock,
-  MoreHorizontal
+  MoreHorizontal,
+  FileText
 } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { format } from 'date-fns';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { role } = useTenant();
