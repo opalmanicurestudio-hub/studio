@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Plus, Calendar, PlusCircle } from 'lucide-react';
+import { Plus, Calendar, PlusCircle, Sparkles, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface FloatingActionButtonProps {
@@ -38,6 +38,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
     closed: {
       y: 20,
       opacity: 0,
+      scale: 0.8,
       transition: {
         y: { stiffness: 1000 },
       },
@@ -45,6 +46,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
     open: {
       y: 0,
       opacity: 1,
+      scale: 1,
       transition: {
         y: { stiffness: 1000, velocity: -100 },
       },
@@ -64,13 +66,13 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 lg:hidden"
             onClick={toggleOpen}
           />
         )}
       </AnimatePresence>
 
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 lg:hidden">
+      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4 lg:hidden">
         <AnimatePresence>
           {isOpen && (
             <motion.div
@@ -78,25 +80,30 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
               initial="closed"
               animate="open"
               exit="closed"
-              className="flex flex-col items-end gap-3"
+              className="flex flex-col items-end gap-4 mb-4"
             >
-              <motion.div variants={itemVariants} className="flex items-center gap-3">
-                 <span className="bg-background/90 backdrop-blur-sm text-sm font-medium py-1.5 px-3 rounded-full shadow-lg">New Event</span>
+              {/* New Event Button */}
+              <motion.div variants={itemVariants} className="flex items-center gap-4 group">
+                <span className="bg-white/95 backdrop-blur-xl border-2 border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-black uppercase text-[10px] tracking-[0.2em] text-slate-900">
+                  New Event
+                </span>
                 <Button
-                  className="rounded-full shadow-lg h-12 w-12"
+                  className="rounded-2xl shadow-2xl h-14 w-14 border-4 border-white bg-primary text-white hover:bg-primary/90 transition-transform active:scale-90"
                   size="icon"
-                  variant="secondary"
                   onClick={() => handleActionClick(onNewEventClick)}
                 >
                   <PlusCircle className="h-6 w-6" />
                 </Button>
               </motion.div>
-               <motion.div variants={itemVariants} className="flex items-center gap-3">
-                <span className="bg-background/90 backdrop-blur-sm text-sm font-medium py-1.5 px-3 rounded-full shadow-lg">New Appointment</span>
+
+              {/* New Appointment Button */}
+              <motion.div variants={itemVariants} className="flex items-center gap-4 group">
+                <span className="bg-white/95 backdrop-blur-xl border-2 border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-black uppercase text-[10px] tracking-[0.2em] text-slate-900">
+                  New Session
+                </span>
                 <Button
-                  className="rounded-full shadow-lg h-12 w-12"
+                  className="rounded-2xl shadow-2xl h-14 w-14 border-4 border-white bg-primary text-white hover:bg-primary/90 transition-transform active:scale-90"
                   size="icon"
-                  variant="secondary"
                   onClick={() => handleActionClick(onNewAppointmentClick)}
                 >
                   <Calendar className="h-6 w-6" />
@@ -105,17 +112,20 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Main Toggle Button */}
         <Button
-          className="rounded-full w-16 h-16 shadow-2xl"
+          className="rounded-[2rem] w-20 h-20 shadow-3xl bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 border-4 border-white flex flex-col items-center justify-center gap-1"
           size="lg"
           onClick={toggleOpen}
         >
           <motion.div
             animate={{ rotate: isOpen ? 45 : 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           >
-            <Plus className="h-7 w-7" />
+            <Plus className="h-8 w-8" strokeWidth={3} />
           </motion.div>
+          <span className="text-[8px] font-black uppercase tracking-widest opacity-60">Command</span>
         </Button>
       </div>
     </>
