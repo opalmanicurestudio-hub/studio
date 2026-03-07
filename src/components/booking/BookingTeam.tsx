@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Instagram, Star, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Badge } from '@/components/ui/badge';
 
 const ImageWrapper = ({ src, alt, fill, className }: any) => (
     // eslint-disable-next-line @next/next/no-img-element
