@@ -299,9 +299,9 @@ function PlannerPageContent() {
     const apt = appointments?.find(a => a.id === appointmentId);
     if (!apt) return;
 
-    const totalServicesCount = 1 + (apt.addOnIds || []).length;
+    const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
     const completedIds = checkoutState.completedServiceIds || [];
-    const allComplete = completedIds.length >= totalServicesCount;
+    const allComplete = completedIds.length >= allPartIds.length;
 
     const batch = writeBatch(firestore);
     
@@ -326,13 +326,28 @@ function PlannerPageContent() {
     } else {
         batch.update(appointmentRef, { checkoutState });
         
-        if (currentUser) {
-            batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
-        }
+        // REFINED IDLE LOGIC:
+        // Identify all staff who have NO remaining work in this session and set them to idle.
+        const overrides = checkoutState.serviceStaffOverrides || {};
+        const involvedStaffIdsSet = new Set<string>();
+        if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
+        Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedStaffIdsSet.add(id); });
 
-        const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+        involvedStaffIdsSet.forEach(sid => {
+            const hasRemainingParts = allPartIds.some(pid => {
+                const isPartComplete = completedIds.includes(pid);
+                if (isPartComplete) return false;
+                const assignedToPart = overrides[pid] === sid || (pid === apt.serviceId && apt.staffId === sid && !overrides[pid]);
+                return assignedToPart;
+            });
+
+            if (!hasRemainingParts) {
+                batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+            }
+        });
+
         const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
-        const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
+        const nextStaffId = overrides[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
         if (nextStaffId) {
             batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
         }

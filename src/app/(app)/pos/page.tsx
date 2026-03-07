@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -38,16 +37,8 @@ const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -429,9 +420,9 @@ function POSPageContent() {
         const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
         if (!apt) return;
 
-        const totalServicesCount = 1 + (apt.addOnIds || []).length;
+        const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
         const completedIds = checkoutState.completedServiceIds || [];
-        const allComplete = completedIds.length >= totalServicesCount;
+        const allComplete = completedIds.length >= allPartIds.length;
 
         const batch = writeBatch(firestore);
         
@@ -456,13 +447,28 @@ function POSPageContent() {
         } else {
             batch.update(appointmentRef, { checkoutState });
             
-            if (currentUser) {
-                batch.set(doc(firestore, 'tenants', tenantId, 'staff', currentUser.uid), { status: 'idle' }, { merge: true });
-            }
+            // REFINED IDLE LOGIC:
+            // Identify all staff who have NO remaining work in this specific session and set them to idle.
+            const overrides = checkoutState.serviceStaffOverrides || {};
+            const involvedStaffIdsSet = new Set<string>();
+            if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
+            Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedStaffIdsSet.add(id); });
 
-            const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
+            involvedStaffIdsSet.forEach(sid => {
+                const hasRemainingParts = allPartIds.some(pid => {
+                    const isPartComplete = completedIds.includes(pid);
+                    if (isPartComplete) return false;
+                    const assignedToPart = overrides[pid] === sid || (pid === apt.serviceId && apt.staffId === sid && !overrides[pid]);
+                    return assignedToPart;
+                });
+
+                if (!hasRemainingParts) {
+                    batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
+                }
+            });
+
             const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
-            const nextStaffId = checkoutState.serviceStaffOverrides?.[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
+            const nextStaffId = overrides[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
             if (nextStaffId) {
                 batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
             }
@@ -519,6 +525,7 @@ function POSPageContent() {
                     let currentSize = product.partialContainerSize || 0;
                     let currentStock = product.totalStock;
                     const sizePerContainer = product.size || 1;
+                    sizePerContainer;
                     currentSize -= item.quantity;
                     while (currentSize <= 0 && currentStock > 0) {
                         currentStock -= 1;
@@ -544,11 +551,10 @@ function POSPageContent() {
             });
 
             // DISTRIBUTED SERVICE REVENUE ATTRIBUTION
-            // 1. Process Main Service Part
             const mainStaffId = overrides[service.id] || apt.staffId;
             const mainStaffMember = staff.find(s => s.id === mainStaffId);
             const mainPrice = getServicePrice(service, mainStaffMember);
-            const mainPartRevenue = mainPrice + additional; // Overages attributed to the main part provider
+            const mainPartRevenue = mainPrice + additional; 
             totalLtvIncrease += mainPartRevenue;
 
             const mainTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -567,7 +573,6 @@ function POSPageContent() {
                 hasReceipt: true
             });
 
-            // 2. Process each Add-on individually
             addOnServices.forEach(addon => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = staff.find(s => s.id === addonStaffId);
@@ -599,7 +604,6 @@ function POSPageContent() {
 
             if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status: 'completed' });
             
-            // Set all involved staff to idle
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (overrides) {
