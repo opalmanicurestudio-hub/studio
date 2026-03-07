@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -39,7 +39,11 @@ import {
   Mail,
   Phone,
   Sparkles,
-  Loader
+  Loader,
+  Square,
+  Zap,
+  Workflow,
+  PackageOpen
 } from 'lucide-react';
 import { Button, buttonVariants } from '../ui/button';
 import {
