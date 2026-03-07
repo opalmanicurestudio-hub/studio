@@ -20,7 +20,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -81,6 +81,7 @@ function POSPageContent() {
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
     const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
+    const [isCartCollapsed, setIsCartCollapsed] = useState(false);
 
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
@@ -843,7 +844,10 @@ function POSPageContent() {
     return (
         <div className="h-[100dvh] w-full flex flex-col bg-background">
             <AppHeader title="Studio POS" />
-            <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
+            <div className={cn(
+                "flex-1 grid transition-all duration-500 ease-in-out overflow-hidden",
+                isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]"
+            )}>
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10">
                     <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
                         <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
@@ -864,7 +868,48 @@ function POSPageContent() {
                         </div>
                     </div>
                 </main>
-                <aside className="hidden lg:flex border-l-4 border-muted/30 bg-white p-6 flex-col h-full overflow-y-auto"><CheckoutHub {...checkoutHubProps} /></aside>
+                <aside className={cn(
+                    "hidden lg:flex border-l-4 border-muted/30 bg-white flex-col h-full transition-all duration-500 relative",
+                    isCartCollapsed ? "w-20" : "w-full"
+                )}>
+                    {isCartCollapsed ? (
+                        <div className="flex flex-col items-center py-8 gap-8 h-full">
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => setIsCartCollapsed(false)} 
+                                className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm"
+                            >
+                                <ChevronLeft className="h-6 w-6" />
+                            </Button>
+                            <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180">
+                                <span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span>
+                                <span className="font-black text-primary text-xl mt-6 tracking-tighter">${total.toFixed(2)}</span>
+                            </div>
+                            <div className="mt-auto pb-8">
+                                <Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">
+                                    {retailItems.length + selectedAppointmentIds.size}
+                                </Badge>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="absolute top-6 left-[-24px] z-50">
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    onClick={() => setIsCartCollapsed(true)}
+                                    className="h-12 w-12 rounded-2xl border-4 border-white bg-white shadow-xl hover:bg-muted text-slate-400 group transition-all"
+                                >
+                                    <ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" />
+                                </Button>
+                            </div>
+                            <div className="p-6 flex-1 flex flex-col min-h-0 overflow-y-auto">
+                                <CheckoutHub {...checkoutHubProps} />
+                            </div>
+                        </>
+                    )}
+                </aside>
             </div>
             {isMobile && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
