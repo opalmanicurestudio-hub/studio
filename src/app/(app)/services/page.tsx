@@ -12,6 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { 
     MoreHorizontal, 
     PlusCircle, 
@@ -37,6 +38,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { 
+    Accordion, 
+    AccordionContent, 
+    AccordionItem, 
+    AccordionTrigger 
+} from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from '@/components/ui/label';
 import { type Service, type Appointment, type Transaction, type PricingTier } from '@/lib/data';
@@ -96,7 +103,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
       const tierInfo = pricingTiers.find(pt => pt.id === tier.tierId);
       if (!tierInfo) return null;
 
-      const profit = tier.price - service.cost;
+      const profit = tier.price - (service.cost || 0);
       const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
 
       return {
@@ -124,7 +131,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
     <Card className={cn(
         "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
         isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm",
-        service.profit < 0 && !tierAnalysis && "border-destructive/30 bg-destructive/[0.01]"
+        (service.profit || 0) < 0 && !tierAnalysis && "border-destructive/30 bg-destructive/[0.01]"
     )}>
       <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelectItem}>
         <div className="flex items-start gap-4 cursor-pointer">
@@ -207,20 +214,20 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEditServiceOpen, t
             <div className="grid grid-cols-2 gap-4">
                 <div className={cn(
                     "p-4 rounded-2xl border-2 transition-all",
-                    service.profit >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
+                    (service.profit || 0) >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
                 )}>
                     <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Net Profit</p>
-                    <p className={cn("text-xl font-black font-mono tracking-tighter", service.profit >= 0 ? "text-primary" : "text-destructive")}>
-                        ${service.profit.toFixed(2)}
+                    <p className={cn("text-xl font-black font-mono tracking-tighter", (service.profit || 0) >= 0 ? "text-primary" : "text-destructive")}>
+                        ${(service.profit || 0).toFixed(2)}
                     </p>
                 </div>
                 <div className={cn(
                     "p-4 rounded-2xl border-2 transition-all text-right",
-                    service.margin >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
+                    (service.margin || 0) >= 0 ? "bg-primary/5 border-primary/10" : "bg-destructive/5 border-destructive/20"
                 )}>
                     <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Margin</p>
-                    <p className={cn("text-xl font-black font-mono tracking-tighter", service.margin >= 0 ? "text-primary" : "text-destructive")}>
-                        {service.margin.toFixed(0)}%
+                    <p className={cn("text-xl font-black font-mono tracking-tighter", (service.margin || 0) >= 0 ? "text-primary" : "text-destructive")}>
+                        {(service.margin || 0).toFixed(0)}%
                     </p>
                 </div>
             </div>
@@ -610,7 +617,7 @@ export default function ServicesPage() {
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Services</Button>
+                <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Services</Button>
                 <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
