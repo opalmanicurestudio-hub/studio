@@ -677,6 +677,7 @@ export type Review = {
   rating: number;
   text: string;
   isPublic: boolean;
+  isFeatured: boolean;
   createdAt: string; // ISO date string
 };
 

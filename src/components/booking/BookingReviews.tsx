@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,6 +9,7 @@ import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
 import { collection, query, where, doc } from 'firebase/firestore';
 import { type Review, type Tenant } from '@/lib/data';
 import { useParams } from 'next/navigation';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
@@ -29,6 +31,17 @@ export const BookingReviews = () => {
 
   const { data: reviews, isLoading } = useCollection<Review>(reviewsQuery);
   
+  const sortedReviews = useMemo(() => {
+    if (!reviews) return [];
+    return [...reviews].sort((a, b) => {
+        // Prioritize featured reviews
+        if (a.isFeatured && !b.isFeatured) return -1;
+        if (!a.isFeatured && b.isFeatured) return 1;
+        // Then sort by date
+        return parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime();
+    });
+  }, [reviews]);
+
   if (isLoading || tenant?.bookingPageSettings?.showReviews === false) return null;
   if (!reviews || reviews.length === 0) return null;
 
@@ -48,7 +61,7 @@ export const BookingReviews = () => {
       </div>
 
       <div className="grid gap-12">
-        {reviews.slice(0, 4).map((review, idx) => (
+        {sortedReviews.slice(0, 4).map((review, idx) => (
           <motion.div 
             key={review.id}
             initial={{ opacity: 0, y: 20 }}
@@ -63,11 +76,18 @@ export const BookingReviews = () => {
                 </div>
                 
                 <div className="flex-1 space-y-6 relative z-10 text-left">
-                    <div className="flex items-center gap-1.5 mb-4">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <Star key={i} className={cn("w-3.5 h-3.5", i < review.rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} />
-                        ))}
-                        <span className="text-[10px] font-black font-mono text-amber-600 ml-2">Verified Entry</span>
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-1.5">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <Star key={i} className={cn("w-3.5 h-3.5", i < review.rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} />
+                            ))}
+                            <span className="text-[10px] font-black font-mono text-amber-600 ml-2">Verified Entry</span>
+                        </div>
+                        {review.isFeatured && (
+                            <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] h-5 uppercase tracking-widest px-2">
+                                <Sparkles className="w-2.5 h-2.5 mr-1" /> Spotlight
+                            </Badge>
+                        )}
                     </div>
 
                     <p className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-[1.1]">
@@ -90,7 +110,7 @@ export const BookingReviews = () => {
                     </div>
                 </div>
             </div>
-            {idx < reviews.length - 1 && (
+            {idx < sortedReviews.length - 1 && idx < 3 && (
                 <div className="h-px w-full bg-gradient-to-r from-transparent via-border/50 to-transparent my-12" />
             )}
           </motion.div>

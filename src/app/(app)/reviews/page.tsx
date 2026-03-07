@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -57,8 +58,9 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const ReviewCard = ({ review, onTogglePublic, staff }: { review: Review, onTogglePublic: (id: string, isPublic: boolean) => void, staff: Staff[] }) => {
+const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { review: Review, onTogglePublic: (id: string, isPublic: boolean) => void, onToggleFeatured: (id: string, isFeatured: boolean) => void, staff: Staff[] }) => {
   const isPublic = review.isPublic;
+  const isFeatured = review.isFeatured;
   const staffMember = staff.find(s => s.id === review.staffId);
 
   return (
@@ -74,7 +76,10 @@ const ReviewCard = ({ review, onTogglePublic, staff }: { review: Review, onToggl
                 <AvatarFallback className="font-black bg-primary/10 text-primary">{(review.clientName || 'C').charAt(0)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-                <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{review.clientName}</p>
+                <div className="flex items-center gap-2">
+                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{review.clientName}</p>
+                    {isFeatured && <Badge className="bg-primary text-white border-none text-[7px] h-4 font-black uppercase">Featured</Badge>}
+                </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                     <div className="flex">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -85,9 +90,22 @@ const ReviewCard = ({ review, onTogglePublic, staff }: { review: Review, onToggl
                 </div>
             </div>
           </div>
-          <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2 shrink-0">
-            {formatDistanceToNow(parseISO(review.createdAt), { addSuffix: true })}
-          </Badge>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2">
+                {formatDistanceToNow(parseISO(review.createdAt), { addSuffix: true })}
+            </Badge>
+            <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                    "h-8 w-8 rounded-full border-2 transition-all",
+                    isFeatured ? "bg-primary/10 border-primary text-primary" : "border-transparent text-muted-foreground/40 hover:border-primary/20"
+                )}
+                onClick={() => onToggleFeatured(review.id, !isFeatured)}
+            >
+                <Star className={cn("h-4 w-4", isFeatured && "fill-current")} />
+            </Button>
+          </div>
         </div>
 
         <div className="p-5 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/5 transition-all relative">
@@ -149,23 +167,30 @@ export default function ReviewsPage() {
     updateDocumentNonBlocking(reviewRef, { isPublic });
   };
 
-  const { avgRating, publicReviews, totalReviews, publicityRatio } = useMemo(() => {
+  const handleToggleFeatured = (reviewId: string, isFeatured: boolean) => {
+    if (!firestore || !selectedTenant) return;
+    const reviewRef = doc(firestore, `tenants/${selectedTenant.id}/reviews`, reviewId);
+    updateDocumentNonBlocking(reviewRef, { isFeatured });
+  };
+
+  const { avgRating, publicReviews, totalReviews, publicityRatio, featuredReviews } = useMemo(() => {
     if (!reviews || reviews.length === 0) {
-      return { avgRating: 0, publicReviews: 0, totalReviews: 0, publicityRatio: 0 };
+      return { avgRating: 0, publicReviews: 0, totalReviews: 0, publicityRatio: 0, featuredReviews: 0 };
     }
     const total = reviews.reduce((acc, r) => acc + r.rating, 0);
     const pubCount = reviews.filter(r => r.isPublic).length;
+    const featCount = reviews.filter(r => r.isFeatured).length;
     return {
       avgRating: total / reviews.length,
       publicReviews: pubCount,
       totalReviews: reviews.length,
-      publicityRatio: (pubCount / reviews.length) * 100
+      publicityRatio: (pubCount / reviews.length) * 100,
+      featuredReviews: featCount
     };
   }, [reviews]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 relative overflow-x-hidden">
-      {/* Visual Atmosphere */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/5 blur-[120px] rounded-full animate-pulse" />
@@ -182,11 +207,12 @@ export default function ReviewsPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <KpiCard title="Alpha Rating" value={avgRating.toFixed(2)} icon={Star} description="Avg across all feedback" colorClass="text-amber-500" />
-            <KpiCard title="Engagement Volume" value={totalReviews.toString()} icon={MessageSquare} description="Total client stories logged" />
+            <KpiCard title="Engagement Volume" value={totalReviews.toString()} icon={MessageSquare} description="Total stories logged" />
             <KpiCard title="Public Reach" value={publicReviews.toString()} icon={Users} description="Visible on studio portal" colorClass="text-primary" />
-            <KpiCard title="Publicity Ratio" value={`${publicityRatio.toFixed(0)}%`} icon={Percent} description="Approval vs. Audit" colorClass="text-indigo-600" />
+            <KpiCard title="Premium Assets" value={featuredReviews.toString()} icon={Sparkles} description="Pinned highlights" colorClass="text-indigo-600" />
+            <KpiCard title="Publicity Ratio" value={`${publicityRatio.toFixed(0)}%`} icon={Percent} description="Approval vs. Audit" />
         </div>
 
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white/80 backdrop-blur-xl">
@@ -206,7 +232,13 @@ export default function ReviewsPage() {
             ) : reviews && reviews.length > 0 ? (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                     {reviews.map(review => (
-                        <ReviewCard key={review.id} review={review} onTogglePublic={handleTogglePublic} staff={staff} />
+                        <ReviewCard 
+                            key={review.id} 
+                            review={review} 
+                            onTogglePublic={handleTogglePublic} 
+                            onToggleFeatured={handleToggleFeatured}
+                            staff={staff} 
+                        />
                     ))}
                 </div>
             ) : (
@@ -235,7 +267,7 @@ export default function ReviewsPage() {
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Master Control</span>
                 </div>
                 <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Publicity Strategy</CardTitle>
-                <CardDescription className="text-sm font-medium text-slate-600 max-w-lg">Visible reviews directly influence conversion on your Booking Page. Audit periodically to ensure your digital portfolio is optimal.</CardDescription>
+                <CardDescription className="text-sm font-medium text-slate-600 max-w-lg">Visible reviews directly influence conversion on your Booking Page. Feature your best stories to pin them to the top of your public profile.</CardDescription>
             </CardHeader>
             <CardFooter className="p-8 pt-4">
                 <Button variant="outline" asChild className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">

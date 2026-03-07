@@ -1033,6 +1033,7 @@
         "rating": { "type": "number" },
         "text": { "type": "string" },
         "isPublic": { "type": "boolean" },
+        "isFeatured": { "type": "boolean", "default": false },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
