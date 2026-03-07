@@ -27,10 +27,11 @@ import { Appointment, Client } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { DollarSign, Calendar, Hash, Fingerprint, Merge, Search, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { DollarSign, Calendar, Hash, Fingerprint, Merge, Search, ArrowRight, ShieldCheck, Check, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
+import { Badge } from '../ui/badge';
 
 type DuplicateClient = Client;
 
