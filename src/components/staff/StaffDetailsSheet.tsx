@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -54,12 +53,13 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Label } from '@/components/ui/label';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -125,7 +125,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
     </Card>
 );
 
-const safeDate = (val: any): Date => {
+const safeDateWrapper = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
@@ -287,7 +287,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                               const service = services.find(s => s.id === appointment?.serviceId);
                               let timeVariance = null;
                               if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                  const actualDuration = differenceInMinutes(safeDate(appointment.actualEndTime), safeDate(appointment.actualStartTime));
+                                  const actualDuration = differenceInMinutes(safeDateWrapper(appointment.actualEndTime), safeDateWrapper(appointment.actualStartTime));
                                   timeVariance = actualDuration - service.duration;
                               }
                               return <TransactionCard key={t.id} transaction={t} service={service} timeVariance={timeVariance} />
@@ -336,7 +336,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Licensing Archive</p>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">License ID</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseNumber || '—'}</p></div>
-                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Expiration</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseExpiry ? format(safeDate(staffMember.compliance.licenseExpiry), 'MMM d, yyyy') : '—'}</p></div>
+                                <div className="space-y-1"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">Expiration</p><p className="uppercase tracking-tight font-black">{staffMember.compliance?.licenseExpiry ? format(safeDateWrapper(staffMember.compliance.licenseExpiry), 'MMM d, yyyy') : '—'}</p></div>
                             </div>
                         </div>
                     </CardContent>
