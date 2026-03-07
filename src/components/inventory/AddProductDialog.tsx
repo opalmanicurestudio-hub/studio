@@ -1,8 +1,6 @@
-
-
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -35,28 +33,40 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type PricingTier } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator } from 'lucide-react';
-import { type Service } from '@/lib/data';
+import { 
+    Check, 
+    PlusCircle, 
+    QrCode, 
+    AlertTriangle, 
+    DollarSign, 
+    Package, 
+    Hammer, 
+    Trash2, 
+    ShoppingCart, 
+    Calculator, 
+    Sparkles,
+    Truck,
+    Clock,
+    Zap,
+    Tag,
+    ChevronLeft,
+    ChevronRight,
+    MapPin,
+    Calendar as CalendarIcon
+} from 'lucide-react';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectResourcesDialog } from './SelectResourcesDialog';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
-import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
-import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
-import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
-import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
-
+import { nanoid } from 'nanoid';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -94,6 +104,18 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
+
 const Step1_BasicDetails = ({ 
     categories, 
     onNewCategory 
@@ -104,7 +126,6 @@ const Step1_BasicDetails = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -117,212 +138,88 @@ const Step1_BasicDetails = ({
     };
     
     return (
-  <div className="grid gap-6 py-4">
-    <div className="space-y-2">
-      <Label htmlFor="product-name">Product Name</Label>
-      <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
-       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-    </div>
-    <Controller
-        name="type"
-        control={control}
-        render={({ field }) => (
-            <div className="space-y-2">
-                <Label>Product Type</Label>
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                    <div>
-                        <RadioGroupItem value="professional" id="professional" className="peer sr-only" />
-                        <Label htmlFor="professional" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
-                            <Package className="mb-2 h-6 w-6" /> Professional
-                        </Label>
-                    </div>
-                    <div>
-                        <RadioGroupItem value="retail" id="retail" className="peer sr-only" />
-                        <Label htmlFor="retail" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
-                            <ShoppingCart className="mb-2 h-6 w-6" /> Retail
-                        </Label>
-                    </div>
-                </RadioGroup>
-            </div>
-        )}
-    />
-    <div className="space-y-2">
-      <Label htmlFor="category">Category</Label>
-      {isAddingCategory ? (
-        <div className="flex gap-2">
-          <Input
-            placeholder="Enter new category name..."
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-          />
-          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Controller name="category" control={control} render={({ field }) => (
-               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-              </Select>
-          )}/>
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
-        </div>
-      )}
-       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-    </div>
-
-    <div className="space-y-2">
-      <Label>Product Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
-    </div>
-     <div className="space-y-2">
-        <Label htmlFor="internalNotes">Internal Notes</Label>
-        <Textarea id="internalNotes" placeholder="e.g., Back-ordered until June, store on bottom shelf." {...register('internalNotes')} />
-    </div>
-  </div>
-    );
-};
-
-const PackagingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
-    const [totalCost, setTotalCost] = useState('');
-    const [numItems, setNumItems] = useState('');
-
-    const costPerItem = useMemo(() => {
-        const tc = parseFloat(totalCost);
-        const ni = parseInt(numItems);
-        if (tc > 0 && ni > 0) {
-            return (tc / ni);
-        }
-        return 0;
-    }, [totalCost, numItems]);
-
-    const handleApply = () => {
-        onCalculated(costPerItem);
-        onOpenChange(false);
-    };
-
-    useEffect(() => {
-        if (!open) {
-            setTotalCost('');
-            setNumItems('');
-        }
-    }, [open]);
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Calculate Packaging Cost</DialogTitle>
-                    <DialogDescription>Enter the total cost of your packaging materials and the number of packages to find the cost per item.</DialogDescription>
-                </DialogHeader>
-                <div className="py-4 space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="total-packaging-cost">Total Packaging Cost</Label>
-                        <Input id="total-packaging-cost" type="number" placeholder="e.g., 50.00" value={totalCost} onChange={e => setTotalCost(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="num-packages">Number of Packages</Label>
-                        <Input id="num-packages" type="number" placeholder="e.g., 100" value={numItems} onChange={e => setNumItems(e.target.value)} />
-                    </div>
-                    <Card className="bg-muted/50">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <span className="font-medium">Cost Per Item:</span>
-                            <span className="text-2xl font-bold text-primary">${costPerItem.toFixed(2)}</span>
-                        </CardContent>
-                    </Card>
+        <div className="space-y-10">
+            <SectionHeader icon={Package} title="Identity & Type" step={1} />
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <Label htmlFor="product-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Name</Label>
+                    <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    {errors.name && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                 </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleApply} disabled={costPerItem <= 0}>Apply Cost</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-};
 
-const ShippingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
-    const [costs, setCosts] = useState<number[]>([]);
-    const [newCost, setNewCost] = useState('');
-
-    const averageCost = useMemo(() => {
-        if (costs.length === 0) return 0;
-        const sum = costs.reduce((a, b) => a + b, 0);
-        return (sum / costs.length);
-    }, [costs]);
-
-    const handleAddCost = () => {
-        const cost = parseFloat(newCost);
-        if (cost > 0) {
-            setCosts([...costs, cost]);
-            setNewCost('');
-        }
-    };
-
-    const handleRemoveCost = (index: number) => {
-        setCosts(costs.filter((_, i) => i !== index));
-    };
-
-    const handleApply = () => {
-        onCalculated(averageCost);
-        onOpenChange(false);
-    };
-
-    useEffect(() => {
-        if (!open) {
-            setCosts([]);
-            setNewCost('');
-        }
-    }, [open]);
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Calculate Average Shipping Cost</DialogTitle>
-                    <DialogDescription>Enter several recent shipping costs to calculate an average for your DTC pricing.</DialogDescription>
-                </DialogHeader>
-                <div className="py-4 space-y-4">
-                    <div className="flex gap-2">
-                        <Input
-                            type="number"
-                            placeholder="Enter a shipping cost..."
-                            value={newCost}
-                            onChange={(e) => setNewCost(e.target.value)}
-                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddCost(); }}}
-                        />
-                        <Button onClick={handleAddCost} type="button">Add</Button>
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Entered Costs</Label>
-                        <ScrollArea className="h-40 border rounded-md">
-                            <div className="p-2 space-y-1">
-                                {costs.length > 0 ? costs.map((cost, index) => (
-                                    <div key={index} className="flex items-center justify-between p-1.5 bg-muted/50 rounded-md">
-                                        <span className="font-mono">${cost.toFixed(2)}</span>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveCost(index)}>
-                                            <Trash2 className="w-4 h-4" />
-                                        </Button>
+                <Controller
+                    name="type"
+                    control={control}
+                    render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Classification</Label>
+                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
+                                <label htmlFor="professional" className="cursor-pointer">
+                                    <div className={cn(
+                                        "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
+                                        field.value === 'professional' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
+                                    )}>
+                                        <Package className={cn("mb-2 h-8 w-8", field.value === 'professional' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <span className="text-xs font-black uppercase tracking-widest">Professional</span>
+                                        <RadioGroupItem value="professional" id="professional" className="sr-only" />
                                     </div>
-                                )) : (
-                                    <p className="text-sm text-center text-muted-foreground p-4">No costs entered yet.</p>
-                                )}
-                            </div>
-                        </ScrollArea>
-                    </div>
-                    <Card className="bg-muted/50">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <span className="font-medium">Average Shipping Cost:</span>
-                            <span className="text-2xl font-bold text-primary">${averageCost.toFixed(2)}</span>
-                        </CardContent>
-                    </Card>
+                                </label>
+                                <label htmlFor="retail" className="cursor-pointer">
+                                    <div className={cn(
+                                        "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all",
+                                        field.value === 'retail' ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
+                                    )}>
+                                        <ShoppingCart className={cn("mb-2 h-8 w-8", field.value === 'retail' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                        <span className="text-xs font-black uppercase tracking-widest">Retail</span>
+                                        <RadioGroupItem value="retail" id="retail" className="sr-only" />
+                                    </div>
+                                </label>
+                            </RadioGroup>
+                        </div>
+                    )}
+                />
+
+                <div className="space-y-2">
+                    <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Department</Label>
+                    {isAddingCategory ? (
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="New category name..."
+                                value={newCategoryName}
+                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                className="h-12 rounded-xl border-2 font-bold uppercase text-xs"
+                            />
+                            <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl"><Check className="h-5 w-5" /></Button>
+                        </div>
+                    ) : (
+                        <div className="flex gap-2">
+                            <Controller name="category" control={control} render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-xs shadow-inner bg-muted/5">
+                                        <SelectValue placeholder="Select a category" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        {categories.map(cat => ( <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat}</SelectItem> ))}
+                                    </SelectContent>
+                                </Select>
+                            )}/>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-12 w-12 rounded-xl border-2"> <PlusCircle className="h-5 w-5" /> </Button>
+                        </div>
+                    )}
+                    {errors.category && <p className="text-xs font-bold text-destructive uppercase ml-1">{errors.category.message}</p>}
                 </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleApply} disabled={averageCost <= 0}>Apply Average</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+
+                <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
+                    <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="internalNotes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label>
+                    <Textarea id="internalNotes" placeholder="Logistics caveats or storage instructions..." {...register('internalNotes')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -341,10 +238,6 @@ const Step2_CostingPricing = () => {
         'packagingCost',
         'shippingCostToCustomer'
     ]);
-    
-    const [isPackagingCalcOpen, setIsPackagingCalcOpen] = useState(false);
-    const [isShippingCalcOpen, setIsShippingCalcOpen] = useState(false);
-
 
     const landedCostPerItem = useMemo(() => {
         const safeParse = (val: any) => parseFloat(val) || 0;
@@ -372,186 +265,159 @@ const Step2_CostingPricing = () => {
     }, [msrp, landedCostPerItem, packagingCost, shippingCostToCustomer]);
 
     return (
-        <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                <Card>
-                    <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
+        <div className="space-y-10">
+            <SectionHeader icon={Calculator} title="Yield & Costing" step={2} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Landed Cost Engine</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2"><Label htmlFor="total-cost">Total Purchase Cost</Label><Input id="total-cost" type="number" placeholder="From invoice" {...register('totalPurchaseCost')} /></div>
-                            <div className="space-y-2"><Label htmlFor="num-units">Number of Units</Label><Input id="num-units" type="number" placeholder="In shipment" {...register('numUnits')} /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Invoice Total</Label><Input type="number" placeholder="0.00" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Unit Count</Label><Input type="number" placeholder="Qty" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2"><Label htmlFor="shipping">Shipping</Label><Input id="shipping" type="number" placeholder="0.00" {...register('shippingCost')} /></div>
-                            <div className="space-y-2"><Label htmlFor="taxes">Taxes</Label><Input id="taxes" type="number" placeholder="0.00" {...register('taxCost')} /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Shipping</Label><Input type="number" placeholder="0.00" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Taxes</Label><Input type="number" placeholder="0.00" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold" /></div>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="discounts">Discounts</Label>
-                            <Input id="discounts" type="number" placeholder="0.00" {...register('discounts')} />
-                        </div>
-                        <div className="p-3 bg-muted rounded-md flex items-center justify-between">
-                            <span className="font-medium">Landed Cost Per Item:</span>
-                            <span className="text-lg font-bold text-primary">${landedCostPerItem.toFixed(2)}</span>
+                        <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner">
+                            <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
+                            <span className="text-2xl font-black text-primary tracking-tighter font-mono">${landedCostPerItem.toFixed(2)}</span>
                         </div>
                     </CardContent>
                 </Card>
-                {(productType === 'professional') && (
-                    <Card>
-                        <CardHeader><CardTitle>Professional Costing</CardTitle><CardDescription>How much does it cost to use this once?</CardDescription></CardHeader>
-                        <CardContent className="space-y-4">
-                            <Controller name="costingMethod" control={control} render={({ field }) => (<div className="space-y-2"><Label>Costing Method</Label><RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2"><div><RadioGroupItem value="size" id="by-size" className="peer sr-only" /><Label htmlFor="by-size" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Size</Label></div><div><RadioGroupItem value="uses" id="by-uses" className="peer sr-only" /><Label htmlFor="by-uses" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Uses</Label></div></RadioGroup></div>)}/>
-                            {costingMethod === 'size' && (<div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="container-size">Container Size</Label><Input id="container-size" type="number" placeholder="e.g., 1000" {...register('containerSize')} /></div><div className="space-y-2"><Label htmlFor="unit">Unit</Label><Controller name="containerUnit" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="unit"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent><SelectItem value="ml">ml</SelectItem><SelectItem value="oz">oz</SelectItem><SelectItem value="g">g</SelectItem></SelectContent></Select>)}/></div></div>)}
-                            {costingMethod === 'uses' && (<div className="space-y-2"><Label htmlFor="estimated-uses">Uses Per Container</Label><Input id="estimated-uses" type="number" placeholder="e.g., 50" {...register('usesPerContainer')} /></div>)}
-                             <div className="space-y-2"><Label htmlFor="restocking-markup">Restocking Markup (%)</Label><Input id="restocking-markup" type="number" placeholder="e.g., 5" {...register('restockingMarkup')} /></div>
+
+                {productType === 'professional' ? (
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Professional Model</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                            <Controller
+                                name="costingMethod"
+                                control={control}
+                                render={({ field }) => (
+                                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                                        <label htmlFor="size-edit" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                                <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
+                                                <RadioGroupItem value="size" id="size-edit" className="sr-only" />
+                                            </div>
+                                        </label>
+                                        <label htmlFor="uses-edit" className="cursor-pointer">
+                                            <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
+                                                <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                                <span className="text-[10px] font-black uppercase tracking-widest">By Uses</span>
+                                                <RadioGroupItem value="uses" id="uses-edit" className="sr-only" />
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
+                                )}
+                            />
+                            {costingMethod === 'size' && (
+                                <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Size</Label><Input type="number" placeholder="1000" {...register('containerSize')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit</Label>
+                                        <Controller name="containerUnit" control={control} render={({ field }) => (
+                                            <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl border-2 font-bold"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="ml" className="font-bold">ML</SelectItem><SelectItem value="oz" className="font-bold">OZ</SelectItem><SelectItem value="g" className="font-bold">G</SelectItem></SelectContent></Select>
+                                        )}/>
+                                    </div>
+                                </div>
+                            )}
+                            {costingMethod === 'uses' && (
+                                <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                                    <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Est. Uses / Container</Label>
+                                    <Input type="number" placeholder="e.g., 50" {...register('usesPerContainer')} className="h-11 rounded-xl border-2 font-bold" />
+                                </div>
+                            )}
+                            <div className="space-y-1.5 pt-2 border-t border-dashed">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Restocking Markup (%)</Label>
+                                <Input type="number" placeholder="e.g., 5" {...register('restockingMarkup')} className="h-11 rounded-xl border-2 font-bold" />
+                            </div>
                         </CardContent>
                     </Card>
-                )}
-                {(productType === 'retail') && (
-                    <Card>
-                        <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>Set pricing for different sales channels.</CardDescription></CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="space-y-2">
-                               <Label className="font-semibold">Wholesale</Label>
-                               <div className="space-y-2 p-3 border rounded-md">
-                                    <div className="space-y-1">
-                                        <Label htmlFor="wholesale-price" className="text-xs">Wholesale Price</Label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input id="wholesale-price" type="number" placeholder="0.00" {...register('wholesalePrice')} className="pl-8" />
-                                        </div>
-                                    </div>
-                                    <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
-                                        <span>Profit: <span className="font-bold">${wholesaleProfit.profit.toFixed(2)}</span></span>
-                                        <span>Margin: <span className="font-bold">{wholesaleProfit.margin.toFixed(1)}%</span></span>
-                                    </div>
-                               </div>
+                ) : (
+                    <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                        <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Retail Pricing Matrix</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-8">
+                            <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
+                                <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary"/><Input type="number" placeholder="0.00" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono"/></div></div>
+                                <div className="flex justify-between items-center text-[10px] font-bold uppercase pt-2 border-t border-dashed border-border/50">
+                                    <span className="opacity-60">Est. Profit / Margin</span>
+                                    <span className={cn("font-black font-mono text-sm", dtcProfit.profit >= 0 ? "text-primary" : "text-destructive")}>${dtcProfit.profit.toFixed(2)} ({dtcProfit.margin.toFixed(0)}%)</span>
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="font-semibold">Direct-to-Consumer (DTC)</Label>
-                                 <div className="space-y-4 p-3 border rounded-md">
-                                    <div className="space-y-1">
-                                        <Label htmlFor="dtc-price" className="text-xs">DTC Price (MSRP)</Label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input id="dtc-price" type="number" placeholder="0.00" {...register('msrp')} className="pl-8" />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <div className="flex items-center justify-between">
-                                            <Label htmlFor="packaging-cost" className="text-xs">Packaging Cost / item</Label>
-                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsPackagingCalcOpen(true)}>
-                                                <Calculator className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input id="packaging-cost" type="number" placeholder="0.00" {...register('packagingCost')} className="pl-8" />
-                                        </div>
-                                    </div>
-                                     <div className="space-y-1">
-                                        <div className="flex items-center justify-between">
-                                            <Label htmlFor="shipping-cost" className="text-xs">Avg. Shipping Cost / item</Label>
-                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsShippingCalcOpen(true)}>
-                                                <Calculator className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input id="shipping-cost" type="number" placeholder="0.00" {...register('shippingCostToCustomer')} className="pl-8" />
-                                        </div>
-                                    </div>
-                                    <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
-                                        <span>Profit: <span className="font-bold">${dtcProfit.profit.toFixed(2)}</span></span>
-                                        <span>Margin: <span className="font-bold">{dtcProfit.margin.toFixed(1)}%</span></span>
-                                    </div>
+                            <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
+                                <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary"/><Input type="number" placeholder="0.00" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono"/></div></div>
+                                <div className="flex justify-between items-center text-[10px] font-bold uppercase pt-2 border-t border-dashed border-border/50">
+                                    <span className="opacity-60">Est. Profit / Margin</span>
+                                    <span className={cn("font-black font-mono text-sm", wholesaleProfit.profit >= 0 ? "text-primary" : "text-destructive")}>${wholesaleProfit.profit.toFixed(2)} ({wholesaleProfit.margin.toFixed(0)}%)</span>
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
                 )}
             </div>
-             <PackagingCostCalculatorDialog
-                open={isPackagingCalcOpen}
-                onOpenChange={setIsPackagingCalcOpen}
-                onCalculated={(cost) => setValue('packagingCost', cost, { shouldDirty: true })}
-            />
-            <ShippingCostCalculatorDialog
-                open={isShippingCalcOpen}
-                onOpenChange={setIsShippingCalcOpen}
-                onCalculated={(cost) => setValue('shippingCostToCustomer', cost, { shouldDirty: true })}
-            />
-        </>
+        </div>
     );
 };
 
-const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
-     const { control, register, formState: { errors } } = useFormContext<ProductFormData>();
+const Step3_InventoryLogistics = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
+    const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
     return (
-        <div className="space-y-6">
-            <Card>
-                <CardHeader><CardTitle>Supplier Info</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" placeholder="e.g., SalonCentric" {...register('supplier')} /></div>
-                    <div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" placeholder="Product identifier" {...register('sku')} /></div>
-                    <div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="text" placeholder="www.example.com" {...register('purchaseLink')} /></div>
-                </CardContent>
-            </Card>
-            <Card>
-                 <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
-                 <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
-                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...register('initialStock')} />{errors.initialStock && <p className="text-sm text-destructive">{errors.initialStock.message}</p>}</div>
-                        <div className="space-y-2">
-                            <Label>Expiration Date</Label>
+        <div className="space-y-10">
+            <SectionHeader icon={Truck} title="Logistics & Source" step={3} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Source Intel</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-5">
+                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Supplier / Vendor</Label><Input placeholder="e.g., SalonCentric" {...register('supplier')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input placeholder="Barcode or identifier" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
+                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Digital Source (URL)</Label><Input placeholder="https://..." {...register('purchaseLink')} className="h-11 rounded-xl border-2 font-bold text-xs" /></div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Stock Control</CardTitle></CardHeader>
+                    <CardContent className="p-6 space-y-5">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Starting Stock</Label><Input type="number" placeholder="Qty" {...register('initialStock')} className="h-11 rounded-xl border-2 font-black text-lg" />{errors.initialStock && <p className="text-[8px] font-black text-destructive uppercase">{errors.initialStock.message}</p>}</div>
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Alert</Label><Input type="number" placeholder="Min" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg" /></div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Active Expiry</Label>
                             <Controller name="expirationDate" control={control} render={({ field }) => (
                                 <Popover>
-                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, 'PPP') : 'No expiry'}
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5">
+                                            <CalendarIcon className="mr-2 h-4 w-4 opacity-40" />
+                                            {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}
+                                        </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} />
-                                    </PopoverContent>
+                                    <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
                                 </Popover>
                             )}/>
                         </div>
-                    </div>
-                </CardContent>
-            </Card>
-             <Card>
-                <CardHeader><CardTitle>Storage Locations</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label>Primary Location</Label>
-                        <Controller
-                            name="primaryLocationId"
-                            control={control}
-                            render={({ field }) => (
-                                <div className="flex gap-2">
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select location" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {locations.map(loc => (
-                                            <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button">
-                                    <PlusCircle className="h-4 w-4" />
-                                </Button>
-                                </div>
-                            )}
-                        />
-                    </div>
-                </CardContent>
-            </Card>
+                        <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50">
+                            <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
+                            <div className="flex gap-2">
+                                <Controller name="primaryLocationId" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest flex-1 bg-muted/5 shadow-inner">
+                                            <SelectValue placeholder="Select Zone" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {locations.map(loc => (<SelectItem key={loc.id} value={loc.id} className="font-bold uppercase text-[9px] tracking-widest">{loc.name}</SelectItem>))}
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button" className="h-11 w-11 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5" /></Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     )
 };
-
 
 export const AddProductDialog: React.FC<{ 
   open: boolean;
@@ -575,22 +441,21 @@ export const AddProductDialog: React.FC<{
   const [step, setStep] = useState(1);
   const totalSteps = 3;
   const isMobile = useIsMobile();
+  const { toast } = useToast();
   
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
-    defaultValues: {
-      type: initialType,
-    }
+    defaultValues: { type: initialType, costingMethod: 'size' }
   });
 
   useEffect(() => {
     if (open) {
-      methods.reset({ type: initialType });
+      methods.reset({ type: initialType, costingMethod: 'size', initialStock: 1 });
       setStep(1);
     }
   }, [open, initialType, methods]);
 
-  const { watch, trigger, handleSubmit } = methods;
+  const { trigger, handleSubmit } = methods;
   
   const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
@@ -601,7 +466,7 @@ export const AddProductDialog: React.FC<{
     }
 
     const newProduct: InventoryItem = {
-        id: `prod-${Date.now()}`,
+        id: `prod-${nanoid(8)}`,
         name: data.name,
         type: data.type,
         category: data.category,
@@ -623,13 +488,7 @@ export const AddProductDialog: React.FC<{
         wholesalePrice: data.wholesalePrice,
         packagingCost: data.packagingCost,
         shippingCostToCustomer: data.shippingCostToCustomer,
-        batches: [{
-            id: `batch-${Date.now()}`,
-            stock: data.initialStock || 0,
-            costPerUnit: costPerUnit,
-            receivedDate: new Date().toISOString(),
-            expirationDate: data.expirationDate?.toISOString(),
-        }],
+        batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit: costPerUnit, receivedDate: new Date().toISOString(), expirationDate: data.expirationDate?.toISOString() }],
     };
     onProductAdded(newProduct);
     onOpenChange(false);
@@ -638,72 +497,56 @@ export const AddProductDialog: React.FC<{
     const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
         const fieldsToValidate: (keyof ProductFormData)[] = [];
-        if (step === 1) {
-            fieldsToValidate.push('name', 'category');
-        }
-        if (step === 3) {
-            fieldsToValidate.push('initialStock');
-        }
+        if (step === 1) fieldsToValidate.push('name', 'category');
+        if (step === 3) fieldsToValidate.push('initialStock');
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
-        
-        if (isValid && step < totalSteps) {
-            setStep(step + 1);
-        }
+        if (isValid && step < totalSteps) setStep(step + 1);
     };
 
     const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
-        if (step > 1) {
-            setStep(step - 1);
-        }
+        if (step > 1) setStep(step - 1);
     };
-  
-  const handleOpenChange = (isOpen: boolean) => {
-    onOpenChange(isOpen);
-    if (!isOpen) {
-      setTimeout(() => {
-        setStep(1);
-        methods.reset();
-      }, 300);
-    }
-  };
 
   const getStepContent = () => {
       switch(step) {
-          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
+          case 1: return <Step1 categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_CostingPricing />;
-          case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
+          case 3: return <Step3_InventoryLogistics onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
       }
   }
   
-  const formId = `add-product-form-${initialType}`;
-  const title = `Add New ${initialType === 'retail' ? 'Retail Product' : 'Professional Product'}`;
-  const description = "Use this wizard to add a new item to your inventory.";
+  const title = `Add New Asset`;
+  const description = `Register a ${initialType} item into your studio manifest.`;
 
   const formBody = (
      <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+      <form id="add-inventory-asset-form" onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+          <div className="flex items-center gap-3 mb-2">
+            <PlusCircle className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+          </div>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
+          <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
         </DialogHeader>
-        <div className="px-4 md:px-6 py-4">
-          <Progress value={(step / totalSteps) * 100} />
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
-          {getStepContent()}
-        </div>
-        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
-          <div className='flex justify-between w-full'>
-            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+        <ScrollArea className="flex-1">
+            <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
+                {getStepContent()}
+            </div>
+        </ScrollArea>
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
+          <div className='flex w-full gap-4'>
+            {step > 1 && <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
+            <div className={cn("flex gap-3", step === 1 ? "w-full" : "flex-[2.5]")}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">Cancel</Button>
               {step < totalSteps ? (
-                <Button onClick={handleNext} type="button">Next</Button>
+                <Button onClick={handleNext} type="button" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" /></Button>
               ) : (
-                <Button type="submit" form={formId}>Save Product</Button>
+                <Button type="submit" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">Save Asset</Button>
               )}
             </div>
           </div>
@@ -712,21 +555,14 @@ export const AddProductDialog: React.FC<{
     </FormProvider>
   );
 
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
-          {formBody}
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const DialogContentContainer = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <DialogContentContainer side="right" className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")}>
         {formBody}
-      </DialogContent>
-    </Dialog>
+      </DialogContentContainer>
+    </DialogContainer>
   );
 };
