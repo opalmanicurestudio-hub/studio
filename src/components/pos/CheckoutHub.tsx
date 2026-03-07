@@ -47,7 +47,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { Badge } from '../ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label as RadioLabel } from '@/components/ui/label';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
@@ -71,7 +71,7 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { doc, increment } from 'firebase/firestore';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const safeDate = (val: any): Date => {
@@ -261,7 +261,6 @@ export const CheckoutHub = ({
             
             allInvolvedStaff.forEach((member, index) => {
                 if (index === allInvolvedStaff.length - 1) {
-                    // Remainder to the last person to ensure sum == total
                     newAllocations[member.id] = Number((value - currentTotal).toFixed(2));
                 } else {
                     newAllocations[member.id] = splitAmount;
@@ -326,77 +325,9 @@ export const CheckoutHub = ({
 
     const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
 
-    const FinancialSummary = ({ isInsideScroll }: { isInsideScroll: boolean }) => (
-        <div className={cn("space-y-1.5 md:space-y-2 text-sm px-1", isInsideScroll ? "pt-6 border-t border-dashed" : "pt-4 md:pt-6")}>
-            <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-                <p>Subtotal</p>
-                <p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p>
-            </div>
-            {(discount + membershipDiscount) > 0 && (
-                <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-                    <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Savings Applied</span>
-                    <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
-                </div>
-            )}
-            {appliedAdjustments.size > 0 && (
-                <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter">
-                    <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
-                    <span className="font-mono text-[11px] md:text-xs">+{Array.from(appliedAdjustments).reduce((sum, id) => {
-                        const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                        return sum + (fee?.feeAmount || 0);
-                    }, 0).toFixed(2)}</span>
-                </div>
-            )}
-            <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-                <p>Studio Tax (7%)</p>
-                <p className="font-mono text-[11px] md:text-xs">${tax.toFixed(2)}</p>
-            </div>
-            
-            <div className="flex justify-between items-center py-1 md:py-2">
-                <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
-                <div className="relative w-32 md:w-36">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-                    <Input 
-                        type="number" 
-                        value={tipAmount || ''} 
-                        onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
-                        className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
-                        placeholder="0.00" 
-                    />
-                </div>
-            </div>
-
-            {allInvolvedStaff.length > 1 && (
-                <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
-                    <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 h-3" /> Distribution Matrix</p>
-                    {allInvolvedStaff.map((member: any) => (
-                        <div key={member.id} className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
-                                    <AvatarImage src={member.avatarUrl} className="object-cover" />
-                                    <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
-                                </Avatar>
-                                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
-                            </div>
-                            <div className="relative w-20 md:w-24">
-                                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
-                                <Input 
-                                    type="number" 
-                                    value={tipAllocations[member.id] || ''} 
-                                    onChange={(e) => handleIndividualTipChange(member.id, parseFloat(e.target.value) || 0)} 
-                                    className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" 
-                                />
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-
     return (
-        <div className="flex flex-col h-full">
-            <div className={cn("mb-4 md:mb-8 flex-shrink-0", isMobile && "mb-3 px-1")}>
+        <div className="flex flex-col space-y-6 md:space-y-10">
+            <div className="flex-shrink-0">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
@@ -477,224 +408,256 @@ export const CheckoutHub = ({
                 </div>
             </div>
 
-            <ScrollArea className="flex-1 min-h-0 -mx-2 px-2">
-                <div className={cn("space-y-6 md:space-y-10 pb-10", isMobile && "px-2 pt-2")}>
-                    {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
-                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 md:p-5 rounded-[2rem] border-4 border-destructive bg-destructive/5 text-destructive shadow-2xl shadow-destructive/5 space-y-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Wallet className="h-5 w-5 text-white" /></div>
-                                <div className="space-y-0.5 text-left">
-                                    <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Accounting Alert</p>
-                                    <p className="text-sm font-black uppercase tracking-tight leading-none">Arrears Detected</p>
-                                </div>
-                            </div>
-                            <p className="text-xs font-bold leading-relaxed opacity-80 uppercase tracking-tight text-left">Client owes <strong className="text-lg tracking-tighter">${selectedClient.outstandingBalance!.toFixed(2)}</strong> from past sessions.</p>
-                            <Button variant="destructive" size="sm" className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-destructive/20" onClick={() => selectedClient.unpaidFees?.forEach((fee: any) => onApplyAdjustmentToggle(fee.feeId, true))}>Collect Debt Now</Button>
-                        </motion.div>
-                    )}
-
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between px-1">
-                            <div className="flex items-center gap-2">
-                                <ShoppingCart className="w-4 h-4 text-primary" />
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized List</h3>
-                            </div>
-                            <Button variant="ghost" size="sm" onClick={onScanClick} className="h-7 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                                <ScanIcon className="w-3 h-3 mr-1.5" />
-                                Scan to add
-                            </Button>
+            {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 md:p-5 rounded-[2rem] border-4 border-destructive bg-destructive/5 text-destructive shadow-2xl shadow-destructive/5 space-y-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Wallet className="h-5 w-5 text-white" /></div>
+                        <div className="space-y-0.5 text-left">
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Accounting Alert</p>
+                            <p className="text-sm font-black uppercase tracking-tight leading-none">Arrears Detected</p>
                         </div>
-                        
-                        {isCartEmpty ? (
-                            <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[2.5rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
-                                <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
-                                <div className="space-y-1">
-                                    <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
-                                    <p className="text-[10px] font-bold uppercase tracking-tight px-4">Scan a ticket or select retail items</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {appointmentsData.map((data: any) => {
-                                    const isRedeemed = redeemedOffer?.id === data.service.id;
-                                    const isWaived = waivedAppointmentFees.has(data.appointment.id);
-                                    const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
-                                    
-                                    const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
-                                    const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
-                                    const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
-
-                                    return (
-                                        <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
-                                            <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
-                                                <div className="flex justify-between items-start gap-4">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
-                                                            {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
-                                                            {mainStaffId !== data.appointment.staffId && <Badge variant="outline" className="text-[7px] h-3 px-1 font-black uppercase tracking-tighter opacity-60">Overridden</Badge>}
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${getServicePrice(data.service, data.staff).toFixed(2)}</p>
-                                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                                    </div>
-                                                </div>
-                                                
-                                                {addOns.length > 0 && (
-                                                    <div className="space-y-2 pl-4 border-l-2 border-primary/10">
-                                                        {addOns.map((addon: any) => {
-                                                            const addonStaffId = overrides[addon.id] || data.appointment.staffId;
-                                                            const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
-                                                            
-                                                            return (
-                                                                <div key={addon.id} className="space-y-0.5 group">
-                                                                    <div className="flex justify-between items-center">
-                                                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">+ {addon.name}</span>
-                                                                        <span className="text-[10px] font-black font-mono text-muted-foreground">${getServicePrice(addon, data.staff).toFixed(2)}</span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-1.5 opacity-60">
-                                                                        <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
-                                                                        {addonStaffId !== data.appointment.staffId && <div className="w-1 h-1 rounded-full bg-primary/40" />}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-
-                                                {data.appointment.checkoutState?.additionalCharge > 0 && (
-                                                    <div className="pt-3 border-t border-dashed flex justify-between items-center">
-                                                        <span className="text-[10px] font-black uppercase text-muted-foreground">Overage Fee</span>
-                                                        <div className="flex items-center gap-3">
-                                                            <span className={cn("font-black font-mono text-xs", isWaived ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
-                                                            {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Undo</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    );
-                                })}
-
-                                {cart.map((item: any) => (
-                                    <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group">
-                                        <div className="flex-1 min-w-0 text-left">
-                                            <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
-                                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
-                                        </div>
-                                        <div className="flex items-center gap-2 md:gap-3">
-                                            <div className="flex items-center bg-background rounded-xl border-2 h-8 md:h-9 px-1 shadow-sm">
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3"/></Button>
-                                                <span className="w-6 md:w-8 text-center text-xs font-black">{item.quantity}</span>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3"/></Button>
-                                            </div>
-                                            <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
-                                        </div>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="h-4 w-4"/></Button>
-                                    </div>
-                                ))}
-
-                                {Array.from(appliedAdjustments).map(id => {
-                                    const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
-                                    return (
-                                        <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2">
-                                            <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
-                                            <div className="flex-1 min-w-0 text-left">
-                                                <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
-                                                <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Historical Balance</p>
-                                            </div>
-                                            <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${fee?.feeAmount.toFixed(2)}</p>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id as string, false)}><XCircle className="h-4 w-4"/></Button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
                     </div>
+                    <p className="text-xs font-bold leading-relaxed opacity-80 uppercase tracking-tight text-left">Client owes <strong className="text-lg tracking-tighter">${selectedClient.outstandingBalance!.toFixed(2)}</strong> from past sessions.</p>
+                    <Button variant="destructive" size="sm" className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-destructive/20" onClick={() => selectedClient.unpaidFees?.forEach((fee: any) => onApplyAdjustmentToggle(fee.feeId, true))}>Collect Debt Now</Button>
+                </motion.div>
+            )}
 
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-2 px-1">
-                            <Tag className="w-4 h-4 text-primary" />
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discounts & Growth</h3>
-                        </div>
-                        <div className="flex gap-3">
-                            <div className="relative flex-1">
-                                <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                <Input placeholder="ENTER PROMO..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
-                            </div>
-                            <Button variant="outline" size="icon" className="h-11 w-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
-                        </div>
-
-                        {appliedDiscountCodes.length > 0 && (
-                            <div className="space-y-2">
-                                {appliedDiscountCodes.map((code: string) => (
-                                    <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95">
-                                        <div className="flex items-center gap-2 px-1">
-                                            <CheckCircle className="h-4 w-4 text-primary" />
-                                            <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
-                                        </div>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {suggestedDiscounts.length > 0 && (
-                            <div className="space-y-3 pt-2">
-                                <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
-                                {suggestedDiscounts.map(d => (
-                                    <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all" onClick={() => handleApplyDiscount(d.code)}>
-                                        <div className="text-left min-w-0 flex-1">
-                                            <p className="text-[11px] md:text-xs font-black uppercase tracking-widest text-amber-700">{d.code}</p>
-                                            <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
-                                        </div>
-                                        <div className="text-right ml-4 shrink-0">
-                                            <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF</p>
-                                        </div>
-                                    </Button>
-                                ))}
-                            </div>
-                        )}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                        <ShoppingCart className="w-4 h-4 text-primary" />
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized List</h3>
                     </div>
-
-                    {isMobile && !isCartEmpty && (
-                        <div className="pb-10">
-                            <FinancialSummary isInsideScroll={true} />
-                        </div>
-                    )}
                 </div>
-            </ScrollArea>
-            
-            <div className="flex-shrink-0 pt-4 md:pt-6 border-t-4 border-muted/30 bg-white">
-                {!isMobile && (
-                    <FinancialSummary isInsideScroll={false} />
-                )}
                 
-                {isMobile && !isCartEmpty && (
-                    <div className="flex justify-between items-baseline font-black text-2xl text-primary tracking-tighter px-1 pb-4">
-                        <div className="space-y-0.5 text-left">
-                            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Total Due</p>
-                            <p className="text-[8px] font-bold uppercase text-primary/40">INC. TAX & TIPS</p>
+                {isCartEmpty ? (
+                    <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[2.5rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                        <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
+                        <div className="space-y-1">
+                            <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
+                            <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center">Scan a ticket or select retail items</p>
                         </div>
-                        <p className="font-mono text-3xl">${total.toFixed(2)}</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {appointmentsData.map((data: any) => {
+                            const isRedeemed = redeemedOffer?.id === data.service.id;
+                            const isWaived = waivedAppointmentFees.has(data.appointment.id);
+                            const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
+                            
+                            const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
+                            const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
+                            const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
+
+                            return (
+                                <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all text-left", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
+                                    <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
+                                                    {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${getServicePrice(data.service, data.staff).toFixed(2)}</p>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                            </div>
+                                        </div>
+                                        
+                                        {addOns.length > 0 && (
+                                            <div className="space-y-2 pl-4 border-l-2 border-primary/10">
+                                                {addOns.map((addon: any) => {
+                                                    const addonStaffId = overrides[addon.id] || data.appointment.staffId;
+                                                    const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
+                                                    
+                                                    return (
+                                                        <div key={addon.id} className="space-y-0.5 group">
+                                                            <div className="flex justify-between items-center">
+                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">+ {addon.name}</span>
+                                                                <span className="text-[10px] font-black font-mono text-muted-foreground">${getServicePrice(addon, data.staff).toFixed(2)}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 opacity-60">
+                                                                <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+
+                                        {data.appointment.checkoutState?.additionalCharge > 0 && (
+                                            <div className="pt-3 border-t border-dashed flex justify-between items-center">
+                                                <span className="text-[10px] font-black uppercase text-muted-foreground">Overage Fee</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className={cn("font-black font-mono text-xs", isWaived ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
+                                                    {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Undo</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
+
+                        {cart.map((item: any) => (
+                            <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group">
+                                <div className="flex-1 min-w-0 text-left">
+                                    <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p>
+                                </div>
+                                <div className="flex items-center gap-2 md:gap-3">
+                                    <div className="flex items-center bg-background rounded-xl border-2 h-8 md:h-9 px-1 shadow-sm">
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3"/></Button>
+                                        <span className="w-6 md:w-8 text-center text-xs font-black">{item.quantity}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7 rounded-lg hover:bg-primary/5" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3"/></Button>
+                                    </div>
+                                    <p className="font-black font-mono text-sm tracking-tighter w-14 md:w-16 text-right text-slate-900">${(item.price * item.quantity).toFixed(2)}</p>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="h-4 w-4"/></Button>
+                            </div>
+                        ))}
+
+                        {Array.from(appliedAdjustments).map(id => {
+                            const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+                            return (
+                                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/[0.02] flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2">
+                                    <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
+                                    <div className="flex-1 min-w-0 text-left">
+                                        <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
+                                        <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Historical Balance</p>
+                                    </div>
+                                    <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${fee?.feeAmount.toFixed(2)}</p>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id as string, false)}><XCircle className="h-4 w-4"/></Button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center gap-2 px-1">
+                    <Tag className="w-4 h-4 text-primary" />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discounts & Growth</h3>
+                </div>
+                <div className="flex gap-3">
+                    <div className="relative flex-1">
+                        <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                        <Input placeholder="ENTER PROMO..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
+                    </div>
+                    <Button variant="outline" size="icon" className="h-11 w-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
+                </div>
+
+                {appliedDiscountCodes.length > 0 && (
+                    <div className="space-y-2">
+                        {appliedDiscountCodes.map((code: string) => (
+                            <div key={code} className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-between animate-in zoom-in-95">
+                                <div className="flex items-center gap-2 px-1">
+                                    <CheckCircle className="h-4 w-4 text-primary" />
+                                    <p className="text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">{code}</p>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 md:h-8 md:w-8 text-primary hover:bg-primary/10 rounded-xl" onClick={() => handleRemoveDiscount(code)}><X className="h-4 w-4" /></Button>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                {!isMobile && (
-                    <div className="flex justify-between items-baseline font-black text-2xl md:text-4xl text-primary tracking-tighter px-1 pb-2">
-                        <div className="space-y-0.5 text-left">
-                            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Grand Total</p>
-                            <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON FINALIZE</p>
-                        </div>
-                        <p className="font-mono text-3xl md:text-4xl">${total.toFixed(2)}</p>
+                {suggestedDiscounts.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                        <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
+                        {suggestedDiscounts.map(d => (
+                            <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all" onClick={() => handleApplyDiscount(d.code)}>
+                                <div className="text-left min-w-0 flex-1">
+                                    <p className="text-[11px] md:text-xs font-black uppercase tracking-widest text-amber-700">{d.code}</p>
+                                    <p className="text-[9px] md:text-[10px] text-muted-foreground font-bold truncate opacity-60 uppercase">{d.description}</p>
+                                </div>
+                                <div className="text-right ml-4 shrink-0">
+                                    <p className="text-xs md:sm font-black text-amber-700">{d.type === 'percentage' ? `${d.value}%` : `$${d.value}`} OFF</p>
+                                </div>
+                            </Button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div className="space-y-4 pt-6 border-t border-dashed">
+                <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
+                    <p>Subtotal</p>
+                    <p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p>
+                </div>
+                {(discount + membershipDiscount) > 0 && (
+                    <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
+                        <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Savings Applied</span>
+                        <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
+                    </div>
+                )}
+                {appliedAdjustments.size > 0 && (
+                    <div className="flex justify-between items-center text-[10px] text-destructive font-black uppercase tracking-tighter">
+                        <span className="flex items-center gap-2"><AlertTriangle className="w-3.5 h-3.5" /> Debt Consolidation</span>
+                        <span className="font-mono text-[11px] md:text-xs">+{Array.from(appliedAdjustments).reduce((sum, id) => {
+                            const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+                            return sum + (fee?.feeAmount || 0);
+                        }, 0).toFixed(2)}</span>
+                    </div>
+                )}
+                <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
+                    <p>Studio Tax (7%)</p>
+                    <p className="font-mono text-[11px] md:text-xs">${tax.toFixed(2)}</p>
+                </div>
+                
+                <div className="flex justify-between items-center py-1 md:py-2">
+                    <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
+                    <div className="relative w-32 md:w-36">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
+                        <Input 
+                            type="number" 
+                            value={tipAmount || ''} 
+                            onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
+                            className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
+                            placeholder="0.00" 
+                        />
+                    </div>
+                </div>
+
+                {allInvolvedStaff.length > 1 && (
+                    <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
+                        <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 h-3" /> Distribution Matrix</p>
+                        {allInvolvedStaff.map((member: any) => (
+                            <div key={member.id} className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Avatar className="h-5 w-5 md:h-6 md:w-6 border-2 border-white shadow-sm rounded-lg">
+                                        <AvatarImage src={member.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="font-black text-[7px] md:text-[8px]">{(member.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight truncate text-slate-700">{member.name.split(' ')[0]}</span>
+                                </div>
+                                <div className="relative w-20 md:w-24">
+                                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
+                                    <Input 
+                                        type="number" 
+                                        value={tipAllocations[member.id] || ''} 
+                                        onChange={(e) => handleIndividualTipChange(member.id, parseFloat(e.target.value) || 0)} 
+                                        className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" 
+                                    />
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                <div className={cn("space-y-3 md:space-y-4 px-1", isMobile ? "pb-4" : "mt-4 md:mt-6 pb-10")}>
+                <div className="flex justify-between items-baseline font-black text-2xl md:text-4xl text-primary tracking-tighter px-1 pt-4">
+                    <div className="space-y-0.5 text-left">
+                        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Grand Total</p>
+                        <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON FINALIZE</p>
+                    </div>
+                    <p className="font-mono text-3xl md:text-4xl">${total.toFixed(2)}</p>
+                </div>
+
+                <div className="space-y-3 md:space-y-4 pt-6">
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2 md:gap-3">
                         <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-cash" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
                         <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
@@ -729,7 +692,7 @@ export const CheckoutHub = ({
                         </div>
                     )}
 
-                    <div className="pt-1 md:pt-2">
+                    <div className="pt-2">
                         <Button 
                             className="w-full h-14 md:h-16 text-lg md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 

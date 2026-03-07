@@ -32,6 +32,7 @@ import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDia
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -332,7 +333,7 @@ function POSPageContent() {
         const conversionRate = terminalWalkIns.length > 0 ? (completedWalkIns.length / terminalWalkIns.length) * 100 : 0;
 
         const totalInServiceMinutes = (appointmentsFromInventory || []).filter(apt => 
-            isSameDay(safeDate(apt.startTime), new Date()) && apt.status === 'completed'
+            isToday(safeDate(apt.startTime)) && apt.status === 'completed'
         ).reduce((acc, apt) => {
              if (apt.actualStartTime && apt.actualEndTime) {
                 return acc + differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
@@ -343,12 +344,12 @@ function POSPageContent() {
 
         const totalServiceRevenue = (transactions || []).filter(t => {
             const transactionDate = safeDate(t.date);
-            return t.category === 'Service Revenue' && isSameDay(transactionDate, new Date());
+            return t.category === 'Service Revenue' && isToday(transactionDate);
         }).reduce((acc, t) => acc + t.amount, 0);
 
         const totalRetailRevenue = (transactions || []).filter(t => {
             const transactionDate = safeDate(t.date);
-            return t.category === 'Retail' && isSameDay(transactionDate, new Date());
+            return t.category === 'Retail' && isToday(transactionDate);
         }).reduce((acc, t) => acc + t.amount, 0);
 
         const totalDailyGrossRevenue = totalServiceRevenue + totalRetailRevenue;
@@ -829,7 +830,7 @@ function POSPageContent() {
 
     const todayAppointments = useMemo(() => {
         const todayStart = startOfDay(new Date());
-        return (appointmentsFromInventory || []).filter(a => isSameDay(new Date(a.startTime), todayStart));
+        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), todayStart));
     }, [appointmentsFromInventory]);
 
     if (isInventoryLoading) {
@@ -904,9 +905,11 @@ function POSPageContent() {
                                     <ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" />
                                 </Button>
                             </div>
-                            <div className="p-6 flex-1 flex flex-col min-h-0 overflow-y-auto">
-                                <CheckoutHub {...checkoutHubProps} />
-                            </div>
+                            <ScrollArea className="flex-1">
+                                <div className="p-6">
+                                    <CheckoutHub {...checkoutHubProps} />
+                                </div>
+                            </ScrollArea>
                         </>
                     )}
                 </aside>
@@ -923,9 +926,11 @@ function POSPageContent() {
                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
                                 <SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
-                            <div className="flex-1 overflow-hidden bg-background">
-                                <CheckoutHub {...checkoutHubProps} />
-                            </div>
+                            <ScrollArea className="flex-1 bg-background">
+                                <div className="p-6">
+                                    <CheckoutHub {...checkoutHubProps} />
+                                </div>
+                            </ScrollArea>
                         </SheetContent>
                     </Sheet>
                 </div>
