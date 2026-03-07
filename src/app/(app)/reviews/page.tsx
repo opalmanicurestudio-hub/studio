@@ -32,7 +32,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { doc } from 'firebase/firestore';
-import { type Review } from '@/lib/data';
+import { type Review, type Staff } from '@/lib/data';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -55,8 +55,9 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const ReviewCard = ({ review, onTogglePublic }: { review: Review, onTogglePublic: (id: string, isPublic: boolean) => void }) => {
+const ReviewCard = ({ review, onTogglePublic, staff }: { review: Review, onTogglePublic: (id: string, isPublic: boolean) => void, staff: Staff[] }) => {
   const isPublic = review.isPublic;
+  const staffMember = staff.find(s => s.id === review.staffId);
 
   return (
     <Card className={cn(
@@ -105,7 +106,9 @@ const ReviewCard = ({ review, onTogglePublic }: { review: Review, onTogglePublic
                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1">
                     <User className="w-2.5 h-2.5" /> Technician
                 </p>
-                <p className="font-black text-[10px] uppercase tracking-tight text-slate-700 truncate">Technician</p>
+                <p className="font-black text-[10px] uppercase tracking-tight text-slate-700 truncate">
+                    {staffMember?.name || 'Assigned Staff'}
+                </p>
             </div>
         </div>
       </CardContent>
@@ -140,7 +143,7 @@ const Badge = ({ children, className, variant }: any) => (
 );
 
 export default function ReviewsPage() {
-  const { reviews, isLoading } = useInventory();
+  const { reviews, staff, isLoading } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
 
@@ -204,7 +207,7 @@ export default function ReviewsPage() {
             ) : reviews && reviews.length > 0 ? (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                     {reviews.map(review => (
-                        <ReviewCard key={review.id} review={review} onTogglePublic={handleTogglePublic} />
+                        <ReviewCard key={review.id} review={review} onTogglePublic={handleTogglePublic} staff={staff} />
                     ))}
                 </div>
             ) : (
