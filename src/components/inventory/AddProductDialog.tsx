@@ -18,7 +18,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,10 +30,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type PricingTier } from '@/lib/data';
+import { type InventoryItem, type Location } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -41,26 +41,23 @@ import { z } from 'zod';
 import { 
     Check, 
     PlusCircle, 
-    QrCode, 
     AlertTriangle, 
     DollarSign, 
     Package, 
-    Hammer, 
-    Trash2, 
     ShoppingCart, 
     Calculator, 
     Sparkles,
     Truck,
     Clock,
-    Zap,
     Tag,
     ChevronLeft,
     ChevronRight,
     MapPin,
-    Calendar as CalendarIcon
+    Calendar as CalendarIcon,
+    Pipette,
+    CheckCircle,
+    ArrowRight
 } from 'lucide-react';
-import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -88,7 +85,6 @@ const productSchema = z.object({
   restockingMarkup: z.coerce.number().optional(),
 
   msrp: z.coerce.number().optional(),
-  markdownPrice: z.coerce.number().optional(),
   wholesalePrice: z.coerce.number().optional(),
   packagingCost: z.coerce.number().optional(),
   shippingCostToCustomer: z.coerce.number().optional(),
@@ -116,7 +112,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
     </div>
 );
 
-const Step1_BasicDetails = ({ 
+const Step1 = ({ 
     categories, 
     onNewCategory 
 }: { 
@@ -223,8 +219,8 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_CostingPricing = () => {
-    const { control, watch, register, setValue } = useFormContext<ProductFormData>();
+const Step2 = () => {
+    const { control, watch, register } = useFormContext<ProductFormData>();
     const productType = watch('type');
     const costingMethod = watch('costingMethod');
     const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp, wholesalePrice, packagingCost, shippingCostToCustomer] = watch([
@@ -295,18 +291,18 @@ const Step2_CostingPricing = () => {
                                 control={control}
                                 render={({ field }) => (
                                     <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                                        <label htmlFor="size-edit" className="cursor-pointer">
+                                        <label htmlFor="size-wizard" className="cursor-pointer">
                                             <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'size' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
                                                 <Pipette className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'size' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">By Volume</span>
-                                                <RadioGroupItem value="size" id="size-edit" className="sr-only" />
+                                                <RadioGroupItem value="size" id="size-wizard" className="sr-only" />
                                             </div>
                                         </label>
-                                        <label htmlFor="uses-edit" className="cursor-pointer">
+                                        <label htmlFor="uses-wizard" className="cursor-pointer">
                                             <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'uses' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
                                                 <CheckCircle className={cn("w-4 h-4 mx-auto mb-1.5", field.value === 'uses' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">By Uses</span>
-                                                <RadioGroupItem value="uses" id="uses-edit" className="sr-only" />
+                                                <RadioGroupItem value="uses" id="uses-wizard" className="sr-only" />
                                             </div>
                                         </label>
                                     </RadioGroup>
@@ -328,7 +324,7 @@ const Step2_CostingPricing = () => {
                                     <Input type="number" placeholder="e.g., 50" {...register('usesPerContainer')} className="h-11 rounded-xl border-2 font-bold" />
                                 </div>
                             )}
-                            <div className="space-y-1.5 pt-2 border-t border-dashed">
+                            <div className="space-y-1.5 pt-2 border-t border-dashed border-border/50">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Restocking Markup (%)</Label>
                                 <Input type="number" placeholder="e.g., 5" {...register('restockingMarkup')} className="h-11 rounded-xl border-2 font-bold" />
                             </div>
@@ -360,7 +356,7 @@ const Step2_CostingPricing = () => {
     );
 };
 
-const Step3_InventoryLogistics = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
+const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
     const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-10">
@@ -482,7 +478,6 @@ export const AddProductDialog: React.FC<{
         unit: data.containerUnit as any,
         estimatedUses: data.usesPerContainer,
         msrp: data.msrp,
-        markdownPrice: data.markdownPrice,
         restockingMarkup: data.restockingMarkup,
         internalNotes: data.internalNotes,
         wholesalePrice: data.wholesalePrice,
@@ -512,8 +507,8 @@ export const AddProductDialog: React.FC<{
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1 categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_CostingPricing />;
-          case 3: return <Step3_InventoryLogistics onAddLocationClick={onAddLocationClick} locations={locations} />;
+          case 2: return <Step2 />;
+          case 3: return <Step3 onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
       }
   }
