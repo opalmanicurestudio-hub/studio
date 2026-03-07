@@ -30,6 +30,10 @@ import {
   Award,
   Clock,
   Loader,
+  Sparkles,
+  ShieldCheck,
+  Activity,
+  ArrowRight,
 } from 'lucide-react';
 import { type Service, Staff, DayHours, ActivityLog, type PricingTier } from '@/lib/data';
 import Link from 'next/link';
@@ -45,52 +49,37 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { BookingServices } from '@/components/booking/BookingServices';
+import { motion, AnimatePresence } from 'framer-motion';
 
-type ClientPhoto = {
-  url: string;
-  label: string;
-};
+const StatTile = ({ label, value, icon: Icon, delay = 0 }: { label: string, value: string, icon: any, delay?: number }) => (
+    <motion.div 
+        initial={{ opacity: 0, y: 10 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ delay, duration: 0.4 }}
+        viewport={{ once: true }}
+        className="flex-1 min-w-[80px]"
+    >
+        <Card className="border-2 shadow-sm rounded-2xl bg-white/50 backdrop-blur-sm overflow-hidden h-full">
+            <CardContent className="p-3 flex flex-col items-center justify-center text-center gap-0.5">
+                <div className="p-1.5 bg-primary/5 rounded-lg mb-1">
+                    <Icon className="w-3 h-3 text-primary opacity-60" />
+                </div>
+                <p className="text-base md:text-xl font-black tracking-tighter text-slate-900 font-mono leading-none">{value}</p>
+                <p className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{label}</p>
+            </CardContent>
+        </Card>
+    </motion.div>
+);
 
 const getInitials = (name: string) => {
+    if (!name) return '?';
     const parts = name.split(' ');
     if (parts.length > 1) {
         return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
 };
-
-const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
-    return (
-        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full overflow-hidden">
-            {service.imageUrl && (
-                <div className="relative aspect-video w-full">
-                    <Image
-                        src={service.imageUrl}
-                        alt={service.name}
-                        fill
-                        className="object-cover"
-                    />
-                </div>
-            )}
-            <CardHeader>
-                <CardTitle className="text-lg">{service.name}</CardTitle>
-                {service.description && (
-                    <CardDescription className="line-clamp-2 h-10 pt-1">
-                        {service.description}
-                    </CardDescription>
-                )}
-            </CardHeader>
-            <CardContent className="flex-1" />
-            <CardFooter className="flex items-center justify-between p-4 bg-muted/50">
-                <div className="flex items-center gap-4 text-sm font-medium">
-                    <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-muted-foreground"/>{service.duration} min</div>
-                    <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4 text-muted-foreground"/>{service.price.toFixed(2)}</div>
-                </div>
-                <Button onClick={() => onBookNow(service)}><BookOpen className="w-4 h-4 mr-2"/>Book</Button>
-            </CardFooter>
-        </Card>
-    );
-}
 
 export default function StaffDetailPage() {
   const params = useParams<{ id: string }>();
@@ -114,11 +103,6 @@ export default function StaffDetailPage() {
   }, [firestore, tenantId, staffId]);
   const { data: allActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(activityLogsQuery);
 
-  const staffActivityLogs = useMemo(() => {
-      if (!allActivityLogs || !staffId) return [];
-      return allActivityLogs.filter(log => log.staffId === staffId).sort((a,b) => parseISO(b.timestamp).getTime() - parseISO(a.timestamp).getTime());
-  }, [allActivityLogs, staffId]);
-
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [serviceToBook, setServiceToBook] = useState<Service | null>(null);
 
@@ -127,71 +111,47 @@ export default function StaffDetailPage() {
     setIsAddAppointmentOpen(true);
   }
 
-  const handleAddAppointment = (newAppointment: any) => {
-    // Logic to add appointment would go here
-    setIsAddAppointmentOpen(false);
-  };
-
   const isLoading = isUserLoading || isTenantLoading || staffLoading || inventoryLoading || activityLogsLoading;
 
-    const formattedSchedule = useMemo(() => {
-        const availability = staffMember?.availability;
-        if (!availability?.week) return 'Not available';
+  const formattedSchedule = useMemo(() => {
+    const availability = staffMember?.availability;
+    if (!availability?.week) return 'Not available';
+    const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const groups: any[] = [];
+    let currentGroup: any = null;
 
-        const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const groups: { startDay: string, endDay: string, start: string, end: string }[] = [];
-
-        let currentGroup: { startDay: string, endDay: string, start: string, end: string } | null = null;
-
-        for (const day of weekOrder) {
-            const dayInfo = availability.week[day as keyof typeof availability.week];
-            if (dayInfo && dayInfo.enabled) {
-                if (currentGroup && currentGroup.start === dayInfo.start && currentGroup.end === dayInfo.end) {
-                    currentGroup.endDay = day;
-                } else {
-                    if (currentGroup) {
-                        groups.push(currentGroup);
-                    }
-                    currentGroup = {
-                        startDay: day,
-                        endDay: day,
-                        start: dayInfo.start,
-                        end: dayInfo.end
-                    };
-                }
+    for (const day of weekOrder) {
+        const dayInfo = availability.week[day as keyof typeof availability.week];
+        if (dayInfo && dayInfo.enabled) {
+            if (currentGroup && currentGroup.start === dayInfo.start && currentGroup.end === dayInfo.end) {
+                currentGroup.endDay = day;
             } else {
-                if (currentGroup) {
-                    groups.push(currentGroup);
-                }
-                currentGroup = null;
+                if (currentGroup) groups.push(currentGroup);
+                currentGroup = { startDay: day, endDay: day, start: dayInfo.start, end: dayInfo.end };
             }
+        } else {
+            if (currentGroup) groups.push(currentGroup);
+            currentGroup = null;
         }
-        if (currentGroup) {
-            groups.push(currentGroup);
-        }
-        
-        if (groups.length === 0) return 'Not available on weekdays.';
-
-        return groups.map(group => {
-            const startDay = group.startDay.slice(0, 3);
-            const endDay = group.endDay.slice(0, 3);
-            const dayRange = startDay === endDay ? startDay.charAt(0).toUpperCase() + startDay.slice(1) : `${startDay.charAt(0).toUpperCase() + startDay.slice(1)} - ${endDay.charAt(0).toUpperCase() + endDay.slice(1)}`;
-            
-            return `${dayRange} (${group.start} - ${group.end})`;
-        }).join(' | ');
-    }, [staffMember?.availability]);
+    }
+    if (currentGroup) groups.push(currentGroup);
+    if (groups.length === 0) return 'Not available on weekdays.';
+    return groups.map(group => {
+        const startDay = group.startDay.slice(0, 3);
+        const endDay = group.endDay.slice(0, 3);
+        const dayRange = startDay === endDay ? startDay.charAt(0).toUpperCase() + startDay.slice(1) : `${startDay.charAt(0).toUpperCase() + startDay.slice(1)} - ${endDay.charAt(0).toUpperCase() + endDay.slice(1)}`;
+        return `${dayRange} (${group.start} - ${group.end})`;
+    }).join(' | ');
+  }, [staffMember?.availability]);
   
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services || !pricingTiers) return [];
-    
     const staffPricingTierId = staffMember.pricingTierId;
-
     return services
       .filter(s => staffMember.services?.includes(s.id) && !s.isPrivate)
       .map(service => {
         let finalPrice = service.price;
         let finalDuration = service.duration;
-
         if (staffPricingTierId && service.serviceTiers) {
             const tierInfo = service.serviceTiers.find(t => t.tierId === staffPricingTierId);
             if (tierInfo) {
@@ -199,22 +159,17 @@ export default function StaffDetailPage() {
                 finalDuration = tierInfo.durationMinutes;
             }
         }
-        return {
-          ...service,
-          price: finalPrice,
-          duration: finalDuration
-        };
+        return { ...service, price: finalPrice, duration: finalDuration };
       });
   }, [staffMember, services, pricingTiers]);
 
   if (isLoading) {
       return (
-          <div className="flex min-h-screen w-full flex-col bg-slate-50 dark:bg-slate-900">
-            <main className="flex-1 p-4 md:p-6 flex items-center justify-center">
-              <Loader className="w-8 h-8 animate-spin" />
-            </main>
-          </div>
-      )
+        <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
+            <Loader className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Retrieving Portfolio...</p>
+        </div>
+      );
   }
 
   if (!staffMember) {
@@ -223,114 +178,177 @@ export default function StaffDetailPage() {
   
   const portfolioImages = staffMember.portfolioImageUrls && staffMember.portfolioImageUrls.length > 0 
     ? staffMember.portfolioImageUrls 
-    : [
-        'https://picsum.photos/seed/p1/600/600',
-        'https://picsum.photos/seed/p2/600/600',
-        'https://picsum.photos/seed/p3/600/600',
-        'https://picsum.photos/seed/p4/600/600',
-        'https://picsum.photos/seed/p5/600/600',
-    ];
-
+    : Array.from({ length: 5 }, (_, i) => `https://picsum.photos/seed/staff-portfolio-${staffId}-${i}/600/800`);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50 dark:bg-slate-900">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
-            <Button variant="outline" size="icon" asChild>
-                 <Link href="/staff">
-                    <ArrowLeft className="h-4 w-4" />
-                </Link>
-            </Button>
-        </header>
+    <div className="min-h-screen w-full bg-slate-50/50 selection:bg-primary/20 overflow-x-hidden relative font-body">
+        {/* Atmosphere blurred circles */}
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-5%] left-[-5%] w-[30%] h-[30%] bg-blue-200/20 blur-[100px] rounded-full" />
+            <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-purple-200/20 blur-[100px] rounded-full" />
+        </div>
 
-      <main className="flex-1 p-4 md:p-6 space-y-6 pb-24">
-            <Tabs defaultValue="overview">
-                <div className="text-center space-y-4">
-                    <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
-                        <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
-                        <AvatarFallback>{getInitials(staffMember.name)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                        <h1 className="text-3xl font-bold">{staffMember.name}</h1>
-                        <p className="text-lg text-muted-foreground">{staffMember.specialties?.join(', ')}</p>
-                        <p className="text-sm flex items-center justify-center gap-1 mt-1 text-muted-foreground"><Star className="w-4 h-4 text-amber-400 fill-amber-400" /> 4.9 (462 reviews)</p>
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                        {staffMember.instagramUrl && <a href={staffMember.instagramUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Instagram className="h-5 w-5" /></a>}
-                        {staffMember.facebookUrl && <a href={staffMember.facebookUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Facebook className="h-5 w-5" /></a>}
-                        {staffMember.twitterUrl && <a href={staffMember.twitterUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Twitter className="h-5 w-5" /></a>}
-                        {staffMember.tiktokUrl && <a href={staffMember.tiktokUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Film className="h-5 w-5" /></a>}
-                        {staffMember.pinterestUrl && <a href={staffMember.pinterestUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Pin className="h-5 w-5" /></a>}
-                        {staffMember.youtubeUrl && <a href={staffMember.youtubeUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Youtube className="h-5 w-5" /></a>}
-                        {staffMember.portfolioUrl && <a href={staffMember.portfolioUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><LinkIcon className="h-5 w-5" /></a>}
-                    </div>
+        <main className="relative z-10 max-w-5xl mx-auto py-10 px-4 md:px-10 space-y-16 md:space-y-24 pb-32">
+            {/* Header / Nav */}
+            <div className="flex items-center justify-between">
+                <Button variant="ghost" size="icon" asChild className="rounded-2xl bg-white/50 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white transition-all active:scale-90">
+                    <Link href="/staff">
+                        <ArrowLeft className="h-5 w-5 text-slate-900" />
+                    </Link>
+                </Button>
+                <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="font-black uppercase tracking-tighter text-sm md:text-base">Studio Dossier</span>
                 </div>
-                <TabsContent value="overview" className="max-w-lg mx-auto space-y-6 mt-6">
-                    <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
-                        <Card>
-                            <CardContent className="p-3 space-y-1">
-                                <Users className="w-5 h-5 text-primary mx-auto" />
-                                <p className="text-lg font-bold">{staffMember.clientCount || 200}+</p>
-                                <p className="text-[10px] md:text-xs text-muted-foreground">Clients</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="p-3 space-y-1">
-                                <Award className="w-5 h-5 text-primary mx-auto" />
-                                <p className="text-lg font-bold">{staffMember.yearsOfExperience || 5}+</p>
-                                <p className="text-[10px] md:text-xs text-muted-foreground">Years Exp.</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="p-3 space-y-1">
-                                <Star className="w-5 h-5 text-primary mx-auto" />
-                                <p className="text-lg font-bold">4.9</p>
-                                <p className="text-[10px] md:text-xs text-muted-foreground">Rating</p>
-                            </CardContent>
-                        </Card>
-                    </div>
-                    
-                    <Card>
-                        <CardHeader><CardTitle>About {staffMember.name.split(' ')[0]}</CardTitle></CardHeader>
-                        <CardContent><p className="text-muted-foreground">{staffMember.bio || 'A passionate professional dedicated to their craft and clients.'}</p></CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader><CardTitle>Working Time</CardTitle></CardHeader>
-                        <CardContent><p className="text-muted-foreground">{formattedSchedule}</p></CardContent>
-                    </Card>
+            </div>
 
-                    <div id="services" className="space-y-4 pt-6">
-                        <h2 className="text-2xl font-bold text-center">Services</h2>
-                        {staffServices.map(service => (
-                            <ServiceCard key={service.id} service={service} onBookNow={handleBookNow} />
+            {/* Identity Hero */}
+            <section id="hero" className="flex flex-col items-center text-center gap-6 md:gap-8">
+                <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                    className="relative"
+                >
+                    <Avatar className="w-28 h-28 md:w-48 md:h-48 text-4xl border-[6px] border-white shadow-3xl rounded-[2.5rem] md:rounded-[3.5rem] overflow-hidden">
+                        <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} className="object-cover" />
+                        <AvatarFallback className="font-black bg-primary/10 text-primary text-2xl">{getInitials(staffMember.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="absolute -bottom-1 -right-1 bg-primary text-white p-2 rounded-xl shadow-2xl border-2 border-white">
+                        <ShieldCheck className="w-5 h-5 md:w-7 md:h-7" />
+                    </div>
+                </motion.div>
+
+                <div className="space-y-3 max-w-2xl px-2">
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                        <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase tracking-widest h-5 px-2.5">
+                            {pricingTiers?.find(pt => pt.id === staffMember.pricingTierId)?.name || 'Professional'}
+                        </Badge>
+                        {staffMember.specialties?.slice(0, 2).map(s => (
+                            <Badge key={s} variant="outline" className="h-5 px-2.5 rounded-full border-2 font-black text-[8px] uppercase tracking-widest">{s}</Badge>
                         ))}
                     </div>
+                    <h1 className="text-3xl md:text-7xl font-black tracking-tighter uppercase text-slate-900 leading-[0.9] break-words w-full">
+                        {staffMember.name}
+                    </h1>
+                    <div className="flex items-center justify-center gap-1 mt-1 text-amber-500">
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">4.9 Mastery</span>
+                    </div>
+                </div>
+            </section>
 
-                    <div className="space-y-4 pt-6">
-                        <h2 className="text-2xl font-bold text-center">Portfolio</h2>
-                        <ScrollArea>
-                            <div className="flex space-x-4 pb-4">
-                                {portfolioImages.map((url, index) => (
-                                <div key={index} className="relative aspect-square w-64 h-64 md:w-80 md:h-80 flex-shrink-0 rounded-xl overflow-hidden group">
-                                    <Image
-                                    src={url}
-                                    alt={`Portfolio image ${index + 1}`}
-                                    fill
-                                    className="object-cover transition-transform duration-300 group-hover:scale-110"
-                                    />
-                                </div>
+            {/* Mastery Matrix */}
+            <div className="flex flex-wrap justify-center gap-3 md:gap-6 px-2">
+                <StatTile label="Loyal Guests" value={`${staffMember.clientCount || 200}+`} icon={Users} delay={0.1} />
+                <StatTile label="Years Tenure" value={`${staffMember.yearsOfExperience || 5}+`} icon={Award} delay={0.2} />
+                <StatTile label="Session Rate" value="4.9" icon={Star} delay={0.3} />
+            </div>
+
+            {/* Content Dossier */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12 items-start">
+                <div className="md:col-span-2 space-y-12">
+                    <section id="narrative" className="space-y-6">
+                        <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary opacity-60">Philosophy of Care</p>
+                            <h2 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">Professional Record</h2>
+                        </div>
+                        <p className="text-sm md:text-lg text-slate-600 font-medium leading-relaxed italic border-l-4 border-primary/20 pl-6 py-1">
+                            "{staffMember.bio || 'Dedicated to technical precision and curative care.'}"
+                        </p>
+                    </section>
+
+                    <section id="services" className="space-y-8 scroll-mt-24 text-left">
+                        <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary opacity-60">Access Portfolio</p>
+                            <h2 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">Treatment Menu</h2>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            <BookingServices services={staffServices} onServiceSelect={handleBookNow} staffMember={staffMember} showPrivateServices={false} />
+                        </div>
+                    </section>
+                </div>
+
+                <div className="md:col-span-1 space-y-8">
+                    <Card className="rounded-[2.5rem] border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
+                        <CardHeader className="p-6 pb-2 text-left">
+                            <CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5" /> Access Window
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6 pt-2">
+                            <p className="text-xs font-bold text-slate-800 leading-relaxed uppercase tracking-tight">{formattedSchedule}</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="rounded-[2.5rem] border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
+                        <CardHeader className="p-6 pb-2 text-left">
+                            <CardTitle className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2">
+                                <Activity className="w-3.5 h-3.5" /> Social Signatures
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6 pt-2">
+                            <div className="flex flex-wrap gap-3">
+                                {[
+                                    { icon: Instagram, url: staffMember.instagramUrl },
+                                    { icon: Facebook, url: staffMember.facebookUrl },
+                                    { icon: Twitter, url: staffMember.twitterUrl },
+                                    { icon: Film, url: staffMember.tiktokUrl },
+                                    { icon: Youtube, url: staffMember.youtubeUrl },
+                                    { icon: LinkIcon, url: staffMember.portfolioUrl }
+                                ].filter(social => social.url).map((social, i) => (
+                                    <a key={i} href={social.url} target="_blank" rel="noopener noreferrer" className="p-3 bg-white border-2 rounded-2xl text-slate-400 hover:text-primary hover:border-primary transition-all shadow-sm">
+                                        <social.icon className="w-5 h-5" />
+                                    </a>
                                 ))}
                             </div>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+
+            {/* Asset Gallery */}
+            <section id="gallery" className="space-y-10">
+                <div className="flex justify-between items-end gap-4 px-2">
+                    <div className="space-y-1">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary opacity-60">Visual Registry</p>
+                        <h2 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">Outcome Archive</h2>
                     </div>
-                </TabsContent>
-            </Tabs>
+                </div>
+                <ScrollArea className="w-full pb-6">
+                    <div className="flex space-x-6 px-2">
+                        {portfolioImages.map((url, index) => (
+                            <motion.div 
+                                key={index} 
+                                whileHover={{ y: -8 }}
+                                className="relative aspect-[4/5] w-[260px] md:w-[320px] shrink-0 rounded-[2rem] overflow-hidden group shadow-xl border-4 border-white"
+                            >
+                                <Image
+                                    src={url}
+                                    alt={`Archive asset ${index + 1}`}
+                                    fill
+                                    className="object-cover transition-transform duration-700 group-hover:scale-110"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col justify-end p-6">
+                                    <p className="text-white font-black uppercase text-sm tracking-tight">View Outcome</p>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                    <ScrollBar orientation="horizontal" className="hidden" />
+                </ScrollArea>
+            </section>
       </main>
       
-        <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
-            <div className="max-w-lg mx-auto">
-                <Button asChild className="w-full h-12 text-lg">
-                    <a href="#services">Book Appointment</a>
+        {/* Sticky Tactical Action */}
+        <footer className="fixed bottom-0 left-0 right-0 z-[60] p-4 md:p-6 flex justify-center pointer-events-none">
+            <div className="w-full max-w-lg pointer-events-auto">
+                <Button 
+                    className="w-full h-14 md:h-16 rounded-[2rem] text-sm md:text-base font-black uppercase tracking-widest shadow-[0_20px_50px_rgba(8,_112,_184,_0.3)] transition-all active:scale-95 group"
+                    onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}
+                >
+                    Initialize Booking
+                    <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
                 </Button>
             </div>
         </footer>
@@ -343,9 +361,10 @@ export default function StaffDetailPage() {
                     setIsAddAppointmentOpen(isOpen);
                 }}
                 appointmentToRebook={{...{} as any, serviceId: serviceToBook.id, staffId: staffMember.id}}
+                memberships={memberships || []}
+                onConfirm={() => {}}
             />
         )}
     </div>
   );
-
 }
