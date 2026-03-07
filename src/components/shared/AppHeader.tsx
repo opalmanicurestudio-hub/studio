@@ -81,48 +81,53 @@ export function AppHeader({ title }: { title?: string }) {
                       <span className="sr-only">Toggle notifications</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 rounded-2xl shadow-2xl border-2">
-                  <DropdownMenuLabel className="flex justify-between items-center px-4 py-3">
-                      <span className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Notifications</span>
+              <DropdownMenuContent align="end" className="w-80 md:w-96 rounded-[2.5rem] shadow-3xl border-4 p-0 overflow-hidden bg-background">
+                  <DropdownMenuLabel className="flex justify-between items-center px-6 py-5 bg-muted/5 border-b">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <span className="font-black uppercase tracking-[0.2em] text-[10px] text-slate-900">Studio Intel</span>
+                      </div>
                       {hasUnread && (
-                        <Button variant="link" size="xs" className="p-0 h-auto font-black uppercase text-[9px]" onClick={markAllAsRead}>Mark all read</Button>
+                        <Button variant="ghost" size="xs" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm" onClick={markAllAsRead}>Clear Alerts</Button>
                       )}
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="max-h-[400px] overflow-y-auto">
+                  <div className="max-h-[450px] overflow-y-auto">
                     {notifications.length > 0 ? (
-                        <>
+                        <div className="divide-y-2 divide-dashed divide-border/50">
                             {notifications.map(notification => (
-                                <DropdownMenuItem key={notification.id} className={cn("flex items-start gap-3 p-4 transition-colors", notification.read ? 'opacity-50' : 'bg-primary/[0.02]')}>
-                                    <div className="mt-1">{notification.icon}</div>
-                                    <Link href={notification.link || '#'} className="flex-1 space-y-1">
-                                        <p className="text-xs font-bold leading-relaxed">{notification.message}</p>
+                                <DropdownMenuItem key={notification.id} className={cn("flex items-start gap-4 p-5 transition-all focus:bg-primary/[0.03]", notification.read ? 'opacity-40 grayscale-[0.5]' : 'bg-primary/[0.01]')}>
+                                    <div className="mt-1 p-2 bg-background rounded-xl border shadow-inner shrink-0">{notification.icon}</div>
+                                    <Link href={notification.link || '#'} className="flex-1 space-y-1 min-w-0">
+                                        <p className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-relaxed text-slate-900 line-clamp-2">{notification.message}</p>
+                                        <p className="text-[8px] font-black uppercase tracking-[0.2em] text-primary/60">Tap to Review</p>
                                     </Link>
                                     {!notification.read && (
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
-                                            <Check className="h-4 w-4 text-primary" />
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full hover:bg-primary/10 hover:text-primary" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
+                                            <Check className="h-4 w-4" />
                                         </Button>
                                     )}
                                 </DropdownMenuItem>
                             ))}
-                        </>
+                        </div>
                     ) : (
-                        <div className="p-10 text-center space-y-2">
-                            <Sparkles className="w-8 h-8 text-primary/20 mx-auto" />
-                            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">All caught up</p>
+                        <div className="p-16 text-center space-y-4">
+                            <div className="w-16 h-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                <Sparkles className="w-8 h-8 text-primary/20" />
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-xs font-black text-slate-900 uppercase tracking-widest">Agenda Clear</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">No pending intelligence alerts.</p>
+                            </div>
                         </div>
                     )}
                   </div>
                   {hasReadNotifications && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <div className="p-2">
-                            <Button variant="secondary" size="sm" className="w-full rounded-xl font-bold uppercase text-[10px] tracking-widest" onClick={clearReadNotifications}>
-                                <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                Clear History
-                            </Button>
-                        </div>
-                    </>
+                    <div className="p-4 bg-muted/5 border-t">
+                        <Button variant="outline" size="sm" className="w-full h-10 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] border-2 shadow-sm" onClick={clearReadNotifications}>
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Purge History
+                        </Button>
+                    </div>
                   )}
               </DropdownMenuContent>
           </DropdownMenu>
