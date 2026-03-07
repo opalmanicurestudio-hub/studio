@@ -15,7 +15,7 @@ import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, whe
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, isSameDay, isSameMonth } from 'date-fns';
+import { differenceInMinutes, parseISO, startOfDay, endOfDay, addMinutes, isToday, isSameDay } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
