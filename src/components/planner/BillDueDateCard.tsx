@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { type Bill, type BillInstance } from '@/lib/financial-data';
+import { type BillDefinition, type BillInstance } from '@/lib/financial-data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils';
 import { Landmark, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface BillDueDateCardProps {
-  instance: BillInstance & { definition: Bill };
-  onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void;
+  instance: BillInstance & { definition: BillDefinition };
+  onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void;
 }
 
 export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLogPaymentClick }) => {
@@ -23,7 +23,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
         isOverdue ? "border-destructive/40 bg-destructive/[0.02] shadow-xl shadow-destructive/5 animate-in fade-in zoom-in-95" : "border-border/50 bg-white",
         isPaid && "opacity-60 grayscale-[0.5] border-green-500/20"
     )}>
-      <CardContent className="p-6 space-y-4">
+      <CardContent className="p-4 sm:p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <div className={cn(
@@ -34,7 +34,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
               {isPaid ? <CheckCircle2 className="w-6 h-6" /> : isOverdue ? <AlertTriangle className="w-6 h-6 animate-pulse" /> : <Landmark className="w-6 h-6" />}
             </div>
             <div className="min-w-0">
-              <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate leading-tight mb-1">{instance.definition.name}</p>
+              <p className="font-black uppercase tracking-tight text-xs sm:text-sm text-slate-900 truncate leading-tight mb-1">{instance.definition.name}</p>
               <div className="flex items-center gap-2">
                 <Badge
                   variant="outline"
@@ -53,7 +53,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
           <div className="text-right shrink-0">
             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Amount Due</p>
             <p className={cn(
-                "font-black text-2xl tracking-tighter font-mono leading-none", 
+                "font-black text-xl sm:text-2xl tracking-tighter font-mono leading-none", 
                 isPaid ? 'text-muted-foreground line-through opacity-40' : 'text-slate-900'
             )}>
                 ${instance.definition.amount.toFixed(2)}
