@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -344,7 +343,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     </div>
                     <div className="space-y-1.5">
                         <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
-                        <PhoneInput name="emergencyContact.phone" label="" className="h-12 rounded-xl border-2" />
+                        <PhoneInput name="phone" label="" className="h-12 rounded-xl border-2" />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                         <Label htmlFor="emergency-relationship" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Relationship</Label>
@@ -417,11 +416,11 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
              <div className="space-y-8">
                 <SectionHeader icon={ShieldAlert} title="Medical & Safety" step={5} />
-                <div className="space-y-2">
+                <Accordion type="multiple" className="w-full space-y-2">
                     <IntelCategory title="Medical & Health" icon={<ShieldAlert className="w-4 h-4 text-red-500" />} color="red" predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']} categoryKey="medical" />
                     <IntelCategory title="Allergies & Sensitivities" icon={<AlertTriangle className="w-4 h-4 text-amber-500" />} color="amber" predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']} categoryKey="allergies" />
                     <IntelCategory title="Sensory Needs" icon={<Ear className="w-4 h-4 text-blue-500" />} color="blue" predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']} categoryKey="sensory" />
-                </div>
+                </Accordion>
              </div>
 
             <div className="space-y-8">
