@@ -13,24 +13,18 @@ import {
   ShieldAlert, 
   Award, 
   Wallet,
-  MoreHorizontal,
-  FileText
+  FileText,
+  DollarSign
 } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { role } = useTenant();
@@ -91,21 +85,26 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         </div>
                     </div>
                     
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                                <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-2xl p-1">
-                            <DropdownMenuItem asChild className="rounded-xl">
-                                <Link href={`/clients/${client.id}`} className="font-bold uppercase text-[10px] tracking-widest w-full">Open Dossier</Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild className="rounded-xl">
-                                <Link href={`/pos?payer_id=${client.id}`} className="font-bold uppercase text-[10px] tracking-widest w-full">Quick Checkout</Link>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex items-center gap-1.5 md:opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border-2 border-transparent hover:border-primary/20 hover:bg-primary/5 text-primary shadow-sm" asChild>
+                                        <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}><FileText className="h-4 w-4" /></Link>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Open Dossier</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl border-2 border-transparent hover:border-primary/20 hover:bg-primary/5 text-primary shadow-sm" asChild>
+                                        <Link href={`/pos?payer_id=${client.id}`} onClick={e => e.stopPropagation()}><DollarSign className="h-4 w-4" /></Link>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Quick Checkout</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
