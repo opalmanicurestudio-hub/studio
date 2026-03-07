@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -32,27 +32,48 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service, type DayHours, type ConsentForm, type PricingTier } from '@/lib/data';
+import { type Staff, type Service, type ConsentForm, type PricingTier } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin as PinIcon, Youtube, Clock, KeyRound } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { 
+    User, 
+    Wallet, 
+    CalendarIcon, 
+    Shield, 
+    FileText, 
+    List, 
+    PlusCircle, 
+    Trash2, 
+    BookText, 
+    Instagram, 
+    Link as LinkIcon, 
+    Facebook, 
+    Twitter, 
+    Film, 
+    Pin as PinIcon, 
+    Youtube, 
+    Clock, 
+    KeyRound, 
+    Sparkles, 
+    ArrowRight, 
+    Check, 
+    ShieldCheck, 
+    Fingerprint, 
+    Award,
+    Heart
+} from 'lucide-react';
+import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
-import { useFirebase } from '@/firebase';
-import { useTenant } from '@/context/TenantContext';
-import { setDocumentNonBlocking } from '@/firebase';
-import { doc } from 'firebase/firestore';
-
+import { Progress } from '@/components/ui/progress';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -127,342 +148,324 @@ const addStaffSchema = z.object({
     }
 });
 
-
 export type AddStaffFormData = z.infer<typeof addStaffSchema>;
 
-interface AddStaffDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (staffData: AddStaffFormData) => void;
-  services: Service[];
-  consentForms: ConsentForm[];
-  pricingTiers: PricingTier[];
-  existingStaff: Staff[];
-}
+const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
 
-const AddStaffForm = ({ services, consentForms, pricingTiers }: { services: Service[], consentForms: ConsentForm[], pricingTiers: PricingTier[] }) => {
-    const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
-    const payStructure = watch('payStructure');
-    const selectedServiceIds = watch('services') || [];
-    const assignedFormIds = watch('assignedFormIds') || [];
+const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
+    const { register, control, formState: { errors } } = useFormContext<AddStaffFormData>();
+    
+    return (
+        <div className="space-y-10">
+            <SectionHeader icon={Fingerprint} title="Identity & Access" step={1} />
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
+                    <Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    {errors.name && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.name.message}</p>}
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Email</Label>
+                    <Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} className="h-14 rounded-2xl border-2 font-bold" />
+                    {errors.email && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.email.message}</p>}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <Label htmlFor="password" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Login Password</Label>
+                        <Input id="password" type="password" {...register('password')} className="h-14 rounded-2xl border-2 font-bold" />
+                        {errors.password && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.password.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="confirmPassword" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Confirm Password</Label>
+                        <Input id="confirmPassword" type="password" {...register('confirmPassword')} className="h-14 rounded-2xl border-2 font-bold" />
+                        {errors.confirmPassword && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.confirmPassword.message}</p>}
+                    </div>
+                </div>
+
+                <div className="p-6 bg-primary/5 rounded-[2.5rem] border-4 border-primary/10 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <KeyRound className="w-5 h-5 text-primary" />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Security Signature</span>
+                        </div>
+                        <Badge className="bg-primary text-white border-none font-black text-[9px] uppercase h-6 px-3">Unique PIN</Badge>
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                        <Input 
+                            {...register('pin')} 
+                            className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-white border-primary/20 rounded-3xl shadow-xl" 
+                            maxLength={4}
+                            readOnly
+                        />
+                        <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tight opacity-60">This code is required for terminal access and overrides.</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
+                        <Controller name="role" control={control} render={({ field }) => (
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
+                                    <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN MANAGER</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}/>
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expertise Tier</Label>
+                        <Controller name="pricingTierId" control={control} render={({ field }) => (
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    {pricingTiers.map(tier => (<SelectItem key={tier.id} value={tier.id} className="font-bold uppercase text-[10px] tracking-widest">{tier.name.toUpperCase()}</SelectItem>))}
+                                </SelectContent>
+                            </Select>
+                        )}/>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
+                    <div className='space-y-1'>
+                        <Label htmlFor="showOnPublicPage" className="text-base font-black uppercase tracking-tight">Public Directory</Label>
+                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Show on the guest booking page</p>
+                    </div>
+                    <Controller name="showOnPublicPage" control={control} render={({ field }) => ( <Switch id="showOnPublicPage" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const Step2 = ({ services, consentForms }: { services: Service[], consentForms: ConsentForm[] }) => {
+    const { control, register, setValue, watch } = useFormContext<AddStaffFormData>();
     const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
     const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
-    
-    const selectedServices = useMemo(() => {
-        return services.filter(s => selectedServiceIds.includes(s.id));
-    }, [selectedServiceIds, services]);
 
-    const assignedForms = useMemo(() => {
-        return consentForms.filter(f => assignedFormIds.includes(f.id));
-    }, [assignedFormIds, consentForms]);
+    const selectedServiceIds = watch('services') || [];
+    const assignedFormIds = watch('assignedFormIds') || [];
+
+    const selectedServices = useMemo(() => services.filter(s => selectedServiceIds.includes(s.id)), [selectedServiceIds, services]);
+    const assignedForms = useMemo(() => consentForms.filter(f => assignedFormIds.includes(f.id)), [assignedFormIds, consentForms]);
 
     return (
-        <>
-            <div className="space-y-6">
-                <Accordion type="multiple" defaultValue={['item-1']} className="w-full space-y-4">
-                    <AccordionItem value="item-1" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><User className="w-5 h-5 text-primary"/>Basic Information</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                             <div className="flex flex-col items-center gap-4 mt-4 mb-6">
-                                <Controller
-                                    name="avatarUrl"
-                                    control={control}
-                                    render={({ field }) => (
-                                    <>
-                                        <Avatar className="w-24 h-24 text-lg">
-                                            <AvatarImage src={field.value || undefined} alt="Staff Avatar" className="object-cover" />
-                                            <AvatarFallback><User className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
-                                        </Avatar>
-                                        <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
-                                    </>
-                                    )}
-                                />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                                <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
-                                <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                                <div className="space-y-2"><Label htmlFor="password">Password</Label><Input id="password" type="password" {...register('password')} />{errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}</div>
-                                <div className="space-y-2"><Label htmlFor="confirmPassword">Confirm Password</Label><Input id="confirmPassword" type="password" {...register('confirmPassword')} />{errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>}</div>
-                            </div>
-                            
-                            <div className="p-4 bg-primary/5 rounded-xl border-2 border-primary/10 mt-4 space-y-3">
-                                <div className="flex items-center gap-2">
-                                    <KeyRound className="w-5 h-5 text-primary" />
-                                    <Label className="text-sm font-black uppercase tracking-widest text-primary">Security PIN</Label>
-                                </div>
-                                <div className="space-y-1">
-                                    <Input 
-                                        {...register('pin')} 
-                                        className="text-center text-3xl h-14 font-black tracking-[0.5em] bg-background border-primary/20" 
-                                        maxLength={4}
-                                        readOnly
-                                    />
-                                    <p className="text-[10px] text-center text-muted-foreground uppercase font-bold tracking-tighter">This PIN is required for clocking in/out and overrides.</p>
+        <div className="space-y-10">
+            <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
+            <div className="space-y-8">
+                <div className="flex flex-col items-center gap-6 mb-6">
+                    <Controller
+                        name="avatarUrl"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="relative group">
+                                <Avatar className="w-28 h-28 border-4 border-background shadow-2xl rounded-[2rem] overflow-hidden transition-all group-hover:scale-105">
+                                    <AvatarImage src={field.value || undefined} alt="Staff Avatar" className="object-cover" />
+                                    <AvatarFallback className="bg-primary/10 text-primary font-black uppercase text-xl">{(watch('name') || 'S').charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-[2rem] cursor-pointer">
+                                    <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
                                 </div>
                             </div>
+                        )}
+                    />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Provider Portrait</p>
+                </div>
 
-                            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg mt-4">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="showOnPublicPage">Show on Public Booking Page</Label>
-                                    <p className="text-xs text-muted-foreground">If disabled, this staff member will be hidden from the public team list and booking selection.</p>
-                                </div>
-                                <Controller
-                                    name="showOnPublicPage"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <Switch
-                                            id="showOnPublicPage"
-                                            checked={field.value}
-                                            onCheckedChange={field.onChange}
-                                        />
-                                    )}
-                                />
-                            </div>
+                <div className="space-y-2">
+                    <Label htmlFor="bio" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Professional Bio</Label>
+                    <Textarea id="bio" placeholder="Draft a compelling profile for guests..." {...register('bio')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                                <PhoneInput name="phone" label="Phone Number" />
-                                <div className="grid grid-cols-2 gap-4">
-                                    <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
-                                    <Controller name="pricingTierId" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="pricingTierId">Pricing Tier</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="pricingTierId"><SelectValue placeholder="Select a tier" /></SelectTrigger><SelectContent>{pricingTiers.map(tier => (<SelectItem key={tier.id} value={tier.id}>{tier.name}</SelectItem>))}</SelectContent></Select>{errors.pricingTierId && <p className="text-sm text-destructive">{errors.pricingTierId.message}</p>}</div> )}/>
+                <div className="space-y-2">
+                    <Label htmlFor="specialties" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Signature Specialties</Label>
+                    <Input id="specialties" placeholder="e.g., BALAYAGE, VIVIDS, PRECISION CUTS" {...register('specialties')} className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner" />
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 ml-1">Delimited by commas</p>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-dashed">
+                    <div className="flex items-center justify-between px-1">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                            <List className="w-3.5 h-3.5 opacity-40" /> Treatment Catalog
+                        </Label>
+                        <Button variant="ghost" size="sm" onClick={() => setIsServicesDialogOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Define Skills
+                        </Button>
+                    </div>
+                    {selectedServices.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {selectedServices.map(service => (
+                                <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
+                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                 </div>
-                            </div>
-                            <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
-                            <div className="space-y-2 mt-4"><Label htmlFor="specialties">Specialties</Label><Input id="specialties" placeholder="e.g., Balayage, Nail Art, Vivid Colors" {...register('specialties')} /><p className="text-xs text-muted-foreground">Enter specialties separated by commas.</p></div>
-                             <div className="space-y-2 mt-4">
-                                <Label>Social & Portfolio Links</Label>
-                                <div className="space-y-3">
-                                    <div className="relative">
-                                        <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="instagramUrl" placeholder="https://instagram.com/..." {...register('instagramUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <Facebook className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="facebookUrl" placeholder="https://facebook.com/..." {...register('facebookUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <Twitter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="twitterUrl" placeholder="https://x.com/..." {...register('twitterUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <Film className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="tiktokUrl" placeholder="https://tiktok.com/..." {...register('tiktokUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <PinIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="pinterestUrl" placeholder="https://pinterest.com/..." {...register('pinterestUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="youtubeUrl" placeholder="https://youtube.com/..." {...register('youtubeUrl')} className="pl-9" />
-                                    </div>
-                                    <div className="relative">
-                                        <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="portfolioUrl" placeholder="https://your-portfolio.com" {...register('portfolioUrl')} className="pl-9" />
-                                    </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-10 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                            <PlusCircle className="w-8 h-8" />
+                            <p className="text-[10px] font-black uppercase tracking-widest">No services assigned</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-1">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                            <FileText className="w-3.5 h-3.5 opacity-40" /> Associated Documents
+                        </Label>
+                        <Button variant="ghost" size="sm" onClick={() => setIsConsentFormDialogOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                            <PlusCircle className="w-3 h-3 mr-1.5" /> Assign Forms
+                        </Button>
+                    </div>
+                    {assignedForms.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2">
+                            {assignedForms.map(form => (
+                                <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
+                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-3.5 h-3.5" /></Button>
                                 </div>
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                     <AccordionItem value="item-services" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><List className="w-5 h-5 text-primary"/>Services Offered</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                            <div className="space-y-4 mt-4">
-                                {selectedServices.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {selectedServices.map(service => (
-                                            <div key={service.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                                <span className="text-sm font-medium">{service.name}</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    type="button"
-                                                    className="h-6 w-6 text-destructive"
-                                                    onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-center text-muted-foreground p-4 border rounded-md">No services selected.</p>
-                                )}
-                                <Button variant="outline" className="w-full" type="button" onClick={() => setIsServicesDialogOpen(true)}>
-                                    <PlusCircle className="mr-2 h-4 w-4" />
-                                    Select Services
-                                </Button>
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="item-2" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Wallet className="w-5 h-5 text-primary"/>Pay Structure</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                                <Controller name="payStructure" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="payStructure">Pay Structure</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="payStructure"><SelectValue placeholder="Select a pay structure" /></SelectTrigger><SelectContent><SelectItem value="commission">Commission</SelectItem><SelectItem value="hourly">Hourly</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select>{errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}</div> )}/>
-                                {payStructure === 'commission' && (
-                                    <>
-                                        <Controller name="commissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="commissionRate">Service Commission Rate (%)</Label><Input id="commissionRate" type="number" placeholder="e.g., 40" {...field} value={field.value ?? ''} />{errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}</div> )}/>
-                                        <Controller name="retailCommissionRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="retailCommissionRate">Retail Commission Rate (%)</Label><Input id="retailCommissionRate" type="number" placeholder="e.g., 10" {...field} value={field.value ?? ''} /></div> )}/>
-                                         <Controller
-                                            name="payoutFrequency"
-                                            control={control}
-                                            render={({ field }) => (
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="payoutFrequency">Payout Frequency</Label>
-                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                        <SelectTrigger id="payoutFrequency">
-                                                            <SelectValue placeholder="Select frequency" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="weekly">Weekly</SelectItem>
-                                                            <SelectItem value="bi-weekly">Bi-Weekly</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                    {errors.payoutFrequency && <p className="text-sm text-destructive">{errors.payoutFrequency.message}</p>}
-                                                </div>
-                                            )}
-                                        />
-                                    </>
-                                )}
-                                {payStructure === 'hourly' && ( <Controller name="hourlyRate" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="hourlyRate">Hourly Rate ($)</Label><Input id="hourlyRate" type="number" placeholder="e.g., 25" {...field} value={field.value ?? ''} />{errors.hourlyRate && <p className="text-sm text-destructive">{errors.hourlyRate.message}</p>}</div> )}/> )}
-                           </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                     <AccordionItem value="item-3" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Shield className="w-5 h-5 text-primary"/>Emergency Contact</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <div className="space-y-2"><Label htmlFor="emergencyContact.name">Contact Name</Label><Input id="emergencyContact.name" placeholder="e.g., John Barnes" {...register('emergencyContact.name')} /></div>
-                             <Controller
-                                name="emergencyContact.relationship"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                        <Label htmlFor="emergencyContact.relationship">Relationship</Label>
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger id="emergencyContact.relationship">
-                                                <SelectValue placeholder="Select a relationship" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Spouse">Spouse</SelectItem>
-                                                <SelectItem value="Partner">Partner</SelectItem>
-                                                <SelectItem value="Parent">Parent</SelectItem>
-                                                <SelectItem value="Guardian">Guardian</SelectItem>
-                                                <SelectItem value="Sibling">Sibling</SelectItem>
-                                                <SelectItem value="Child">Child</SelectItem>
-                                                <SelectItem value="Friend">Friend</SelectItem>
-                                                <SelectItem value="Other">Other</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                )}
-                             />
-                             <PhoneInput name="emergencyContact.phone" label="Contact Phone" />
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                     <AccordionItem value="item-4" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><FileText className="w-5 h-5 text-primary"/>Compliance & Licensing</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0 mt-4 space-y-6">
-                            <div>
-                                <h4 className="font-semibold text-sm mb-2">Licensing</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                    <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
-                                    <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
-                                        <div className="space-y-2">
-                                            <Label>License Expiry</Label>
-                                            <Input
-                                                type="date"
-                                                value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
-                                                onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                                            />
-                                        </div> 
-                                    )}/>
-                                    <div className="space-y-2 md:col-span-2"><Label>Upload License Document</Label><Controller name="compliance.documentUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
-                                </div>
-                            </div>
-                            <div className="space-y-2 mt-4">
-                                <h4 className="font-semibold text-sm mb-2">Assigned Forms</h4>
-                                {assignedForms.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {assignedForms.map(form => (
-                                            <div key={form.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                                <p className="text-sm font-medium">{form.title}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : <p className="text-xs text-center text-muted-foreground p-3 border rounded-md">No forms assigned.</p>}
-                                <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
-                                    <PlusCircle className="mr-2 h-4 w-4" />
-                                    Assign Consent Forms
-                                </Button>
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                     <AccordionItem value="item-5" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><BookText className="w-5 h-5 text-primary"/>Notes & Preferences</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <div className="space-y-2 md:col-span-2"><Label htmlFor="availabilityNotes">Availability Notes</Label><Textarea id="availabilityNotes" placeholder="e.g., Prefers morning shifts, not available on weekends." {...register('availabilityNotes')} /></div>
-                             <div className="space-y-2 md:col-span-2"><Label htmlFor="preferences">Preferences</Label><Textarea id="preferences" placeholder="e.g., Allergic to lavender, prefers working with specific product lines." {...register('preferences')} /></div>
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-10 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                            <FileText className="w-8 h-8" />
+                            <p className="text-[10px] font-black uppercase tracking-widest">No compliance forms</p>
+                        </div>
+                    )}
+                </div>
             </div>
-            <SelectServicesDialog
-                open={isServicesDialogOpen}
-                onOpenChange={setIsServicesDialogOpen}
-                allServices={services}
-                initialSelected={selectedServices}
-                onSelect={(newSelection) => {
-                    setValue('services', newSelection.map(s => s.id), { shouldDirty: true });
-                }}
-            />
-            <BrowseConsentFormsDialog
-                open={isConsentFormDialogOpen}
-                onOpenChange={setIsConsentFormDialogOpen}
-                onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })}
-                allForms={consentForms}
-                initialSelected={assignedForms}
-            />
-        </>
-    )
-}
+            <SelectServicesDialog open={isServicesDialogOpen} onOpenChange={setIsServicesDialogOpen} allServices={services} initialSelected={selectedServices} onSelect={(newSelection) => setValue('services', newSelection.map(s => s.id), { shouldDirty: true })} />
+            <BrowseConsentFormsDialog open={isConsentFormDialogOpen} onOpenChange={setIsConsentFormDialogOpen} onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })} allForms={consentForms} initialSelected={assignedForms} />
+        </div>
+    );
+};
 
+const Step3 = () => {
+    const { control, register, watch, formState: { errors } } = useFormContext<AddStaffFormData>();
+    const payStructure = watch('payStructure');
+
+    return (
+        <div className="space-y-10">
+            <SectionHeader icon={Wallet} title="Compensation & Logistics" step={3} />
+            <div className="space-y-8">
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Pay Structure</Label>
+                            <Controller name="payStructure" control={control} render={({ field }) => (
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
+                                        <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
+                                        <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">SALARY</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}/>
+                        </div>
+                        {payStructure === 'commission' && (
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
+                                <Controller name="payoutFrequency" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            <SelectItem value="weekly" className="font-bold uppercase text-[10px] tracking-widest">WEEKLY</SelectItem>
+                                            <SelectItem value="bi-weekly" className="font-bold uppercase text-[10px] tracking-widest">BI-WEEKLY</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                            </div>
+                        )}
+                    </div>
+
+                    {payStructure === 'commission' ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="commissionRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Service %</Label>
+                                <div className="relative"><Input id="commissionRate" type="number" placeholder="40" {...register('commissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="retailCommissionRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail %</Label>
+                                <div className="relative"><Input id="retailCommissionRate" type="number" placeholder="10" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" /><Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40"/></div>
+                            </div>
+                        </div>
+                    ) : payStructure === 'hourly' ? (
+                        <div className="space-y-2 animate-in slide-in-from-top-2">
+                            <Label htmlFor="hourlyRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
+                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input id="hourlyRate" type="number" placeholder="25.00" {...register('hourlyRate')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" /></div>
+                        </div>
+                    ) : null}
+                </div>
+
+                <Separator className="border-dashed" />
+
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Heart className="w-3 h-3" /> Emergency Protocol</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label><Input placeholder="EMERGENCY CONTACT" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase" /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
+                                <Controller name="emergencyContact.relationship" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[9px] tracking-widest bg-muted/5"><SelectValue placeholder="SELECT..." /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {['Spouse', 'Partner', 'Parent', 'Guardian', 'Sibling', 'Child', 'Friend', 'Other'].map(r => ( <SelectItem key={r} value={r} className="font-bold uppercase text-[9px] tracking-widest">{r.toUpperCase()}</SelectItem> ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}/>
+                            </div>
+                            <div className="sm:col-span-2"><PhoneInput name="emergencyContact.phone" label="Emergency Contact Mobile" className="h-11 rounded-xl" /></div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-dashed">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldCheck className="w-3 h-3" /> Licensing Record</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label><Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs" /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Expiry Date</Label>
+                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button variant="outline" className="w-full h-11 rounded-xl border-2 font-bold justify-start px-4 text-xs bg-muted/5"><CalendarIcon className="mr-2 h-4 w-4 opacity-40" /> {field.value ? format(field.value, 'MMM d, yyyy') : 'No date set'}</Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
+                                    </Popover>
+                                )}/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+};
 
 export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
-  open,
-  onOpenChange,
-  onSave,
-  services,
-  consentForms,
-  pricingTiers,
-  existingStaff,
+  open, onOpenChange, onSave, services, consentForms, pricingTiers, existingStaff,
 }) => {
+  const [step, setStep] = useState(1);
+  const totalSteps = 3;
+  const isMobile = useIsMobile();
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
-    defaultValues: {
-      name: '',
-      email: '',
-      role: 'staff',
-      pricingTierId: '',
-      payStructure: 'commission',
-      payoutFrequency: 'weekly',
-      commissionRate: 40,
-      retailCommissionRate: 10,
-      services: [],
-      assignedFormIds: [],
-      pin: '',
-      showOnPublicPage: true,
-    },
+    defaultValues: { role: 'staff', pricingTierId: '', payStructure: 'commission', payoutFrequency: 'weekly', commissionRate: 40, retailCommissionRate: 10, services: [], assignedFormIds: [], showOnPublicPage: true }
   });
 
-  const { handleSubmit, reset, setValue } = methods;
-  const isMobile = useIsMobile();
-  
   const generateUniquePin = (staffList: Staff[]) => {
     let pin = '';
     let isUnique = false;
@@ -476,49 +479,56 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   useEffect(() => {
     if (open) {
       const newPin = generateUniquePin(existingStaff || []);
-      reset({
-        name: '',
-        email: '',
-        password: '',
-        confirmPassword: '',
-        role: 'staff',
-        pricingTierId: pricingTiers && pricingTiers.length > 0 ? pricingTiers[0].id : '',
-        payStructure: 'commission',
-        payoutFrequency: 'weekly',
-        commissionRate: 40,
-        retailCommissionRate: 10,
-        services: [],
-        assignedFormIds: [],
-        pin: newPin,
-        showOnPublicPage: true,
-      });
+      methods.reset({ name: '', email: '', password: '', confirmPassword: '', role: 'staff', pricingTierId: pricingTiers?.[0]?.id || '', payStructure: 'commission', payoutFrequency: 'weekly', commissionRate: 40, retailCommissionRate: 10, services: [], assignedFormIds: [], pin: newPin, showOnPublicPage: true });
+      setStep(1);
     }
-  }, [open, reset, pricingTiers, existingStaff]);
-  
-  const DialogComponent = isMobile ? Sheet : Dialog;
-  const ContentComponent = isMobile ? SheetContent : DialogContent;
+  }, [open, pricingTiers, existingStaff, methods]);
 
+  const handleNext = async (e: any) => { e.preventDefault(); if (await methods.trigger(step === 1 ? ['name', 'email', 'password', 'confirmPassword', 'role', 'pin'] : [])) setStep(step + 1); };
+  const handleBack = (e: any) => { e.preventDefault(); setStep(step - 1); };
+
+  const formBody = (
+    <FormProvider {...methods}>
+      <form id="add-staff-wizard-form" onSubmit={methods.handleSubmit(onSave)} className="flex flex-col flex-1 min-h-0">
+        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+          </div>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Provider</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Onboard a new technician and secure their studio credentials.</DialogDescription>
+          <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
+        </DialogHeader>
+        <ScrollArea className="flex-1">
+            <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
+                {step === 1 && <Step1 pricingTiers={pricingTiers} />}
+                {step === 2 && <Step2 services={services} consentForms={consentForms} />}
+                {step === 3 && <Step3 />}
+            </div>
+        </ScrollArea>
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
+          <div className='flex w-full gap-4'>
+            {step > 1 && <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
+            <div className={cn("flex gap-3", step === 1 ? "w-full" : "flex-[2.5]")}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">Cancel</Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" /></Button>
+              ) : (
+                <Button type="submit" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">Save Provider</Button>
+              )}
+            </div>
+          </div>
+        </DialogFooter>
+      </form>
+    </FormProvider>
+  );
+
+  const DialogContainer = isMobile ? Sheet : Dialog;
   return (
-    <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : undefined} className={isMobile ? "h-[90vh] p-0 flex flex-col" : "sm:max-w-2xl max-h-[90vh] flex flex-col"}>
-            <FormProvider {...methods}>
-                <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(onSave)} className="flex-1 flex flex-col overflow-hidden">
-                    <DialogHeader className="p-6 pb-0">
-                        <DialogTitle>Add New Staff Member</DialogTitle>
-                        <DialogDescription>
-                            Enter the details for your new team member. They will receive an invitation via email.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <AddStaffForm services={services} consentForms={consentForms} pricingTiers={pricingTiers} />
-                    </div>
-                    <DialogFooter className="p-6 pt-4 border-t">
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button type="submit">Save & Send Invite</Button>
-                    </DialogFooter>
-                </form>
-             </FormProvider>
-        </ContentComponent>
-    </DialogComponent>
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-4xl max-h-[90dvh]")} side="right">
+        {formBody}
+      </DialogContent>
+    </DialogContainer>
   );
 };
