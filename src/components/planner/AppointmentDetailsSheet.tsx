@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -24,6 +25,7 @@ import {
   Wallet,
   ShieldAlert,
   Sparkles,
+  Loader,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -173,6 +175,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
+  // STABILIZE initialSelected for dialogs
+  const currentAddOns = useMemo(() => {
+    if (!appointment?.addOnIds || !allServices) return [];
+    return appointment.addOnIds
+      .map((id) => allServices.find((s) => s.id === id))
+      .filter((s): s is Service => !!s);
+  }, [appointment?.addOnIds, allServices]);
+
   if (!client || !service || !appointment) return null;
 
   const handleCopyCheckInLink = () => {
@@ -233,9 +243,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setIsConfigureOpen(false);
   };
 
-  const currentAddOns = (appointment.addOnIds || [])
-    .map((id) => allServices.find((s) => s.id === id))
-    .filter((s): s is Service => !!s);
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
   return (
