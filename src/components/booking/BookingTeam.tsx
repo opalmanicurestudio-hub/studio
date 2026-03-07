@@ -1,14 +1,19 @@
 
 'use client';
 
+import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Staff, Tenant } from '@/lib/data';
-import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Instagram, Star, ArrowRight } from 'lucide-react';
+import { Instagram, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
+
+const ImageWrapper = ({ src, alt, fill, className }: any) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} className={cn(className, fill ? "absolute inset-0 w-full h-full" : "")} />
+);
 
 export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
   const visibleStaff = useMemo(() => {
@@ -38,14 +43,14 @@ export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; sta
                 viewport={{ once: true }}
                 className="w-[280px] md:w-[320px] shrink-0"
             >
-                <Link href={`/book/${tenantId}/${member.id}`} className="block group h-full">
-                    <Card className="border-2 border-border/50 bg-card hover:border-primary/50 transition-all duration-500 shadow-sm hover:shadow-2xl hover:shadow-primary/10 rounded-[2.5rem] overflow-hidden flex flex-col h-full">
-                        <div className="relative aspect-[4/5] w-full grayscale group-hover:grayscale-0 transition-all duration-700 overflow-hidden">
-                            <Image
+                <div className="block h-full">
+                    <Card className="border-2 border-border/50 bg-card transition-all duration-500 shadow-sm rounded-[2.5rem] overflow-hidden flex flex-col h-full">
+                        <div className="relative aspect-[4/5] w-full grayscale contrast-125 overflow-hidden">
+                            <ImageWrapper
                                 src={member.avatarUrl || `https://picsum.photos/seed/staff${member.id}/600/800`}
                                 alt={member.name || 'Staff'}
                                 fill
-                                className="object-cover transition-transform duration-700 group-hover:scale-105"
+                                className="object-cover"
                                 data-ai-hint="person portrait"
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
@@ -58,24 +63,21 @@ export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; sta
                                         <span>4.9 Mastery</span>
                                     </div>
                                 </div>
-                                <div className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
-                                    <ArrowRight className="w-5 h-5 text-white transition-transform group-hover:translate-x-1" />
-                                </div>
                             </div>
                         </div>
-                        <CardContent className="p-6 flex-1 flex flex-col justify-between gap-4">
-                            <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest leading-relaxed line-clamp-3 italic opacity-80">
-                                "{member.bio || 'Dedicated to transforming your personal style with precision and care.'}"
+                        <CardContent className="p-6 flex-1 flex flex-col justify-between gap-4 text-left">
+                            <p className="text-xs text-slate-600 font-medium leading-relaxed line-clamp-3 italic opacity-80">
+                                "{member.bio || 'Dedicated to technical precision and curative aesthetic care.'}"
                             </p>
                             <div className="flex items-center justify-between pt-4 border-t border-dashed">
                                 <span className="text-[10px] font-black uppercase text-primary tracking-widest">
                                     {member.specialties?.[0] || 'Professional'}
                                 </span>
-                                <Instagram className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
+                                <Instagram className="w-4 h-4 text-muted-foreground" />
                             </div>
                         </CardContent>
                     </Card>
-                </Link>
+                </div>
             </motion.div>
           ))}
         </div>
@@ -84,9 +86,3 @@ export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; sta
     </section>
   );
 };
-
-const Image = ({ src, alt, fill, className }: any) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt} className={cn(className, fill ? "absolute inset-0 w-full h-full" : "")} />
-);
-import { useMemo } from 'react';

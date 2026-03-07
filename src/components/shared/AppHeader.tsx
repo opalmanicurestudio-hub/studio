@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -189,14 +190,6 @@ export function AppHeader({ title }: { title?: string }) {
                     </Link>
                   </DropdownMenuItem>
                 </div>
-              )}
-              {role === 'staff' && (
-                 <DropdownMenuItem asChild className="rounded-xl h-11 focus:bg-primary/5 focus:text-primary cursor-pointer">
-                    <Link href={`/staff/${user?.uid}`} className="flex items-center w-full font-black uppercase text-[10px] tracking-widest">
-                      <User className="w-4 h-4 mr-3 text-primary opacity-40" />
-                      <span>My Profile</span>
-                    </Link>
-                  </DropdownMenuItem>
               )}
               <DropdownMenuSeparator className="mx-1 my-2" />
               <DropdownMenuItem 

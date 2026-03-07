@@ -16,10 +16,8 @@ import { Button } from '@/components/ui/button';
 import { 
   PlusCircle, 
   Users, 
-  Calendar as CalendarIcon, 
   Clock, 
   Coffee, 
-  ShieldAlert, 
   Mail, 
   Phone, 
   Trash2, 
@@ -28,10 +26,10 @@ import {
   EyeOff,
   BarChart,
   Pencil,
-  ArrowRight,
   Check,
   Loader,
-  MoreHorizontal
+  MoreHorizontal,
+  ShieldAlert
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -81,7 +79,6 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useToast } from '@/hooks/use-toast';
@@ -260,9 +257,6 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             </CardContent>
             <CardFooter className="p-4 border-t mt-auto flex flex-col gap-3 bg-muted/5">
                 {renderActionButtons()}
-                 <Button asChild variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest h-8 w-full hover:bg-primary/5 text-muted-foreground hover:text-primary">
-                    <Link href={`/staff/${member.id}`}>Public Portfolio <ArrowRight className="ml-1 h-3 w-3" /></Link>
-                </Button>
             </CardFooter>
         </Card>
     )
@@ -380,7 +374,7 @@ const PricingTierCard = ({
                         <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the pricing tier. Staff members assigned to this tier will need to be reassigned to maintain accurate service pricing.</p>
                     </div>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={confirmDeleteTier} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20">Delete Tier</Button>
+                        <Button onClick={confirmDeleteTier} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Delete Tier</Button>
                         <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
