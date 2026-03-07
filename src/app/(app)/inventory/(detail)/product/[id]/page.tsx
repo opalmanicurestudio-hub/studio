@@ -60,7 +60,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -474,7 +474,7 @@ export default function ProductDetailPage() {
                                                     </div>
                                                 </div>
                                                 <div className="pt-4 border-t border-primary/10 flex justify-between items-center">
-                                                    <span className="text-[10px] font-black uppercase text-slate-600">Profit Margin</span>
+                                                    <span className="text-10px] font-black uppercase text-slate-600">Profit Margin</span>
                                                     <Badge className="bg-primary text-white border-none font-black text-xs font-mono">{retailPerformance?.profitMargin.toFixed(1)}%</Badge>
                                                 </div>
                                             </div>
@@ -517,6 +517,7 @@ export default function ProductDetailPage() {
                 <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden">
                     <DialogHeader className="p-8 pb-4 border-b bg-muted/5">
                         <DialogTitle className="text-2xl font-black uppercase tracking-tighter">{qrModalContent.title}</DialogTitle>
+                        <DialogDescription className="sr-only">Scanning asset token for hardware reordering and tracking.</DialogDescription>
                     </DialogHeader>
                     <div className="flex flex-col items-center justify-center p-12 space-y-8">
                         <div className="p-6 bg-white rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
