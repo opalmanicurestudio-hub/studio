@@ -36,15 +36,6 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-    return new Date(val);
-};
-
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -871,7 +862,7 @@ function POSPageContent() {
                     </div>
                 </main>
                 <aside className={cn(
-                    "hidden lg:flex border-l-4 border-muted/30 bg-white flex-col h-full transition-all duration-500 relative",
+                    "hidden lg:flex border-l-4 border-muted/30 bg-white flex-col h-full transition-all duration-500 relative overflow-hidden",
                     isCartCollapsed ? "w-20" : "w-full"
                 )}>
                     {isCartCollapsed ? (
@@ -906,8 +897,12 @@ function POSPageContent() {
                                     <ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" />
                                 </Button>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-6 pb-32">
-                                <CheckoutHub {...checkoutHubProps} />
+                            <div className="absolute inset-0 flex flex-col">
+                                <ScrollArea className="flex-1">
+                                    <div className="p-6 pb-40">
+                                        <CheckoutHub {...checkoutHubProps} />
+                                    </div>
+                                </ScrollArea>
                             </div>
                         </div>
                     )}
