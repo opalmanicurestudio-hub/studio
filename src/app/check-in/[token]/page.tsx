@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -6,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
@@ -223,6 +222,18 @@ export default function CheckInPage() {
     
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+    const isDayClosed = (day: Date) => {
+        if (!publicScheduleProfile) return true;
+        const dayName = format(day, 'eeee').toLowerCase();
+        const dayHours = publicScheduleProfile.week[dayName];
+        return !dayHours || !dayHours.enabled;
+    };
+
+    const handleDateSelect = (day: Date) => {
+        setRescheduleDate(day);
+        setSelectedTime(null);
+    };
 
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !allAppointments || !publicScheduleProfile) return [];
