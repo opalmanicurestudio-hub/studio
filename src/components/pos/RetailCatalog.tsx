@@ -11,7 +11,6 @@ import { Search, QrCode, Sparkles, ShoppingBag, Scissors, PlusCircle, Award, Box
 import { MembershipPOSCard } from './MembershipPOSCard';
 import { PackagePOSCard } from './PackagePOSCard';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 interface RetailCatalogProps {
   inventory: InventoryItem[];
@@ -94,8 +93,8 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
         <div className="space-y-6">
-            {/* Header Actions */}
-            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
+            {/* Header Actions - Search and Scan now on the same line */}
+            <div className="flex flex-row gap-3 items-center justify-between">
                 <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                     <Input 
@@ -105,7 +104,12 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
-                <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0" onClick={onScanClick}>
+                <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" 
+                    onClick={onScanClick}
+                >
                     <QrCode className="h-6 w-6" />
                 </Button>
             </div>
