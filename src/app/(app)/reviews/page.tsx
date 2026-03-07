@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { 
     Star, 
     MessageSquare, 
@@ -26,7 +27,8 @@ import {
     Sparkles,
     Activity,
     User,
-    Scissors
+    Scissors,
+    Percent
 } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
@@ -136,12 +138,6 @@ const ReviewCard = ({ review, onTogglePublic, staff }: { review: Review, onToggl
   );
 };
 
-const Badge = ({ children, className, variant }: any) => (
-    <div className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2", className)}>
-        {children}
-    </div>
-);
-
 export default function ReviewsPage() {
   const { reviews, staff, isLoading } = useInventory();
   const { firestore } = useFirebase();
@@ -153,15 +149,17 @@ export default function ReviewsPage() {
     updateDocumentNonBlocking(reviewRef, { isPublic });
   };
 
-  const { avgRating, publicReviews, totalReviews } = useMemo(() => {
+  const { avgRating, publicReviews, totalReviews, publicityRatio } = useMemo(() => {
     if (!reviews || reviews.length === 0) {
-      return { avgRating: 0, publicReviews: 0, totalReviews: 0 };
+      return { avgRating: 0, publicReviews: 0, totalReviews: 0, publicityRatio: 0 };
     }
     const total = reviews.reduce((acc, r) => acc + r.rating, 0);
+    const pubCount = reviews.filter(r => r.isPublic).length;
     return {
       avgRating: total / reviews.length,
-      publicReviews: reviews.filter(r => r.isPublic).length,
+      publicReviews: pubCount,
       totalReviews: reviews.length,
+      publicityRatio: (pubCount / reviews.length) * 100
     };
   }, [reviews]);
 
@@ -184,10 +182,11 @@ export default function ReviewsPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard title="Alpha Rating" value={avgRating.toFixed(2)} icon={Star} description="Avg across all feedback" colorClass="text-amber-500" />
             <KpiCard title="Engagement Volume" value={totalReviews.toString()} icon={MessageSquare} description="Total client stories logged" />
             <KpiCard title="Public Reach" value={publicReviews.toString()} icon={Users} description="Visible on studio portal" colorClass="text-primary" />
+            <KpiCard title="Publicity Ratio" value={`${publicityRatio.toFixed(0)}%`} icon={Percent} description="Approval vs. Audit" colorClass="text-indigo-600" />
         </div>
 
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white/80 backdrop-blur-xl">
