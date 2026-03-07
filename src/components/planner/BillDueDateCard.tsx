@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React from 'react';
@@ -8,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { Landmark, AlertTriangle } from 'lucide-react';
+import { Landmark, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface BillDueDateCardProps {
   instance: BillInstance & { definition: Bill };
@@ -17,52 +15,68 @@ interface BillDueDateCardProps {
 
 export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLogPaymentClick }) => {
   const isOverdue = instance.status === 'overdue';
+  const isPaid = instance.status === 'paid';
 
   return (
-    <Card className={cn("mb-2", isOverdue && "border-destructive/50 bg-destructive/5")}>
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className={cn("p-2 bg-muted/50 rounded-md", isOverdue && "bg-destructive/10")}>
-              {isOverdue ? (
-                <AlertTriangle className="w-5 h-5 text-destructive" />
-              ) : (
-                <Landmark className="w-5 h-5 text-muted-foreground" />
-              )}
+    <Card className={cn(
+        "relative transition-all border-4 rounded-[2rem] overflow-hidden group",
+        isOverdue ? "border-destructive/40 bg-destructive/[0.02] shadow-xl shadow-destructive/5 animate-in fade-in zoom-in-95" : "border-border/50 bg-white",
+        isPaid && "opacity-60 grayscale-[0.5] border-green-500/20"
+    )}>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className={cn(
+                "p-3 rounded-2xl shadow-inner shrink-0", 
+                isOverdue ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+                isPaid && "bg-green-500/10 text-green-600"
+            )}>
+              {isPaid ? <CheckCircle2 className="w-6 h-6" /> : isOverdue ? <AlertTriangle className="w-6 h-6 animate-pulse" /> : <Landmark className="w-6 h-6" />}
             </div>
-            <div>
-              <p className="font-semibold text-sm">{instance.definition.name}</p>
+            <div className="min-w-0">
+              <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate leading-tight mb-1">{instance.definition.name}</p>
               <div className="flex items-center gap-2">
                 <Badge
-                  variant={instance.definition.context === 'Business' ? 'secondary' : 'outline'}
-                  className={cn('text-xs', {
-                    'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': instance.definition.context === 'Business',
-                    'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': instance.definition.context === 'Personal',
+                  variant="outline"
+                  className={cn('text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-none', {
+                    'bg-indigo-100 text-indigo-800': instance.definition.context === 'Business',
+                    'bg-purple-100 text-purple-800': instance.definition.context === 'Personal',
                   })}
                 >
                   {instance.definition.context}
                 </Badge>
-                {isOverdue && <Badge variant="destructive">Overdue</Badge>}
-                {instance.status === 'paid' && <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Paid</Badge>}
+                {isOverdue && <Badge className="bg-destructive text-white border-none text-[8px] h-4 px-1.5 font-black uppercase tracking-widest animate-pulse">OVERDUE</Badge>}
+                {isPaid && <Badge className="bg-green-500 text-white border-none text-[8px] h-4 px-1.5 font-black uppercase tracking-widest">PAID</Badge>}
               </div>
             </div>
           </div>
-          <div className="text-right">
-            <p className={cn("font-bold text-base", instance.status === 'paid' ? 'text-muted-foreground line-through' : 'text-destructive')}>
+          <div className="text-right shrink-0">
+            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Amount Due</p>
+            <p className={cn(
+                "font-black text-2xl tracking-tighter font-mono leading-none", 
+                isPaid ? 'text-muted-foreground line-through opacity-40' : 'text-slate-900'
+            )}>
                 ${instance.definition.amount.toFixed(2)}
             </p>
-            <Button 
-                variant="outline" 
-                size="xs" 
-                className="mt-1" 
-                onClick={() => onLogPaymentClick(instance)}
-                disabled={instance.status === 'paid'}
-            >
-                Log Payment
-            </Button>
           </div>
         </div>
       </CardContent>
+      
+      {!isPaid && (
+          <div className="p-2 pt-0 border-t border-dashed bg-muted/5">
+            <Button 
+                variant="ghost" 
+                className={cn(
+                    "w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] transition-all hover:bg-primary hover:text-white group",
+                    isOverdue && "text-destructive hover:bg-destructive hover:text-white"
+                )}
+                onClick={() => onLogPaymentClick(instance)}
+            >
+                Log Distribution
+                <ArrowRight className="ml-2 h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
+            </Button>
+          </div>
+      )}
     </Card>
   );
 };
