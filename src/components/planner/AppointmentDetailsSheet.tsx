@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -61,6 +60,7 @@ import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, increment } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -344,6 +344,24 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         </Badge>
                       )}
                     </div>
+                    {isOwnerOrAdmin ? (
+                        <div className="flex flex-col gap-1 pt-2">
+                            {client.email && (
+                                <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] sm:text-xs font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
+                                    <Mail className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-40" />
+                                    <span className="truncate">{client.email}</span>
+                                </a>
+                            )}
+                            {client.phone && (
+                                <a href={`tel:${client.phone}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] sm:text-xs font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
+                                    <Phone className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-40" />
+                                    <span>{formatPhoneNumber(client.phone)}</span>
+                                </a>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-[9px] text-muted-foreground italic pt-2 font-black uppercase tracking-widest opacity-40">Contact Restricted</p>
+                    )}
                   </div>
                 </div>
 
