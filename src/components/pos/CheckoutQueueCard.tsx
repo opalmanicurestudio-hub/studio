@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -38,7 +37,7 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
 
   const totalPrice = useMemo(() => {
     const mainPrice = getServicePrice(service, primaryStaff);
-    const addOnsTotal = addOnServices.reduce((acc: number, s: any) => {
+    const addOnsTotal = (addOnServices || []).reduce((acc: number, s: any) => {
         const addonStaffId = apt.checkoutState?.serviceStaffOverrides?.[s.id] || apt.staffId;
         const addonStaff = allStaffList.find(st => st.id === addonStaffId);
         return acc + getServicePrice(s, addonStaff);
@@ -98,7 +97,7 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                         <div className="flex flex-wrap gap-x-3 gap-y-1">
                             {involvedStaff.map(member => (
                                 <p key={member.id} className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate max-w-[120px]">
-                                    {member.name.split(' ')[0]}
+                                    {(member.name || 'Staff').split(' ')[0]}
                                 </p>
                             ))}
                         </div>

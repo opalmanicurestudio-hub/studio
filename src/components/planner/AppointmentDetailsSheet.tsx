@@ -348,7 +348,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <Avatar className="w-20 h-20 md:w-24 md:h-24 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]">
                     <AvatarImage src={client.avatarUrl} className="object-cover" />
                     <AvatarFallback className="text-xl font-black bg-primary/10 text-primary">
-                      {client.name.substring(0, 2).toUpperCase()}
+                      {(client?.name || 'G').substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0">

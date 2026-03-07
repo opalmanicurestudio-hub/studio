@@ -110,7 +110,7 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
     const isAnyStaff = staff.id === 'any';
     return (
-        <label htmlFor={`staff-select-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-40 grayscale-[0.5]")}>
+        <label htmlFor={`staff-select-card-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-40 grayscale-[0.5]")}>
             <div className={cn(
                 'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
                 isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
@@ -123,7 +123,7 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
                     </AvatarFallback>
                 </Avatar>
                 <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name || 'Staff'}</p>
-                <RadioGroupItem value={staff.id} id={`staff-select-${staff.id}`} className="sr-only" disabled={disabled} />
+                <RadioGroupItem value={staff.id} id={`staff-select-card-${staff.id}`} className="sr-only" disabled={disabled} />
                 {isSelected && (
                     <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
                         <Check className="w-3 h-3" />

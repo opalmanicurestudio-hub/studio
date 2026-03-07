@@ -289,7 +289,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <CardContent className="p-4 flex items-center gap-4">
                         <Avatar className="w-12 h-12">
                             <AvatarImage src={client.avatarUrl} />
-                            <AvatarFallback>{client.name.substring(0,2)}</AvatarFallback>
+                            <AvatarFallback>{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div>
                             <p className="font-semibold">{client.name}</p>

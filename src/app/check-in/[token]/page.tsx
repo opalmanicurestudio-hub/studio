@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Scissors, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint } from 'lucide-react';
-import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday } from 'date-fns';
+import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -20,6 +20,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 /**
  * Utility to safely convert potential strings or Date objects into valid Date instances.
@@ -410,7 +411,7 @@ export default function CheckInPage() {
                                             className={cn(
                                                 "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all aspect-square",
                                                 isSameDay(day, rescheduleDate)
-                                                    ? "bg-primary text-primary-foreground border-primary shadow-xl scale-110"
+                                                    ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110"
                                                     : "bg-white border-transparent hover:border-primary/20",
                                                 isDayClosed(day) && "opacity-20 cursor-not-allowed"
                                             )}
@@ -441,7 +442,7 @@ export default function CheckInPage() {
                         <Button onClick={handleReschedule} disabled={!rescheduleTime} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30">
                             Confirm New Session
                         </Button>
-                        <Button variant="ghost" className="w-full font-black uppercase tracking-widest text-[10px] text-muted-foreground" onClick={() => { handleUpdateStatus('cancelled'); }}>No, Cancel Entirely</Button>
+                        <Button variant="ghost" className="w-full font-black uppercase tracking-widest text-[10px] text-muted-foreground" onClick={() => { handleUpdateStatus('auto_cancelled'); }}>No, Cancel Entirely</Button>
                     </Card>
                 );
             case 'confirmed':

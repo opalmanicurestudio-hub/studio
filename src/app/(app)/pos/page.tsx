@@ -447,8 +447,6 @@ function POSPageContent() {
         } else {
             batch.update(appointmentRef, { checkoutState });
             
-            // REFINED IDLE LOGIC:
-            // Identify all staff who have NO remaining work in this specific session and set them to idle.
             const overrides = checkoutState.serviceStaffOverrides || {};
             const involvedStaffIdsSet = new Set<string>();
             if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
@@ -550,7 +548,6 @@ function POSPageContent() {
                 });
             });
 
-            // DISTRIBUTED SERVICE REVENUE ATTRIBUTION
             const mainStaffId = overrides[service.id] || apt.staffId;
             const mainStaffMember = staff.find(s => s.id === mainStaffId);
             const mainPrice = getServicePrice(service, mainStaffMember);

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -323,7 +322,7 @@ const AddEventForm = ({
                                         />
                                         <Avatar className="h-8 w-8 border shadow-sm">
                                             <AvatarImage src={s.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{s.name.charAt(0)}</AvatarFallback>
+                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(s.name || 'S').charAt(0)}</AvatarFallback>
                                         </Avatar>
                                         <span className="text-[11px] font-black uppercase tracking-tight truncate">{s.name}</span>
                                     </label>

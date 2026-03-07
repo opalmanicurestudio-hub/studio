@@ -130,7 +130,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     </div>
                     {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
                     {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">Arrived</Badge>}
-                    {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />En Route</Badge>}
+                    {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
                 </div>
 
                 {isPotentialAlias && (
