@@ -47,7 +47,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, type Staff } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
@@ -72,7 +72,7 @@ const safeDate = (val: any): Date => {
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open,
   onOpenChange,
-  appointment,
+  appointment: initialAppointment,
   client,
   service,
   tmhr,
@@ -89,7 +89,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
-  const { inventory, services: allServices, staff } = useInventory();
+  const { inventory, services: allServices, staff, appointments: allAppointments } = useInventory();
   const { role, selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
@@ -100,6 +100,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [isRunningOver, setIsRunningOver] = useState(false);
   
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+
+  // CRITICAL FIX: Synchronize with the live appointment from the global collection
+  // This ensures the UI updates immediately after "Add Part" completes.
+  const appointment = useMemo(() => {
+    if (!initialAppointment || !allAppointments) return initialAppointment;
+    return allAppointments.find(a => a.id === initialAppointment.id) || initialAppointment;
+  }, [initialAppointment, allAppointments]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -236,14 +243,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
             <div className="flex items-center gap-3 mb-2">
               <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
+              <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
                 Session Dossier
               </span>
             </div>
-            <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+            <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
               Session Summary
             </SheetTitle>
-            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
+            <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60">
               ID: {ticketId}
             </SheetDescription>
           </SheetHeader>
