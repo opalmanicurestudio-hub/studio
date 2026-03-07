@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -36,8 +35,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Check
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { type Client, type Appointment } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
