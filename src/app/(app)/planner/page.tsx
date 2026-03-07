@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -326,8 +327,6 @@ function PlannerPageContent() {
     } else {
         batch.update(appointmentRef, { checkoutState });
         
-        // REFINED IDLE LOGIC:
-        // Identify all staff who have NO remaining work in this session and set them to idle.
         const overrides = checkoutState.serviceStaffOverrides || {};
         const involvedStaffIdsSet = new Set<string>();
         if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
@@ -369,15 +368,15 @@ function PlannerPageContent() {
     <div className="flex h-screen w-full flex-col bg-white">
       <AppHeader />
       <div className="p-3 sm:p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
-            <div className="max-w-7xl mx-auto space-y-4 sm:space-y-8">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
-                    <div className="space-y-0.5 sm:space-y-1">
-                        <h1 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
-                        <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
+            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-10">
+                <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
+                        <p className="hidden sm:block text-[10px] sm:text-xs text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
-                    <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
+                    <div className="flex items-center gap-2 sm:gap-3">
                         {(role === 'owner' || role === 'admin') && (
-                            <div className="flex gap-1.5 sm:gap-2 mr-1 sm:mr-2">
+                            <div className="flex gap-1.5 sm:gap-2">
                                 <Button variant="outline" size="icon" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
                                     <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
                                     {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{billInstancesWithDefinitions.length}</span>}
@@ -389,8 +388,8 @@ function PlannerPageContent() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-center">
-                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner max-w-full sm:max-w-fit overflow-x-auto scrollbar-hide">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
+                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
                         <Button variant="ghost" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0"><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
                         <div className="px-2 sm:px-4 text-center min-w-[110px] sm:min-w-[140px]">
                             <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>
@@ -400,16 +399,16 @@ function PlannerPageContent() {
                         <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 sm:h-10 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50 shrink-0">Today</Button>
                     </div>
 
-                    <div className="flex items-center gap-3 md:justify-end">
-                        <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-muted/30 rounded-xl sm:rounded-2xl border-2 border-muted shadow-inner">
-                            <Label htmlFor="staff-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                            <Label htmlFor="res-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+                    <div className="flex items-center gap-3 w-full md:w-auto md:justify-end">
+                        <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-muted/30 rounded-xl sm:rounded-2xl border-2 border-muted shadow-inner w-full md:w-auto justify-center">
+                            <Label htmlFor="staff-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1 md:flex-none", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
+                            <Label htmlFor="res-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1 md:flex-none", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
                         </RadioGroup>
                     </div>
                 </div>
 
                 <ScrollArea className="w-full">
-                    <div className="flex w-full gap-1.5 sm:gap-2 px-1">
+                    <div className="flex w-full gap-1.5 sm:gap-2 px-1 pb-2">
                         {weekDays.map(day => (
                             <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-4 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-4 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
                                 <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
