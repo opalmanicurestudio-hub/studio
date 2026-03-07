@@ -114,7 +114,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
   );
 
   const innerContent = (
-    <div className="p-6 md:p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
         <Input
@@ -165,7 +165,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="p-5 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/[0.02] ml-10 space-y-5">
+                    <div className="p-4 sm:p-5 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/[0.02] ml-10 space-y-5">
                       <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Professional</Label>
                         <Select 
@@ -179,6 +179,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                             {activeStaff.map(s => (
                               <SelectItem key={s.id} value={s.id}>
                                 <div className="flex items-center gap-2">
+                                  <div className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
                                   <Avatar className="h-5 w-5 border shadow-inner">
                                     <AvatarImage src={s.avatarUrl} className="object-cover" />
                                     <AvatarFallback className="text-[8px]">{(s.name || 'S')[0]}</AvatarFallback>
@@ -235,27 +236,27 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] p-0 border-none rounded-t-[3rem] overflow-hidden bg-background flex flex-col">
-          <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
+          <SheetHeader className="p-6 sm:p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
             <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
             </div>
-            <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">Add & Configure Parts</SheetTitle>
-            <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</SheetDescription>
+            <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Add & Configure Parts</SheetTitle>
+            <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1">
             {innerContent}
           </ScrollArea>
-          <SheetFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
+          <SheetFooter className="p-6 sm:p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
             <div className="flex flex-col gap-3 w-full">
               <Button 
                 onClick={handleSave} 
                 disabled={selectedIds.size === 0}
-                className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20"
+                className="w-full h-14 sm:h-16 rounded-2xl text-lg sm:text-xl font-black uppercase shadow-2xl shadow-primary/20"
               >
                 Apply Selection ({selectedIds.size})
               </Button>
-              <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 rounded-xl font-bold uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
             </div>
           </SheetFooter>
         </SheetContent>
@@ -266,7 +267,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background max-h-[90vh] flex flex-col">
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
+        <DialogHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
