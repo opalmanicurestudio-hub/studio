@@ -28,7 +28,9 @@ import {
   KeyRound, 
   Loader, 
   RefreshCw,
-  EyeOff
+  EyeOff,
+  BarChart,
+  Pencil
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -173,30 +175,46 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             </TooltipProvider>
                         )}
                     </div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1">
-                                <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
-                            <DropdownMenuItem onClick={() => onViewActivity(member)} className="font-bold text-xs uppercase tracking-tight">Dashboard</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onEdit(member)} className="font-bold text-xs uppercase tracking-tight">Edit Profile</DropdownMenuItem>
-                            <DropdownMenuSeparator />
+                    <div className="flex items-center gap-1.5">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5 text-primary" onClick={() => onViewActivity(member)}>
+                                        <BarChart className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Performance Activity</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/5 text-primary" onClick={() => onEdit(member)}>
+                                        <Pencil className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Modify Profile</TooltipContent>
+                            </Tooltip>
                             {canManage && (
                                 <>
-                                    <DropdownMenuItem onClick={() => onForceIdle(member.id)} className="text-amber-600 font-bold text-xs uppercase tracking-tight">
-                                        <RefreshCw className="w-4 h-4 mr-2" />
-                                        Force Idle
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => onDelete(member)} className="text-destructive font-bold text-xs uppercase tracking-tight">
-                                        <Trash2 className="w-4 h-4 mr-2" />
-                                        Delete Profile
-                                    </DropdownMenuItem>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-amber-50 text-amber-600" onClick={() => onForceIdle(member.id)}>
+                                                <RefreshCw className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Force Idle</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-destructive/5 text-destructive" onClick={() => onDelete(member)}>
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Terminate Profile</TooltipContent>
+                                    </Tooltip>
                                 </>
                             )}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        </TooltipProvider>
+                    </div>
                 </div>
             </CardHeader>
             <CardContent className="p-6 flex-1 flex flex-col items-center">
@@ -857,7 +875,7 @@ export default function StaffPage() {
       </Dialog>
 
       <AlertDialog open={!!staffToDelete} onOpenChange={() => setStaffToDelete(null)}>
-        <AlertDialogContent className="rounded-[3rem] border-4">
+        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
                 <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Profile</AlertDialogTitle>
                 <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
@@ -868,7 +886,7 @@ export default function StaffPage() {
                 <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the staff profile and directory entry. The associated authentication account will remain, but they will be prohibited from all studio access. <strong>This action is non-reversible.</strong></p>
             </div>
             <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20">Purge Record</Button>
+                <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Purge Record</Button>
                 <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
