@@ -26,6 +26,7 @@ import {
   ShieldAlert,
   Sparkles,
   Loader,
+  Users,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -230,6 +231,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
 
+  const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
+  const mainStaffMember = staff.find(s => s.id === mainStaffId);
+
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -320,7 +324,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <Avatar className="w-20 h-20 md:w-24 md:h-24 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]">
                     <AvatarImage src={client.avatarUrl} className="object-cover" />
                     <AvatarFallback className="text-xl font-black bg-primary/10 text-primary">
-                      {client.name.substring(0, 2)}
+                      {client.name.substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0">
@@ -403,27 +407,45 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
                           <Clock className="w-2.5 h-2.5" /> {service.duration}m duration
                         </div>
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10">
+                            <Avatar className="h-5 w-5 border shadow-sm">
+                                <AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" />
+                                <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
+                            </Avatar>
+                            <span className="text-[9px] font-black uppercase text-primary tracking-widest">{mainStaffMember?.name || 'Unassigned'}</span>
+                        </div>
                       </div>
                       <p className="text-xl font-black text-primary tracking-tighter font-mono">
                         ${financialData?.revenue.toFixed(2)}
                       </p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
-                      <div className="space-y-1.5 pt-3 border-t border-dashed">
+                      <div className="space-y-3 pt-3 border-t border-dashed">
                         <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest">
                           Add-ons Applied
                         </p>
                         {(appointment.addOnIds || []).map((id) => {
                           const s = allServices.find((svc) => svc.id === id);
-                          return s ? (
-                            <div
-                              key={id}
-                              className="flex justify-between text-xs font-bold uppercase tracking-tight text-slate-600"
-                            >
-                              <span>+ {s.name}</span>
-                              <span>${s.price.toFixed(2)}</span>
+                          if (!s) return null;
+                          
+                          const addonStaffId = appointment.checkoutState?.serviceStaffOverrides?.[id] || appointment.staffId;
+                          const addonStaff = staff.find(st => st.id === addonStaffId);
+
+                          return (
+                            <div key={id} className="space-y-1.5 p-2 rounded-xl bg-background border shadow-sm">
+                                <div className="flex justify-between text-[10px] font-black uppercase tracking-tight text-slate-600">
+                                    <span>+ {s.name}</span>
+                                    <span className="font-mono">${s.price.toFixed(2)}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 opacity-60">
+                                    <Avatar className="h-4 w-4 border shadow-inner">
+                                        <AvatarImage src={addonStaff?.avatarUrl} className="object-cover" />
+                                        <AvatarFallback className="text-[6px] font-black">{(addonStaff?.name || 'S')[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-[8px] font-black uppercase tracking-widest">{addonStaff?.name?.split(' ')[0] || 'Unassigned'}</span>
+                                </div>
                             </div>
-                          ) : null;
+                          );
                         })}
                       </div>
                     )}
@@ -437,7 +459,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     Yield Analysis
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-1">
+                    <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-1 text-left">
                       <p className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">
                         Gross Yield
                       </p>
@@ -514,7 +536,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4 pt-0">
-                      <p className="text-[11px] font-medium text-slate-600 leading-relaxed italic">
+                      <p className="text-[11px] font-medium text-slate-600 leading-relaxed italic text-left">
                         "{client.notes?.general || 'No session notes provided.'}"
                       </p>
                     </CardContent>
