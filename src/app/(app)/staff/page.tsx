@@ -339,7 +339,7 @@ const PricingTierCard = ({
                     <div className="p-6">
                         <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the pricing tier. Staff members assigned to this tier will need to be reassigned to maintain accurate service pricing.</p>
                     </div>
-                    <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
+                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={confirmDeleteTier} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20">Delete Tier</Button>
                         <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
@@ -439,7 +439,10 @@ export default function StaffPage() {
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
 
 
-        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        const tips = staffTransactions.reduce((acc, t) => {
+            if (t.category === 'Tips') return acc + t.amount;
+            return acc + (t.tipAmount || 0);
+        }, 0);
 
         let totalMinutesWorked = 0;
         const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp)));

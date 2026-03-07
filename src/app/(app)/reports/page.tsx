@@ -128,7 +128,11 @@ export default function ReportsPage() {
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const totalSales = serviceRevenue + retailSales;
-        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        
+        const tips = staffTransactions.reduce((acc, t) => {
+            if (t.category === 'Tips') return acc + t.amount;
+            return acc + (t.tipAmount || 0);
+        }, 0);
         
         const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
@@ -431,7 +435,7 @@ export default function ReportsPage() {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><BanIcon className="w-3 h-3"/>Cancellation Rate</CardTitle></CardHeader>
                 <CardContent>
                     <div className="text-2xl md:text-3xl font-black tracking-tighter">{kpiData.cancellationRate.toFixed(1)}%</div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">Appointments marked as cancelled</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">Appointments marked as cancelled</p>
                 </CardContent>
             </Card>
         </div>

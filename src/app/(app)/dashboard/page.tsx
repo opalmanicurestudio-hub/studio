@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -562,7 +563,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
         </Card>
 
         <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
-            <DialogContent className="sm:max-w-md rounded-[3rem] border-4">
+            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
                 <DialogHeader className="p-6 pb-0">
                     <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
                         <KeyRound className="w-6 h-6 text-primary" />
@@ -686,7 +687,10 @@ export default function DashboardPage() {
     if (!allTransactions) return [];
     const serviceRevenue = allTransactions.filter(t => t.type === 'income' && t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
     const retailRevenue = allTransactions.filter(t => t.type === 'income' && t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-    const tips = allTransactions.filter(t => t.type === 'income' && t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+    const tips = allTransactions.reduce((acc, t) => {
+        if (t.category === 'Tips') return acc + t.amount;
+        return acc + (t.tipAmount || 0);
+    }, 0);
     return [
       { name: 'services', value: serviceRevenue, fill: 'hsl(var(--primary))' },
       { name: 'retail', value: retailRevenue, fill: 'hsl(var(--accent))' },
@@ -714,7 +718,12 @@ export default function DashboardPage() {
         return t.staffId === staffMember.id && d >= todayStart && d <= todayEnd;
     });
     const serviceRevenue = transactionsToday.filter(t => t.category === 'Service Revenue').reduce((sum, t) => sum + t.amount, 0);
-    const tips = transactionsToday.filter(t => t.category === 'Tips').reduce((sum, t) => sum + t.amount, 0);
+    
+    const tips = transactionsToday.reduce((acc, t) => {
+        if (t.category === 'Tips') return acc + t.amount;
+        return acc + (t.tipAmount || 0);
+    }, 0);
+
     const completed = staffAppointmentsToday.filter(a => a.status === 'completed').length;
     let earnings = (staffMember.payStructure === 'commission') ? (serviceRevenue * ((staffMember.commissionRate || 0) / 100)) : 0;
     const retailSales = transactionsToday.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
@@ -763,7 +772,12 @@ export default function DashboardPage() {
     const staffTransactions = allTransactions.filter(t => t.staffId === staffMember.id && filterByDate(safeDate(t.date)));
     const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
     const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-    const tips = staffTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+    
+    const tips = staffTransactions.reduce((acc, t) => {
+        if (t.category === 'Tips') return acc + t.amount;
+        return acc + (t.tipAmount || 0);
+    }, 0);
+
     let totalMinutesWorked = 0;
     const sortedLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(safeDate(log.timestamp))).sort((a,b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
     let clockInTime: Date | null = null;
