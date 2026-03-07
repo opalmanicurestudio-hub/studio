@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -239,7 +240,7 @@ export const StaffDetailsSheet = ({
                       {periodPreset === 'custom' && (
                           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                               <div className="grid grid-cols-2 gap-3 pt-2">
-                                  <div className="space-y-1">
+                                  <div className="space-y-1 text-left">
                                       <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground ml-1">From</Label>
                                       <input 
                                           type="date" 
@@ -251,7 +252,7 @@ export const StaffDetailsSheet = ({
                                           className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary transition-all shadow-inner"
                                       />
                                   </div>
-                                  <div className="space-y-1">
+                                  <div className="space-y-1 text-left">
                                       <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground ml-1">To</Label>
                                       <input 
                                           type="date" 
@@ -327,7 +328,7 @@ export const StaffDetailsSheet = ({
                     <CardContent className="p-6">
                         <div className="grid grid-cols-2 gap-4">
                             {performanceKpis.map(kpi => (
-                                <div key={kpi.label} className="p-4 rounded-2xl bg-muted/20 border-2 transition-all group hover:border-primary/20">
+                                <div key={kpi.label} className="p-4 rounded-2xl bg-muted/20 border-2 transition-all group hover:border-primary/20 text-left">
                                     <div className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">{kpi.label}</div>
                                     <div className={cn("text-2xl font-black tracking-tighter font-mono", kpi.label === "Avg Variance" && (parseFloat(kpi.value) > 0 ? 'text-destructive' : 'text-green-600'))}>{kpi.value}</div>
                                 </div>
@@ -385,27 +386,27 @@ export const StaffDetailsSheet = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
         <div className="flex flex-col h-full overflow-hidden">
-            <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-5" : "p-8 pb-6")}>
+            <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4" : "p-8 pb-6")}>
                 <div className="flex items-center gap-4">
-                    <Avatar className={cn("border-4 border-background shadow-xl rounded-2xl", isMobile ? "h-12 w-12" : "h-16 w-16")}>
+                    <Avatar className={cn("border-4 border-background shadow-xl rounded-2xl", isMobile ? "h-10 w-10" : "h-16 w-16")}>
                         <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div>
-                        <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-xl" : "text-3xl")}>{staffMember.name}</SheetTitle>
-                        <SheetDescription className="text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
+                        <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
+                        <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
                     </div>
                 </div>
             </SheetHeader>
 
             <ScrollArea className="flex-1 min-h-0">
-                <div className={cn(isMobile ? "p-5" : "p-8")}>
+                <div className={cn(isMobile ? "p-4" : "p-8")}>
                     {content}
                 </div>
             </ScrollArea>
             
-            <SheetFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-4" : "p-8 pt-4")}>
-                <Button onClick={() => onOpenChange(false)} className={cn("w-full rounded-2xl font-black uppercase tracking-tight shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-12 text-sm" : "h-16 text-xl")}>Close Dashboard</Button>
+            <SheetFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-3" : "p-8 pt-4")}>
+                <Button onClick={() => onOpenChange(false)} className={cn("w-full rounded-2xl font-black uppercase tracking-tight shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-11 text-xs" : "h-16 text-xl")}>Close Dashboard</Button>
             </SheetFooter>
         </div>
       </SheetContent>

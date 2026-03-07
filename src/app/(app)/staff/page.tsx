@@ -30,7 +30,8 @@ import {
   Pencil,
   ArrowRight,
   Check,
-  Loader
+  Loader,
+  MoreHorizontal
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -260,7 +261,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
             <CardFooter className="p-4 border-t mt-auto flex flex-col gap-3 bg-muted/5">
                 {renderActionButtons()}
                  <Button asChild variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest h-8 w-full hover:bg-primary/5 text-muted-foreground hover:text-primary">
-                    <Link href={`/staff/${member.id}`}>Public Portfolio <MoreHorizontal className="ml-1 h-3 w-3" /></Link>
+                    <Link href={`/staff/${member.id}`}>Public Portfolio <ArrowRight className="ml-1 h-3 w-3" /></Link>
                 </Button>
             </CardFooter>
         </Card>
@@ -767,12 +768,12 @@ export default function StaffPage() {
             </div>
         ) : (
             <>
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-6 md:mb-10">
                     <div className="space-y-1">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
-                        <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
+                        <h1 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
+                        <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
                     </div>
-                    <Button onClick={() => setIsAddStaffOpen(true)} className="h-12 sm:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+                    <Button onClick={() => setIsAddStaffOpen(true)} className="h-12 sm:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto">
                         <PlusCircle className="mr-2 h-4 w-4" /> New Provider
                     </Button>
                 </div>
@@ -799,7 +800,7 @@ export default function StaffPage() {
                         <AnimatePresence>
                             {periodPreset === 'custom' && (
                                 <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
                                         <input 
                                             type="date" 
@@ -811,7 +812,7 @@ export default function StaffPage() {
                                             className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                                         />
                                     </div>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
                                         <input 
                                             type="date" 
@@ -894,7 +895,7 @@ export default function StaffPage() {
       
       <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
-            <DialogHeader className="p-6 pb-0">
+            <DialogHeader className="p-6 pb-0 text-left">
                 <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
                     <KeyRound className="w-6 h-6 text-primary" />
                     Security Verify
@@ -926,14 +927,14 @@ export default function StaffPage() {
 
       <AlertDialog open={!!staffToDelete} onOpenChange={() => setStaffToDelete(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-            <AlertDialogHeader className="p-6 pb-0">
+            <AlertDialogHeader className="p-6 pb-0 text-left">
                 <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Profile</AlertDialogTitle>
                 <AlertDialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
                     Target: <strong>{staffToDelete?.name}</strong>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="p-6">
-                <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the staff profile and directory entry. The associated authentication account will remain, but they will be prohibited from all studio access. <strong>This action is non-reversible.</strong></p>
+                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This will permanently delete the staff profile and directory entry. The associated authentication account will remain, but they will be prohibited from all studio access. <strong>This action is non-reversible.</strong></p>
             </div>
             <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
                 <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Purge Record</Button>
