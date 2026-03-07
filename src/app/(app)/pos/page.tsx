@@ -701,6 +701,7 @@ function POSPageContent() {
             setTipAmount(0);
             setAppliedDiscountCodes([]);
             setAppliedAdjustments(new Set());
+            setIsCartSheetOpen(false);
         } catch (e) {
             console.error(e);
             toast({ variant: 'destructive', title: 'Checkout Failed' });
