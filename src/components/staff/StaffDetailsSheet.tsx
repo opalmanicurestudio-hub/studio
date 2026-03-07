@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -158,10 +157,119 @@ export const StaffDetailsSheet = ({
             setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) });
             break;
         case 'custom':
-            // Keep existing or use initial
             break;
     }
   }, [periodPreset]);
+
+  // Recalculate stats based on local dateRange
+  const liveStats = useMemo(() => {
+    if (!staffMember || !transactions || !appointments || !activityLogs || !services) return null;
+    
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    const filterByDate = (date: any) => {
+        const d = safeDateWrapper(date);
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+        return true;
+    };
+
+    const staffAppointments = appointments.filter((apt: Appointment) => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+    const completedAppointments = staffAppointments.filter((apt: Appointment) => apt.status === 'completed');
+    const completedAppointmentsCount = completedAppointments.length;
+
+    let totalMinutesVariance = 0;
+    let totalInServiceMinutes = 0;
+    completedAppointments.forEach((apt: Appointment) => {
+        const service = services.find((s: Service) => s.id === apt.serviceId);
+        if (apt.actualStartTime && apt.actualEndTime && service) {
+            const actualDuration = differenceInMinutes(safeDateWrapper(apt.actualEndTime), safeDateWrapper(apt.actualStartTime));
+            totalMinutesVariance += actualDuration - service.duration;
+            totalInServiceMinutes += actualDuration;
+        } else if (service) {
+            totalInServiceMinutes += service.duration;
+        }
+    });
+    
+    const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
+
+    const staffTransactions = transactions.filter((t: Transaction) => t.staffId === staffMember.id && filterByDate(t.date));
+    
+    const serviceRevenue = staffTransactions
+        .filter((t: Transaction) => t.category === 'Service Revenue')
+        .reduce((acc: number, t: Transaction) => acc + t.amount, 0);
+
+    const retailSales = staffTransactions
+        .filter((t: Transaction) => t.category === 'Retail')
+        .reduce((acc: number, t: Transaction) => acc + t.amount, 0);
+    
+    const totalSales = serviceRevenue + retailSales;
+    const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+
+    const retailTransactionsWithAppointment = staffTransactions.filter((t: Transaction) => t.category === 'Retail' && t.appointmentId);
+    const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map((t: Transaction) => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
+
+    const tips = staffTransactions.reduce((acc: number, t: Transaction) => {
+        if (t.category === 'Tips') return acc + t.amount;
+        return acc + (t.tipAmount || 0);
+    }, 0);
+
+    let totalMinutesWorked = 0;
+    const staffLogs = activityLogs.filter((log: ActivityLog) => log.staffId === staffMember.id && filterByDate(log.timestamp));
+    const sortedLogs = staffLogs.sort((a: ActivityLog, b: ActivityLog) => safeDateWrapper(a.timestamp).getTime() - safeDateWrapper(b.timestamp).getTime());
+    
+    let clockInTime: Date | null = null;
+    let totalBreakMinutes = 0;
+    
+    for (const log of sortedLogs) {
+        const logTime = safeDateWrapper(log.timestamp);
+        if (log.type === 'clock_in') {
+            if (clockInTime) {
+                const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
+                totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+            }
+            clockInTime = logTime;
+            totalBreakMinutes = 0;
+        } else if (log.type === 'clock_out' && clockInTime) {
+            let sessionEnd = logTime;
+            if (toDate && sessionEnd > toDate) sessionEnd = toDate;
+            totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+            clockInTime = null;
+        } else if (log.type === 'break_end' && log.durationMinutes) {
+            totalBreakMinutes += log.durationMinutes;
+        }
+    }
+    
+    if(clockInTime) {
+        const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
+        totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
+    }
+
+    const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
+    
+    let earnings = 0;
+    if (staffMember.payStructure === 'commission') {
+        earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+    } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+        const hoursWorked = totalMinutesWorked / 60;
+        earnings = hoursWorked * staffMember.hourlyRate;
+    }
+    
+    const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+    earnings += tips + retailCommission; 
+
+    return {
+        totalSales,
+        tips,
+        totalHours: totalMinutesWorked / 60,
+        earnings,
+        utilizationRate,
+        avgSalePerAppointment,
+        retailAttachmentRate,
+        avgVariance
+    };
+  }, [staffMember, transactions, appointments, activityLogs, services, dateRange]);
 
   const staffServices = useMemo(() => {
     if (!staffMember?.services || !services) return [];
@@ -202,12 +310,12 @@ export const StaffDetailsSheet = ({
     
   if (!staffMember) return null;
   
-  const stats = staffMember.stats || {};
+  const currentStats = liveStats || {};
   const performanceKpis = [
-      { label: "Utilization", value: `${(stats.utilizationRate || 0).toFixed(1)}%` },
-      { label: "Avg. Ticket", value: `$${(stats.avgSalePerAppointment || 0).toFixed(2)}` },
-      { label: "Retail Rate", value: `${(stats.retailAttachmentRate || 0).toFixed(1)}%` },
-      { label: "Avg Variance", value: `${(stats.avgVariance || 0) > 0 ? '+' : ''}${(stats.avgVariance || 0).toFixed(1)}m` },
+      { label: "Utilization", value: `${(currentStats.utilizationRate || 0).toFixed(1)}%` },
+      { label: "Avg. Ticket", value: `$${(currentStats.avgSalePerAppointment || 0).toFixed(2)}` },
+      { label: "Retail Rate", value: `${(currentStats.retailAttachmentRate || 0).toFixed(1)}%` },
+      { label: "Avg Variance", value: `${(currentStats.avgVariance || 0) > 0 ? '+' : ''}${(currentStats.avgVariance || 0).toFixed(1)}m` },
   ];
 
   const content = (
@@ -272,10 +380,10 @@ export const StaffDetailsSheet = ({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">${(stats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-green-600 font-mono">${(stats.tips || 0).toFixed(2)}</p></CardContent></Card>
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">{(stats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
-              <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">Est. Payout</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-primary font-mono">${(stats.earnings || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">${(currentStats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-green-600 font-mono">${(currentStats.tips || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">{(currentStats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
+              <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">Est. Payout</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-primary font-mono">${(currentStats.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
 
            <Tabs defaultValue="activity" className="w-full">
