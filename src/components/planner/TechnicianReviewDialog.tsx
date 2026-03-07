@@ -176,6 +176,18 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
 
+  const handleUpdateAddOns = (newAddOns: Service[]) => {
+    setSelectedAddOns(newAddOns);
+    const nextOverrides = { ...serviceStaffOverrides };
+    newAddOns.forEach(addon => {
+        if (!nextOverrides[addon.id]) {
+            nextOverrides[addon.id] = currentUser?.uid || appointment?.staffId || '';
+        }
+    });
+    setServiceStaffOverrides(nextOverrides);
+    setIsAddOnSelectorOpen(false);
+  };
+
   const handleAddProduct = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => ({
         id: p.id,
@@ -186,6 +198,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         isCustom: true,
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
+      setIsProductBrowserOpen(false);
   };
   
   const removeProduct = (productId: string) => {
