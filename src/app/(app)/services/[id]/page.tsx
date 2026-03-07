@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -31,7 +30,8 @@ import {
     AlertTriangle,
     Target,
     Zap,
-    Briefcase
+    Briefcase,
+    Calendar as CalendarIcon
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
