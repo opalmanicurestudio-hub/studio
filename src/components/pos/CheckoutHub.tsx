@@ -476,6 +476,10 @@ export const CheckoutHub = ({
                                     const isWaived = waivedAppointmentFees.has(data.appointment.id);
                                     const addOns = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
                                     
+                                    const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
+                                    const mainStaffId = overrides[data.service.id] || data.appointment.staffId;
+                                    const mainStaffMember = staff.find((s: any) => s.id === mainStaffId);
+
                                     return (
                                         <Card key={data.appointment.id} className={cn("overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all", isRedeemed ? "border-primary bg-primary/[0.03] shadow-lg" : "border-border/50 bg-muted/5")}>
                                             <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4 text-left">
@@ -485,7 +489,10 @@ export const CheckoutHub = ({
                                                             <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
                                                             {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
                                                         </div>
-                                                        <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{data.staff.name.split(' ')[0]} &middot; {data.service.duration}m</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
+                                                            {mainStaffId !== data.appointment.staffId && <Badge variant="outline" className="text-[7px] h-3 px-1 font-black uppercase tracking-tighter opacity-60">Overridden</Badge>}
+                                                        </div>
                                                     </div>
                                                     <div className="text-right shrink-0">
                                                         <p className={cn("font-black font-mono text-base md:text-lg tracking-tighter", isRedeemed ? "line-through text-muted-foreground opacity-40" : "text-slate-900")}>${getServicePrice(data.service, data.staff).toFixed(2)}</p>
@@ -494,13 +501,24 @@ export const CheckoutHub = ({
                                                 </div>
                                                 
                                                 {addOns.length > 0 && (
-                                                    <div className="space-y-1.5 pl-4 border-l-2 border-primary/10">
-                                                        {addOns.map((addon: any) => (
-                                                            <div key={addon.id} className="flex justify-between items-center group">
-                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">+ {addon.name}</span>
-                                                                <span className="text-[10px] font-black font-mono text-muted-foreground">${getServicePrice(addon, data.staff).toFixed(2)}</span>
-                                                            </div>
-                                                        ))}
+                                                    <div className="space-y-2 pl-4 border-l-2 border-primary/10">
+                                                        {addOns.map((addon: any) => {
+                                                            const addonStaffId = overrides[addon.id] || data.appointment.staffId;
+                                                            const addonStaffMember = staff.find((s: any) => s.id === addonStaffId);
+                                                            
+                                                            return (
+                                                                <div key={addon.id} className="space-y-0.5 group">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">+ {addon.name}</span>
+                                                                        <span className="text-[10px] font-black font-mono text-muted-foreground">${getServicePrice(addon, data.staff).toFixed(2)}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5 opacity-60">
+                                                                        <span className="text-[8px] font-black uppercase text-primary tracking-widest">{addonStaffMember?.name?.split(' ')[0] || 'Tech'}</span>
+                                                                        {addonStaffId !== data.appointment.staffId && <div className="w-1 h-1 rounded-full bg-primary/40" />}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
 
