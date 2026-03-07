@@ -2,12 +2,12 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useDoc, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, PricingTier } from '@/lib/data';
 import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Sparkles, MapPin, Phone, ShieldCheck, CheckCircle2, ArrowRight, Activity } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BookingSheet } from '@/components/booking/BookingSheet';
@@ -20,6 +20,8 @@ import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { BookingServices } from '@/components/booking/BookingServices';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 const StatTile = ({ label, value, icon: Icon, delay = 0 }: { label: string, value: string, icon: any, delay?: number }) => (
     <motion.div 
@@ -57,6 +59,7 @@ export default function StaffDetailPage() {
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
   const tenantId = selectedTenant?.id;
+  const { toast } = useToast();
   
   const staffDocRef = useMemoFirebase(() => {
       if (!firestore || !staffId || !tenantId) return null;
@@ -64,28 +67,26 @@ export default function StaffDetailPage() {
   }, [firestore, tenantId, staffId]);
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-  const { services, pricingTiers, isLoading: inventoryLoading, memberships } = useInventory();
+  const { 
+    services, 
+    pricingTiers, 
+    appointments, 
+    events, 
+    scheduleProfiles, 
+    consentForms, 
+    staff: allStaff,
+    isLoading: inventoryLoading 
+  } = useInventory();
 
-  const activityLogsQuery = useMemoFirebase(() => {
-      if (!firestore || !staffId || !tenantId) return null;
-      return collection(firestore, `tenants/${tenantId}/activityLogs`);
-  }, [firestore, tenantId, staffId]);
-  const { data: allActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(activityLogsQuery);
-
-  const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
-  const [serviceToBook, setServiceToBook] = useState<Service | null>(null);
-
-  const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]));
-  const { data: appointmentsFromDB } = useCollection<Appointment>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]));
-  const { data: eventsFromDB } = useCollection<Event>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]));
-  const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]));
+  const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
 
   const handleBookNow = (service: Service) => {
-    setServiceToBook(service);
-    setIsAddAppointmentOpen(true);
-  }
+    setSelectedService(service);
+    setIsBookingSheetOpen(true);
+  };
 
-  const isLoading = isUserLoading || isTenantLoading || staffLoading || inventoryLoading || activityLogsLoading;
+  const isLoadingTotal = isUserLoading || isTenantLoading || staffLoading || inventoryLoading;
 
   const formattedSchedule = useMemo(() => {
     const availability = staffMember?.availability;
@@ -164,13 +165,15 @@ export default function StaffDetailPage() {
         batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
         
         await batch.commit();
+        toast({ title: "Session Reserved", description: "Your appointment has been secured." });
         setBookingStep('confirmation');
     } catch (error) {
         console.error("Booking error:", error);
+        toast({ variant: 'destructive', title: "Booking Failed", description: "There was a problem securing your slot." });
     }
   };
 
-  if (isLoading) {
+  if (isLoadingTotal) {
       return (
         <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
             <Loader className="h-10 w-10 animate-spin text-primary" />
@@ -180,7 +183,12 @@ export default function StaffDetailPage() {
   }
 
   if (!staffMember) {
-    notFound();
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center text-center p-8">
+            <h1 className="text-2xl font-black uppercase tracking-tighter mb-4">Dossier Missing</h1>
+            <Button asChild variant="outline" className="rounded-2xl"><Link href="/staff"><ArrowLeft className="mr-2 h-4 w-4" />Return to Team</Link></Button>
+        </div>
+    );
   }
   
   const portfolioImages = staffMember.portfolioImageUrls && staffMember.portfolioImageUrls.length > 0 
@@ -195,7 +203,7 @@ export default function StaffDetailPage() {
             <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-purple-200/20 blur-[100px] rounded-full" />
         </div>
 
-        <main className="relative z-10 max-w-5xl mx-auto py-10 px-4 md:px-10 space-y-16 md:space-y-24 pb-32">
+        <main className="relative z-10 max-w-5xl mx-auto py-6 md:py-10 px-4 md:px-10 space-y-12 md:space-y-24 pb-32">
             {/* Header / Nav */}
             <div className="flex items-center justify-between">
                 <Button variant="ghost" size="icon" asChild className="rounded-2xl bg-white/50 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white transition-all active:scale-90">
@@ -205,7 +213,7 @@ export default function StaffDetailPage() {
                 </Button>
                 <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="font-black uppercase tracking-tighter text-sm md:text-base">Studio Dossier</span>
+                    <span className="font-black uppercase tracking-tighter text-sm md:text-base text-slate-900">Studio Dossier</span>
                 </div>
             </div>
 
@@ -351,7 +359,7 @@ export default function StaffDetailPage() {
         <footer className="fixed bottom-0 left-0 right-0 z-[60] p-4 md:p-6 flex justify-center pointer-events-none">
             <div className="w-full max-w-lg pointer-events-auto">
                 <Button 
-                    className="w-full h-14 md:h-16 rounded-[2rem] text-sm md:text-base font-black uppercase tracking-widest shadow-[0_20px_50px_rgba(8,_112,_184,_0.3)] transition-all active:scale-95 group"
+                    className="w-full h-12 md:h-16 rounded-[2rem] text-sm md:text-base font-black uppercase tracking-widest shadow-[0_20px_50px_rgba(8,_112,_184,_0.3)] bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 group"
                     onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}
                 >
                     Initialize Booking
@@ -362,17 +370,17 @@ export default function StaffDetailPage() {
 
         {selectedService && (
             <BookingSheet 
-                open={isSheetOpen}
-                onOpenChange={setIsSheetOpen}
+                open={isBookingSheetOpen}
+                onOpenChange={setIsBookingSheetOpen}
                 service={selectedService}
-                staff={staff || []}
+                staff={allStaff || []}
                 pricingTiers={pricingTiers || []}
                 initialStaffId={staffId}
                 consentForms={consentForms || []}
-                tenant={tenant || null}
+                tenant={selectedTenant || null}
                 onConfirm={handleConfirmBooking}
-                appointments={appointmentsFromDB || []}
-                events={eventsFromDB || []}
+                appointments={appointments || []}
+                events={events || []}
                 scheduleProfiles={scheduleProfiles || []}
                 services={services || []}
             />
