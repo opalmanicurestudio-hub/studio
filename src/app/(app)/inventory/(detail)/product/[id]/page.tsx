@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -40,7 +39,8 @@ import {
     Loader,
     PackageOpen,
     Target,
-    Printer
+    Printer,
+    Pipette
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
