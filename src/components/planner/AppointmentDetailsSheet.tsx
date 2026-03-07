@@ -26,6 +26,7 @@ import {
   Sparkles,
   Loader,
   Users,
+  AlertTriangle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -91,6 +92,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
+  const [mounted, setMounted] = useState(false);
   const { inventory, services: allServices, staff, appointments: allAppointments } = useInventory();
   const { role, selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -102,6 +104,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [isRunningOver, setIsRunningOver] = useState(false);
   
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Synchronize with the live appointment from the global collection
   const appointment = useMemo(() => {
@@ -186,12 +192,26 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       .filter((s): s is Service => !!s);
   }, [appointment?.addOnIds, allServices]);
 
-  if (!client || !service || !appointment) return null;
+  if (!mounted || !open) return null;
+
+  if (!appointment || !client || !service) {
+      return (
+          <Sheet open={open} onOpenChange={onOpenChange}>
+              <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[50vh]" : "sm:max-w-xl", "flex flex-col items-center justify-center")}>
+                  <Loader className="w-8 h-8 animate-spin text-primary" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-4">Retrieving Dossier...</p>
+              </SheetContent>
+          </Sheet>
+      );
+  }
 
   const handleCopyCheckInLink = () => {
     if (appointment.checkInToken) {
-      navigator.clipboard.writeText(`${window.location.origin}/check-in/${appointment.checkInToken}`);
-      toast({ title: 'Link Copied' });
+      const link = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+      navigator.clipboard.writeText(link);
+      toast({ title: 'Link Copied', description: 'Guest check-in URL is on your clipboard.' });
+    } else {
+        toast({ variant: 'destructive', title: 'Token Missing', description: 'This appointment is missing a security token.' });
     }
   };
 
@@ -230,9 +250,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   };
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
-
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember = staff.find(s => s.id === mainStaffId);
+  const checkInLink = `${window.location.origin}/check-in/${appointment.checkInToken}`;
 
   return (
     <>
@@ -240,7 +260,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <SheetContent
           side={isMobile ? "bottom" : "right"}
           className={cn(
-            isMobile ? 'h-[90vh] rounded-t-[2.5rem]' : 'sm:max-w-xl',
+            isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-xl',
             'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden'
           )}
         >
@@ -256,7 +276,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
             <SheetTitle className={cn(
               "font-black uppercase tracking-tighter text-slate-900 leading-none",
-              isMobile ? "text-xl" : "text-3xl"
+              isMobile ? "text-lg" : "text-3xl"
             )}>
               Session Summary
             </SheetTitle>
@@ -268,30 +288,34 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <ScrollArea className="flex-1">
             <div className={cn("space-y-8 pb-32", isMobile ? "p-6" : "p-8")}>
               {appointment.status === 'confirmed' && (
-                <Button
-                  onClick={() => onStartService(appointment.id)}
-                  className={cn(
-                    "w-full rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20",
-                    isMobile ? "h-14 text-base" : "h-16 text-lg"
-                  )}
-                  size="lg"
-                >
-                  <Play className="mr-3 h-5 w-5 sm:h-6 sm:w-6" /> Start Session
-                </Button>
+                <div className="flex justify-center">
+                    <Button
+                        onClick={() => onStartService(appointment.id)}
+                        className={cn(
+                            "w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95",
+                            isMobile ? "h-14 text-sm" : "h-16 text-lg"
+                        )}
+                        size="lg"
+                    >
+                        <Play className="mr-3 h-5 w-5" /> Start Session
+                    </Button>
+                </div>
               )}
 
               {appointment.status === 'servicing' && (
                 <div className="space-y-4">
-                  <Button
-                    onClick={() => onFinishService(appointment)}
-                    className={cn(
-                      "w-full rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20",
-                      isMobile ? "h-14 text-base" : "h-16 text-lg"
-                    )}
-                    size="lg"
-                  >
-                    <Square className="mr-3 h-5 w-5 sm:h-6 sm:w-6" /> Finish Service
-                  </Button>
+                  <div className="flex justify-center">
+                    <Button
+                        onClick={() => onFinishService(appointment)}
+                        className={cn(
+                        "w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95",
+                        isMobile ? "h-14 text-sm" : "h-16 text-lg"
+                        )}
+                        size="lg"
+                    >
+                        <Square className="mr-3 h-5 w-5" /> Finish Service
+                    </Button>
+                  </div>
                   {elapsedTime && (
                     <div
                       className={cn(
@@ -328,7 +352,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0">
-                    <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-2xl" : "text-3xl")}>
+                    <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-xl" : "text-3xl")}>
                       {client.name}
                     </h2>
                     <div className="flex flex-wrap justify-center sm:justify-start gap-2">
@@ -365,6 +389,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </div>
                 </div>
 
+                <div className="space-y-4 pt-4 border-t border-dashed">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Engagement & Check-in</h3>
+                    <div className="p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase text-primary">Unique Guest Link</span>
+                            <Button variant="ghost" size="sm" onClick={handleCopyCheckInLink} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                                <PlusCircle className="w-3 h-3 mr-1.5" /> Copy Link
+                            </Button>
+                        </div>
+                        <div className="bg-white/80 p-3 rounded-xl border border-primary/10 shadow-inner">
+                            <p className="text-[10px] font-mono text-muted-foreground break-all leading-relaxed">{checkInLink}</p>
+                        </div>
+                        <p className="text-[9px] text-slate-500 leading-relaxed font-medium text-center italic">Clients use this link to notify arrival, log lateness, or reschedule.</p>
+                    </div>
+                </div>
+
                 {client.outstandingBalance && client.outstandingBalance > 0 && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <Alert
@@ -390,10 +430,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-11 rounded-xl border-2 font-bold justify-start text-xs"
-                    onClick={handleCopyCheckInLink}
+                    className="h-11 rounded-xl border-2 font-bold justify-start text-xs text-destructive hover:bg-destructive/5"
+                    onClick={() => {
+                        onOpenChange(false);
+                        onCancel(appointment.id);
+                    }}
                   >
-                    <LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link
+                    <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel Session
                   </Button>
                 </div>
               </div>
@@ -416,10 +459,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </Button>
                 </div>
                 <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
-                  <CardContent className="p-5 space-y-4">
+                  <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
                       <div className="space-y-1">
-                        <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">
+                        <p className="font-black text-base md:text-lg uppercase tracking-tight text-slate-900 leading-tight">
                           {service.name}
                         </p>
                         <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -433,7 +476,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                             <span className="text-[9px] font-black uppercase text-primary tracking-widest">{mainStaffMember?.name || 'Unassigned'}</span>
                         </div>
                       </div>
-                      <p className="text-xl font-black text-primary tracking-tighter font-mono">
+                      <p className="text-base md:text-xl font-black text-primary tracking-tighter font-mono">
                         ${financialData?.revenue.toFixed(2)}
                       </p>
                     </div>
@@ -481,7 +524,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">
                         Gross Yield
                       </p>
-                      <p className="text-xl font-black font-mono tracking-tighter text-primary">
+                      <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-primary">
                         ${financialData.revenue.toFixed(2)}
                       </p>
                     </div>
@@ -489,7 +532,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p className="text-[8px] font-black uppercase tracking-widest text-destructive opacity-60">
                         Est. COGS
                       </p>
-                      <p className="text-xl font-black font-mono tracking-tighter text-destructive">
+                      <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-destructive">
                         ${financialData.breakEven.toFixed(2)}
                       </p>
                     </div>
@@ -505,7 +548,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
                           Net Transaction Profit
                         </p>
-                        <p className="text-2xl font-black tracking-tighter font-mono">
+                        <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">
                           ${financialData.profit.toFixed(2)}
                         </p>
                       </div>
@@ -564,7 +607,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
           </ScrollArea>
           
-          <SheetFooter className="p-6 sm:p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+          <SheetFooter className={cn(
+            "border-t bg-background flex-shrink-0 shadow-2xl",
+            isMobile ? "p-4" : "p-6 sm:p-8 pt-4"
+          )}>
             <div className="grid grid-cols-2 gap-3 w-full">
               <Button
                 variant="outline"

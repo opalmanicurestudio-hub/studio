@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -89,9 +88,10 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             "transition-all border-2 rounded-2xl overflow-hidden",
             checkInStatus === 'arrived' ? "border-green-500/20 bg-green-500/[0.03] shadow-lg shadow-green-500/5" : 
             checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.03]" : 
+            checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/[0.03]" :
             isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-white"
         )}>
-            <CardContent className="p-5 space-y-4">
+            <CardContent className="p-5 space-y-4" onClick={onResolve}>
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -118,7 +118,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                 <TooltipProvider key={status.value}>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={() => status.value === 'running_late' ? setIsLateEntryOpen(true) : onUpdateStatus(item.id, isWalkIn, status.value)}>
+                                            <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={(e) => { e.stopPropagation(); status.value === 'running_late' ? setIsLateEntryOpen(true) : onUpdateStatus(item.id, isWalkIn, status.value); }}>
                                                 <Icon className="h-3.5 w-3.5" />
                                             </Button>
                                         </TooltipTrigger>
@@ -130,10 +130,11 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     </div>
                     {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
                     {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">Arrived</Badge>}
+                    {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />En Route</Badge>}
                 </div>
 
                 {isPotentialAlias && (
-                    <Button size="sm" variant="destructive" className="w-full h-10 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-xl shadow-destructive/20 animate-in slide-in-from-top-2" onClick={onResolve}>
+                    <Button size="sm" variant="destructive" className="w-full h-10 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-xl shadow-destructive/20 animate-in slide-in-from-top-2" onClick={(e) => { e.stopPropagation(); onResolve(); }}>
                         <Fingerprint className="w-4 h-4 mr-2" /> Resolve Identity Match
                     </Button>
                 )}
@@ -147,7 +148,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             </CardContent>
             
             <div className="p-2 pt-0 grid grid-cols-1 gap-2">
-                <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={onAssign}>
+                <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={() => onAssign()}>
                     <UserPlus className="w-4 h-4 mr-2" />
                     Assign Session
                 </Button>
@@ -187,8 +188,8 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             </div>
 
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
-                <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl">
-                    <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">Minutes Late</DialogTitle></DialogHeader>
+                <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl" onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter text-left">Minutes Late</DialogTitle></DialogHeader>
                     <div className="p-8">
                         <div className="grid grid-cols-4 gap-2 mb-6">
                             {['5', '10', '15', '20'].map(m => (

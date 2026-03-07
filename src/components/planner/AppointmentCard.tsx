@@ -112,7 +112,7 @@ export function AppointmentCard({
     switch (appointment.checkInStatus) {
         case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
         case 'running_late': return <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse">+{appointment.lateTimeMinutes}M</Badge>;
-        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">WAY</Badge>;
+        case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Car className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />EN ROUTE</Badge>;
         default: return null;
     }
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status]);
