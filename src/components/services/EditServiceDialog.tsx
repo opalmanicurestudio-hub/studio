@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -51,7 +52,7 @@ import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, doc } from 'firebase/firestore';
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -371,7 +372,7 @@ const Step2 = ({ resources, allServices }: { resources: Resource[], allServices:
 };
 
 const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
-    const { watch, setValue } = useFormContext<ServiceFormData>();
+    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const serviceTiers = watch('serviceTiers') || [];
     const tierData = serviceTiers.find(t => t.tierId === tier.id);
     const isEnabled = !!tierData;
@@ -421,7 +422,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
 
     useEffect(() => {
         if (depositType === 'breakeven') {
-            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
+            setValue('depositAmount', Number(breakEvenCost.toFixed(2)), { shouldValidate: true });
             setValue('depositSubType', 'flat', { shouldValidate: true });
         }
     }, [depositType, breakEvenCost, setValue]);
@@ -469,10 +470,10 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                                 <label key={t} htmlFor={`dep-edit-${t}`} className="cursor-pointer">
                                     <div className={cn(
                                         "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all text-center h-full",
-                                        field.value === t ? "border-primary bg-primary/5 shadow-lg" : "border-border/50 bg-white hover:border-primary/20"
+                                        field.value === t ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
                                     )}>
                                         <span className="text-[10px] font-black uppercase tracking-widest">{t.replace('breakeven', 'Overhead')}</span>
-                                        {t === 'breakeven' && <span className="text-[8px] font-bold opacity-60 mt-1">${breakEvenCost.toFixed(0)}</span>}
+                                        {t === 'breakeven' && <span className="text-[8px] font-bold opacity-60 mt-1">${breakEvenCost.toFixed(2)}</span>}
                                         <RadioGroupItem value={t} id={`dep-edit-${t}`} className="sr-only" />
                                     </div>
                                 </label>
@@ -498,7 +499,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricing
                                     <Controller name="depositAmount" control={control} render={({ field }) => (
                                         <div className="relative">
                                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                                            <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="h-12 pl-8 rounded-xl border-2 font-black text-lg shadow-inner bg-white" disabled={depositType === 'breakeven'}/>
+                                            <Input type="number" step="0.01" placeholder="25.00" {...field} value={field.value ?? ''} className="h-12 pl-8 rounded-xl border-2 font-black text-lg shadow-inner bg-white" disabled={depositType === 'breakeven'}/>
                                         </div>
                                     )} />
                                 </div>
@@ -648,7 +649,7 @@ export const EditServiceDialog: React.FC<any> = ({
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2 onScanClick={() => {}} resources={resources} allServices={allServices} />}
+                {step === 2 && <Step2 resources={resources} allServices={allServices} />}
                 {step === 3 && <Step3 breakEvenCost={breakEvenCost} pricingTiers={pricingTiersData || []} />}
                 {step === 4 && <Step4 consentForms={consentForms || []} />}
             </div>
