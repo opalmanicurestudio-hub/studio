@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -28,7 +29,8 @@ import {
   BarChart,
   Pencil,
   ArrowRight,
-  Check
+  Check,
+  Loader
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -767,10 +769,10 @@ export default function StaffPage() {
             <>
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
                     <div className="space-y-1">
-                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
                         <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
                     </div>
-                    <Button onClick={() => setIsAddStaffOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+                    <Button onClick={() => setIsAddStaffOpen(true)} className="h-12 sm:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
                         <PlusCircle className="mr-2 h-4 w-4" /> New Provider
                     </Button>
                 </div>
@@ -780,7 +782,7 @@ export default function StaffPage() {
                         <div className="flex-1 w-full space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
                             <Select value={periodPreset} onValueChange={setPeriodPreset}>
-                                <SelectTrigger className="h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
+                                <SelectTrigger className="h-12 sm:h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
                                     <SelectValue placeholder="Select Period" />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-2xl border-2 shadow-2xl">
@@ -806,7 +808,7 @@ export default function StaffPage() {
                                                 const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
                                                 setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
                                             }}
-                                            className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -818,7 +820,7 @@ export default function StaffPage() {
                                                 const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
                                                 setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
                                             }}
-                                            className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                                         />
                                     </div>
                                 </motion.div>
@@ -904,10 +906,10 @@ export default function StaffPage() {
             <div className="py-10 flex flex-col items-center space-y-6">
                 <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Verification PIN</Label>
                 <div className="relative w-48">
-                    <Input 
+                    <input 
                         type="password" 
                         maxLength={4} 
-                        className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20 shadow-inner" 
+                        className="text-center text-4xl font-black h-20 w-full tracking-[0.5em] bg-muted/30 border-4 rounded-3xl focus-visible:ring-primary/20 shadow-inner outline-none" 
                         value={authPin} 
                         onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
                         autoFocus
