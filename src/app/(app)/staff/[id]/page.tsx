@@ -1,54 +1,23 @@
-
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter
-} from '@/components/ui/card';
+import React, { useMemo, useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
+import { doc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client, PricingTier } from '@/lib/data';
+import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Sparkles, MapPin, Phone, ShieldCheck, CheckCircle2, ArrowRight, Activity } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import {
-  ArrowLeft,
-  DollarSign,
-  Calendar,
-  FileText,
-  Instagram,
-  Link as LinkIcon,
-  Facebook,
-  Twitter,
-  Film,
-  Pin,
-  Youtube,
-  Star,
-  BookOpen,
-  Users,
-  Award,
-  Clock,
-  Loader,
-  Sparkles,
-  ShieldCheck,
-  Activity,
-  ArrowRight,
-} from 'lucide-react';
-import { type Service, Staff, DayHours, ActivityLog, type PricingTier } from '@/lib/data';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { BookingSheet } from '@/components/booking/BookingSheet';
 import Link from 'next/link';
-import { notFound, useParams } from 'next/navigation';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO, getDay } from 'date-fns';
+import { nanoid } from 'nanoid';
+import { useToast } from '@/hooks/use-toast';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
-import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
-import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useTenant } from '@/context/TenantContext';
-import { useInventory } from '@/context/InventoryContext';
+import { format, parseISO } from 'date-fns';
 import { BookingServices } from '@/components/booking/BookingServices';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -95,7 +64,7 @@ export default function StaffDetailPage() {
   }, [firestore, tenantId, staffId]);
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-  const { services, pricingTiers, isLoading: inventoryLoading } = useInventory();
+  const { services, pricingTiers, isLoading: inventoryLoading, memberships } = useInventory();
 
   const activityLogsQuery = useMemoFirebase(() => {
       if (!firestore || !staffId || !tenantId) return null;
@@ -105,6 +74,11 @@ export default function StaffDetailPage() {
 
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [serviceToBook, setServiceToBook] = useState<Service | null>(null);
+
+  const { data: scheduleProfiles } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)), [firestore, tenantId]));
+  const { data: appointmentsFromDB } = useCollection<Appointment>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]));
+  const { data: eventsFromDB } = useCollection<Event>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]));
+  const { data: consentForms } = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]));
 
   const handleBookNow = (service: Service) => {
     setServiceToBook(service);
@@ -162,6 +136,39 @@ export default function StaffDetailPage() {
         return { ...service, price: finalPrice, duration: finalDuration };
       });
   }, [staffMember, services, pricingTiers]);
+
+  const handleConfirmBooking = async (
+    formData: { clientName: string; clientEmail: string; clientPhone?: string },
+    appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
+    setBookingStep: (step: string) => void
+  ) => {
+    if (!firestore || !tenantId) return;
+    try {
+        const appointmentRef = doc(collection(firestore, `tenants/${tenantId}/appointments`));
+        const newAppointmentId = appointmentRef.id;
+        const checkInToken = nanoid(16);
+
+        const newAppointment = {
+            ...appointmentDetails,
+            id: newAppointmentId,
+            tenantId: tenantId,
+            clientName: formData.clientName,
+            clientEmail: formData.clientEmail,
+            clientPhone: formData.clientPhone,
+            checkInToken: checkInToken,
+        };
+
+        const batch = writeBatch(firestore);
+        batch.set(appointmentRef, newAppointment);
+        batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), newAppointment);
+        
+        await batch.commit();
+        setBookingStep('confirmation');
+    } catch (error) {
+        console.error("Booking error:", error);
+    }
+  };
 
   if (isLoading) {
       return (
@@ -353,16 +360,21 @@ export default function StaffDetailPage() {
             </div>
         </footer>
 
-        {serviceToBook && (
-            <AddAppointmentDialog 
-                open={isAddAppointmentOpen}
-                onOpenChange={(isOpen) => {
-                    if (!isOpen) setServiceToBook(null);
-                    setIsAddAppointmentOpen(isOpen);
-                }}
-                appointmentToRebook={{...{} as any, serviceId: serviceToBook.id, staffId: staffMember.id}}
-                memberships={memberships || []}
-                onConfirm={() => {}}
+        {selectedService && (
+            <BookingSheet 
+                open={isSheetOpen}
+                onOpenChange={setIsSheetOpen}
+                service={selectedService}
+                staff={staff || []}
+                pricingTiers={pricingTiers || []}
+                initialStaffId={staffId}
+                consentForms={consentForms || []}
+                tenant={tenant || null}
+                onConfirm={handleConfirmBooking}
+                appointments={appointmentsFromDB || []}
+                events={eventsFromDB || []}
+                scheduleProfiles={scheduleProfiles || []}
+                services={services || []}
             />
         )}
     </div>
