@@ -278,7 +278,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh]" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
+        <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh] rounded-t-[3rem] border-none" : "sm:max-w-xl max-h-[90vh]", "flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0 text-left flex-shrink-0">
                 <DialogTitle>{titleText}</DialogTitle>
                 <DialogDescription>Verify actuals and mark completed parts before moving forward.</DialogDescription>
@@ -456,10 +456,26 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </Card>
               </div>
             </ScrollArea>
-            <DialogFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
-                <div className="grid grid-cols-2 gap-3 w-full">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 font-bold uppercase tracking-tight">Cancel</Button>
-                    <Button onClick={handleCompleteMyPart} className="h-12 font-black uppercase tracking-tight shadow-xl shadow-primary/20" disabled={completedServiceIds.length === 0}>
+            <DialogFooter className={cn(
+                "border-t bg-background flex-shrink-0 shadow-2xl",
+                isMobile ? "p-4" : "p-6 pt-4"
+            )}>
+                <div className={cn(
+                    "w-full gap-3",
+                    isMobile ? "flex flex-col-reverse" : "grid grid-cols-2"
+                )}>
+                    <Button 
+                        variant="outline" 
+                        onClick={() => onOpenChange(false)} 
+                        className="h-12 md:h-14 font-black uppercase tracking-tighter text-[10px] md:text-xs text-slate-400 border-2"
+                    >
+                        Cancel
+                    </Button>
+                    <Button 
+                        onClick={handleCompleteMyPart} 
+                        className="h-12 md:h-14 font-black uppercase tracking-tight shadow-xl shadow-primary/20 text-[10px] md:text-xs leading-tight" 
+                        disabled={completedServiceIds.length === 0}
+                    >
                         {buttonLabel}
                     </Button>
                 </div>
