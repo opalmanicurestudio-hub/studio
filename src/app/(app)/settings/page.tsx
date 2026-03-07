@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -121,10 +122,12 @@ const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; da
   );
 };
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
@@ -137,7 +140,13 @@ export default function SettingsPage() {
 
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState(tabParam || 'profile');
+
+  useEffect(() => {
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
@@ -398,7 +407,7 @@ export default function SettingsPage() {
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Settings" />
         <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-            <Loader className="h-8 w-8 animate-spin" />
+            <Loader className="h-8 w-8 animate-spin text-primary" />
         </main>
       </div>
     );
@@ -885,4 +894,12 @@ export default function SettingsPage() {
       </main>
     </div>
   );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader className="animate-spin" /></div>}>
+      <SettingsContent />
+    </Suspense>
+  )
 }
