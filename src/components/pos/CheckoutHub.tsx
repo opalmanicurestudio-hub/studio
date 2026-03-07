@@ -37,7 +37,9 @@ import {
     Minus,
     Check,
     TicketIcon,
-    XCircle
+    XCircle,
+    Fingerprint,
+    Scan as ScanIcon
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
@@ -237,6 +239,46 @@ export const CheckoutHub = ({
         return [...new Set([...appointmentServiceIds, ...cartServices, ...appointmentAddOnIds])];
     }, [cart, appointmentsData]);
 
+    const allInvolvedStaff = useMemo(() => {
+        const staffIds = new Set<string>();
+        appointmentsData.forEach((data: any) => {
+            if (data.appointment.staffId) staffIds.add(data.appointment.staffId);
+            if (data.appointment.checkoutState?.serviceStaffOverrides) {
+                Object.values(data.appointment.checkoutState.serviceStaffOverrides).forEach((id: any) => {
+                    if (id && typeof id === 'string') staffIds.add(id);
+                });
+            }
+        });
+        return staff.filter((s: Staff) => staffIds.has(s.id));
+    }, [appointmentsData, staff]);
+
+    const handleTotalTipChange = (value: number) => {
+        setTipAmount(value);
+        if (allInvolvedStaff.length > 0) {
+            const splitAmount = Number((value / allInvolvedStaff.length).toFixed(2));
+            const newAllocations: Record<string, number> = {};
+            let currentTotal = 0;
+            
+            allInvolvedStaff.forEach((member, index) => {
+                if (index === allInvolvedStaff.length - 1) {
+                    // Remainder to the last person to ensure sum == total
+                    newAllocations[member.id] = Number((value - currentTotal).toFixed(2));
+                } else {
+                    newAllocations[member.id] = splitAmount;
+                    currentTotal += splitAmount;
+                }
+            });
+            setTipAllocations(newAllocations);
+        }
+    };
+
+    const handleIndividualTipChange = (staffId: string, value: number) => {
+        const nextAllocations = { ...tipAllocations, [staffId]: value };
+        setTipAllocations(nextAllocations);
+        const nextTotal = Object.values(nextAllocations).reduce((sum: number, val: any) => sum + (Number(val) || 0), 0);
+        setTipAmount(Number(nextTotal.toFixed(2)));
+    };
+
     const handleApplyDiscount = (code: string) => {
         const codeUpper = code.trim().toUpperCase();
         if (!codeUpper) return;
@@ -278,15 +320,6 @@ export const CheckoutHub = ({
         return Array.from(options).sort((a,b) => a - b).slice(0, 3);
     }, [total]);
 
-    const allInvolvedStaff = useMemo(() => {
-        const staffIds = new Set<string>();
-        appointmentsData.forEach((data: any) => {
-            staffIds.add(data.staff.id);
-            if (data.appointment.checkoutState?.serviceStaffOverrides) Object.values(data.appointment.checkoutState.serviceStaffOverrides).forEach((id: any) => staffIds.add(id));
-        });
-        return staff.filter(s => staffIds.has(s.id));
-    }, [appointmentsData, staff]);
-
     const handleRemoveDiscount = (code: string) => {
         setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code));
     };
@@ -323,7 +356,13 @@ export const CheckoutHub = ({
                 <p className="font-black uppercase text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
                 <div className="relative w-32 md:w-36">
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-primary font-black" />
-                    <Input type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
+                    <Input 
+                        type="number" 
+                        value={tipAmount || ''} 
+                        onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
+                        className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
+                        placeholder="0.00" 
+                    />
                 </div>
             </div>
 
@@ -341,7 +380,12 @@ export const CheckoutHub = ({
                             </div>
                             <div className="relative w-20 md:w-24">
                                 <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
-                                <Input type="number" value={tipAllocations[member.id] || ''} onChange={(e) => setTipAllocations({...tipAllocations, [member.id]: parseFloat(e.target.value) || 0})} className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" />
+                                <Input 
+                                    type="number" 
+                                    value={tipAllocations[member.id] || ''} 
+                                    onChange={(e) => handleIndividualTipChange(member.id, parseFloat(e.target.value) || 0)} 
+                                    className="h-7 md:h-8 text-right text-[10px] pr-2 pl-5 font-bold rounded-lg border-primary/10 focus-visible:ring-primary/20" 
+                                />
                             </div>
                         </div>
                     ))}
@@ -456,7 +500,7 @@ export const CheckoutHub = ({
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized List</h3>
                             </div>
                             <Button variant="ghost" size="sm" onClick={onScanClick} className="h-7 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                                <Scan className="w-3 h-3 mr-1.5" />
+                                <ScanIcon className="w-3 h-3 mr-1.5" />
                                 Scan to add
                             </Button>
                         </div>
@@ -654,7 +698,7 @@ export const CheckoutHub = ({
                     <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2 md:gap-3">
                         <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-cash" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
                         <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
-                        <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Scan className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
+                        <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
                     </RadioGroup>
 
                     {paymentTab === 'cash' && (
