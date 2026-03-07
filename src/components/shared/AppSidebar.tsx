@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   Calendar,
   Users,
+  User,
   Settings,
   Sparkles,
   List,
@@ -79,7 +80,8 @@ const strategicHub = [
 ];
 
 const identityGrowth = [
-  { href: '/clients', icon: Users, label: 'Guest Dossier' },
+  { href: '/clients', icon: User, label: 'Guest Dossier' },
+  { href: '/staff', icon: Users, label: 'Pro Team' },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach' },
   { href: '/reviews', icon: Star, label: 'Reputation' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
@@ -121,7 +123,7 @@ export function AppSidebar() {
     }
   };
 
-  const renderMenuItems = (items: typeof strategicHub) => (
+  const renderMenuItems = (items: any[]) => (
     items.map((item) => (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton
