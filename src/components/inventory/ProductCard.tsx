@@ -4,7 +4,22 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign, Edit, Rocket, CheckCircle, Printer, Tag } from 'lucide-react';
+import { 
+  Package, 
+  Hammer, 
+  Pipette, 
+  PackageX, 
+  Truck, 
+  DollarSign, 
+  Edit, 
+  Rocket, 
+  CheckCircle, 
+  Printer, 
+  Tag, 
+  ArrowRight,
+  FlaskConical,
+  ShoppingCart
+} from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +29,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
-export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, onWriteOff, onLogSale, isSelected, onSelect, isOrdered }: { 
+export const ProductCard = ({ 
+    item, 
+    onEdit, 
+    onToggleExperiment, 
+    onEndExperiment, 
+    onLogUse, 
+    onWriteOff, 
+    onLogSale, 
+    isSelected, 
+    onSelect, 
+    isOrdered 
+}: { 
     item: InventoryItem, 
     onEdit: (item: InventoryItem) => void, 
     onToggleExperiment: (item: InventoryItem) => void, 
@@ -29,10 +55,10 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
-        if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
-        return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
+        if (hasExpiredBatch) return { label: 'EXPIRED', className: 'bg-destructive text-white border-none animate-pulse' };
+        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
+        if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
+        return { label: 'IN STOCK', className: 'bg-primary/10 text-primary border-primary/20' };
     }, [item]);
 
     const detailHref = `/inventory/${item.id}`;
@@ -41,16 +67,16 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
 
     if (item.costingMethod === 'size' && typeof item.partialContainerSize === 'number') {
         partialDisplay = (
-            <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">In Use</p>
-                <p className="font-semibold text-lg">{item.partialContainerSize.toFixed(0)} <span className="text-sm">{item.unit || 'unit'}</span></p>
+            <div className="text-center p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
+                <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">In Use</p>
+                <p className="font-black text-xl font-mono tracking-tighter text-primary">{item.partialContainerSize.toFixed(0)}<span className="text-[10px] ml-0.5">{item.unit || 'ml'}</span></p>
             </div>
         );
     } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number') {
          partialDisplay = (
-            <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">In Use</p>
-                <p className="font-semibold text-lg">{item.partialContainerUses} <span className="text-sm">{item.useUnit || 'uses'}</span></p>
+            <div className="text-center p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
+                <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">In Use</p>
+                <p className="font-black text-xl font-mono tracking-tighter text-primary">{item.partialContainerUses}<span className="text-[10px] ml-0.5">{item.useUnit || 'uses'}</span></p>
             </div>
         );
     } else {
@@ -59,111 +85,137 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
     
     return (
         <Card className={cn(
-            "transition-all duration-200 hover:shadow-xl hover:-translate-y-1 flex flex-col",
-            item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20",
-            isSelected && "border-primary ring-2 ring-primary"
+            "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
+            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm",
+            item.isExperimentActive && "border-purple-500/30 bg-purple-500/[0.01]"
         )}>
-            <CardContent className="p-4 flex-1 flex flex-col space-y-4">
-                 <div className="flex items-start gap-4">
-                    <div className="flex items-center pt-1">
+            <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelect}>
+                <div className="flex items-start justify-between gap-4 cursor-pointer">
+                    <div className="flex items-center gap-4 min-w-0">
                         <Checkbox
                             id={`select-${item.id}`}
                             checked={isSelected}
                             onCheckedChange={onSelect}
-                            aria-label={`Select ${item.name}`}
+                            className="h-6 w-6 rounded-lg border-2 shadow-inner"
+                            onClick={(e) => e.stopPropagation()}
                         />
-                    </div>
-                     <Link href={detailHref} className="w-16 h-16 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
-                        {item.imageUrl ? (
-                            <Image src={item.imageUrl} alt={item.name} width={64} height={64} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
-                        ) : (
-                            <Package className="w-8 h-8 text-muted-foreground" />
-                        )}
-                    </Link>
-                    <div className='flex-1 min-w-0'>
-                        <Link href={detailHref} className="group">
-                            <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
-                        </Link>
-                        <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                            <Tag className="w-3 h-3" />
-                            {item.sku || item.id.slice(-6).toUpperCase()}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                             <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
-                            {isOrdered && (
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger>
-                                            <Truck className="h-4 w-4 text-blue-500" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>This item is on order.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
+                        <Link href={detailHref} className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                            <div className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] overflow-hidden bg-muted/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-500">
+                                {item.imageUrl ? (
+                                    <Image src={item.imageUrl} alt={item.name} fill className='object-cover' />
+                                ) : (
+                                    <Package className="w-8 h-8 md:w-10 md:h-10 text-muted-foreground/30" />
+                                )}
+                            </div>
+                            {item.isExperimentActive && (
+                                <div className="absolute -top-2 -right-2 bg-purple-600 text-white p-1 rounded-lg shadow-lg border-2 border-background">
+                                    <FlaskConical className="w-3.5 h-3.5" />
+                                </div>
                             )}
+                        </Link>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{item.name}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{item.category}</p>
+                                <Badge variant="outline" className={cn("h-4 px-1.5 font-black text-[8px] uppercase border-2", stockStatus.className)}>
+                                    {stockStatus.label}
+                                </Badge>
+                            </div>
+                            <div className="flex items-center gap-3 mt-3">
+                                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">
+                                    <Tag className="w-3 h-3" />
+                                    {item.sku || item.id.slice(-6).toUpperCase()}
+                                </div>
+                                {isOrdered && (
+                                    <Badge className="bg-blue-500 text-white border-none text-[8px] h-4 font-black uppercase tracking-widest">
+                                        <Truck className="w-2.5 h-2.5 mr-1" /> ON ORDER
+                                    </Badge>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
-                 
-                 <div className={cn("grid gap-2 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
-                     <div className="text-center p-3 bg-muted/50 rounded-lg">
-                        <p className="text-xs text-muted-foreground">Full Stock</p>
-                        <p className="font-semibold text-lg">{item.totalStock} <span className="text-sm">units</span></p>
+
+                <div className={cn("grid gap-4 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
+                    <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{item.totalStock}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
                     </div>
                     {partialDisplay}
-                 </div>
+                </div>
             </CardContent>
-            <CardFooter className="p-2 border-t bg-muted/50">
-                <TooltipProvider>
-                    <div className="flex justify-around w-full">
-                        {(item.type === 'professional' || item.type === 'overhead' || item.type === 'retail') && (
+            
+            <div className="p-3 border-t bg-muted/5 flex items-center justify-between gap-4">
+                <div className="flex gap-2">
+                    <TooltipProvider>
+                        {(item.type === 'professional' || item.type === 'overhead') && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" onClick={() => item.type === 'retail' ? onLogSale(item) : onLogUse(item)}>
-                                        {item.type === 'retail' ? <DollarSign /> : <Pipette />}
+                                    <Button 
+                                        variant="outline" 
+                                        size="icon" 
+                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                        onClick={(e) => { e.stopPropagation(); onLogUse(item); }}
+                                    >
+                                        <Pipette className="h-5 w-5" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent><p>{item.type === 'retail' ? 'Log Sale' : 'Log Use'}</p></TooltipContent>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Log Quick Use</TooltipContent>
+                            </Tooltip>
+                        )}
+                        {item.type === 'retail' && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button 
+                                        variant="outline" 
+                                        size="icon" 
+                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-green-50 hover:border-green-500/30 text-green-600 transition-all active:scale-90"
+                                        onClick={(e) => { e.stopPropagation(); onLogSale(item); }}
+                                    >
+                                        <DollarSign className="h-5 w-5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Log Manual Sale</TooltipContent>
                             </Tooltip>
                         )}
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => onWriteOff(item)}>
-                                    <PackageX />
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-destructive/5 hover:border-destructive/30 text-destructive transition-all active:scale-90"
+                                    onClick={(e) => { e.stopPropagation(); onWriteOff(item); }}
+                                >
+                                    <PackageX className="h-5 w-5" />
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent><p>Write-off</p></TooltipContent>
+                            <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Write-off Loss</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => onEdit(item)}>
-                                    <Edit />
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-purple-50 hover:border-purple-500/30 text-purple-600 transition-all active:scale-90"
+                                    onClick={(e) => { e.stopPropagation(); item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item); }}
+                                >
+                                    {item.isExperimentActive ? <CheckCircle className="h-5 w-5" /> : <Rocket className="h-5 w-5" />}
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent><p>Edit</p></TooltipContent>
+                            <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">
+                                {item.isExperimentActive ? 'Finalize Test' : 'Trigger Yield Test'}
+                            </TooltipContent>
                         </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
-                                    {item.isExperimentActive ? <CheckCircle className="text-green-500" /> : <Rocket className="text-purple-500" />}
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>{item.isExperimentActive ? 'End Experiment' : 'Start Experiment'}</p></TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                 <Button asChild variant="ghost" size="icon">
-                                    <Link href={`/inventory/labels?product=${item.id}`}>
-                                        <Printer />
-                                    </Link>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Print Label</p></TooltipContent>
-                        </Tooltip>
-                    </div>
-                </TooltipProvider>
-            </CardFooter>
+                    </TooltipProvider>
+                </div>
+                <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
+                    <Link href={detailHref} onClick={e => e.stopPropagation()}>
+                        Inventory Dossier <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+                    </Link>
+                </Button>
+            </div>
         </Card>
     )
 }

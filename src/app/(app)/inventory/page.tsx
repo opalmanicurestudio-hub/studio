@@ -1,4 +1,3 @@
-
 'use client';
 
 import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
@@ -53,6 +52,9 @@ import {
   Truck,
   Warehouse,
   X,
+  ChevronLeft,
+  ChevronRight,
+  Filter
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -155,6 +157,7 @@ import {
 } from '@/lib/data';
 import { Transaction } from '@/lib/financial-data';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
+import { Separator } from '@/components/ui/separator';
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
@@ -174,40 +177,42 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSe
     const totalCost = order.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
     return (
-        <Card onClick={() => onSelect(order)} className="cursor-pointer hover:shadow-lg transition-colors">
-            <CardHeader>
+        <Card onClick={() => onSelect(order)} className="cursor-pointer hover:shadow-lg transition-colors rounded-[1.5rem] border-2 shadow-sm overflow-hidden">
+            <CardHeader className="p-5 border-b bg-muted/5">
                 <div className="flex justify-between items-start">
-                    <div>
-                        <CardTitle className="text-base">{order.supplier}</CardTitle>
-                        <CardDescription>Order placed: {format(parseISO(order.orderDate), 'MMM d, yyyy')}</CardDescription>
+                    <div className="space-y-1">
+                        <CardTitle className="text-sm font-black uppercase tracking-tight">{order.supplier}</CardTitle>
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Order Date: {format(parseISO(order.orderDate), 'MMM d, yyyy')}</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Badge className={statusInfo.className}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
+                        <Badge className={cn("text-[8px] font-black uppercase h-5 px-1.5 border-none", statusInfo.className)}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent onClick={(e) => e.stopPropagation()} align="end">
-                                <DropdownMenuItem onClick={() => onSelect(order)}>View/Edit Order</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onReceive(order)}>Receive Stock</DropdownMenuItem>
+                            <DropdownMenuContent onClick={(e) => e.stopPropagation()} align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                                <DropdownMenuItem onClick={() => onSelect(order)} className="font-bold text-[10px] uppercase tracking-widest">View Details</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onReceive(order)} className="font-bold text-[10px] uppercase tracking-widest text-primary">Receive Stock</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
                 </div>
             </CardHeader>
-            <CardContent>
-                <div className="text-sm space-y-2">
-                    <p><strong>{totalItems}</strong> items ordered</p>
-                    <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                     <Button
-                        variant="link"
-                        size="xs"
-                        className="p-0 h-auto"
-                        onClick={(e) => onTrack(e, order.trackingUrl)}
-                    >
-                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                        Track
-                    </Button>
-                    {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
+            <CardContent className="p-5 space-y-4">
+                <div className="flex justify-between items-end">
+                    <div className="space-y-1">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Item Count</p>
+                        <p className="text-xl font-black tracking-tighter text-slate-900">{totalItems} <span className="text-[10px] font-bold opacity-40 uppercase ml-0.5">SKUs</span></p>
+                    </div>
+                    <div className="text-right space-y-1">
+                        <p className="text-[9px] font-black uppercase text-primary tracking-widest opacity-60">Investment</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-primary">${totalCost.toFixed(2)}</p>
+                    </div>
                 </div>
+                {order.expectedArrivalDate && (
+                    <div className="pt-3 border-t border-dashed flex items-center gap-2 text-muted-foreground">
+                        <Clock className="w-3.5 h-3.5 opacity-40" />
+                        <span className="text-[10px] font-bold uppercase tracking-tight">ETA: {format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</span>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
@@ -259,119 +264,158 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-xl">
-                <DialogHeader>
+            <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
                     <div className="flex justify-between items-start">
                         <div>
-                            <DialogTitle>Order from {editableOrder.supplier}</DialogTitle>
-                            <DialogDescription>
+                            <div className="flex items-center gap-3 mb-2">
+                                <Truck className="w-5 h-5 text-primary" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Detail</span>
+                            </div>
+                            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Order from {editableOrder.supplier}</DialogTitle>
+                            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
                                 Order ID: {editableOrder.id.slice(-6).toUpperCase()}
                             </DialogDescription>
                         </div>
-                        <Badge variant="secondary">{editableOrder.status}</Badge>
+                        <Badge className="bg-primary text-white border-none font-black text-[9px] uppercase tracking-widest h-6 px-3">{editableOrder.status}</Badge>
                     </div>
                 </DialogHeader>
-                 <div className="py-4 max-h-[60vh] overflow-y-auto pr-4 -mr-4">
-                     <div className="space-y-4">
-                        {isEditing ? (
-                            <div className="space-y-4">
-                                <div className="space-y-2"><Label htmlFor="edit-supplier">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" /></div>
-                                <div className="space-y-2">
-                                    <Label>Payment Method</Label>
-                                    <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-2">
-                                        <div><RadioGroupItem value="Business" id="business-order-edit" className="peer sr-only" /><Label htmlFor="business-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label></div>
-                                        <div><RadioGroupItem value="Personal" id="personal-order-edit" className="peer sr-only" /><Label htmlFor="personal-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label></div>
-                                    </RadioGroup>
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-2"><Label htmlFor="paymentMethod-edit">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
-                                    <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit">Identifier</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <ScrollArea className="max-h-[60vh]">
+                    <div className="p-8">
+                        <div className="space-y-8">
+                            {isEditing ? (
+                                <div className="space-y-6">
+                                    <div className="space-y-2"><Label htmlFor="edit-supplier" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" className="h-12 rounded-xl border-2 font-bold" /></div>
                                     <div className="space-y-2">
-                                        <Label>Order Date</Label>
-                                        <Input
-                                            type="date"
-                                            value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
-                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'orderDate')}
-                                        />
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Financial Context</Label>
+                                        <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-3">
+                                            <div><RadioGroupItem value="Business" id="business-order-edit" className="peer sr-only" /><Label htmlFor="business-order-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Business</Label></div>
+                                            <div><RadioGroupItem value="Personal" id="personal-order-edit" className="peer sr-only" /><Label htmlFor="personal-order-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-xs font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Personal</Label></div>
+                                        </RadioGroup>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Expected Arrival</Label>
-                                        <Input
-                                            type="date"
-                                            value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
-                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'expectedArrivalDate')}
-                                        />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2"><Label htmlFor="paymentMethod-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Ledger Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit" className="h-12 rounded-xl border-2 font-bold"><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="Checking" className="font-bold">Checking</SelectItem><SelectItem value="Credit Card" className="font-bold">Credit Card</SelectItem><SelectItem value="Cash" className="font-bold">Cash</SelectItem><SelectItem value="Other" className="font-bold">Other</SelectItem></SelectContent></Select></div>
+                                        <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Account ID</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} className="h-12 rounded-xl border-2 font-bold" /></div>
                                     </div>
-                                </div>
-                                <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
-                                <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>
-                                 <div className="space-y-2"><Label>Items</Label><div className="space-y-2">{editableOrder.items.map(item => (<div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md"><span className="flex-1 text-sm font-medium">{item.productName}</span><Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" /><Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" /></div>))}</div></div>
-                                <div className="space-y-2">
-                                    <Label>Invoice/Receipt</Label>
-                                    <ImageUpload
-                                        onImageUploaded={(url) => setEditableOrder(prev => prev ? ({...prev, invoiceUrl: url}) : null)}
-                                        initialImage={editableOrder.invoiceUrl}
-                                    />
-                                </div>
-                                <div className="space-y-2"><Label htmlFor="edit-notes">Notes</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" /></div>
-                            </div>
-                        ) : (
-                             <div className="space-y-4">
-                                <p><strong>Items:</strong></p>
-                                <div className="space-y-2 border rounded-md p-2">
-                                {editableOrder.items.map(item => (
-                                    <div key={item.productId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-md">
-                                        <div>
-                                            <p className="font-medium">{item.productName}</p>
-                                            <p className="text-xs text-muted-foreground">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Order Date</Label>
+                                            <Input
+                                                type="date"
+                                                value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
+                                                onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'orderDate')}
+                                                className="h-12 rounded-xl border-2 font-bold"
+                                            />
                                         </div>
-                                        <p className="font-semibold">${(item.quantity * item.costPerUnit).toFixed(2)}</p>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected Arrival</Label>
+                                            <Input
+                                                type="date"
+                                                value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
+                                                onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'expectedArrivalDate')}
+                                                className="h-12 rounded-xl border-2 font-bold"
+                                            />
+                                        </div>
                                     </div>
-                                ))}
-                                <div className="flex justify-between font-bold text-lg pt-2 border-t">
-                                    <span>Total Cost</span>
-                                    <span>${totalCost.toFixed(2)}</span>
+                                    <div className="space-y-2"><Label htmlFor="edit-trackingNumber" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" className="h-12 rounded-xl border-2 font-bold" /></div>
+                                    <div className="space-y-2"><Label htmlFor="edit-trackingUrl" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Carrier Link</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://..." className="h-12 rounded-xl border-2 font-bold" /></div>
+                                    <div className="space-y-4">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Itemized SKUs</Label>
+                                        <div className="space-y-2">
+                                            {editableOrder.items.map(item => (
+                                                <div key={item.productId} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/10">
+                                                    <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.productName}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-bold" />
+                                                        <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-9 rounded-lg border-2 font-mono text-center" />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Logistics Proof</Label>
+                                        <ImageUpload
+                                            onImageUploaded={(url) => setEditableOrder(prev => prev ? ({...prev, invoiceUrl: url}) : null)}
+                                            initialImage={editableOrder.invoiceUrl}
+                                        />
+                                    </div>
+                                    <div className="space-y-2"><Label htmlFor="edit-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Internal Log</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" className="rounded-xl border-2 bg-muted/5 focus-visible:ring-primary/20" /></div>
                                 </div>
-                                </div>
-                                <div className="text-sm space-y-2">
-                                     <Button
-                                        variant="link"
-                                        size="xs"
-                                        className="p-0 h-auto"
-                                        onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
-                                    >
-                                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                                        Track
-                                    </Button>
-                                    {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
-                                    {editableOrder.paymentMethod && <p><strong>Paid with:</strong> {editableOrder.paymentContext} {editableOrder.paymentMethod} {editableOrder.paymentMethodIdentifier && `(****${editableOrder.paymentMethodIdentifier.slice(-4)})`}</p>}
+                            ) : (
+                                 <div className="space-y-8">
+                                    <div className="space-y-4">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Itemized Manifest</p>
+                                        <div className="space-y-2 p-4 rounded-[2rem] border-2 bg-muted/10 shadow-inner">
+                                            {editableOrder.items.map(item => (
+                                                <div key={item.productId} className="flex justify-between items-center p-3 hover:bg-white hover:shadow-sm rounded-xl transition-all border-2 border-transparent">
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
+                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
+                                                    </div>
+                                                    <p className="font-black font-mono text-sm tracking-tighter text-slate-900 shrink-0 ml-4">${(item.quantity * item.costPerUnit).toFixed(2)}</p>
+                                                </div>
+                                            ))}
+                                            <div className="flex justify-between items-center px-3 pt-4 mt-2 border-t border-dashed border-primary/20">
+                                                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Investment Total</span>
+                                                <span className="font-black text-2xl font-mono tracking-tighter text-primary">${totalCost.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-1">
+                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Fulfillment Tracker</p>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-10 rounded-xl border-2 w-full justify-start font-bold uppercase text-[10px] tracking-widest bg-white"
+                                                onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
+                                            >
+                                                <Truck className="w-4 h-4 text-primary mr-2"/>
+                                                Track Shipment
+                                            </Button>
+                                        </div>
+                                        {editableOrder.expectedArrivalDate && (
+                                            <div className="space-y-1">
+                                                <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Estimated Arrival</p>
+                                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 pt-2">{format(parseISO(editableOrder.expectedArrivalDate), 'MMMM d, yyyy')}</p>
+                                            </div>
+                                        )}
+                                    </div>
                                     {editableOrder.invoiceUrl && (
-                                        <div className="flex items-center gap-2">
-                                            <FileImage className="w-4 h-4 text-muted-foreground" />
-                                            <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
+                                        <div className="space-y-2">
+                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Attached Proof</p>
+                                            <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-3 p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] w-full group hover:bg-primary/5 transition-all">
+                                                <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><FileImage className="w-5 h-5 text-primary" /></div>
+                                                <span className="font-black text-xs uppercase tracking-tight text-primary underline">View Digital Manifest</span>
+                                            </a>
                                         </div>
                                     )}
-                                    {editableOrder.notes && <p><strong>Notes:</strong> {editableOrder.notes}</p>}
+                                    {editableOrder.notes && (
+                                        <div className="space-y-2">
+                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Audit Notes</p>
+                                            <div className="p-4 rounded-2xl bg-muted/20 border-2 italic text-slate-600 text-sm font-medium leading-relaxed">
+                                                "{editableOrder.notes}"
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        )}
-                     </div>
-                </div>
-                <DialogFooter>
+                            )}
+                        </div>
+                    </div>
+                </ScrollArea>
+                <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
                     {isEditing ? (
-                        <>
-                            <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
-                            <Button onClick={handleSave}>Save Changes</Button>
-                        </>
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                            <Button variant="ghost" onClick={() => setIsEditing(false)} className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                            <Button onClick={handleSave} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Changes</Button>
+                        </div>
                     ) : (
-                        <>
-                            <Button variant="destructive" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'}>Cancel Order</Button>
-                            <div className="flex-1" />
-                            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-                            <Button onClick={() => setIsEditing(true)}>Edit Order</Button>
-                        </>
+                        <div className="flex flex-col sm:flex-row gap-3 w-full">
+                            <Button variant="outline" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/5 border-destructive/20">Cancel Order</Button>
+                            <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 sm:h-14 flex-1 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">Close Summary</Button>
+                            <Button onClick={() => setIsEditing(true)} className="h-12 sm:h-14 flex-[1.5] rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/20">Modify Manifest</Button>
+                        </div>
                     )}
                 </DialogFooter>
             </DialogContent>
@@ -379,374 +423,20 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     )
 }
 
-const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const tenantId = selectedTenant?.id;
-    const { toast } = useToast();
-    
-    const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
-    const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
-
-    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
-    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
-    const [cancelReason, setCancelReason] = useState('');
-    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
-    
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-
-    const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
-        if (!firestore || !tenantId) return;
-
-        const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
-        
-        newOrderData.items.forEach(item => {
-            if (item.productId.startsWith('custom-')) {
-                const newProductId = nanoid();
-                const newProductShell: InventoryItem = {
-                    id: newProductId,
-                    name: item.productName,
-                    type: 'professional',
-                    category: 'Uncategorized',
-                    totalStock: 0,
-                    supplier: newOrderData.supplier,
-                    costPerUnit: item.costPerUnit,
-                    batches: [],
-                };
-                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
-                setDocumentNonBlocking(productDocRef, newProductShell, {});
-                finalItems.push({ ...item, productId: newProductId });
-            } else {
-                finalItems.push(item);
-            }
-        });
-
-        const newOrder: Order = {
-            ...newOrderData,
-            id: nanoid(),
-            items: finalItems,
-            status: 'Placed',
-        };
-        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
-        addDocumentNonBlocking(orderRef, newOrder);
-        
-        const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-        if (totalCost > 0) {
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Purchase Order: ${newOrder.supplier}`,
-                clientOrVendor: newOrder.supplier,
-                type: 'expense',
-                context: newOrder.paymentContext || 'Business',
-                category: 'Supplies',
-                amount: totalCost,
-                paymentMethod: newOrder.paymentMethod || 'On Account',
-                paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
-                hasReceipt: !!newOrder.invoiceUrl,
-                receiptUrl: newOrder.invoiceUrl,
-                relatedOrderId: newOrder.id,
-            };
-            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
-        }
-
-        toast({
-            title: "Order Created!",
-            description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
-        });
-    };
-
-    const handleUpdateOrder = (updatedOrder: Order) => {
-        if (!firestore || !tenantId) return;
-        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
-        updateDocumentNonBlocking(orderRef, updatedOrder);
-        toast({
-            title: "Order Updated",
-            description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
-        })
-    }
-
-    const handleCancelOrderClick = (orderId: string) => {
-        const order = orders?.find(o => o.id === orderId);
-        if (order) {
-            setSelectedOrder(null);
-            setOrderToCancel(order);
-        }
-    };
-
-    const handleConfirmCancelOrder = () => {
-        if (!firestore || !orderToCancel || !tenantId) return;
-
-        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id);
-        const existingNotes = orderToCancel.notes || '';
-        const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${existingNotes}`;
-        
-        updateDocumentNonBlocking(orderRef, { status: 'Cancelled', notes: newNotes });
-
-        const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-        if (totalCost > 0) {
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Reversal for Order: ${orderToCancel.supplier}`,
-                clientOrVendor: orderToCancel.supplier,
-                type: 'reversal',
-                context: orderToCancel.paymentContext || 'Business',
-                category: 'Supplies',
-                amount: totalCost,
-                paymentMethod: 'On Account',
-                paymentMethodIdentifier: orderToCancel.paymentMethodIdentifier,
-                hasReceipt: !!orderToCancel.invoiceUrl,
-                receiptUrl: orderToCancel.invoiceUrl,
-                relatedOrderId: orderToCancel.id,
-            };
-            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
-        }
-
-        toast({
-            title: "Order Cancelled",
-            description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.`
-        });
-        
-        setOrderToCancel(null);
-        setCancelReason('');
-    };
-    
-    const filteredOrders = useMemo(() => {
-        if (!orders) return [];
-        return orders.filter(order => {
-            const searchTermLower = searchTerm.toLowerCase();
-            const searchTermMatch = searchTerm === '' ||
-                order.supplier.toLowerCase().includes(searchTermLower) ||
-                order.id.toLowerCase().includes(searchTermLower) ||
-                order.items.some(item => item.productName.toLowerCase().includes(searchTermLower));
-
-            const statusMatch = statusFilter === 'all' || order.status === statusFilter;
-
-            return searchTermMatch && statusMatch;
-        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
-    }, [orders, searchTerm, statusFilter]);
-    
-    const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
-        e.stopPropagation();
-        if (!url) return;
-        let finalUrl = url;
-        if (!/^https?:\/\//i.test(url)) {
-            finalUrl = 'https://' + url;
-        }
-        window.open(finalUrl, '_blank', 'noopener,noreferrer');
-    };
-
-    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
-      if (!firestore || !orderToReceive || !tenantId) return;
-
-      const batch = writeBatch(firestore);
-
-      receivedItems.forEach(item => {
-        const existingProduct = inventory.find(p => p.id === item.productId);
-        if (existingProduct) {
-          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
-          
-          if (item.quantityReceived > 0) {
-              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
-                id: `batch-${nanoid()}`,
-                stock: item.quantityReceived,
-                costPerUnit: item.costPerUnit,
-                receivedDate: new Date().toISOString(),
-                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
-              };
-              
-              const updatedBatches = [...existingProduct.batches, newBatchData];
-              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
-
-              batch.update(productRef, {
-                batches: updatedBatches,
-                totalStock: totalStock,
-                costPerUnit: item.costPerUnit,
-              });
-
-              const stockCorrection: Omit<StockCorrection, 'id'> = {
-                productId: item.productId,
-                date: new Date().toISOString(),
-                change: item.quantityReceived,
-                unit: existingProduct.unit || 'units',
-                reason: `Shipment from ${orderToReceive.supplier}`,
-              };
-              const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-              batch.set(scRef, stockCorrection);
-          }
-
-          if (item.quantityDamaged > 0) {
-              const damageCost = item.quantityDamaged * item.costPerUnit;
-              const damageTransaction: Omit<Transaction, 'id'> = {
-                date: new Date().toISOString(),
-                description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
-                clientOrVendor: orderToReceive.supplier,
-                type: 'expense',
-                context: 'Business',
-                category: 'Spoilage',
-                amount: damageCost,
-                paymentMethod: 'Internal',
-                hasReceipt: !!orderToReceive.invoiceUrl,
-                receiptUrl: orderToReceive.invoiceUrl,
-                relatedOrderId: orderToReceive.id,
-              };
-              const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-              batch.set(dtRef, damageTransaction);
-          }
-        }
-      });
-      
-      const allItemsFullyOrReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
-      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
-
-      let newStatus: Order['status'] = orderToReceive.status;
-      if (allItemsFullyOrReceived) {
-        newStatus = 'Received';
-      } else if (someItemsReceived) {
-        newStatus = 'Partially Received';
-      }
-      
-      if (newStatus !== orderToReceive.status) {
-        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
-        batch.update(orderRef, { status: newStatus });
-      }
-
-      batch.commit().then(() => {
-          toast({
-              title: "Stock Updated!",
-              description: "Inventory has been updated with the received items.",
-          });
-          setOrderToReceive(null);
-      }).catch(error => {
-          console.error("Error receiving stock: ", error);
-          toast({
-              variant: "destructive",
-              title: "Error",
-              description: "Failed to update stock.",
-          });
-      });
-    };
-    
-    return (
-        <>
-            <Card>
-                <CardHeader>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle>Purchase Orders</CardTitle>
-                            <CardDescription>Track your inventory supply orders.</CardDescription>
-                        </div>
-                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
-                    </div>
-                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
-                        <div className="relative w-full flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Search by supplier, ID, or product..."
-                                className="pl-9"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
-                            <SelectTrigger className="w-full sm:w-[180px]">
-                                <SelectValue placeholder="Filter by status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Statuses</SelectItem>
-                                <SelectItem value="Draft">Draft</SelectItem>
-                                <SelectItem value="Placed">Placed</SelectItem>
-                                <SelectItem value="Shipped">Shipped</SelectItem>
-                                <SelectItem value="Partially Received">Partially Received</SelectItem>
-                                <SelectItem value="Received">Received</SelectItem>
-                                <SelectItem value="Cancelled">Cancelled</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                     {ordersLoading ? <p>Loading orders...</p> : orders && orders.length > 0 ? (
-                        filteredOrders.length > 0 ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
-                          </div>
-                        ) : (
-                            <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
-                                <p className="text-muted-foreground">No orders found matching your filters.</p>
-                            </div>
-                        )
-                    ) : (
-                         <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
-                            <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
-                            <h3 className="mt-2 text-sm font-semibold">No orders yet</h3>
-                            <p className="mt-1 text-sm text-muted-foreground">Create your first purchase order to start tracking supplies.</p>
-                         </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            <AddOrderDialog
-                open={isAddOrderOpen}
-                onOpenChange={setIsAddOrderOpen}
-                onSave={handleAddOrder}
-            />
-            <ViewOrEditOrderDialog
-                order={selectedOrder}
-                open={!!selectedOrder}
-                onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
-                onSave={handleUpdateOrder}
-                onCancelOrder={handleCancelOrderClick}
-                onTrack={openTrackingUrl}
-            />
-             <ReceiveStockDialog
-                open={!!orderToReceive}
-                onOpenChange={() => setOrderToReceive(null)}
-                order={orderToReceive}
-                onConfirm={handleReceiveStock}
-            />
-            <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you sure you want to cancel this order?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will mark the order as cancelled and create a reversal transaction for the cost. This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="py-4">
-                        <Label htmlFor="cancel-reason" className="mb-2 block">Reason for Cancellation (Optional)</Label>
-                        <Textarea
-                            id="cancel-reason"
-                            placeholder="e.g., Ordered by mistake, found a better price..."
-                            value={cancelReason}
-                            onChange={(e) => setCancelReason(e.target.value)}
-                        />
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setOrderToCancel(null)}>Back</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirmCancelOrder} className={buttonVariants({ variant: "destructive" })}>
-                            Yes, Cancel Order
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </>
-    );
-};
-
 const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
-    <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
-        <div className='flex justify-center mb-6'>
-            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
-                <Package className='w-10 h-10 text-muted-foreground' />
-            </div>
+    <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
+        <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
+            <Package className='w-12 h-12 text-muted-foreground' />
         </div>
-        <h3 className="text-xl font-semibold mb-2">Your Inventory is Empty</h3>
-        <p className="text-muted-foreground max-sm mx-auto mb-6">
-            Get started by adding your first product, piece of equipment, or overhead supply.
-        </p>
-         <Button onClick={onAddFirstItem}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add First Item
+        <div className="space-y-2">
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Inventory is Empty</h3>
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+                Start tracking professional supplies, retail stock, and studio equipment to unlock automated yield analysis.
+            </p>
+        </div>
+        <Button size="lg" onClick={onAddFirstItem} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+            <PlusCircle className="mr-2 h-5 w-5" />
+            Add First Asset
         </Button>
     </div>
 );
@@ -759,7 +449,6 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
-    staff,
     isLoading: isInventoryLoading
   } = useInventory();
   
@@ -1083,13 +772,12 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: product.unit || 'units',
-      reason: `Write-off: ${reason} by ${currentStaff?.name || 'Staff'}`,
+      reason: `Write-off: ${reason}`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1113,7 +801,7 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  }, [inventory, firestore, tenantId, toast, currentUser, staff]);
+  }, [inventory, firestore, tenantId, toast]);
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1170,13 +858,12 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const newCorrection: Omit<StockCorrection, 'id'> = {
         productId: productId,
         date: new Date().toISOString(),
         change: -quantity,
         unit: unit,
-        reason: `${notes || 'Manual Use Log'} by ${currentStaff?.name || 'Staff'}`,
+        reason: notes || 'Manual Use Log',
     };
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
@@ -1212,13 +899,12 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
-    const currentStaff = staff?.find(s => s.id === currentUser?.uid);
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
       date: new Date().toISOString(),
       change: -quantity,
       unit: 'units',
-      reason: `Manual Retail Sale: ${product.name} for Guest by ${currentStaff?.name || 'Staff'}`,
+      reason: `Manual Retail Sale: ${product.name} for Guest`,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
@@ -1447,11 +1133,36 @@ export default function InventoryPage() {
 
   return (
     <ClientOnly>
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8">
+      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         
-        <div className="grid lg:grid-cols-4 gap-8 items-start">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+            <div className="space-y-1">
+                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Asset Base</h1>
+                <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Supply, retail & equipment pulse</p>
+            </div>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                    <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
+                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+                            <PlusCircle className="mr-2 h-4 w-4" /> New Entry
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-2 w-56">
+                        <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Package className="mr-3 h-4 w-4 text-primary" />Professional Product</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Store className="mr-3 h-4 w-4 text-primary" />Retail Product</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Hammer className="mr-3 h-4 w-4 text-primary" />Equipment Asset</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest py-3"><Recycle className="mr-3 h-4 w-4 text-primary" />Overhead Supply</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
             <div className="hidden lg:block lg:col-span-1">
                 <InventorySidebar
                   inventory={inventory || []}
@@ -1460,22 +1171,22 @@ export default function InventoryPage() {
                 />
             </div>
 
-            <div className="lg:col-span-3">
+            <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
                  <div className="lg:hidden mb-6">
                     <Sheet>
                         <SheetTrigger asChild>
-                            <Button variant="outline" className="w-full">
+                            <Button variant="outline" className="w-full h-12 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
                                 <SlidersHorizontal className="mr-2 h-4 w-4" />
-                                View Stats & Actions
+                                Stats & Tactical Ops
                             </Button>
                         </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
-                             <SheetHeader className="p-4 border-b">
-                                <SheetTitle>Inventory Overview</SheetTitle>
-                                <SheetDescription>Key metrics and actions for your inventory.</SheetDescription>
+                        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0 border-none rounded-t-[3rem] bg-background shadow-3xl">
+                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
+                                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Inventory Pulse</SheetTitle>
+                                <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">High-level asset metrics.</SheetDescription>
                             </SheetHeader>
                             <ScrollArea className="flex-1">
-                                <div className="p-4">
+                                <div className="p-8">
                                      <InventorySidebar
                                       inventory={inventory || []}
                                       stockCorrections={stockCorrections || []}
@@ -1486,159 +1197,136 @@ export default function InventoryPage() {
                         </SheetContent>
                     </Sheet>
                 </div>
-                <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="products">Products</TabsTrigger>
-                    <TabsTrigger value="orders">Orders</TabsTrigger>
-                    <TabsTrigger value="locations">Locations</TabsTrigger>
-                </TabsList>
-                <TabsContent value="products" className="mt-6">
-                    <Card>
-                        <CardHeader>
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                                <div>
-                                    <CardTitle>All Inventory</CardTitle>
-                                    <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Button variant="outline" asChild>
-                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
-                                    </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button><PlusCircle className="mr-2" /> New Item</Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </div>
+
+                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8">
+                        <div className="flex flex-col md:flex-row items-center gap-4">
+                            <div className="relative flex-1 w-full">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                                <Input 
+                                    placeholder="SEARCH BY NAME, SKU, OR ID..." 
+                                    className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
                             </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="mb-4 space-y-4">
-                                <div className="flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="relative flex-1 w-full">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input 
-                                            placeholder="Search by name, SKU, or short ID..." 
-                                            className="pl-9"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                            <QrCode className="h-4 w-4" />
-                                            <span className="sr-only">Scan</span>
-                                        </Button>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" className="w-full sm:w-auto">
-                                                    <ListFilter className="mr-2 h-4 w-4" />
-                                                    Filter
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
-                                </div>
+                            <div className="flex items-center gap-2 w-full md:w-auto">
+                                <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50" onClick={() => setIsScannerOpen(true)}>
+                                    <QrCode className="h-6 w-6 opacity-40" />
+                                </Button>
+                                <Select value={activeFilter} onValueChange={setActiveFilter}>
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
+                                        <SelectValue placeholder="ALL DEPARTMENTS" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                        <SelectItem value="all" className="font-bold">ALL DEPARTMENTS</SelectItem>
+                                        <SelectItem value="professional" className="font-bold">PROFESSIONAL</SelectItem>
+                                        <SelectItem value="retail" className="font-bold">RETAIL</SelectItem>
+                                        <SelectItem value="equipment" className="font-bold">EQUIPMENT</SelectItem>
+                                        <SelectItem value="overhead" className="font-bold">OVERHEAD</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
+                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
+                                <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Base Filters</h4>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4 md:gap-8">
                                 <div className="flex items-center space-x-2">
-                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                                    <Switch id="show-archived-inv" checked={showArchived} onCheckedChange={setShowArchived} />
+                                    <Label htmlFor="show-archived-inv" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived Items</Label>
                                 </div>
                             </div>
-                             {selectedItems.size > 0 && (
-                                <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
-                                    <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
-                                    <div className="flex gap-2">
-                                        {showArchived ? (
-                                            <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
-                                        ) : (
-                                            <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
-                                        )}
-                                        <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
-                                    </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 md:p-8">
+                        {selectedItems.size > 0 && (
+                            <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div>
+                                    <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
                                 </div>
-                            )}
-                            {!hasInventory ? (
-                                <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
-                                    {hasFilteredInventory ? paginatedItems.map(item => (
-                                        <ProductCard 
-                                            key={item.id}
-                                            item={item} 
-                                            onEdit={handleEditItem} 
-                                            onToggleExperiment={handleToggleExperiment} 
-                                            onEndExperiment={handleEndExperiment} 
-                                            onLogUse={handleOpenLogUse}
-                                            onWriteOff={handleOpenWriteOff}
-                                            onLogSale={handleOpenLogSale}
-                                            isSelected={selectedItems.has(item.id)}
-                                            onSelect={() => handleItemSelect(item.id)}
-                                            isOrdered={orderedProductIds.has(item.id)}
-                                        />
-                                    )) : (
-                                        <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>
+                                <div className="flex gap-2">
+                                    {showArchived ? (
+                                        <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button>
+                                    ) : (
+                                        <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
                                     )}
+                                    <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={handleBulkDeleteClick}>Purge</Button>
                                 </div>
-                            )}
-                        </CardContent>
-                        {totalPages > 1 && (
-                            <CardFooter>
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-sm text-muted-foreground">
-                                        Page {currentPage} of {totalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handlePrevPage}
-                                            disabled={currentPage === 1}
-                                        >
-                                            Previous
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleNextPage}
-                                            disabled={currentPage === totalPages}
-                                        >
-                                            Next
-                                        </Button>
-                                    </div>
-                                </div>
-                            </CardFooter>
+                            </div>
                         )}
-                    </Card>
-                </TabsContent>
-                <TabsContent value="orders" className="mt-6">
-                    <OrdersTab 
-                        inventory={inventory || []}
-                    />
-                </TabsContent>
-                <TabsContent value="locations" className="mt-6">
-                        <Locations 
-                            locations={locations || []}
-                            locationTypes={locationTypes || []}
-                            inventory={inventory || []}
-                            onAddLocation={handleOpenAddLocation}
-                            onEditLocation={handleOpenEditLocation}
-                            onDelete={() => {}}
-                        />
-                </TabsContent>
-                </Tabs>
+
+                        <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                            <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8">
+                                <TabsTrigger value="products" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manifest</TabsTrigger>
+                                <TabsTrigger value="orders" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Purchase Orders</TabsTrigger>
+                                <TabsTrigger value="locations" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Zones</TabsTrigger>
+                            </TabsList>
+                            
+                            <TabsContent value="products" className="mt-0">
+                                {!hasInventory && !isInventoryLoading ? (
+                                    <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {hasFilteredInventory ? paginatedItems.map(item => (
+                                            <ProductCard 
+                                                key={item.id}
+                                                item={item} 
+                                                onEdit={handleEditItem} 
+                                                onToggleExperiment={handleToggleExperiment} 
+                                                onEndExperiment={handleEndExperiment} 
+                                                onLogUse={handleOpenLogUse}
+                                                onWriteOff={handleOpenWriteOff}
+                                                onLogSale={handleOpenLogSale}
+                                                isSelected={selectedItems.has(item.id)}
+                                                onSelect={() => handleItemSelect(item.id)}
+                                                isOrdered={orderedProductIds.has(item.id)}
+                                            />
+                                        )) : (
+                                            <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4 col-span-full">
+                                                <Filter className="w-16 h-16" />
+                                                <p className="font-black uppercase tracking-widest text-sm">No Assets Found</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </TabsContent>
+                            
+                            <TabsContent value="orders" className="mt-0">
+                                <OrdersTab inventory={inventory || []} />
+                            </TabsContent>
+                            
+                            <TabsContent value="locations" className="mt-0">
+                                <Locations 
+                                    locations={locations || []}
+                                    locationTypes={locationTypes || []}
+                                    inventory={inventory || []}
+                                    onAddLocation={handleOpenAddLocation}
+                                    onEditLocation={handleOpenEditLocation}
+                                    onDelete={() => {}}
+                                />
+                            </TabsContent>
+                        </Tabs>
+                    </CardContent>
+                    
+                    {activeView === 'products' && totalPages > 1 && (
+                        <CardFooter className="p-8 pt-0 border-t bg-muted/5">
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                                    Segment {currentPage} of {totalPages}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage === 1} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"><ChevronLeft className="mr-2 h-4 w-4" /> Previous</Button>
+                                    <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage === totalPages} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
+                                </div>
+                            </div>
+                        </CardFooter>
+                    )}
+                </Card>
             </div>
         </div>
       </main>
@@ -1748,38 +1436,34 @@ export default function InventoryPage() {
         )}
         
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan Product</DialogTitle>
-            <DialogDescription>
-              Position the product's barcode or QR code inside the frame.
-            </DialogDescription>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl">
+          <DialogHeader className="p-8 pb-0 text-left">
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Asset Scanner</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Scan ClarityFlow QR codes or standard SKUs.</DialogDescription>
           </DialogHeader>
-          <div className="p-4 relative">
-             <div id="qr-reader-inventory" className="w-full rounded-md bg-muted" />
-             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+          <div className="p-8 relative">
+             <div id="qr-reader-inventory" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
+             <div className="absolute inset-8 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-2/3 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
           </div>
-           <DialogFooter className="p-4 pt-0">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+           <DialogFooter className="p-8 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-[10px]">Cancel Scanning</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete {selectedItems.size} item(s) from your inventory. This action cannot be undone.
+            <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                <AlertDialogHeader className="p-6 pb-0">
+                    <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Assets</AlertDialogTitle>
+                    <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                        You are about to permanently delete {selectedItems.size} items. This will wipe all associated stock history and performance metrics. <strong>This action is non-reversible.</strong>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
-                        Delete
-                    </AlertDialogAction>
+                <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                    <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Assets</Button>
+                    <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
