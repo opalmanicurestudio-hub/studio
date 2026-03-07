@@ -132,7 +132,12 @@ function PlannerPageContent() {
   const { data: resourcesData } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
 
-  const staff = useMemo(() => (role === 'staff' && currentUser) ? (allStaff || []).filter(s => s.id === currentUser.uid) : (allStaff || []), [allStaff, role, currentUser]);
+  const staff = useMemo(() => {
+    if (role === 'staff' && currentUser) {
+        return (allStaff || []).filter(s => s.id === currentUser.uid);
+    }
+    return (allStaff || []);
+  }, [allStaff, role, currentUser]);
   
   const columns = useMemo(() => {
     let cols: any[] = activeView === 'staff' ? (staff || []) : (resourcesData || []);
@@ -365,7 +370,7 @@ function PlannerPageContent() {
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
-    <div className="flex h-screen w-full flex-col bg-white">
+    <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader />
       <div className="p-3 sm:p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-10">
@@ -401,8 +406,8 @@ function PlannerPageContent() {
 
                     <div className="flex items-center gap-3 w-full md:w-auto md:justify-end">
                         <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-muted/30 rounded-xl sm:rounded-2xl border-2 border-muted shadow-inner w-full md:w-auto justify-center">
-                            <Label htmlFor="staff-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1 md:flex-none", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                            <Label htmlFor="res-v" className={cn("flex items-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1 md:flex-none", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+                            <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1", activeView === 'staff' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><User className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
+                            <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 sm:gap-2 h-8 sm:h-10 px-2 sm:px-4 rounded-lg sm:rounded-xl cursor-pointer font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex-1", activeView === 'resources' ? "bg-white text-primary shadow-md" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
                         </RadioGroup>
                     </div>
                 </div>
