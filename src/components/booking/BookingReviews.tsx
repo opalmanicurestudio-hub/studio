@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,6 +11,7 @@ import { useParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, parseISO } from 'date-fns';
+import { Badge } from '@/components/ui/badge';
 
 export const BookingReviews = () => {
   const { firestore } = useFirebase();

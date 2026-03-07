@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Staff, Tenant } from '@/lib/data';
+import { type Staff, type Tenant } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Instagram, Star, Sparkles } from 'lucide-react';
@@ -15,7 +15,7 @@ const ImageWrapper = ({ src, alt, fill, className }: any) => (
     <img src={src} alt={alt} className={cn(className, fill ? "absolute inset-0 w-full h-full" : "")} />
 );
 
-export const BookingTeam = ({ tenantId, staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
+export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
   const visibleStaff = useMemo(() => {
     if (!staff) return [];
     return staff.filter(member => member.showOnPublicPage !== false);
