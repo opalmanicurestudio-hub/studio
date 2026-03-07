@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -59,8 +58,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc, increment } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
-import { ConfigurePartsDialog, type PartConfig } from './ConfigurePartsDialog';
+import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -101,9 +99,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   
-  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-  const [isConfigureOpen, setIsConfigureOpen] = useState(false);
-  const [pendingNewAddOns, setPendingNewAddOns] = useState<Service[]>([]);
+  const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -175,7 +171,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { revenue, breakEven, profit: revenue - breakEven };
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
-  // STABILIZE initialSelected for dialogs
   const currentAddOns = useMemo(() => {
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds
@@ -192,22 +187,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   };
 
-  const handleAddPartSelection = (selectedAddOns: Service[]) => {
-    const currentAddOnIds = new Set(appointment.addOnIds || []);
-    const newlyAdded = selectedAddOns.filter((s) => !currentAddOnIds.has(s.id));
-
-    if (newlyAdded.length > 0) {
-      setPendingNewAddOns(newlyAdded);
-      setIsConfigureOpen(true);
-    } else {
-      // Just a removal or no change
-      const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', appointment.id);
-      updateDocumentNonBlocking(appointmentRef, { addOnIds: selectedAddOns.map((s) => s.id) });
-      toast({ title: 'Appointment Updated' });
-    }
-  };
-
-  const handleConfigureConfirm = (configs: PartConfig[]) => {
+  const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
     if (!firestore || !tenantId || !appointment) return;
 
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
@@ -215,20 +195,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const newStaffOverrides = { ...(currentCheckoutState.serviceStaffOverrides || {}) };
     const newConcurrentIds = [...(currentCheckoutState.concurrentServiceIds || [])];
 
-    configs.forEach((c) => {
-      newStaffOverrides[c.serviceId] = c.staffId;
-      if (c.isConcurrent) {
-        newConcurrentIds.push(c.serviceId);
+    selectedAddOns.forEach((s) => {
+      const config = configs[s.id];
+      if (config) {
+        newStaffOverrides[s.id] = config.staffId;
+        if (config.isConcurrent) {
+          newConcurrentIds.push(s.id);
+        }
       }
     });
 
-    const finalAddOnIds = [
-      ...(appointment.addOnIds || []),
-      ...configs.map((c) => c.serviceId),
-    ];
-
     updateDocumentNonBlocking(appointmentRef, {
-      addOnIds: finalAddOnIds,
+      addOnIds: selectedAddOns.map(s => s.id),
       checkoutState: {
         ...currentCheckoutState,
         serviceStaffOverrides: newStaffOverrides,
@@ -238,9 +216,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
     toast({
       title: 'Appointment Updated',
-      description: `${configs.length} new parts configured and added.`,
+      description: 'New parts have been added and configured.',
     });
-    setIsConfigureOpen(false);
+    setIsAddAndConfigureOpen(false);
   };
 
   const ticketId = appointment.id.slice(-6).toUpperCase();
@@ -388,7 +366,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setIsAddOnSelectorOpen(true)}
+                    onClick={() => setIsAddAndConfigureOpen(true)}
                     className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5"
                   >
                     <PlusCircle className="w-3 h-3 mr-1.5" />
@@ -552,21 +530,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </SheetContent>
       </Sheet>
 
-      <SelectAddOnsDialog
-        open={isAddOnSelectorOpen}
-        onOpenChange={setIsAddOnSelectorOpen}
+      <AddAndConfigurePartsDialog
+        open={isAddAndConfigureOpen}
+        onOpenChange={setIsAddAndConfigureOpen}
         allAddOns={allServices.filter((s) => s.type === 'addon')}
         initialSelected={currentAddOns}
-        onSelect={handleAddPartSelection}
-      />
-
-      <ConfigurePartsDialog
-        open={isConfigureOpen}
-        onOpenChange={setIsConfigureOpen}
-        newServices={pendingNewAddOns}
         staff={staff}
         defaultStaffId={appointment.staffId}
-        onConfirm={handleConfigureConfirm}
+        onConfirm={handleAddAndConfigureConfirm}
       />
     </>
   );
