@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -266,7 +267,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         >
           <SheetHeader className={cn(
             "border-b bg-muted/5 flex-shrink-0 text-left",
-            isMobile ? "p-6" : "p-8 pb-6"
+            isMobile ? "p-5" : "p-8 pb-6"
           )}>
             <div className="flex items-center gap-3 mb-2">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -276,7 +277,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
             <SheetTitle className={cn(
               "font-black uppercase tracking-tighter text-slate-900 leading-none",
-              isMobile ? "text-lg" : "text-3xl"
+              isMobile ? "text-xl" : "text-3xl"
             )}>
               Session Summary
             </SheetTitle>
@@ -286,14 +287,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </SheetHeader>
 
           <ScrollArea className="flex-1">
-            <div className={cn("space-y-8 pb-32", isMobile ? "p-6" : "p-8")}>
+            <div className={cn("space-y-8 pb-32", isMobile ? "p-5" : "p-8")}>
               {appointment.status === 'confirmed' && (
                 <div className="flex justify-center">
                     <Button
                         onClick={() => onStartService(appointment.id)}
                         className={cn(
                             "w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95",
-                            isMobile ? "h-14 text-sm" : "h-16 text-lg"
+                            isMobile ? "h-12 text-sm" : "h-16 text-lg"
                         )}
                         size="lg"
                     >
@@ -309,7 +310,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         onClick={() => onFinishService(appointment)}
                         className={cn(
                         "w-full max-w-xs rounded-[1.5rem] md:rounded-[2rem] font-black uppercase shadow-2xl shadow-primary/20 transition-all active:scale-95",
-                        isMobile ? "h-14 text-sm" : "h-16 text-lg"
+                        isMobile ? "h-12 text-sm" : "h-16 text-lg"
                         )}
                         size="lg"
                     >
@@ -332,7 +333,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p
                         className={cn(
                           'font-black font-mono tracking-tighter',
-                          isMobile ? "text-4xl" : "text-5xl",
+                          isMobile ? "text-3xl" : "text-5xl",
                           isRunningOver ? 'text-destructive' : 'text-primary'
                         )}
                       >
@@ -345,14 +346,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6">
-                  <Avatar className="w-20 h-20 md:w-24 md:h-24 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]">
+                  <Avatar className={cn("border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2.5rem]", isMobile ? "w-16 h-16" : "w-24 h-24")}>
                     <AvatarImage src={client.avatarUrl} className="object-cover" />
                     <AvatarFallback className="text-xl font-black bg-primary/10 text-primary">
                       {(client?.name || 'G').substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1.5 flex-1 min-w-0">
-                    <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-xl" : "text-3xl")}>
+                    <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate", isMobile ? "text-lg" : "text-3xl")}>
                       {client.name}
                     </h2>
                     <div className="flex flex-wrap justify-center sm:justify-start gap-2">
@@ -371,14 +372,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     {isOwnerOrAdmin ? (
                         <div className="flex flex-col gap-1 pt-2">
                             {client.email && (
-                                <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] sm:text-xs font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
-                                    <Mail className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-40" />
+                                <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
+                                    <Mail className="w-3 h-3 opacity-40" />
                                     <span className="truncate">{client.email}</span>
                                 </a>
                             )}
                             {client.phone && (
-                                <a href={`tel:${client.phone}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] sm:text-xs font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
-                                    <Phone className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-40" />
+                                <a href={`tel:${client.phone}`} className="flex items-center justify-center sm:justify-start gap-2 text-[10px] font-black uppercase tracking-tight text-muted-foreground hover:text-primary transition-colors">
+                                    <Phone className="w-3 h-3 opacity-40" />
                                     <span>{formatPhoneNumber(client.phone)}</span>
                                 </a>
                             )}
@@ -393,7 +394,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Engagement & Check-in</h3>
                     <div className="p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10 space-y-4">
                         <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-black uppercase text-primary">Unique Guest Link</span>
+                            <span className="text-[9px] font-black uppercase text-primary">Guest Portal Link</span>
                             <Button variant="ghost" size="sm" onClick={handleCopyCheckInLink} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
                                 <PlusCircle className="w-3 h-3 mr-1.5" /> Copy Link
                             </Button>
@@ -401,7 +402,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         <div className="bg-white/80 p-3 rounded-xl border border-primary/10 shadow-inner">
                             <p className="text-[10px] font-mono text-muted-foreground break-all leading-relaxed">{checkInLink}</p>
                         </div>
-                        <p className="text-[9px] text-slate-500 leading-relaxed font-medium text-center italic">Clients use this link to notify arrival, log lateness, or reschedule.</p>
                     </div>
                 </div>
 
@@ -422,21 +422,21 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </motion.div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Button variant="outline" className="h-11 rounded-xl border-2 font-bold justify-start text-xs" asChild>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="outline" className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest" asChild>
                     <Link href={`/clients/${client.id}`}>
-                      <UserIcon className="mr-2 h-3.5 w-3.5" /> Client Profile
+                      <UserIcon className="mr-2 h-3.5 w-3.5" /> Profile
                     </Link>
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-11 rounded-xl border-2 font-bold justify-start text-xs text-destructive hover:bg-destructive/5"
+                    className="h-10 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5"
                     onClick={() => {
                         onOpenChange(false);
                         onCancel(appointment.id);
                     }}
                   >
-                    <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel Session
+                    <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
                   </Button>
                 </div>
               </div>
@@ -461,29 +461,29 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Card className="rounded-[1.5rem] md:rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
                   <CardContent className={isMobile ? "p-4 space-y-4" : "p-5 space-y-4"}>
                     <div className="flex justify-between items-start gap-4">
-                      <div className="space-y-1">
-                        <p className="font-black text-base md:text-lg uppercase tracking-tight text-slate-900 leading-tight">
+                      <div className="space-y-1 min-w-0">
+                        <p className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight truncate">
                           {service.name}
                         </p>
                         <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-                          <Clock className="w-2.5 h-2.5" /> {service.duration}m duration
+                          <Clock className="w-2.5 h-2.5" /> {service.duration}m
                         </div>
                         <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10">
                             <Avatar className="h-5 w-5 border shadow-sm">
                                 <AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" />
                                 <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
                             </Avatar>
-                            <span className="text-[9px] font-black uppercase text-primary tracking-widest">{mainStaffMember?.name || 'Unassigned'}</span>
+                            <span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span>
                         </div>
                       </div>
-                      <p className="text-base md:text-xl font-black text-primary tracking-tighter font-mono">
+                      <p className="text-sm md:text-xl font-black text-primary tracking-tighter font-mono shrink-0">
                         ${financialData?.revenue.toFixed(2)}
                       </p>
                     </div>
                     {(appointment.addOnIds || []).length > 0 && (
                       <div className="space-y-3 pt-3 border-t border-dashed">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest">
-                          Add-ons Applied
+                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">
+                          Add-ons
                         </p>
                         {(appointment.addOnIds || []).map((id) => {
                           const s = allServices.find((svc) => svc.id === id);
@@ -494,9 +494,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
                           return (
                             <div key={id} className="space-y-1.5 p-2 rounded-xl bg-background border shadow-sm">
-                                <div className="flex justify-between text-[10px] font-black uppercase tracking-tight text-slate-600">
-                                    <span>+ {s.name}</span>
-                                    <span className="font-mono">${s.price.toFixed(2)}</span>
+                                <div className="flex justify-between text-[9px] font-black uppercase tracking-tight text-slate-600">
+                                    <span className="truncate mr-2">+ {s.name}</span>
+                                    <span className="font-mono shrink-0">${s.price.toFixed(2)}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 opacity-60">
                                     <Avatar className="h-4 w-4 border shadow-inner">
@@ -524,7 +524,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p className="text-[8px] font-black uppercase tracking-widest text-primary opacity-60">
                         Gross Yield
                       </p>
-                      <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-primary">
+                      <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary">
                         ${financialData.revenue.toFixed(2)}
                       </p>
                     </div>
@@ -532,29 +532,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <p className="text-[8px] font-black uppercase tracking-widest text-destructive opacity-60">
                         Est. COGS
                       </p>
-                      <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-destructive">
+                      <p className="text-base md:text-xl font-black font-mono tracking-tighter text-destructive">
                         ${financialData.breakEven.toFixed(2)}
                       </p>
-                    </div>
-                    <div
-                      className={cn(
-                        'col-span-2 p-5 rounded-2xl border-2 flex justify-between items-center',
-                        financialData.profit >= 0
-                          ? 'bg-green-500/5 border-green-500/20 text-green-700'
-                          : 'bg-destructive/5 border-destructive/20 text-destructive'
-                      )}
-                    >
-                      <div className="space-y-0.5 text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
-                          Net Transaction Profit
-                        </p>
-                        <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">
-                          ${financialData.profit.toFixed(2)}
-                        </p>
-                      </div>
-                      <div className="p-2.5 bg-white rounded-xl shadow-inner">
-                        <TrendingUp className="w-5 h-5" />
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -620,7 +600,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   setTimeout(() => onEdit(appointment), 150);
                 }}
               >
-                Edit Dossier
+                Edit Record
               </Button>
               <Button
                 variant="ghost"
