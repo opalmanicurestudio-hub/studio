@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -90,7 +89,7 @@ const StaffMemberCard = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
-                            <p className="font-black uppercase tracking-tight text-xs truncate text-slate-900 leading-tight">{member.name}</p>
+                            <p className="font-black uppercase tracking-tight text-xs truncate text-slate-900 leading-tight">{member.name || 'Staff'}</p>
                             {nextAppointment?.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping shrink-0" />}
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
@@ -299,7 +298,20 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
                 <div className="flex space-x-4 px-2 py-6">
                     {activeStaff.map((member, index) => (
                         <div key={member.id} className="w-[200px] shrink-0">
-                            <StaffMemberCard member={member} isNextUp={member.id === nextUpStaffId} turnOrder={index + 1} onMoveUp={(id) => handleMove(id, 'up')} onMoveDown={(id) => handleMove(id, 'down')} isFirst={index === 0} isLast={index === activeStaff.length - 1} assignmentMode={assignmentMode} nextAppointment={member.nextApt} onForceIdle={onForceIdle} canManage={canManage} services={services} />
+                            <StaffMemberCard 
+                                member={member} 
+                                isNextUp={member.id === nextUpStaffId} 
+                                turnOrder={index + 1} 
+                                onMoveUp={(id) => handleMove(id, 'up')} 
+                                onMoveDown={(id) => handleMove(id, 'down')} 
+                                isFirst={index === 0} 
+                                isLast={index === activeStaff.length - 1} 
+                                assignmentMode={assignmentMode} 
+                                nextAppointment={member.nextApt} 
+                                onForceIdle={onForceIdle} 
+                                canManage={canManage} 
+                                services={services} 
+                            />
                         </div>
                     ))}
                     {activeStaff.length === 0 && (

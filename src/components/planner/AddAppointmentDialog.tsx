@@ -110,7 +110,7 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
     const isAnyStaff = staff.id === 'any';
     return (
-        <label htmlFor={`staff-select-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
+        <label htmlFor={`staff-select-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-40 grayscale-[0.5]")}>
             <div className={cn(
                 'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
                 isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
@@ -118,11 +118,11 @@ const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { 
             )}>
                 <Avatar className={cn("w-16 h-16 border-4 shadow-sm transition-transform duration-500", isSelected ? "border-primary scale-110" : "border-background")}>
                     {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
-                    <AvatarFallback className="text-muted-foreground bg-muted">
-                        {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                    <AvatarFallback className="text-muted-foreground bg-muted font-black uppercase text-xs">
+                        {isAnyStaff ? <Users className="w-8 h-8"/> : (staff.name || 'S').charAt(0)}
                     </AvatarFallback>
                 </Avatar>
-                <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
+                <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name || 'Staff'}</p>
                 <RadioGroupItem value={staff.id} id={`staff-select-${staff.id}`} className="sr-only" disabled={disabled} />
                 {isSelected && (
                     <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
@@ -375,7 +375,7 @@ const AddAppointmentForm = ({
                     </h3>
                     {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                            <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl shadow-destructive/5">
+                            <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl shadow-destructive/5" style={{ '--primary': '0 84.2% 60.2%' } as any}>
                                 <Wallet className="h-6 w-6" />
                                 <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
                                 <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
@@ -395,11 +395,11 @@ const AddAppointmentForm = ({
                                         <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
                                             {selectedClient ? (
                                                 <div className="flex items-center gap-3">
-                                                    <Avatar className="w-8 h-8 border-2 shadow-sm rounded-xl">
+                                                    <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
                                                         <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
                                                         <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
                                                     </Avatar>
-                                                    <span className="uppercase tracking-tight">{selectedClient.name}</span>
+                                                    <span className="uppercase tracking-tight text-xs md:text-sm">{selectedClient.name}</span>
                                                 </div>
                                             ) : (
                                                 <SelectValue placeholder="Select a client" />
@@ -421,7 +421,7 @@ const AddAppointmentForm = ({
                                     </Select>
                                 )}
                             />
-                            <Button variant="outline" size="icon" type="button" className="h-14 w-14 rounded-2xl border-2"><PlusCircle className="h-6 w-6" /></Button>
+                            <Button variant="outline" size="icon" type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-6 w-6" /></Button>
                         </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -434,12 +434,12 @@ const AddAppointmentForm = ({
                                     <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
                                         <SelectTrigger id="staff" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
                                             {selectedStaff ? (
-                                                <div className="flex items-center gap-3">
-                                                    <Avatar className="w-8 h-8 border-2 shadow-sm rounded-xl">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl shrink-0">
                                                         <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
                                                         <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback>
                                                     </Avatar>
-                                                    <span className="uppercase tracking-tight">{selectedStaff.name.split(' ')[0]}</span>
+                                                    <span className="uppercase tracking-tight text-xs md:text-sm truncate">{(selectedStaff.name || 'Staff').split(' ')[0]}</span>
                                                 </div>
                                             ) : (
                                                 <SelectValue placeholder="Professional" />
@@ -509,7 +509,7 @@ const AddAppointmentForm = ({
                             {selectedAddOns.map(item => (
                                 <div key={item.id} className="flex items-center justify-between p-4 rounded-[1.25rem] bg-muted/20 border-2 transition-all hover:bg-muted/30">
                                     <span className="text-xs font-black uppercase tracking-tight text-slate-700">{item.name}</span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="w-4 h-4" /></Button>
                                 </div>
                             ))}
                         </div>
@@ -570,7 +570,7 @@ const AddAppointmentForm = ({
                     </div>
                     {isOverlapping && (
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                            <Alert variant="destructive" className="mt-2 border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl">
+                            <Alert variant="destructive" className="mt-2 border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl" style={{ '--primary': '0 84.2% 60.2%' } as any}>
                                 <AlertTriangle className="h-6 w-6" />
                                 <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Clash Warning</AlertTitle>
                                 <AlertDescription className="space-y-3 pt-1">
@@ -740,3 +740,12 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     </Dialog>
   );
 };
+
+export interface AddAppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (appointmentData: any) => void;
+  client?: Client | null;
+  appointmentToRebook?: Appointment | null;
+  memberships: Membership[];
+}

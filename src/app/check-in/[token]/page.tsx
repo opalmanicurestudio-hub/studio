@@ -485,7 +485,7 @@ export default function CheckInPage() {
                             <div className="flex items-center gap-4">
                                 <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl">
                                     <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
-                                    <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{assignedStaff.name.charAt(0)}</AvatarFallback>
+                                    <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div className="text-left">
                                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Your Professional</p>
@@ -585,7 +585,7 @@ export default function CheckInPage() {
                         </div>
                         <div className="space-y-2">
                             <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Checked In</h3>
-                            <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed">Relax, we've notified {assignedStaff?.name.split(' ')[0] || 'your pro'}. We'll be with you shortly.</p>
+                            <p className="text-sm font-bold uppercase tracking-tight text-slate-500 opacity-80 leading-relaxed">Relax, we've notified {(assignedStaff?.name || 'your pro').split(' ')[0]}. We'll be with you shortly.</p>
                         </div>
                     </div>
                 ) : currentStatus === 'running_late' ? (

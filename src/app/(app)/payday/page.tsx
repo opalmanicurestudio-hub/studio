@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -455,7 +454,7 @@ export default function PaydayPage() {
                         </div>
                         <div className="flex justify-between items-center px-1">
                             <p className="text-[10px] font-black uppercase text-muted-foreground">Amount to Distribute</p>
-                            <Button variant="link" className="h-auto p-0 text-[10px] font-black uppercase" onClick={handleSetMaxBalance}>Use Period Income</Button>
+                            <Button variant="link" className="h-auto p-0 text-[10px] font-black uppercase" onClick={handleSetMaxBalance}>Use Period Income</p>
                         </div>
                     </div>
 
@@ -494,7 +493,7 @@ export default function PaydayPage() {
                                                 <div className="flex items-center gap-2">
                                                     <Avatar className="h-8 w-8">
                                                         <AvatarImage src={owed.avatarUrl} />
-                                                        <AvatarFallback>{owed.name.charAt(0)}</AvatarFallback>
+                                                        <AvatarFallback>{(owed.name || 'S').charAt(0)}</AvatarFallback>
                                                     </Avatar>
                                                     <div>
                                                         <p className="text-xs font-bold leading-none">{owed.name}</p>
