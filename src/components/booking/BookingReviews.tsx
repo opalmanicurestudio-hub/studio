@@ -47,7 +47,7 @@ export const BookingReviews = () => {
 
   return (
     <section id="reviews" className="space-y-16 scroll-mt-24">
-      <div className="space-y-4">
+      <div className="space-y-4 text-left">
         <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1.5 rounded-full border border-primary/10 mb-4">
             <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Verified Sentiment</span>
@@ -86,7 +86,7 @@ export const BookingReviews = () => {
                             <span className="text-[10px] font-black font-mono text-amber-600 ml-2">Verified Entry</span>
                         </div>
                         {review.isFeatured && (
-                            <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] h-5 uppercase tracking-widest px-2">
+                            <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase tracking-widest shadow-sm">
                                 <Sparkles className="w-2.5 h-2.5 mr-1" /> Spotlight
                             </Badge>
                         )}
