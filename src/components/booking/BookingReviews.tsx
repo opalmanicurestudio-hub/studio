@@ -1,10 +1,9 @@
-
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { motion } from 'framer-motion';
-import { Star, Loader, Quote, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Star, Quote, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { type Review, type Tenant, type Staff } from '@/lib/data';
@@ -40,7 +39,9 @@ export const BookingReviews = () => {
     return [...reviews].sort((a, b) => {
         if (a.isFeatured && !b.isFeatured) return -1;
         if (!a.isFeatured && b.isFeatured) return 1;
-        return parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime();
+        const dateA = a.createdAt ? parseISO(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? parseISO(b.createdAt).getTime() : 0;
+        return dateB - dateA;
     });
   }, [reviews]);
 
@@ -111,7 +112,7 @@ export const BookingReviews = () => {
                           <div className="text-left space-y-0.5">
                               <p className="font-black uppercase text-[11px] tracking-widest text-slate-900">{review.clientName}</p>
                               <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                  {formatDistanceToNow(parseISO(review.createdAt), { addSuffix: true })} &middot; {review.serviceName}
+                                  {review.createdAt ? formatDistanceToNow(parseISO(review.createdAt), { addSuffix: true }) : 'Recently'} &middot; {review.serviceName}
                                   {staffMember && ` with ${staffMember.name.split(' ')[0]}`}
                               </p>
                           </div>

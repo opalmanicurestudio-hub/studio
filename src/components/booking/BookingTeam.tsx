@@ -1,13 +1,11 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Staff, type Tenant } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Instagram, Star, Sparkles } from 'lucide-react';
+import { Instagram, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
 
@@ -50,16 +48,19 @@ export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[
                 }}
                 viewport={{ once: true, margin: "-50px" }}
                 whileHover={{ y: -12 }}
-                className="w-[280px] md:w-[320px] shrink-0"
+                className="w-[280px] md:w-[320px] shrink-0 group"
             >
                 <div className="block h-full">
-                    <Card className="border-4 border-white bg-white transition-all duration-500 shadow-2xl rounded-[3rem] overflow-hidden flex flex-col h-full ring-1 ring-border/50">
+                    <Card className="border-4 border-white bg-white transition-all duration-500 shadow-2xl rounded-[3rem] overflow-hidden flex flex-col h-full ring-1 ring-border/50 group">
                         <div className="relative aspect-[4/5] w-full overflow-hidden">
                             <img
                                 src={member.avatarUrl || `https://picsum.photos/seed/staff${member.id}/600/800`}
                                 alt={member.name || 'Staff'}
                                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
                             />
+                            {/* ATMOSPHERIC OVERLAY: Active by default, disappears on hover */}
+                            <div className="absolute inset-0 bg-primary/10 mix-blend-multiply transition-opacity duration-500 group-hover:opacity-0 pointer-events-none" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 via-transparent to-transparent transition-opacity duration-500 group-hover:opacity-0 pointer-events-none" />
                         </div>
                         <CardContent className="p-8 flex-1 flex flex-col justify-between gap-6 text-left">
                             <div className="space-y-4">
