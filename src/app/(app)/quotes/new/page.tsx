@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -55,10 +56,11 @@ import {
     Truck,
     ShieldCheck,
     Percent,
-    ShoppingCart
+    ShoppingCart,
+    FileSignature
 } from 'lucide-react';
 import Link from 'next/link';
-import { type Client, type Service } from '@/lib/data';
+import { type Client, type Service, type ConsentForm } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -73,6 +75,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { nanoid } from 'nanoid';
+import { BrowseConsentFormsDialog } from '@/components/services/BrowseConsentFormsDialog';
 
 type LineItem = {
     id: string;
@@ -144,7 +147,7 @@ const YieldEngineCard = ({
                 </div>
                 <div className="text-right flex flex-col">
                     <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Net Yield</span>
-                    <span className={cn("text-4xl font-black tracking-tighter font-mono", netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                    <span className={cn("font-black text-4xl font-mono tracking-tighter", netProfit >= 0 ? "text-primary" : "text-destructive")}>
                         ${netProfit.toFixed(2)}
                     </span>
                 </div>
@@ -202,7 +205,7 @@ const YieldEngineCard = ({
 };
 
 export default function QuoteGeneratorPage() {
-    const { clients, services } = useInventory();
+    const { clients, services, consentForms } = useInventory();
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
     const { toast } = useToast();
@@ -235,6 +238,10 @@ export default function QuoteGeneratorPage() {
     // Fees & Payment
     const [projectFee, setProjectFee] = useState(0);
     const [notes, setNotes] = useState('');
+
+    // Legal & Compliance
+    const [requiredFormIds, setRequiredFormIds] = useState<string[]>([]);
+    const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
 
     const travelAndExpenses = useMemo(() => {
         const mileageCost = roundTripDistance * costPerMile;
@@ -269,6 +276,7 @@ export default function QuoteGeneratorPage() {
             projectFee,
             notes,
             totalHours,
+            requiredFormIds,
             status: 'draft',
             createdAt: new Date().toISOString(),
             userId: user.uid,
@@ -307,6 +315,8 @@ export default function QuoteGeneratorPage() {
         setLineItems(prev => prev.map(item => item.id === id ? {...item, quantity: Math.max(1, quantity)} : item));
     }
 
+    const assignedForms = useMemo(() => consentForms.filter(f => requiredFormIds.includes(f.id)), [requiredFormIds, consentForms]);
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="New Proposal" />
@@ -329,7 +339,7 @@ export default function QuoteGeneratorPage() {
 
           <div className="grid lg:grid-cols-3 gap-10">
             <div className="lg:col-span-2 space-y-10">
-              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses']} className="w-full space-y-10">
+              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'legal-compliance']} className="w-full space-y-10">
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -349,7 +359,7 @@ export default function QuoteGeneratorPage() {
                                     <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
                                     <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
                                     </SelectTrigger>
-                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
                                     {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
                                     <SelectItem value="add-new" className="font-black text-primary">
                                         <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
@@ -447,7 +457,7 @@ export default function QuoteGeneratorPage() {
                                             <PlusCircle className="mr-2 h-4 w-4 text-primary" />
                                             <SelectValue placeholder="APPEND FROM STUDIO LIBRARY..." />
                                         </SelectTrigger>
-                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {services.map(s => <SelectItem key={s.id} value={s.id} disabled={lineItems.some(li => li.id === s.id)} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
@@ -532,12 +542,51 @@ export default function QuoteGeneratorPage() {
                     </AccordionContent>
                   </Card>
                 </AccordionItem>
+
+                <AccordionItem value="legal-compliance" className="border-none">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={FileSignature} title="Legal & Compliance" step={4} />
+                        </AccordionTrigger>
+                    </CardHeader>
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                            <div className="space-y-4">
+                                <div className='flex items-center justify-between px-1'>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                        <ShieldCheck className="w-3.5 h-3.5 opacity-40" /> Required Agreements
+                                    </Label>
+                                    <Button variant="ghost" size="sm" onClick={() => setIsConsentFormDialogOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                        <PlusCircle className="w-3 h-3 mr-1.5" /> Attach Form
+                                    </Button>
+                                </div>
+                                {assignedForms.length > 0 ? (
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {assignedForms.map(form => (
+                                            <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                                <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRequiredFormIds(requiredFormIds.filter(id => id !== form.id))}><Trash2 className="w-4 h-4" /></Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <FileSignature className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements Attached</p>
+                                    </div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </AccordionContent>
+                  </Card>
+                </AccordionItem>
                 
                  <AccordionItem value="fees-payment" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
-                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={4} />
+                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={5} />
                         </AccordionTrigger>
                     </CardHeader>
                     <AccordionContent>
@@ -577,6 +626,14 @@ export default function QuoteGeneratorPage() {
             </div>
         </motion.div>
       </main>
+
+      <BrowseConsentFormsDialog 
+        open={isConsentFormDialogOpen} 
+        onOpenChange={setIsConsentFormDialogOpen} 
+        onSelect={(forms) => setRequiredFormIds(forms.map(f => f.id))} 
+        allForms={consentForms || []} 
+        initialSelected={assignedForms} 
+      />
     </div>
   );
 }

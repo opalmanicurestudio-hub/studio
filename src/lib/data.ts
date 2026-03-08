@@ -438,6 +438,7 @@ export type Quote = {
   totalHours?: number;
   createdAt: string;
   userId: string;
+  requiredFormIds?: string[];
 };
 
 export type WalkIn = {

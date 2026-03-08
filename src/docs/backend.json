@@ -1,5 +1,4 @@
 
-
 {
   "entities": {
     "User": {
@@ -81,6 +80,11 @@
             "type": "number",
             "description": "Fee charged for clients who do not show up for their appointment."
         },
+        "allowDiscountStacking": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, multiple discount codes can be applied to a single transaction."
+        },
         "cancellationPolicy": {
             "type": "string",
             "description": "Text of the cancellation policy."
@@ -122,14 +126,52 @@
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
         },
-        "pricingTiers": {
+        "bookingPageSettings": {
             "type": "object",
-            "description": "Customizable names for the pricing tiers.",
+            "description": "Customization settings for the public booking page.",
             "properties": {
-                "apprentice": { "type": "string", "default": "Apprentice" },
-                "junior": { "type": "string", "default": "Junior" },
-                "senior": { "type": "string", "default": "Senior" },
-                "master": { "type": "string", "default": "Master" }
+                "heroImageUrl": { "type": "string" },
+                "heroTitle": { "type": "string" },
+                "heroSubtitle": { "type": "string" },
+                "welcomeMessage": { "type": "string" },
+                "primaryColor": { "type": "string" },
+                "showTeam": { "type": "boolean", "default": true },
+                "showReviews": { "type": "boolean", "default": true },
+                "showFaq": { "type": "boolean", "default": true },
+                "showGallery": { "type": "boolean", "default": true },
+                "showMemberships": { "type": "boolean", "default": true },
+                "showPackages": { "type": "boolean", "default": true },
+                "servicesSectionTitle": { "type": "string", "default": "The Menu" },
+                "teamSectionTitle": { "type": "string", "default": "The Experts" },
+                "faqSectionTitle": { "type": "string", "default": "Intel" },
+                "reviewsSectionTitle": { "type": "string", "default": "Voices" },
+                "gallerySectionTitle": { "type": "string", "default": "The Vibe" },
+                "policiesSectionTitle": { "type": "string", "default": "The Standard" },
+                "contactSectionTitle": { "type": "string", "default": "Connect" },
+                "faqs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "question": { "type": "string" },
+                            "answer": { "type": "string" }
+                        },
+                        "required": ["id", "question", "answer"]
+                    }
+                },
+                "gallery": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "url": { "type": "string" },
+                            "caption": { "type": "string" }
+                        },
+                        "required": ["id", "url"]
+                    }
+                }
             }
         }
       },
@@ -161,6 +203,23 @@
         },
         "required": ["enabled"]
     },
+    "StaffDirectoryEntry": {
+        "title": "Staff Directory Entry",
+        "type": "object",
+        "description": "A top-level entry to map a staff member's auth UID to their tenant.",
+        "properties": {
+            "tenantId": {
+                "type": "string",
+                "description": "The ID of the tenant this staff member belongs to."
+            },
+            "role": {
+                "type": "string",
+                "enum": ["admin", "staff"],
+                "description": "The role of the staff member."
+            }
+        },
+        "required": ["tenantId", "role"]
+    },
     "Staff": {
       "title": "Staff",
       "type": "object",
@@ -172,6 +231,7 @@
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
         "avatarUrl": { "type": "string", "format": "uri" },
+        "pin": { "type": "string", "description": "Unique 4-digit PIN for sensitive overrides." },
         "bio": { "type": "string", "description": "A short biography for the staff member's public profile." },
         "specialties": { "type": "array", "items": { "type": "string" }, "description": "A list of specialties or skills to highlight." },
         "portfolioImageUrls": { "type": "array", "items": { "type": "string", "format": "uri" }, "description": "A gallery of images showcasing the staff member's work." },
@@ -184,13 +244,13 @@
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
-        "skillLevel": {
+        "pricingTierId": {
             "type": "string",
-            "enum": ["apprentice", "junior", "senior", "master"],
-            "description": "The skill level of the staff member, used for tiered pricing."
+            "description": "The ID of the pricing tier this staff member belongs to."
         },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
+        "payoutFrequency": { "type": "string", "enum": ["weekly", "bi-weekly"], "description": "The frequency of payouts for commission-based staff." },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
         "retailCommissionRate": { "type": "number", "description": "Commission rate on retail sales as a percentage." },
         "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
@@ -231,6 +291,7 @@
             }
         },
         "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
+        "showOnPublicPage": { "type": "boolean", "default": true, "description": "Whether this staff member is visible on the public booking page." },
         "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
         "breakStartTime": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member started their current break." },
         "status": { "type": "string", "enum": ["idle", "busy"], "description": "The current working status of the staff member." },
@@ -247,6 +308,28 @@
         }
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
+    },
+    "PricingTier": {
+      "title": "Pricing Tier",
+      "type": "object",
+      "description": "A customizable skill level for staff that determines service pricing and duration.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "description": "The display name of the tier (e.g., 'Senior Stylist')." },
+        "rank": { "type": "number", "description": "The rank of the tier for sorting purposes (lower is more junior)." }
+      },
+      "required": ["id", "name", "rank"]
+    },
+    "ServiceTier": {
+      "title": "Service Tier",
+      "type": "object",
+      "description": "Defines the price and duration of a specific service for a given pricing tier.",
+      "properties": {
+        "tierId": { "type": "string", "description": "The ID of the pricing tier this applies to." },
+        "price": { "type": "number" },
+        "durationMinutes": { "type": "number" }
+      },
+      "required": ["tierId", "price", "durationMinutes"]
     },
     "ActivityLog": {
         "title": "Activity Log",
@@ -276,17 +359,11 @@
           "description": "URL for the primary service image."
         },
         "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
-        "pricingTiers": {
+        "serviceTiers": {
             "type": "array",
-            "description": "Tiered pricing and duration based on stylist skill level.",
+            "description": "Tiered pricing and duration based on staff pricing tiers.",
             "items": {
-                "type": "object",
-                "properties": {
-                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
-                    "price": { "type": "number" },
-                    "durationMinutes": { "type": "number" }
-                },
-                "required": ["level", "price", "durationMinutes"]
+                "$ref": "#/entities/ServiceTier"
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -353,21 +430,31 @@
       "type": "object",
       "description": "Represents a client of a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "archived", "banned"] },
+        "activeMembershipId": { "type": "string" },
+        "subscription": {
+          "type": "object",
+          "properties": {
+            "membershipId": { "type": "string" },
+            "status": { "type": "string", "enum": ["active", "past_due", "canceled"] },
+            "nextBillingDate": { "type": "string", "format": "date-time" },
+            "perkLastUsed": { "type": "string", "format": "date-time" }
+          }
         },
-        "firstName": {
-          "type": "string"
-        },
-        "lastName": {
-          "type": "string"
-        },
-        "email": {
-          "type": "string",
-          "format": "email"
-        },
-        "phone": {
-          "type": "string"
+        "activePackages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "packageId": { "type": "string" },
+              "sessionsRemaining": { "type": "number" }
+            },
+            "required": ["packageId", "sessionsRemaining"]
+          }
         },
         "address": {
             "type": "object",
@@ -444,12 +531,14 @@
                 },
                 "required": ["feeId", "appointmentId", "appointmentDate", "feeAmount", "reason"]
             }
-        }
+        },
+        "banReason": { "type": "string" },
+        "bannedAt": { "type": "string", "format": "date-time" },
+        "bannedBy": { "type": "string" }
       },
       "required": [
         "id",
-        "firstName",
-        "lastName"
+        "name"
       ]
     },
     "Appointment": {
@@ -457,105 +546,29 @@
       "type": "object",
       "description": "Represents an appointment booked with a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "tenantId": {
-            "type": "string",
-            "description": "The ID of the tenant this appointment belongs to."
-        },
-        "clientId": {
-          "type": "string"
-        },
-        "serviceId": {
-          "type": "string"
-        },
-        "staffId": {
-          "type": "string",
-          "description": "The ID of the staff member performing the appointment."
-        },
-        "startTime": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "endTime": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "source": {
-          "type": "string",
-          "enum": ["online", "walk-in", "manual"],
-          "description": "The source of the appointment booking."
-        },
-        "isWalkIn": {
-            "type": "boolean",
-            "description": "True if the appointment was created from the walk-in queue."
-        },
-        "actualStartTime": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The actual start time of the service, logged when staff begins."
-        },
-        "actualEndTime": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The actual end time of the service, logged when staff finishes."
-        },
-        "clientName": {
-            "type": "string",
-            "description": "Denormalized name of the client."
-        },
-        "clientEmail": {
-            "type": "string",
-            "description": "Denormalized email of the client, primarily for walk-ins."
-        },
-        "clientPhone": {
-            "type": "string",
-            "description": "Denormalized phone of the client, primarily for walk-ins."
-        },
-        "checkInStatus": {
-            "type": "string",
-            "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"],
-            "description": "The arrival status of the client for their appointment."
-        },
-        "checkInToken": {
-            "type": "string",
-            "description": "A unique, secure token for the client's check-in link."
-        },
-        "lateTimeMinutes": {
-            "type": "number",
-            "description": "The number of minutes the client has indicated they will be late."
-        },
-        "automatedRescheduleOffered": {
-            "type": "boolean",
-            "description": "Indicates if an automated reschedule option has been offered to a late client."
-        },
-        "inventoryProcessed": {
-            "type": "boolean",
-            "description": "Indicates if inventory has been deducted for this appointment."
-        },
-        "requiredResourceIds": {
-            "type": "array",
-            "description": "A list of resource IDs required for this appointment.",
-            "items": { "type": "string" }
-        },
-        "recurrenceId": {
-            "type": "string",
-            "description": "A unique ID grouping a series of recurring appointments."
-        },
-        "cancellationReason": {
-            "type": "string",
-            "enum": ["late", "no-show", "client_request", "other"],
-            "description": "The reason for the cancellation."
-        },
-        "cancellationFeeApplied": {
-            "type": "number",
-            "description": "The amount of the cancellation fee that was applied, if any."
-        },
-        "cancellationFeeWaived": {
-            "type": "boolean",
-            "description": "True if an applied cancellation fee was waived by an admin."
-        }
+        "id": { "type": "string" },
+        "tenantId": { "type": "string", "description": "The ID of the tenant this appointment belongs to." },
+        "clientId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "staffId": { "type": "string", "description": "The ID of the staff member performing the appointment." },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["confirmed", "completed", "cancelled", "deposit_pending", "ready_for_checkout", "servicing"] },
+        "source": { "type": "string", "enum": ["online", "walk-in", "manual"] },
+        "isWalkIn": { "type": "boolean" },
+        "actualStartTime": { "type": "string", "format": "date-time" },
+        "actualEndTime": { "type": "string", "format": "date-time" },
+        "clientName": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "checkInStatus": { "type": "string", "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"] },
+        "checkInToken": { "type": "string" },
+        "lateTimeMinutes": { "type": "number" },
+        "cancellationReason": { "type": "string", "enum": ["late", "no-show", "client_request", "other"] },
+        "cancellationFeeApplied": { "type": "number" },
+        "cancellationFeeWaived": { "type": "boolean" },
+        "overrideReason": { "type": "string", "description": "The reason why an auto-cancellation was overridden." },
+        "overriddenBy": { "type": "string", "description": "The ID of the staff member who performed the override." }
       },
       "required": [
         "id",
@@ -564,6 +577,7 @@
         "serviceId",
         "startTime",
         "endTime",
+        "status",
         "source"
       ]
     },
@@ -851,7 +865,12 @@
         "totalHours": { "type": "number" },
         "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined", "booked"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "userId": { "type": "string" }
+        "userId": { "type": "string" },
+        "requiredFormIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required consent forms attached to the quote."
+        }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
@@ -867,6 +886,7 @@
         "type": { "type": "string" },
         "location": { "type": "string" },
         "notes": { "type": "string" },
+        "staffIds": { "type": "array", "items": { "type": "string" }, "description": "The IDs of the staff members associated with this event." },
         "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
       },
       "required": ["id", "title", "startTime", "endTime"]
@@ -1083,7 +1103,7 @@
       },
       "description": "Clients belonging to a specific tenant."
     },
-     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
+    "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
         "schema": { "$ref": "#/entities/SignedConsent" },
         "description": "Stores instances of consent forms signed by a specific client."
     },
@@ -1177,6 +1197,3 @@
     }
   }
 }
-    
-
-    
