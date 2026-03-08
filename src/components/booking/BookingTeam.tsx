@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -9,11 +10,6 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Instagram, Star, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
-
-const ImageWrapper = ({ src, alt, fill, className }: any) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt} className={cn(className, fill ? "absolute inset-0 w-full h-full" : "")} />
-);
 
 export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[]; tenant: Tenant | null }) => {
   const visibleStaff = useMemo(() => {
@@ -59,19 +55,16 @@ export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[
                 <div className="block h-full">
                     <Card className="border-4 border-white bg-white transition-all duration-500 shadow-2xl rounded-[3rem] overflow-hidden flex flex-col h-full ring-1 ring-border/50">
                         <div className="relative aspect-[4/5] w-full overflow-hidden">
-                            <ImageWrapper
+                            <img
                                 src={member.avatarUrl || `https://picsum.photos/seed/staff${member.id}/600/800`}
                                 alt={member.name || 'Staff'}
-                                fill
-                                className="object-cover transition-transform duration-1000 group-hover:scale-110"
-                                data-ai-hint="person portrait"
+                                className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
                             />
-                            {/* Subtle non-interactive gradient for text readability */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-40" />
-                            
-                            <div className="absolute bottom-6 left-6 right-6 flex flex-col gap-2 text-white drop-shadow-md">
+                        </div>
+                        <CardContent className="p-8 flex-1 flex flex-col justify-between gap-6 text-left">
+                            <div className="space-y-4">
                                 <div className="space-y-1">
-                                    <p className="font-black text-2xl md:text-3xl uppercase tracking-tighter leading-[0.85]">
+                                    <p className="font-black text-2xl md:text-3xl uppercase tracking-tighter text-slate-900 leading-none">
                                         {(member.name || 'Staff').split(' ')[0]}<br/>
                                         {(member.name || '').split(' ').slice(1).join(' ') || ''}
                                     </p>
@@ -79,13 +72,11 @@ export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[
                                         <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase tracking-[0.2em] h-5 px-2.5">Certified</Badge>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                        <CardContent className="p-8 flex-1 flex flex-col justify-between gap-6 text-left">
-                            <div className="relative">
-                                <p className="text-xs text-slate-600 font-medium leading-relaxed line-clamp-4 italic opacity-80 pl-4 border-l-2 border-primary/20">
-                                    "{member.bio || 'Dedicated to technical precision and curated aesthetic care for the modern guest.'}"
-                                </p>
+                                <div className="relative">
+                                    <p className="text-xs text-slate-600 font-medium leading-relaxed line-clamp-4 italic opacity-80 pl-4 border-l-2 border-primary/20">
+                                        "{member.bio || 'Dedicated to technical precision and curated aesthetic care for the modern guest.'}"
+                                    </p>
+                                </div>
                             </div>
                             <div className="flex items-center justify-between pt-6 border-t-2 border-dashed border-border/50">
                                 <div className="space-y-0.5">
