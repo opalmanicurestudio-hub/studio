@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -21,7 +20,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart, Square } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -383,7 +382,6 @@ function POSPageContent() {
         
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
         
-        // AUTO-POLICY ENFORCEMENT logic
         if (status === 'running_late' && lateMinutes && !isWalkIn) {
             const apt = (appointmentsFromInventory || []).find(a => a.id === id);
             if (apt) {
@@ -391,7 +389,6 @@ function POSPageContent() {
                 const overGrace = lateMinutes > grace;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
 
-                // Clash Detection logic
                 const staffId = apt.staffId;
                 let clash = null;
                 if (staffId) {
@@ -423,6 +420,18 @@ function POSPageContent() {
                     }
                     batch.commit().then(() => {
                         toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
+                    });
+                    return;
+                } else if (overGrace && fee > 0) {
+                    // APPLY LATE FEE BUT ACCOMMODATE
+                    const fee = selectedTenant.cancellationFee || 0;
+                    const batch = writeBatch(firestore);
+                    batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
+                    if (apt.clientId) {
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accommodated)` }) });
+                    }
+                    batch.commit().then(() => {
+                        toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty for arriving +${lateMinutes}m.` });
                     });
                     return;
                 }
@@ -884,7 +893,7 @@ function POSPageContent() {
 
     const todayAppointments = useMemo(() => {
         const todayStart = startOfDay(new Date());
-        return (appointmentsFromInventory || []).filter(a => isSameDay(safeDate(a.startTime), todayStart));
+        return (appointmentsFromInventory || []).filter(a => isSameDay(new Date(a.startTime), todayStart));
     }, [appointmentsFromInventory]);
 
     if (isInventoryLoading) {
@@ -1037,6 +1046,9 @@ function POSPageContent() {
             />
 
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
+            
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} feeAmount={0} staff={staff} onConfirm={handleConfirmWaive} />
+
             <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl"><DialogHeader><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Action</DialogTitle></DialogHeader><div className="py-10 flex flex-col items-center gap-6"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Admin PIN Required</Label><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-4xl font-black h-20 w-48 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" /></div><DialogFooter className="p-6 pt-0"><Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl" onClick={() => {
                 const target = staff?.find(s => s.pin === authPin);
                 if (target && pendingStatusAction) {
@@ -1059,7 +1071,7 @@ function POSPageContent() {
             
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl">
-                <DialogHeader className="p-6 pb-0"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Scan Terminal</DialogTitle></DialogHeader>
+                <DialogHeader className="p-8 pb-0"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Scan Terminal</DialogTitle></DialogHeader>
                 <div className="p-10 relative">
                   <div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
                   <div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>

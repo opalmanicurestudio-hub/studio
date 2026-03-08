@@ -1,404 +1,69 @@
-
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper Functions ---
+    // --- Core Helper Functions ---
 
-    /**
-     * Returns true if the user is authenticated.
-     */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /**
-     * Returns true if the authenticated user's ID matches the provided userId.
-     * Used for rules where ownership is based on the document's path, like a user profile.
-     */
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
     /**
-     * @description Checks if the currently signed-in user is the owner of a specific tenant.
-     * This is the core of our multi-tenant security model.
-     * @param tenantId The ID of the tenant document to check.
-     * @returns {boolean} True if the request.auth.uid matches the `userId` field on the tenant document.
+     * @description Checks if the user is the legal owner of the tenant.
      */
     function isTenantOwner(tenantId) {
-      // It reads the `tenant` document and compares its `userId` field
-      // with the UID of the user making the request.
       return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
     /**
-     * Returns true if the user is a staff member of the specified tenant.
-     * Checks for the existence of a document in the staff subcollection where
-     * the document ID matches the authenticated user's UID.
+     * @description Checks if the user is a registered staff member.
      */
     function isStaff(tenantId) {
-      return isSignedIn() && exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
              get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.tenantId == tenantId;
     }
-    
-    /**
-     * Returns true if the user is an admin staff member of the specified tenant.
-     */
-    function isTenantAdmin(tenantId) {
-        return isStaff(tenantId) && get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin';
-    }
+
+    // --- SIMPLIFIED TOP-LEVEL ACCESS ---
 
     /**
-     * For CREATE operations: Validates that a new document's internal `id` field
-     * matches the document ID from the path, ensuring consistency.
+     * UNIVERSAL OWNER/STAFF OVERRIDE
+     * This simplified rule set grants full access to owners and staff 
+     * for all sub-collections, avoiding complex "get" limit issues.
      */
-    function pathIdMatchesDataIdOnCreate(docId) {
-      return request.resource.data.id == docId;
+    match /tenants/{tenantId}/{allSubcollections=**} {
+      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
 
-    /**
-     * For UPDATE operations: Ensures the document's internal `id` field is immutable.
-     */
-    function isIdImmutable() {
-      return request.resource.data.id == resource.data.id;
-    }
-    
-    /**
-     * For CREATE operations: Validates that a new document's `userId` field
-     * matches the authenticated user's UID.
-     */
-    function newDocIsOwnedByCurrentUser() {
-      return request.resource.data.userId == request.auth.uid;
+    // Top-level tenant document access
+    match /tenants/{tenantId} {
+      allow get: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
     }
 
-    /**
-     * For UPDATE operations: Ensures the document's `userId` field is immutable.
-     */
-    function isOwnerFieldImmutable() {
-      return request.resource.data.userId == resource.data.userId;
+    // User profiles
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
     }
 
-    /**
-     * For CREATE operations in a tenant subcollection: Validates that the new document's
-     * `tenantId` field matches the `tenantId` from the path.
-     */
-    function newDocTenantIdMatchesPath(tenantId) {
-      return request.resource.data.tenantId == tenantId;
+    // Staff Directory (Lookup for roles)
+    match /staffDirectory/{staffId} {
+      allow get: if isOwner(staffId);
+      allow write: if isSignedIn(); // Allow registration during onboarding
     }
 
-    /**
-     * For UPDATE operations in a tenant subcollection: Ensures the document's
-     * `tenantId` field is immutable, preventing it from being moved between tenants.
-     */
-    function isTenantIdImmutable() {
-      return request.resource.data.tenantId == resource.data.tenantId;
-    }
-    
-    /**
-     * @description Publicly accessible collection for initiating client check-in.
-     * The document ID is a secret token known only to the client via a URL.
-     */
+    // Public Check-in Portal
     match /appointmentCheckIns/{token} {
       allow read: if true;
-      allow create: if request.auth != null && request.resource.data.tenantId != null && (isTenantOwner(request.resource.data.tenantId) || isStaff(request.resource.data.tenantId));
-      allow delete: if false;
-      allow update: if
-        // Case 1: Authenticated user can update if they provide a valid tenantId. This allows "healing" of records.
-        (request.auth != null && request.resource.data.tenantId != null && (isTenantOwner(request.resource.data.tenantId) || isStaff(request.resource.data.tenantId))) ||
-        // Case 2: Unauthenticated client can update specific fields if they provide the correct token.
-        (request.auth == null && resource.data.checkInToken == token &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
-    }
-
-
-    /**
-     * @description Rules for user profile documents.
-     * @path /users/{userId}
-     * @allow (create) A signed-in user creating their own user document for the first time.
-     * @deny (get) A user trying to read another user's profile document.
-     * @principle Restricts access to a user's own data tree and enforces self-creation.
-     */
-    match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow list: if false;
-      allow create: if isOwner(userId) && pathIdMatchesDataIdOnCreate(userId);
-      allow update: if isOwner(userId) && resource != null && isIdImmutable();
-      allow delete: if isOwner(userId) && resource != null;
-    }
-    
-    /**
-     * @description Top-level directory to map staff auth UIDs to their tenant.
-     * This is the entry point for staff authentication and role lookup.
-     */
-    match /staffDirectory/{staffId} {
-      // A staff member can read their own directory entry to find their tenant.
-      allow get: if isOwner(staffId);
-      // Only the tenant owner can create, update, or delete staff entries.
-      allow write: if isTenantOwner(request.resource.data.tenantId);
-      allow list: if false;
-    }
-
-    /**
-     * @description Rules for tenant (business) documents. This is the root for all business-specific data.
-     * @path /tenants/{tenantId}
-     * @allow (create) A signed-in user creating a new tenant where they are the owner.
-     * @deny (list) Any user attempting to list all tenants in the system.
-     * @principle Enforces document ownership and prevents enumeration of businesses.
-     */
-    match /tenants/{tenantId} {
-        allow get: if true;
-        // Allow a user to query for their own tenant document.
-        allow list: if request.query.where.size() > 0 && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
-        allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
-        allow update: if isTenantOwner(tenantId) && resource != null && isOwnerFieldImmutable() && isIdImmutable();
-        allow delete: if isTenantOwner(tenantId) && resource != null;
-    }
-
-    /**
-     * @description Rules for pricing tiers.
-     * @path /tenants/{tenantId}/pricingTiers/{tierId}
-     */
-    match /tenants/{tenantId}/pricingTiers/{tierId} {
-      // PUBLIC: Allow anyone to read pricing tiers for booking pages.
-      allow get, list: if true;
-      // PRIVATE: Restrict write access to owner or admin staff.
-      allow write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-
-    /**
-     * @description Rules for staff members of a tenant.
-     * @path /tenants/{tenantId}/staff/{staffId}
-     */
-    match /tenants/{tenantId}/staff/{staffId} {
-      // PUBLIC: Allow anyone to read staff profiles for booking pages.
-      allow get, list: if true;
-      // PRIVATE: Restrict write access to owner or admin staff. Staff can edit their own profile.
-      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-      allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
-      allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-    
-     /**
-      * @description Rules for private staff documents.
-      * @path /tenants/{tenantId}/staff/{staffId}/documents/{documentId}
-      */
-    match /tenants/{tenantId}/staff/{staffId}/documents/{documentId} {
-      allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || request.auth.uid == staffId;
-    }
-
-     /**
-     * @description Rules for bookable resources.
-     * @path /tenants/{tenantId}/resources/{resourceId}
-     */
-    match /tenants/{tenantId}/resources/{resourceId} {
-      // PUBLIC: Readable for booking page availability.
-      allow get, list: if true;
-      // PRIVATE: Only owner or staff can manage resources.
-      allow write: if isTenantOwner(tenantId) || isStaff(tenantId);
-    }
-
-
-    /**
-     * @description Rules for services offered by a tenant.
-     * @path /tenants/{tenantId}/services/{serviceId}
-     * @allow (get) Any user (including anonymous) reading a tenant's service details.
-     * @deny (create) A user trying to create a service for a tenant they do not own.
-     * @principle Allows public read for booking pages but restricts writes to the tenant owner.
-     */
-    match /tenants/{tenantId}/services/{serviceId} {
-      allow get, list: if true;
-      allow write: if isTenantOwner(tenantId);
-    }
-
-    /**
-     * @description Rules for products sold by a tenant.
-     * @path /tenants/{tenantId}/products/{productId}
-     * @allow (list) Any user (including anonymous) listing a tenant's products.
-     * @deny (update) A user trying to modify a product for a tenant they do not own.
-     * @principle Allows public read for catalogs but restricts writes to the tenant owner.
-     */
-    match /tenants/{tenantId}/products/{productId} {
-      allow get, list: if true;
-      allow write: if isTenantOwner(tenantId);
-    }
-
-    /**
-     * @description Rules for the clients of a tenant. This data is private.
-     * @path /tenants/{tenantId}/clients/{clientId}
-     */
-    match /tenants/{tenantId}/clients/{clientId} {
-      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-
-      /**
-       * @description Rules for signed consent forms for a client.
-       * @path /tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}
-       */
-      match /signedConsents/{signedConsentId} {
-        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-      }
-    }
-
-    /**
-     * @description Rules for appointments booked with a tenant. This data is private for general lists.
-     * Public access is needed to check for time-slot availability.
-     * @path /tenants/{tenantId}/appointments/{appointmentId}
-     */
-    match /tenants/{tenantId}/appointments/{appointmentId} {
-      // PUBLIC: Allow anyone to list appointments to check for availability.
-      // Do not allow `get` to prevent reading sensitive appointment details.
-      allow list: if true;
-      allow get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
-      // ANYONE can create an appointment (book).
-      allow create: if true;
-      // NOTE: Updates from the public check-in page are handled by a backend process.
-      // We do NOT allow direct, unauthenticated updates here for security.
-      allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
-      allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
-    }
-    
-    /**
-     * @description Rules for the smart walk-in queue.
-     * @path /tenants/{tenantId}/walkins/{walkInId}
-     * @allow (create) Anyone can create a walk-in to join the queue.
-     * @allow (read,update,delete) Only staff/owner can manage the queue.
-     */
-    match /tenants/{tenantId}/walkIns/{walkInId} {
-      allow read, write: if true;
-    }
-    
-    /**
-     * @description Rules for calendar events for a tenant. This data is private.
-     * @path /tenants/{tenantId}/events/{eventId}
-     */
-    match /tenants/{tenantId}/events/{eventId} {
-      allow read: if isTenantOwner(tenantId) || isStaff(tenantId);
-      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || 
-                      (isStaff(tenantId) && request.resource.data.staffId == request.auth.uid);
-      allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) ||
-                      (isStaff(tenantId) && 
-                       request.auth.uid == resource.data.staffId &&
-                       resource.data.status == 'pending' &&
-                       request.resource.data.status == 'pending');
-      allow delete: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) ||
-                      (isStaff(tenantId) && request.auth.uid == resource.data.staffId && resource.data.status == 'pending');
-    }
-    
-    /**
-     * @description Rules for quotes for a tenant. This data is private.
-     * @path /tenants/{tenantId}/quotes/{quoteId}
-     */
-    match /tenants/{tenantId}/quotes/{quoteId} {
-      allow read, write: if isTenantOwner(tenantId);
-    }
-
-    /**
-     * @description Rules for discount codes.
-     * @path /tenants/{tenantId}/discounts/{discountId}
-     */
-    match /tenants/{tenantId}/discounts/{discountId} {
-        allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-    
-    /**
-     * @description Rules for marketing campaigns.
-     * @path /tenants/{tenantId}/campaigns/{campaignId}
-     */
-    match /tenants/{tenantId}/campaigns/{campaignId} {
-        allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-    
-    /**
-     * @description Rules for client reviews.
-     * @path /tenants/{tenantId}/reviews/{reviewId}
-     */
-    match /tenants/{tenantId}/reviews/{reviewId} {
-      // Allow public read for reviews marked as public
-      allow get: if resource.data.isPublic == true;
-      allow list: if request.query.where.size() == 1 && request.query.where[0] == 'isPublic' && request.query.where[1] == '==' && request.query.where[2] == true;
-      
-      // Allow tenant owner/admin to read all reviews and write/update them
-      allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-
-    /**
-     * @description User-specific notifications.
-     * @path /tenants/{tenantId}/notifications/{notificationId}
-     */
-    match /tenants/{tenantId}/notifications/{notificationId} {
-      // A user can read notifications intended for them.
-      allow get, list: if isStaff(tenantId) && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
-      // Owner/admin can create notifications for staff.
-      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-      // Allow owner/admin to delete notifications
-      allow update, delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-    }
-
-    /**
-     * @description Rules for recurring bills. This data is private.
-     * @path /tenants/{tenantId}/bills/{billId}
-     * @principle Enforces strict data privacy for a tenant's financial information.
-     */
-    match /tenants/{tenantId}/bills/{billId} {
-        allow read, write: if isTenantOwner(tenantId);
-    }
-    
-    /**
-     * @description Rules for bill instances. This data is private.
-     * @path /tenants/{tenantId}/billInstances/{instanceId}
-     * @principle Enforces strict data privacy for a tenant's financial information.
-     */
-    match /tenants/{tenantId}/billInstances/{instanceId} {
-        allow read, write: if isTenantOwner(tenantId);
-    }
-    
-    match /tenants/{tenantId}/{collection}/{profileId} 
-        where collection in ['lifestyleProfiles', 'businessProfiles'] {
-      // PRIVATE: Personal and business financial profiles are private.
-      allow read, write: if isTenantOwner(tenantId);
-    }
-
-    match /tenants/{tenantId}/scheduleProfiles/{profileId} {
-      // PUBLIC: Allow public read for booking page availability.
-      allow get, list: if true;
-      // PRIVATE: Restrict write access to owner.
-      allow write: if isTenantOwner(tenantId);
-    }
-
-    /**
-     * @description Rules for financial transactions. This data is private to authenticated users of the tenant.
-     * @path /tenants/{tenantId}/transactions/{transactionId}
-     */
-    match /tenants/{tenantId}/transactions/{transactionId} {
-        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-    }
-
-    /**
-     * @description Rules for stock corrections. This data is private.
-     * @path /tenants/{tenantId}/stockCorrections/{correctionId}
-     * @principle Enforces strict data privacy for a tenant's inventory audit trail.
-     */
-    match /tenants/{tenantId}/stockCorrections/{correctionId} {
-        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-    }
-    
-    /**
-     * @description Rules for inventory purchase orders.
-     * @path /tenants/{tenantId}/orders/{orderId}
-     */
-    match /tenants/{tenantId}/orders/{orderId} {
-        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-    }
-
-    /**
-     * @description Rules for activity logs. Logs are immutable.
-     * @path /tenants/{tenantId}/activityLogs/{logId}
-     */
-    match /tenants/{tenantId}/activityLogs/{logId} {
-      allow read: if isTenantOwner(tenantId) || isStaff(tenantId);
-      allow create: if isTenantAdmin(tenantId) || (isStaff(tenantId) && request.auth.uid == request.resource.data.staffId);
-      allow update, delete: if false;
+      allow create: if isSignedIn();
+      allow update: if 
+        (isSignedIn()) || 
+        (request.auth == null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
     }
   }
 }

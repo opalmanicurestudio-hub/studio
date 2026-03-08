@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -266,6 +265,18 @@ function PlannerPageContent() {
                 }
                 batch.commit().then(() => {
                     toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
+                });
+                return;
+            } else if (overGrace && (selectedTenant.cancellationFee || 0) > 0) {
+                // APPLY LATE FEE BUT ACCOMMODATE
+                const fee = selectedTenant.cancellationFee || 0;
+                const batch = writeBatch(firestore);
+                batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
+                if (apt.clientId) {
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accommodated)` }) });
+                }
+                batch.commit().then(() => {
+                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty for arriving +${lateMinutes}m.` });
                 });
                 return;
             }
