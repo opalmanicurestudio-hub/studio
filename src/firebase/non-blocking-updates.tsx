@@ -18,7 +18,7 @@ import {FirestorePermissionError} from '@/firebase/errors';
  * Firestore does not support `undefined`.
  * It preserves Firestore FieldValue objects (like increment, arrayUnion).
  */
-const sanitizeDataForFirebase = (data: any): any => {
+const sanitizeDataForFirebase = (data: any, stripId: boolean = false): any => {
     if (data === undefined) return null;
     if (data === null || typeof data !== 'object') return data;
     if (data instanceof Date) return data;
@@ -30,15 +30,16 @@ const sanitizeDataForFirebase = (data: any): any => {
     }
 
     if (Array.isArray(data)) {
-        return data.map(sanitizeDataForFirebase);
+        return data.map(v => sanitizeDataForFirebase(v, false)); // Don't strip IDs in nested arrays by default
     }
 
     const result: any = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
+            if (stripId && key === 'id') continue; // Skip document ID for updates
             const val = data[key];
             if (val !== undefined) {
-                result[key] = sanitizeDataForFirebase(val);
+                result[key] = sanitizeDataForFirebase(val, false);
             }
         }
     }
@@ -93,7 +94,8 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
  * Does NOT await the write operation internally.
  */
 export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
-  const sanitizedData = sanitizeDataForFirebase(data);
+  // CRITICAL: We strip the 'id' field for updates because document IDs are immutable.
+  const sanitizedData = sanitizeDataForFirebase(data, true);
   updateDoc(docRef, sanitizedData)
     .catch(error => {
       errorEmitter.emit(

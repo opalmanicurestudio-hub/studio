@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -19,24 +20,10 @@ service cloud.firestore {
       return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
-    /**
-     * @description Checks if the user is a registered staff member.
-     */
-    function isStaff(tenantId) {
-      return isSignedIn() && 
-             exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
-             get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.tenantId == tenantId;
-    }
-
-    // --- SIMPLIFIED TOP-LEVEL ACCESS ---
-
-    /**
-     * UNIVERSAL OWNER/STAFF OVERRIDE
-     * This simplified rule set grants full access to owners and staff 
-     * for all sub-collections, avoiding complex "get" limit issues.
-     */
+    // --- UNIVERSAL OWNER OVERRIDE ---
+    
     match /tenants/{tenantId}/{allSubcollections=**} {
-      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow read, write: if isTenantOwner(tenantId);
     }
 
     // Top-level tenant document access

@@ -274,7 +274,7 @@ function SettingsContent() {
 
   const handlePoliciesSave = async () => {
     if (!selectedTenant || !firestore) return;
-    const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
+    const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'lateArrivalFee', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
     const dataToUpdate: Partial<Tenant> = {};
     policiesFields.forEach(field => {
       dataToUpdate[field] = tenantData[field] as any;
@@ -627,7 +627,15 @@ function SettingsContent() {
                                     <Label htmlFor="late-grace-period">Arrival Grace Period (minutes)</Label>
                                     <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
                                 </div>
-                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                                <div className="space-y-2">
+                                    <Label htmlFor="late-arrival-fee">Late Arrival Fee ($)</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="late-arrival-fee" type="number" value={tenantData.lateArrivalFee || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalFee: Number(e.target.value)}))} placeholder="e.g., 15.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Applied when late but accommodated.</p>
+                                </div>
+                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20 md:col-span-2">
                                     <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
                                     <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
                                 </div>
@@ -639,35 +647,26 @@ function SettingsContent() {
                         <div className="space-y-4">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                    <Ban className="w-4 h-4" /> Dynamic Cancellation Recovery
+                                    <Ban className="w-4 h-4" /> Cancellation Policy
                                 </h3>
-                                <div className="bg-primary/10 px-3 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-black text-primary border border-primary/20">
-                                    <Calculator className="w-3 h-3" />
-                                    STRATEGY: RECOVER OVERHEAD
-                                </div>
                             </div>
                             
-                            <Alert className="bg-primary/5 border-primary/20">
-                                <Info className="h-4 w-4 text-primary" />
-                                <AlertDescription className="text-xs">
-                                    Fees are calculated dynamically during cancellation based on the service duration and your current <strong>TMHR (${selectedTenant?.tmhr?.toFixed(2)})</strong>. This ensures you recover fixed costs like rent and utilities even for empty time slots.
-                                </AlertDescription>
-                            </Alert>
-
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <Label htmlFor="cancellation-window">Notice Window (hours)</Label>
                                     <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="font-bold">Cancellation Fee Logic</Label>
-                                    <div className="p-3 rounded-lg border bg-muted/20 text-xs">
-                                        Fees are based on Reserved Duration × TMHR (${(selectedTenant?.tmhr || 50).toFixed(2)}/hr).
+                                    <Label htmlFor="cancellation-fee">Cancellation Fee ($)</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="e.g., 25.00" className="pl-8" disabled={!isPoliciesEditing}/>
                                     </div>
+                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Applied for late notice or auto-cancellation.</p>
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="cancellation-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Cancellation Policy Text</Label>
+                                <Label htmlFor="cancellation-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Policy Text</Label>
                                 <div className="relative">
                                     <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
                                     {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Regenerate</Button>}
@@ -683,9 +682,10 @@ function SettingsContent() {
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label className="font-bold">No-Show Penalty</Label>
-                                    <div className="p-4 rounded-xl border-2 bg-destructive/5 border-destructive/10">
-                                        <p className="text-sm font-medium">Policy: 100% of Scheduled Service Price</p>
+                                    <Label htmlFor="no-show-fee">No-Show Fee ($)</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="no-show-fee" type="number" value={tenantData.noShowFee || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="e.g., 50.00" className="pl-8" disabled={!isPoliciesEditing}/>
                                     </div>
                                 </div>
                             </div>

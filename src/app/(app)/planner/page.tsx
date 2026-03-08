@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -267,9 +268,9 @@ function PlannerPageContent() {
                     toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
                 });
                 return;
-            } else if (overGrace && (selectedTenant.cancellationFee || 0) > 0) {
+            } else if (overGrace && (selectedTenant.lateArrivalFee || 0) > 0) {
                 // APPLY LATE FEE BUT ACCOMMODATE
-                const fee = selectedTenant.cancellationFee || 0;
+                const fee = selectedTenant.lateArrivalFee || 0;
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                 if (apt.clientId) {

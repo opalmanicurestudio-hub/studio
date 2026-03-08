@@ -598,6 +598,7 @@ export type Tenant = {
   subscriptionTier: 'none' | 'pro';
   queueSkipTimeMinutes?: number;
   lateArrivalGracePeriod?: number;
+  lateArrivalFee?: number;
   autoCancelLateArrivals?: boolean;
   cancellationFee?: number;
   cancellationWindowHours?: number;

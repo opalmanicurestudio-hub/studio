@@ -64,13 +64,17 @@
             "type": "number",
             "description": "Grace period in minutes before an appointment is marked as late."
         },
+        "lateArrivalFee": {
+            "type": "number",
+            "description": "Fee charged for arrivals past the grace period that are still accommodated."
+        },
         "autoCancelLateArrivals": {
             "type": "boolean",
             "description": "If true, automatically cancels appointments for clients who are late beyond the grace period."
         },
         "cancellationFee": {
             "type": "number",
-            "description": "Fee charged for late cancellations."
+            "description": "Fee charged for late cancellations or auto-cancellations due to clashes."
         },
         "cancellationWindowHours": {
             "type": "number",
@@ -547,10 +551,10 @@
       "description": "Represents an appointment booked with a tenant.",
       "properties": {
         "id": { "type": "string" },
-        "tenantId": { "type": "string", description: "The ID of the tenant this appointment belongs to." },
+        "tenantId": { "type": "string", "description": "The ID of the tenant this appointment belongs to." },
         "clientId": { "type": "string" },
         "serviceId": { "type": "string" },
-        "staffId": { "type": "string", description: "The ID of the staff member performing the appointment." },
+        "staffId": { "type": "string", "description": "The ID of the staff member performing the appointment." },
         "startTime": { "type": "string", "format": "date-time" },
         "endTime": { "type": "string", "format": "date-time" },
         "status": { "type": "string", "enum": ["confirmed", "completed", "cancelled", "deposit_pending", "ready_for_checkout", "servicing"] },
