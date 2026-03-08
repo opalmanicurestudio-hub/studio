@@ -25,8 +25,8 @@ service cloud.firestore {
     }
 
     // --- UNIVERSAL OWNER OVERRIDE ---
-    // The "Simpler Way": If you own the tenant, you have total control over all its nested data.
-    // This resolves evaluation crashes and "get-limit" issues for owners.
+    // If you own the tenant, you have master authority over all its nested data.
+    // This recursive wildcard rule eliminates logic gaps and evaluation limits for owners.
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isTenantOwner(tenantId);
     }
