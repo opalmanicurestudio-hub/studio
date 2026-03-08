@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -58,7 +57,8 @@ import {
     Percent,
     ShoppingCart,
     FileSignature,
-    Users
+    Users,
+    Zap
 } from 'lucide-react';
 import Link from 'next/link';
 import { type Client, type Service, type ConsentForm, type Staff } from '@/lib/data';
@@ -78,6 +78,7 @@ import { Separator } from '@/components/ui/separator';
 import { nanoid } from 'nanoid';
 import { BrowseConsentFormsDialog } from '@/components/services/BrowseConsentFormsDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type LineItem = {
     id: string;
@@ -341,6 +342,32 @@ export default function QuoteGeneratorPage() {
         setStaffPayouts(prev => prev.map(s => s.staffId === staffId ? { ...s, amount } : s));
     };
 
+    const suggestStaffPayout = (staffId: string) => {
+        const member = staff.find(s => s.id === staffId);
+        if (!member) return;
+
+        let suggestion = 0;
+        const hours = totalHours || 1;
+
+        if (member.payStructure === 'hourly' && member.hourlyRate) {
+            suggestion = hours * member.hourlyRate;
+        } else if (member.payStructure === 'commission') {
+            // Suggest based on % of studio time value (TMHR)
+            suggestion = (hours * tmhr) * ((member.commissionRate || 40) / 100);
+        } else {
+            suggestion = hours * tmhr;
+        }
+
+        // Add 15% opportunity premium for events
+        suggestion = suggestion * 1.15;
+
+        handleStaffPayoutChange(staffId, Number(suggestion.toFixed(2)));
+        toast({
+            title: "Payout Suggested",
+            description: `Rate for ${member.name.split(' ')[0]} calculated based on their ${member.payStructure} profile.`
+        });
+    };
+
     const removeStaff = (staffId: string) => {
         setStaffPayouts(prev => prev.filter(s => s.staffId !== staffId));
     };
@@ -358,7 +385,7 @@ export default function QuoteGeneratorPage() {
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic project configuration</p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm shadow-sm">
                     <Link href="/quotes"><ArrowLeft className="mr-2 h-4 w-4" />Return</Link>
                 </Button>
                 <Button onClick={handleSaveQuote} className="flex-1 md:flex-none h-14 px-10 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
@@ -599,30 +626,53 @@ export default function QuoteGeneratorPage() {
                                 
                                 {staffPayouts.length > 0 ? (
                                     <div className="grid grid-cols-1 gap-3">
-                                        {staffPayouts.map(payout => (
-                                            <div key={payout.staffId} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group gap-4">
-                                                <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                    <Avatar className="h-8 w-8 border shadow-sm">
-                                                        <AvatarImage src={staff.find(s => s.id === payout.staffId)?.avatarUrl} />
-                                                        <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(payout.name || 'S')[0]}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">{payout.name}</span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="relative w-32">
-                                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                                                        <Input 
-                                                            type="number" 
-                                                            value={payout.amount || ''} 
-                                                            onChange={e => handleStaffPayoutChange(payout.staffId, Number(e.target.value))} 
-                                                            placeholder="0.00" 
-                                                            className="h-10 pl-8 rounded-xl border-2 font-black font-mono text-xs" 
-                                                        />
+                                        {staffPayouts.map(payout => {
+                                            const member = staff.find(s => s.id === payout.staffId);
+                                            return (
+                                                <div key={payout.staffId} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group gap-4">
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                        <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                                                            <AvatarImage src={member?.avatarUrl} className="object-cover" />
+                                                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(payout.name || 'S')[0]}</AvatarFallback>
+                                                        </Avatar>
+                                                        <div className="min-w-0">
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{payout.name}</p>
+                                                            <Badge variant="outline" className="h-4 px-1.5 text-[7px] font-black uppercase tracking-widest border-none bg-muted/50 text-muted-foreground">
+                                                                {member?.payStructure === 'hourly' ? `Hourly: $${member.hourlyRate}/hr` : `Commission: ${member?.commissionRate}%`}
+                                                            </Badge>
+                                                        </div>
                                                     </div>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeStaff(payout.staffId)}><Trash2 className="w-4 h-4" /></Button>
+                                                    <div className="flex items-center gap-3">
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button 
+                                                                        variant="outline" 
+                                                                        size="icon" 
+                                                                        className="h-10 w-10 rounded-xl border-2 bg-primary/5 text-primary hover:bg-primary/10 transition-all active:scale-90"
+                                                                        onClick={() => suggestStaffPayout(payout.staffId)}
+                                                                    >
+                                                                        <Sparkles className="w-4 h-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent className="font-black uppercase text-[9px] tracking-widest border-2">Suggest Effective Rate</TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                        <div className="relative w-32">
+                                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                                                            <Input 
+                                                                type="number" 
+                                                                value={payout.amount || ''} 
+                                                                onChange={e => handleStaffPayoutChange(payout.staffId, Number(e.target.value))} 
+                                                                placeholder="0.00" 
+                                                                className="h-10 pl-8 rounded-xl border-2 font-black font-mono text-xs" 
+                                                            />
+                                                        </div>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeStaff(payout.staffId)}><Trash2 className="w-4 h-4" /></Button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
