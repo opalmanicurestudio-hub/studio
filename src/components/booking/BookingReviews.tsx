@@ -34,10 +34,8 @@ export const BookingReviews = () => {
   const sortedReviews = useMemo(() => {
     if (!reviews) return [];
     return [...reviews].sort((a, b) => {
-        // Prioritize featured reviews
         if (a.isFeatured && !b.isFeatured) return -1;
         if (!a.isFeatured && b.isFeatured) return 1;
-        // Then sort by date
         return parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime();
     });
   }, [reviews]);
@@ -52,7 +50,7 @@ export const BookingReviews = () => {
             <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Verified Sentiment</span>
         </div>
-        <h2 className="text-3xl md:text-5xl font-black tracking-tighter uppercase text-slate-900 leading-none">
+        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
             {tenant?.bookingPageSettings?.reviewsSectionTitle || 'Voices'}
         </h2>
         <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-[10px] opacity-60">

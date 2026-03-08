@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -25,9 +24,6 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { Textarea } from '@/components/ui/textarea';
 import { nanoid } from 'nanoid';
 
-/**
- * Utility to safely convert potential strings or Date objects into valid Date instances.
- */
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -214,18 +210,6 @@ const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (
     </ViewContainer>
 );
 
-const timeStringToDate = (timeStr: string, date: Date): Date => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (!timeStr) return d;
-    const [time, period] = timeStr.split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
-    if (period === 'PM' && hours < 12) hours += 12;
-    if (period === 'AM' && hours === 12) hours = 0;
-    d.setHours(hours, minutes);
-    return d;
-}
-
 export default function CheckInPage() {
     const params = useParams();
     const router = useRouter();
@@ -265,29 +249,14 @@ export default function CheckInPage() {
     }, [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-    const allAppointmentsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return collection(firestore, `tenants/${tenantId}/appointments`);
-    }, [firestore, tenantId]);
-    const { data: allAppointmentsFromDB, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
+    const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
+    const [lateTime, setLateTime] = useState(0);
+    const [showLateOptions, setShowLateOptions] = useState(false);
     
-    const scheduleProfilesQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
-    }, [firestore, tenantId]);
-    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+    const [isReviewFlow, setIsReviewFlow] = useState(false);
+    const [reviewSubmitted, setReviewSubmitted] = useState(false);
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
-
-    const allAppointments = useMemo(() => {
-        if (!allAppointmentsFromDB) return [];
-        return allAppointmentsFromDB.map(apt => ({
-            ...apt,
-            startTime: safeDate(apt.startTime),
-            endTime: safeDate(apt.endTime),
-        }));
-    }, [allAppointmentsFromDB]);
-    
     const appointment = useMemo(() => {
         if (!appointmentData) return null;
         return {
@@ -296,59 +265,6 @@ export default function CheckInPage() {
             endTime: safeDate(appointmentData.endTime),
         };
     }, [appointmentData]);
-
-    const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
-    const [lateTime, setLateTime] = useState(0);
-    const [showLateOptions, setShowLateOptions] = useState(false);
-    const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
-    const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
-    const [rescheduleTime, setRescheduleTime] = useState<string>('');
-    
-    const [isReviewFlow, setIsReviewFlow] = useState(false);
-    const [reviewSubmitted, setReviewSubmitted] = useState(false);
-    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
-
-    const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
-    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-
-    const isDayClosed = (day: Date) => {
-        if (!publicScheduleProfile) return true;
-        const dayName = format(day, 'eeee').toLowerCase();
-        const dayHours = publicScheduleProfile.week[dayName];
-        return !dayHours || !dayHours.enabled;
-    };
-
-    const handleDateSelect = (day: Date) => {
-        setRescheduleDate(day);
-        setRescheduleTime('');
-    };
-
-    const timeSlots = useMemo(() => {
-        if (!service || !rescheduleDate || !allAppointments || !publicScheduleProfile) return [];
-        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
-        const dayName = format(rescheduleDate, 'eeee').toLowerCase();
-        const businessDayHours = publicScheduleProfile.week[dayName];
-        if (!businessDayHours || !businessDayHours.enabled) return [];
-        
-        const dayStartWithBusinessHours = timeStringToDate(businessDayHours.start, rescheduleDate);
-        const dayEndWithBusinessHours = timeStringToDate(businessDayHours.end, rescheduleDate);
-        
-        const busyIntervals = allAppointments.filter(apt => apt.id !== appointment?.id && isSameDay(apt.startTime, rescheduleDate)).map(apt => ({ start: apt.startTime, end: apt.endTime }));
-
-        const options: string[] = [];
-        let currentTime = dayStartWithBusinessHours;
-        while (currentTime < dayEndWithBusinessHours) {
-            const potentialStartTime = currentTime;
-            const totalDuration = service.duration;
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-            
-            if (potentialEndTime <= dayEndWithBusinessHours && !busyIntervals.some(interval => areIntervalsOverlapping({ start: currentTime, end: potentialEndTime }, interval, { inclusive: false }))) {
-                options.push(format(currentTime, 'HH:mm'));
-            }
-            currentTime = addMinutes(currentTime, bookingInterval);
-        }
-        return options;
-    }, [rescheduleDate, service, allAppointments, appointment?.id, publicScheduleProfile]);
 
     useEffect(() => {
         if (appointment?.checkInStatus) {
@@ -395,27 +311,10 @@ export default function CheckInPage() {
         const autoCancelEnabled = tenant?.autoCancelLateArrivals !== false;
         if (autoCancelEnabled && lateTime > gracePeriod) {
             handleUpdateStatus('auto_cancelled');
-            setRescheduleStep('initial');
         } else {
             handleUpdateStatus('running_late', lateTime);
         }
         setShowLateOptions(false);
-    };
-
-    const handlePayFee = () => {
-        if (!appointment || !client || !firestore || !tenantId) return;
-        addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), { date: new Date().toISOString(), description: `Late cancellation fee for appointment #${appointment.id.slice(-6).toUpperCase()}`, clientOrVendor: client.name, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: tenant?.cancellationFee || 25.00, paymentMethod: 'Card Online', hasReceipt: false });
-        toast({ title: 'Payment Successful!' });
-        setRescheduleStep('reschedule');
-    };
-
-    const handleReschedule = async () => {
-        if (!appointment || !firestore || !service || !rescheduleDate || !rescheduleTime || !tenantId) return;
-        const [hours, minutes] = rescheduleTime.split(':').map(Number);
-        const startDateTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
-        const newEndTime = addMinutes(startDateTime, service.duration);
-        await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), { startTime: startDateTime.toISOString(), endTime: newEndTime.toISOString(), status: 'confirmed' as const, checkInStatus: 'pending' as const, lateTimeMinutes: 0, automatedRescheduleOffered: true, tenantId: tenantId });
-        setRescheduleStep('confirmed');
     };
 
     const handleSubmitReview = async (rating: number, text: string) => {
@@ -434,7 +333,8 @@ export default function CheckInPage() {
             serviceName: service?.name || 'Service',
             rating,
             text,
-            isPublic: false, // Security: Let admin approve reviews before showing publicly
+            isPublic: false,
+            isFeatured: false,
             createdAt: new Date().toISOString(),
         };
 
@@ -449,7 +349,7 @@ export default function CheckInPage() {
         }
     };
     
-    const isLoading = appointmentLoading || clientLoading || serviceLoading || allAppointmentsLoading || scheduleProfilesLoading || tenantLoading || staffLoading;
+    const isLoading = appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading;
 
     if (isLoading) return <div className="flex flex-col items-center gap-4"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Initializing Portal...</p></div>;
     
@@ -465,117 +365,6 @@ export default function CheckInPage() {
     }
     if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
     if (appointment.status === 'cancelled' && currentStatus !== 'auto_cancelled') return <CancelledView tenantId={tenant.id} />;
-
-    const renderCancellationFlow = () => {
-        switch (rescheduleStep) {
-            case 'initial':
-                return (
-                    <div className="p-8 bg-destructive/5 text-center rounded-[2.5rem] border-4 border-destructive/20 space-y-6 shadow-xl">
-                        <AlertTriangle className="w-12 h-12 mx-auto text-destructive"/>
-                        <div className="space-y-2">
-                            <h3 className="font-black uppercase tracking-tighter text-2xl text-slate-900 leading-none">Access Restricted</h3>
-                            <p className="text-xs font-bold text-muted-foreground uppercase leading-relaxed tracking-tight">
-                                Arrival is outside the {tenant.lateArrivalGracePeriod || 15}-minute grace period. This slot has been voided.
-                            </p>
-                        </div>
-                        <div className="pt-6 border-t border-destructive/10 space-y-4">
-                                <p className="text-sm font-bold">A cancellation recovery fee of <strong className="text-xl tracking-tighter text-destructive font-black font-mono">${(tenant.cancellationFee || 25).toFixed(2)}</strong> is required to rebook.</p>
-                                <Button className="w-full h-16 rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90 text-lg font-black uppercase shadow-2xl shadow-destructive/20" onClick={() => setRescheduleStep('payment')}>
-                                Pay Fee & Reschedule
-                                </Button>
-                        </div>
-                    </div>
-                );
-            case 'payment':
-                 return (
-                     <div className="p-8 bg-white text-center rounded-[2.5rem] border-4 border-primary/10 space-y-8 shadow-xl">
-                        <CreditCard className="w-12 h-12 mx-auto text-primary opacity-40"/>
-                        <div className="space-y-2">
-                            <h3 className="font-black uppercase tracking-tighter text-2xl text-slate-900">Authorize Payment</h3>
-                            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest leading-relaxed">
-                                Confirm the ${(tenant.cancellationFee || 25).toFixed(2)} recovery fee with your card on file.
-                            </p>
-                        </div>
-                        <div className="pt-4 flex flex-col gap-3">
-                             <Button className="h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20" onClick={handlePayFee}>
-                                Collect & Unlock
-                             </Button>
-                             <Button variant="ghost" className="font-black uppercase tracking-widest text-[10px]" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
-                        </div>
-                    </div>
-                );
-            case 'reschedule':
-                return (
-                    <Card className="bg-primary/[0.02] border-4 border-primary/10 rounded-[2.5rem] p-8 space-y-10 shadow-inner">
-                        <div className="text-center space-y-2">
-                            <div className="w-16 h-16 bg-green-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 border-2 border-green-500/20"><Check className="w-8 h-8 text-green-500"/></div>
-                            <h3 className="font-black uppercase tracking-tighter text-2xl">Payment Received</h3>
-                            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Select a new window for your session.</p>
-                        </div>
-
-                        <div className="space-y-8">
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center px-2">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Select Date</h3>
-                                    <div className="flex items-center gap-2">
-                                        <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-white shadow-sm border-none" onClick={() => setRescheduleDate(prev => subWeeks(prev, 1))}><ChevronLeft className="w-4 h-4"/></Button>
-                                        <span className="font-black uppercase text-[10px] tracking-widest">{format(rescheduleDate, 'MMMM yyyy')}</span>
-                                        <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-white shadow-sm border-none" onClick={() => setRescheduleDate(prev => addWeeks(prev, 1))}><ChevronRight className="w-4 h-4"/></Button>
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-7 gap-2">
-                                    {weekDays.map(day => (
-                                        <button
-                                            key={day.toISOString()}
-                                            onClick={() => handleDateSelect(day)}
-                                            disabled={isDayClosed(day)}
-                                            className={cn(
-                                                "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all aspect-square",
-                                                isSameDay(day, rescheduleDate)
-                                                    ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110"
-                                                    : "bg-white border-transparent hover:border-primary/20",
-                                                isDayClosed(day) && "opacity-20 cursor-not-allowed"
-                                            )}
-                                        >
-                                            <span className="text-[8px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
-                                            <span className="font-black text-lg tracking-tighter">{format(day, 'd')}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            <div className="space-y-4">
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground px-2">Select Start Time</h3>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {timeSlots.map(slot => (
-                                        <Button 
-                                            key={slot} 
-                                            variant={rescheduleTime === slot ? 'default' : 'outline'}
-                                            className={cn("h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2", rescheduleTime === slot ? "shadow-lg shadow-primary/20" : "bg-white")}
-                                            onClick={() => setRescheduleTime(slot)}
-                                        >
-                                            {format(parseISO(`1970-01-01T${slot}:00`), 'h:mm a')}
-                                        </Button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <Button onClick={handleReschedule} disabled={!rescheduleTime} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30">
-                            Confirm New Session
-                        </Button>
-                        <Button variant="ghost" className="w-full font-black uppercase tracking-widest text-[10px] text-muted-foreground" onClick={() => { handleUpdateStatus('auto_cancelled'); }}>No, Cancel Entirely</Button>
-                    </Card>
-                );
-            case 'confirmed':
-                 return (
-                     <div className="p-10 bg-green-500/10 border-4 border-green-500/20 text-green-700 rounded-[3rem] text-center space-y-4 shadow-xl">
-                        <CheckCircle2 className="w-16 h-16 mx-auto mb-2" />
-                        <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Dossier Updated</h3>
-                        <p className="text-sm font-bold uppercase tracking-tight opacity-80">Your session has been successfully rescheduled. See you soon!</p>
-                    </div>
-                );
-        }
-    }
 
     return (
         <ViewContainer>
@@ -622,7 +411,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
                 
-                {currentStatus === 'auto_cancelled' ? renderCancellationFlow() : showLateOptions ? (
+                {showLateOptions ? (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
                          <h4 className="text-lg font-black uppercase tracking-tighter text-center text-slate-900">Estimated Delay?</h4>
                         <RadioGroup 
