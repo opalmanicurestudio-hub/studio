@@ -66,7 +66,11 @@
         },
         "lateArrivalFee": {
             "type": "number",
-            "description": "Fee charged for arrivals past the grace period that are still accommodated."
+            "description": "Legacy fixed fee. Use dynamic calculation for new logic."
+        },
+        "lateInconveniencePremium": {
+            "type": "number",
+            "description": "Fixed premium added to the TMHR-based late fee calculation."
         },
         "autoCancelLateArrivals": {
             "type": "boolean",
@@ -129,6 +133,10 @@
         "twilioPhoneNumber": {
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
+        },
+        "tmhr": {
+          "type": "number",
+          "description": "True Minimum Hourly Rate for dynamic fee calculations."
         },
         "bookingPageSettings": {
             "type": "object",
@@ -1122,7 +1130,7 @@
       "schema": {
         "$ref": "#/entities/Client"
       },
-      "description": "Clients belonging to a specific tenant."
+      "description": "Clients belonging to a specific client."
     },
     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
         "schema": { "$ref": "#/entities/SignedConsent" },

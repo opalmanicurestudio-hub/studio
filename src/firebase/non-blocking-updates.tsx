@@ -36,7 +36,7 @@ const sanitizeDataForFirebase = (data: any, stripId: boolean = false): any => {
     const result: any = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
-            if (stripId && key === 'id') continue; // Skip document ID for updates
+            if (stripId && key === 'id') continue; // Skip document ID for updates to avoid immutable field errors
             const val = data[key];
             if (val !== undefined) {
                 result[key] = sanitizeDataForFirebase(val, false);
@@ -63,7 +63,6 @@ export function setDocumentNonBlocking(docRef: DocumentReference, data: any, opt
       })
     )
   })
-  // Execution continues immediately
 }
 
 

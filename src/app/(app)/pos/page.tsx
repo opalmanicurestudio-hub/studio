@@ -387,8 +387,9 @@ function POSPageContent() {
             const apt = (appointmentsFromInventory || []).find(a => a.id === id);
             if (apt) {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
-                const overGrace = lateMinutes > grace;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
+                const tmhr = selectedTenant.tmhr || 50;
+                const premium = selectedTenant.lateInconveniencePremium || 0;
 
                 const staffId = apt.staffId;
                 let clash = null;
@@ -411,7 +412,7 @@ function POSPageContent() {
                     }
                 }
 
-                if ((overGrace && autoCancel) || clash) {
+                if ((lateMinutes > grace && autoCancel) || clash) {
                     const reason = clash ? 'clash' : 'late';
                     const fee = selectedTenant.cancellationFee || 0;
                     const batch = writeBatch(firestore);
@@ -423,16 +424,18 @@ function POSPageContent() {
                         toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
                     });
                     return;
-                } else if (overGrace && (selectedTenant.lateArrivalFee || 0) > 0) {
-                    // APPLY LATE FEE BUT ACCOMMODATE
-                    const fee = selectedTenant.lateArrivalFee || 0;
+                } else if (lateMinutes > grace) {
+                    // APPLY DYNAMIC LATE FEE BUT ACCOMMODATE
+                    const timeLostCost = (lateMinutes / 60) * tmhr;
+                    const fee = Number((timeLostCost + premium).toFixed(2));
+                    
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
-                    if (apt.clientId) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accommodated)` }) });
+                    if (apt.clientId && fee > 0) {
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accurate Time-Lost + Premium)` }) });
                     }
                     batch.commit().then(() => {
-                        toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty for arriving +${lateMinutes}m.` });
+                        toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
                     });
                     return;
                 }

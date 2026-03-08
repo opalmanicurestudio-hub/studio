@@ -53,6 +53,7 @@ import {
   Activity,
   CheckCircle2,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -274,7 +275,18 @@ function SettingsContent() {
 
   const handlePoliciesSave = async () => {
     if (!selectedTenant || !firestore) return;
-    const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'lateArrivalFee', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'allowDiscountStacking', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
+    const policiesFields: (keyof Tenant)[] = [
+        'lateArrivalGracePeriod', 
+        'lateInconveniencePremium', 
+        'cancellationWindowHours', 
+        'cancellationFee', 
+        'noShowFee', 
+        'autoCancelLateArrivals', 
+        'allowDiscountStacking', 
+        'cancellationPolicy', 
+        'lateArrivalPolicy', 
+        'noShowPolicy'
+    ];
     const dataToUpdate: Partial<Tenant> = {};
     policiesFields.forEach(field => {
       dataToUpdate[field] = tenantData[field] as any;
@@ -628,12 +640,15 @@ function SettingsContent() {
                                     <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="late-arrival-fee">Late Arrival Fee ($)</Label>
+                                    <Label htmlFor="late-inconvenience-premium" className="flex items-center gap-2">
+                                        <Zap className="w-3 h-3 text-primary" />
+                                        Inconvenience Premium ($)
+                                    </Label>
                                     <div className="relative">
                                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="late-arrival-fee" type="number" value={tenantData.lateArrivalFee || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalFee: Number(e.target.value)}))} placeholder="e.g., 15.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                        <Input id="late-inconvenience-premium" type="number" value={tenantData.lateInconveniencePremium || ''} onChange={(e) => setTenantData(prev => ({...prev, lateInconveniencePremium: Number(e.target.value)}))} placeholder="e.g., 10.00" className="pl-8" disabled={!isPoliciesEditing}/>
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Applied when late but accommodated.</p>
+                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Added to time-lost fee (Late Mins * TMHR).</p>
                                 </div>
                                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20 md:col-span-2">
                                     <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>

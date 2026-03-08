@@ -232,8 +232,9 @@ function PlannerPageContent() {
         const apt = appointments?.find(a => a.id === id);
         if (apt) {
             const grace = selectedTenant.lateArrivalGracePeriod || 15;
-            const overGrace = lateMinutes > grace;
             const autoCancel = selectedTenant.autoCancelLateArrivals === true;
+            const tmhr = selectedTenant.tmhr || 50;
+            const premium = selectedTenant.lateInconveniencePremium || 0;
 
             const staffId = apt.staffId;
             let clash = null;
@@ -256,7 +257,7 @@ function PlannerPageContent() {
                 }
             }
 
-            if ((overGrace && autoCancel) || clash) {
+            if ((lateMinutes > grace && autoCancel) || clash) {
                 const reason = clash ? 'clash' : 'late';
                 const fee = selectedTenant.cancellationFee || 0;
                 const batch = writeBatch(firestore);
@@ -268,16 +269,18 @@ function PlannerPageContent() {
                     toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
                 });
                 return;
-            } else if (overGrace && (selectedTenant.lateArrivalFee || 0) > 0) {
-                // APPLY LATE FEE BUT ACCOMMODATE
-                const fee = selectedTenant.lateArrivalFee || 0;
+            } else if (lateMinutes > grace) {
+                // APPLY DYNAMIC LATE FEE BUT ACCOMMODATE
+                const timeLostCost = (lateMinutes / 60) * tmhr;
+                const fee = Number((timeLostCost + premium).toFixed(2));
+                
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
-                if (apt.clientId) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accommodated)` }) });
+                if (apt.clientId && fee > 0) {
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accurate Time-Lost + Premium)` }) });
                 }
                 batch.commit().then(() => {
-                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty for arriving +${lateMinutes}m.` });
+                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
                 });
                 return;
             }
@@ -452,12 +455,12 @@ function PlannerPageContent() {
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
                     <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
-                        <Button variant="ghost" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0"><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
                         <div className="px-2 sm:px-4 text-center min-w-[110px] sm:min-w-[140px]">
                             <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>
                             <p className="text-sm sm:text-lg font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
                         </div>
-                        <Button variant="ghost" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0"><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(addDays(currentDate, 1))}><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
                         <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 sm:h-10 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50 shrink-0">Today</Button>
                     </div>
 
