@@ -78,9 +78,11 @@ export const BookingReviews = () => {
                 <div className="flex-1 space-y-6 relative z-10 text-left">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-1.5">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                                <Star key={i} className={cn("w-3.5 h-3.5", i < review.rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} />
-                            ))}
+                            <div className="flex">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                    <Star key={i} className={cn("w-3.5 h-3.5", i < review.rating ? "text-amber-400 fill-current" : "text-muted opacity-30")} />
+                                ))}
+                            </div>
                             <span className="text-[10px] font-black font-mono text-amber-600 ml-2">Verified Entry</span>
                         </div>
                         {review.isFeatured && (
