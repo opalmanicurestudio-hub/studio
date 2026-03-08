@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -681,7 +680,7 @@ function SettingsContent() {
                                 
                                 <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Matrix
+                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Impact
                                     </Label>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                         {lateFeeImpacts.map(impact => (
@@ -695,7 +694,7 @@ function SettingsContent() {
                                     <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
                                         <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                                         <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                            These projections are calculated using your <strong>${(selectedTenant?.tmhr || 50).toFixed(2)}/hr</strong> foundation. Actual fees are only applied when guests are accommodated past your grace period.
+                                            Analysis is calculated using your unique studio foundation. Actual fees are only applied when guests are accommodated past your grace period.
                                         </p>
                                     </div>
                                 </div>
@@ -733,7 +732,7 @@ function SettingsContent() {
 
                                 <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Landmark className="w-3.5 h-3.5" /> Profitable Recovery Matrix (Breakeven)
+                                        <Landmark className="w-3.5 h-3.5" /> Profitable Recovery Matrix
                                     </Label>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         {serviceBreakevenImpacts.map(s => (
@@ -752,7 +751,7 @@ function SettingsContent() {
                                     <div className="p-5 rounded-2xl border-2 border-dashed bg-destructive/[0.02] flex items-start gap-4">
                                         <TrendingDown className="w-5 h-5 text-destructive shrink-0 mt-0.5 opacity-40" />
                                         <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                            A truly profitable fee covers your **Overhead Recovery**. This equals your `Time Lost (Duration * TMHR) + Material Sunk Cost`. Use the target values above to set your base fee.
+                                            A truly profitable fee covers your overhead recovery target. Use the target values above to set a base fee that protects your bottom line for every lost window.
                                         </p>
                                     </div>
                                 </div>
@@ -956,9 +955,7 @@ function SettingsContent() {
                         <Separator className="border-dashed" />
 
                         <div className="space-y-8">
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
-                                <ImagePlus className="w-4 h-4"/> Asset Gallery
-                            </h3>
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ImagePlus className="w-4 h-4"/> Asset Gallery</h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                                 {(tenantData.bookingPageSettings?.gallery || []).map((item) => (
                                     <div key={item.id} className="relative group aspect-[4/5] rounded-[2rem] overflow-hidden border-4 border-white shadow-2xl bg-muted ring-1 ring-border/50">

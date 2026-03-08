@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -391,7 +390,6 @@ function POSPageContent() {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
 
-                // COMPREHENSIVE DURATION: Main Service + Add-ons + Total Padding
                 const primarySvc = (services || []).find(s => s.id === apt.serviceId);
                 const addOns = (apt.addOnIds || []).map(aid => (services || []).find(s => s.id === aid)).filter(Boolean) as Service[];
                 
@@ -420,7 +418,6 @@ function POSPageContent() {
 
                 if ((lateMinutes > grace && autoCancel) || clash) {
                     const reason = clash ? 'clash' : 'late';
-                    // PROFITABLE OVERHEAD RECOVERY: (Total Duration / 60 * TMHR) + Material Recovery
                     const overheadRecovery = (fullSessionBlock / 60) * tmhr;
                     const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
                     const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
@@ -435,14 +432,13 @@ function POSPageContent() {
                     });
                     return;
                 } else if (lateMinutes > grace) {
-                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Premium
                     const timeLostCost = (lateMinutes / 60) * tmhr;
                     const fee = Number((timeLostCost + premium).toFixed(2));
                     
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                     if (apt.clientId && fee > 0) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Time Recovery + Premium)` }) });
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Foundation Recovery + Premium)` }) });
                     }
                     batch.commit().then(() => {
                         toast({ title: "Status Updated: Fee Applied", description: `Guest accommodated with a $${fee.toFixed(2)} capacity penalty.` });

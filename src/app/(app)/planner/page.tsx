@@ -1,10 +1,9 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle } from 'lucide-react';
-import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
@@ -229,7 +228,6 @@ function PlannerPageContent() {
             const grace = selectedTenant.lateArrivalGracePeriod || 15;
             const autoCancel = selectedTenant.autoCancelLateArrivals === true;
 
-            // COMPREHENSIVE DURATION: Primary + Add-ons + Padding
             const primarySvc = services?.find(s => s.id === apt.serviceId);
             const addOns = (apt.addOnIds || []).map(aid => services?.find(s => s.id === aid)).filter(Boolean) as Service[];
             const totalDur = (primarySvc?.duration || 0) + addOns.reduce((sum, a) => sum + a.duration, 0);
@@ -257,7 +255,6 @@ function PlannerPageContent() {
 
             if ((lateMinutes > grace && autoCancel) || clash) {
                 const reason = clash ? 'clash' : 'late';
-                // PROFITABLE OVERHEAD RECOVERY: (Total Block Duration / 60 * TMHR) + Material Sunk Costs
                 const overheadRecovery = (fullSessionBlock / 60) * tmhr;
                 const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
                 const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
@@ -272,17 +269,16 @@ function PlannerPageContent() {
                 });
                 return;
             } else if (lateMinutes > grace) {
-                // DYNAMIC LATE FEE: (Time Lost * TMHR) + Inconvenience Premium
                 const timeLostCost = (lateMinutes / 60) * tmhr;
                 const fee = Number((timeLostCost + premium).toFixed(2));
                 
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                 if (apt.clientId && fee > 0) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Time Recovery + Premium)` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Foundation Recovery + Premium)` }) });
                 }
                 batch.commit().then(() => {
-                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty.` });
+                    toast({ title: "Status Updated: Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty.` });
                 });
                 return;
             }
