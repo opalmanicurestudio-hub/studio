@@ -50,17 +50,6 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const involvedStaffIds = (apt: Appointment, st: AppointmentCheckoutState) => {
-    const ids = new Set<string>();
-    if (apt.staffId) ids.add(apt.staffId);
-    if (st.serviceStaffOverrides) {
-        Object.values(st.serviceStaffOverrides).forEach((id: any) => {
-            if (id && typeof id === 'string') ids.add(id);
-        });
-    }
-    return Array.from(ids);
-};
-
 function PlannerPageContent() {
   const searchParams = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -161,8 +150,12 @@ function PlannerPageContent() {
     
     appointments?.filter(a => isSameDay(safeDate(a.startTime), currentDate)).forEach(a => {
         if (activeView === 'staff') { 
-            const involvedIds = involvedStaffIds(a, a.checkoutState || {} as any);
-            involvedIds.forEach(sid => {
+            const involvedIds = new Set<string>();
+            if (a.staffId) involvedIds.add(a.staffId);
+            if (a.checkoutState?.serviceStaffOverrides) {
+                Object.values(a.checkoutState.serviceStaffOverrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
+            }
+            Array.from(involvedIds).forEach(sid => {
                 if (map.has(sid)) {
                     map.get(sid)!.push({ ...a, itemType: 'appointment', isSecondary: sid !== a.staffId } as any);
                 }
@@ -211,8 +204,8 @@ function PlannerPageContent() {
     const weeklyTransactions = transactions.filter(t => { const d = safeDate(t.date); return d >= start && d <= end; });
     const revenue = weeklyTransactions.filter(t => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail')).reduce((acc, t) => acc + t.amount, 0);
     const absorbed = weeklyTransactions.filter(t => t.type === 'expense' && t.category === 'Discounts').reduce((acc, t) => acc + t.amount, 0);
-    const waivedTotal = appointments.filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && a.cancellationFeeWaived; }).reduce((acc, a) => acc + (a.cancellationFeeApplied || 0), 0);
-    const projected = appointments.filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && (a.status === 'confirmed' || a.status === 'deposit_pending'); }).reduce((acc, a) => { const svc = services.find(s => s.id === a.serviceId); return acc + (svc?.price || 0); }, 0);
+    const waivedTotal = (appointments || []).filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && a.cancellationFeeWaived; }).reduce((acc, a) => acc + (a.cancellationFeeApplied || 0), 0);
+    const projected = (appointments || []).filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && (a.status === 'confirmed' || a.status === 'deposit_pending'); }).reduce((acc, a) => { const svc = services.find(s => s.id === a.serviceId); return acc + (svc?.price || 0); }, 0);
     const weeklyBreakEven = ((selectedTenant.tmhr || 50) * 160 / 30.44) * 7;
     return { weeklyRevenue: revenue, projectedRevenue: projected, weeklyBreakEven, weeklyNetProfit: revenue - weeklyBreakEven, absorbedCosts: absorbed + waivedTotal };
   }, [transactions, appointments, services, currentDate, selectedTenant]);
@@ -522,7 +515,7 @@ function PlannerPageContent() {
         onWaiveFee={(id, aut, res) => {
             if (!firestore || !tenantId) return;
             const batch = writeBatch(firestore);
-            const apt = appointments.find(a=>a.id===id);
+            const apt = (appointments || []).find(a=>a.id===id);
             if(!apt) return;
             batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), { cancellationFeeWaived: true, waivedBy: aut.id, waivedReason: res, waivedAt: new Date().toISOString() });
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId), { outstandingBalance: increment(-(apt.cancellationFeeApplied||0)) });
@@ -545,7 +538,7 @@ function PlannerPageContent() {
       )}
 
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
-      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: clients?.find(c => c.id === selectedAppointment.clientId), service: services?.find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
+      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: (clients || []).find(c => c.id === selectedAppointment.clientId), service: (services || []).find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
 
       <AddAppointmentDialog open={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen} onConfirm={async (data) => {
           if (!firestore || !tenantId) return;

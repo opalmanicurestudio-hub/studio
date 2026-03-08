@@ -236,7 +236,7 @@ function POSPageContent() {
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'notified', serviceStartTime: deleteField() });
         batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'confirmed', actualStartTime: deleteField() });
-        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
         if (apt?.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'idle' }, { merge: true });
         batch.commit().then(() => toast({ title: "Reverted to Ready" }));
     };
@@ -245,7 +245,7 @@ function POSPageContent() {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
         batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { status: 'servicing', actualEndTime: deleteField() });
-        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
         if (apt?.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'busy' }, { merge: true });
         if (apt?.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointmentId.replace('apt-walkin-', '')), { status: 'servicing' });
         batch.commit().then(() => { 
@@ -256,7 +256,7 @@ function POSPageContent() {
 
     const handleStartService = (appointmentId: string) => {
       if (!firestore || !tenantId || !appointmentsFromInventory) return;
-      const appointment = appointmentsFromInventory.find(a => a.id === appointmentId) || appointmentsFromInventory.find(a => a.id === `apt-walkin-${appointmentId}`);
+      const appointment = (appointmentsFromInventory || []).find(a => a.id === appointmentId) || (appointmentsFromInventory || []).find(a => a.id === `apt-walkin-${appointmentId}`);
       if (!appointment) return;
       const nowISO = new Date().toISOString();
       const batch = writeBatch(firestore);
@@ -288,7 +288,7 @@ function POSPageContent() {
       if (!firestore || !tenantId || !services) return;
       const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
       updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: new Date().toISOString() });
-      const personServices = (walkIn.serviceIds || []).map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
+      const personServices = (walkIn.serviceIds || []).map(id => (services || []).find(s => s.id === id)).filter(Boolean) as Service[];
       const duration = personServices.reduce((acc, s) => acc + s.duration, 0);
       const appointmentId = `apt-walkin-${walkIn.id}`;
       setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: new Date().toISOString(), endTime: addMinutes(new Date(), duration).toISOString() }, {});
@@ -296,7 +296,7 @@ function POSPageContent() {
     };
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
-        if (!isWalkIn) { setSelectedAppointment(appointmentsFromInventory?.find(a => a.id === id) || null); setIsCancelDialogOpen(true); return; }
+        if (!isWalkIn) { setSelectedAppointment((appointmentsFromInventory || []).find(a => a.id === id) || null); setIsCancelDialogOpen(true); return; }
         setConfirmation({
             isOpen: true, title: 'Are you sure?', description: 'This will remove the guest from the queue.',
             onConfirm: async () => {
@@ -344,7 +344,7 @@ function POSPageContent() {
              if (apt.actualStartTime && apt.actualEndTime) {
                 return acc + differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));
              }
-             const service = services?.find(s => s.id === apt.serviceId);
+             const service = (services || []).find(s => s.id === apt.serviceId);
              return acc + (service?.duration || 0);
         }, 0);
 
@@ -394,7 +394,7 @@ function POSPageContent() {
                 const staffId = apt.staffId;
                 let clash = null;
                 if (staffId) {
-                    const currentService = services?.find(s => s.id === apt.serviceId);
+                    const currentService = (services || []).find(s => s.id === apt.serviceId);
                     const currentDuration = currentService?.duration || 0;
                     const theoreticalStart = addMinutes(safeDate(apt.startTime), lateMinutes);
                     const theoreticalEnd = addMinutes(theoreticalStart, currentDuration + (currentService?.padAfter || 0));
@@ -404,7 +404,7 @@ function POSPageContent() {
                         .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
 
                     if (nextApt) {
-                        const nextService = services?.find(s => s.id === nextApt.serviceId);
+                        const nextService = (services || []).find(s => s.id === nextApt.serviceId);
                         const nextStartWithPad = subMinutes(safeDate(nextApt.startTime), nextService?.padBefore || 0);
                         if (theoreticalEnd > nextStartWithPad) {
                             clash = { nextApt, clashTime: format(nextStartWithPad, 'h:mm a') };
@@ -414,8 +414,8 @@ function POSPageContent() {
 
                 if ((lateMinutes > grace && autoCancel) || clash) {
                     const reason = clash ? 'clash' : 'late';
-                    // PROFITABLE CANCELLATION LOGIC:
-                    const currentSvc = services?.find(s => s.id === apt.serviceId);
+                    // PROFITABLE CANCELLATION: Overhead Recovery + Materials
+                    const currentSvc = (services || []).find(s => s.id === apt.serviceId);
                     const overheadRecovery = ((currentSvc?.duration || 60) / 60) * tmhr;
                     const fee = Number((overheadRecovery + (currentSvc?.cost || 0)).toFixed(2));
 
@@ -429,7 +429,7 @@ function POSPageContent() {
                     });
                     return;
                 } else if (lateMinutes > grace) {
-                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Premium
+                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Inconvenience Premium
                     const timeLostCost = (lateMinutes / 60) * tmhr;
                     const fee = Number((timeLostCost + premium).toFixed(2));
                     
@@ -458,7 +458,7 @@ function POSPageContent() {
     };
 
     const handlePrintTicket = (walkInId: string) => {
-        const walkIn = walkIns?.find(w => w.id === walkInId);
+        const walkIn = (walkIns || []).find(w => w.id === walkInId);
         if (walkIn) {
             toast({ title: "Printing Ticket...", description: "Simulating hardware call." });
         }
@@ -474,9 +474,9 @@ function POSPageContent() {
     };
 
     const handleAssignNext = () => {
-        const waiting = walkIns?.filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
-        const idle = staff?.filter(s => s.active && !s.onBreak && s.status === 'idle');
-        if (waiting?.length && idle?.length) {
+        const waiting = (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => (a.queueOrder || 0) - (b.queueOrder || 0));
+        const idle = (staff || []).filter(s => s.active && !s.onBreak && s.status === 'idle');
+        if (waiting.length && idle.length) {
             handleAssignStaff(waiting[0], idle[0].id);
         }
     };
@@ -490,7 +490,7 @@ function POSPageContent() {
         if (!firestore || !tenantId) return;
         const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
         
-        const apt = appointmentsFromInventory?.find(a => a.id === appointmentId);
+        const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
         if (!apt) return;
 
         const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
@@ -561,7 +561,7 @@ function POSPageContent() {
 
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
-        const selectedClient = clients?.find(c => c.id === selectedClientId);
+        const selectedClient = (clients || []).find(c => c.id === selectedClientId);
 
         let totalLtvIncrease = 0;
 
@@ -575,7 +575,7 @@ function POSPageContent() {
 
             const formula = checkoutState.formula || [];
             formula.forEach(item => {
-                const product = inventory.find(p => p.id === item.id);
+                const product = (inventory || []).find(p => p.id === item.id);
                 if (!product) return;
 
                 const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
@@ -621,7 +621,7 @@ function POSPageContent() {
             });
 
             const mainStaffId = overrides[service.id] || apt.staffId;
-            const mainStaffMember = staff.find(s => s.id === mainStaffId);
+            const mainStaffMember = (staff || []).find(s => s.id === mainStaffId);
             const mainPrice = getServicePrice(service, mainStaffMember);
             const mainPartRevenue = mainPrice + additional; 
             totalLtvIncrease += mainPartRevenue;
@@ -644,7 +644,7 @@ function POSPageContent() {
 
             addOnServices.forEach(addon => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
-                const addonStaffMember = staff.find(s => s.id === addonStaffId);
+                const addonStaffMember = (staff || []).find(s => s.id === addonStaffId);
                 const addonPrice = getServicePrice(addon, addonStaffMember);
                 totalLtvIncrease += addonPrice;
 
@@ -667,7 +667,7 @@ function POSPageContent() {
 
             batch.update(appointmentRef, { 
                 status: 'completed', 
-                revenue: mainPartRevenue + addOnServices.reduce((sum, a) => sum + getServicePrice(a, staff.find(s => s.id === (overrides[a.id] || apt.staffId))), 0),
+                revenue: mainPartRevenue + addOnServices.reduce((sum, a) => sum + getServicePrice(a, (staff || []).find(s => s.id === (overrides[a.id] || apt.staffId))), 0),
                 actualEndTime: now
             });
 
@@ -698,7 +698,7 @@ function POSPageContent() {
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
-                amount: retailTotal,
+                amount: retailAmount,
                 paymentMethod: paymentTab,
                 hasReceipt: true
             });
@@ -958,7 +958,7 @@ function POSPageContent() {
                             </div>
                             <div className="mt-auto pb-8">
                                 <Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">
-                                    {retailItems.length + selectedAppointmentIds.size}
+                                    {(retailItems?.length || 0) + selectedAppointmentIds.size}
                                 </Badge>
                             </div>
                         </div>
@@ -1051,10 +1051,10 @@ function POSPageContent() {
                 }}
             />
 
-            {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: clients?.find(c => c.id === appointmentToReview.clientId), service: services?.find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
+            {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
             
             <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl"><DialogHeader><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Action</DialogTitle></DialogHeader><div className="py-10 flex flex-col items-center gap-6"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Admin PIN Required</Label><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-4xl font-black h-20 w-48 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" /></div><DialogFooter className="p-6 pt-0"><Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl" onClick={() => {
-                const target = staff?.find(s => s.pin === authPin);
+                const target = (staff || []).find(s => s.pin === authPin);
                 if (target && pendingStatusAction) {
                     const { staffId, action } = pendingStatusAction;
                     const staffDocRef = doc(firestore!, 'tenants', tenantId!, 'staff', staffId);

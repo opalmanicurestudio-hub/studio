@@ -35,6 +35,8 @@ const sanitizeDataForFirebase = (data: any, stripId: boolean = false): any => {
     const result: any = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
+            // CRITICAL: Document IDs are immutable. We MUST strip the 'id' field for updates
+            // to prevent "Missing or insufficient permissions" errors.
             if (stripId && key === 'id') continue; 
             const val = data[key];
             if (val !== undefined) {

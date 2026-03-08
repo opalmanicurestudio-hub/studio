@@ -46,7 +46,8 @@ import {
   TrendingUp,
   MessageSquare,
   ListChecks,
-  Loader
+  Loader,
+  DollarSign
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -69,9 +70,10 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { format, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {

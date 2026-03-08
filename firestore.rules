@@ -17,6 +17,13 @@ service cloud.firestore {
       return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
+    /**
+     * @description Checks if the user is the creator of the specific document.
+     */
+    function isCreator() {
+      return isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+    }
+
     // --- UNIVERSAL OWNER OVERRIDE ---
     // The "Simpler Way": If you own the tenant, you have total control over all its nested data.
     // This resolves evaluation crashes and "get-limit" issues for owners.

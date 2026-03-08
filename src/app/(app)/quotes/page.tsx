@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { 
     PlusCircle, 
-    TrendingUp, 
     FileCheck, 
     Percent, 
     Clock, 
@@ -23,7 +22,8 @@ import {
     ArrowRight, 
     Hash, 
     Sparkles,
-    MoreHorizontal
+    MoreHorizontal,
+    TrendingUp
 } from 'lucide-react';
 import {
   DropdownMenu,
