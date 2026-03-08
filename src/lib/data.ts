@@ -430,6 +430,13 @@ export type Quote = {
   clientId: string;
   eventName: string;
   eventDate: string;
+  eventLocation: {
+      street?: string;
+      city?: string;
+      state?: string;
+      zip?: string;
+      country?: string;
+  };
   status: 'draft' | 'sent' | 'accepted' | 'declined' | 'booked';
   lineItems: any[];
   travelExpenses: number;
@@ -437,8 +444,18 @@ export type Quote = {
   notes?: string;
   totalHours?: number;
   createdAt: string;
+  sentAt?: string;
   userId: string;
   requiredFormIds?: string[];
+  staffPayouts: {
+      staffId: string;
+      name: string;
+      amount: number;
+  }[];
+  depositAmount: number;
+  depositType: 'percentage' | 'flat';
+  paymentTerms: 'on_receipt' | 'net_15' | 'net_30';
+  clientSecret: string;
 };
 
 export type WalkIn = {

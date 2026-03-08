@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -58,7 +59,9 @@ import {
     ShoppingCart,
     FileSignature,
     Users,
-    Zap
+    Zap,
+    Wallet,
+    Shield
 } from 'lucide-react';
 import Link from 'next/link';
 import { type Client, type Service, type ConsentForm, type Staff, getServicePrice } from '@/lib/data';
@@ -114,6 +117,7 @@ const YieldEngineCard = ({
     projectFeePercent,
     tmhr,
     totalHours,
+    depositAmount,
 } : {
     lineItems: LineItem[];
     travelAndExpenses: number;
@@ -121,6 +125,7 @@ const YieldEngineCard = ({
     projectFeePercent: number;
     tmhr: number;
     totalHours: number;
+    depositAmount: number;
 }) => {
     const { servicesSubtotal, servicesCost } = useMemo(() => {
         const subtotal = lineItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -204,6 +209,12 @@ const YieldEngineCard = ({
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Hard Cost Threshold</span>
                 <span className="text-sm font-black font-mono text-destructive">${breakEvenPoint.toFixed(2)}</span>
             </div>
+            {depositAmount > 0 && (
+                <div className="flex justify-between items-center p-4 rounded-xl bg-green-500/5 border-2 border-green-500/10">
+                    <span className="text-[10px] font-black uppercase text-green-700">Retained Deposit</span>
+                    <span className="text-sm font-black font-mono text-green-700">${depositAmount.toFixed(2)}</span>
+                </div>
+            )}
             <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10">
                 <Info className="w-4 h-4 text-muted-foreground shrink-0" />
                 <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed">
@@ -253,6 +264,11 @@ export default function QuoteGeneratorPage() {
     // Fees & Payment
     const [projectFee, setProjectFee] = useState(0);
     const [notes, setNotes] = useState('');
+    
+    // Financial Terms
+    const [depositType, setDepositType] = useState<'percentage' | 'flat'>('percentage');
+    const [depositAmountValue, setDepositAmountValue] = useState(20);
+    const [paymentTerms, setPaymentTerms] = useState<'on_receipt' | 'net_15' | 'net_30'>('on_receipt');
 
     // Legal & Compliance
     const [requiredFormIds, setRequiredFormIds] = useState<string[]>([]);
@@ -265,6 +281,22 @@ export default function QuoteGeneratorPage() {
         return mileageCost + flightsCost + lodgingCost + perDiemCost + equipmentRentalCost;
     }, [roundTripDistance, costPerMile, flightsCost, lodgingNights, lodgingRatePerNight, numberOfDays, ratePerDay, equipmentRentalCost]);
     
+    const servicesSubtotal = useMemo(() => {
+        return lineItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    }, [lineItems]);
+
+    const totalQuotePrice = useMemo(() => {
+        const fee = servicesSubtotal * (projectFee / 100);
+        return servicesSubtotal + travelAndExpenses + fee;
+    }, [servicesSubtotal, travelAndExpenses, projectFee]);
+
+    const calculatedDeposit = useMemo(() => {
+        if (depositType === 'percentage') {
+            return totalQuotePrice * (depositAmountValue / 100);
+        }
+        return depositAmountValue;
+    }, [totalQuotePrice, depositType, depositAmountValue]);
+
     const handleCalculateTravel = () => {
         setIsCalculatingTravel(true);
         setTimeout(() => {
@@ -296,6 +328,10 @@ export default function QuoteGeneratorPage() {
             status: 'draft',
             createdAt: new Date().toISOString(),
             userId: user.uid,
+            depositType,
+            depositAmount: calculatedDeposit,
+            paymentTerms,
+            clientSecret: nanoid(32),
         };
 
         try {
@@ -347,27 +383,18 @@ export default function QuoteGeneratorPage() {
         if (!member) return;
 
         const hours = totalHours || 1;
-        const totalServicesRevenue = lineItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         const numStaff = staffPayouts.length || 1;
 
-        // HIGH-PERFORMANCE LOGIC:
-        // 1. Calculate Revenue-Based Share (What they generate)
-        // Share = (Total Service Revenue / Num Staff) * Commission %
-        const revenueShare = (totalServicesRevenue / numStaff) * ((member.commissionRate || 40) / 100);
+        const revenueShare = (servicesSubtotal / numStaff) * ((member.commissionRate || 40) / 100);
 
-        // 2. Calculate Time-Based Floor (What they need to earn at minimum)
         let timeFloor = 0;
         if (member.payStructure === 'hourly' && member.hourlyRate) {
             timeFloor = hours * member.hourlyRate;
         } else {
-            // share of the studio's minimum time value
             timeFloor = (hours * tmhr) * ((member.commissionRate || 40) / 100);
         }
 
-        // 3. Select Higher of Revenue Share or Time Floor
         let suggestion = Math.max(revenueShare, timeFloor);
-
-        // 4. Apply 15% Event/Opportunity Premium
         suggestion = suggestion * 1.15;
 
         handleStaffPayoutChange(staffId, Number(suggestion.toFixed(2)));
@@ -405,7 +432,7 @@ export default function QuoteGeneratorPage() {
 
           <div className="grid lg:grid-cols-3 gap-10">
             <div className="lg:col-span-2 space-y-10">
-              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'team-labor', 'legal-compliance']} className="w-full space-y-10">
+              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'team-labor', 'legal-compliance', 'financial-logic']} className="w-full space-y-10">
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -734,16 +761,47 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
                 
-                 <AccordionItem value="fees-payment" className="border-none">
+                 <AccordionItem value="financial-logic" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
-                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={6} />
+                            <SectionHeader icon={Shield} title="Governance & Terms" step={6} />
                         </AccordionTrigger>
                     </CardHeader>
                     <AccordionContent>
-                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                        <CardContent className="p-6 md:p-8 space-y-10 text-left">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-4">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deposit Requirement</Label>
+                                    <div className="flex gap-3">
+                                        <Select value={depositType} onValueChange={(v: any) => setDepositType(v)}>
+                                            <SelectTrigger className="h-14 rounded-2xl border-2 font-bold w-32 bg-muted/5"><SelectValue /></SelectTrigger>
+                                            <SelectContent className="rounded-xl">
+                                                <SelectItem value="percentage" className="font-bold">PERCENT %</SelectItem>
+                                                <SelectItem value="flat" className="font-bold">FLAT $</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="relative flex-1">
+                                            {depositType === 'flat' ? <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /> : <Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />}
+                                            <Input type="number" value={depositAmountValue} onChange={e => setDepositAmountValue(Number(e.target.value))} className={cn("h-14 rounded-2xl border-2 font-black text-xl shadow-inner", depositType === 'flat' ? "pl-12" : "pr-12")} />
+                                        </div>
+                                    </div>
+                                    <p className="text-[9px] font-black uppercase text-primary/60 ml-1">Retained Security: ${calculatedDeposit.toFixed(2)}</p>
+                                </div>
+                                <div className="space-y-4">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Cycle</Label>
+                                    <Select value={paymentTerms} onValueChange={(v: any) => setPaymentTerms(v)}>
+                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            <SelectItem value="on_receipt" className="font-bold uppercase text-[10px] tracking-widest">DUE ON RECEIPT</SelectItem>
+                                            <SelectItem value="net_15" className="font-bold uppercase text-[10px] tracking-widest">NET 15 (15 DAYS)</SelectItem>
+                                            <SelectItem value="net_30" className="font-bold uppercase text-[10px] tracking-widest">NET 30 (30 DAYS)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground ml-1 opacity-40">Final balance due post-deployment.</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-dashed">
                                 <div className="space-y-3">
                                     <Label htmlFor="project-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Administrative Project Fee (%)</Label>
                                     <div className="relative"><Input id="project-fee" type="number" value={projectFee || ''} onChange={e => setProjectFee(Number(e.target.value))} placeholder="0" className="h-14 pr-10 rounded-2xl border-2 font-black text-xl text-primary shadow-inner" /><Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40"/></div>
@@ -767,6 +825,7 @@ export default function QuoteGeneratorPage() {
                 projectFeePercent={projectFee}
                 tmhr={tmhr}
                 totalHours={totalHours}
+                depositAmount={calculatedDeposit}
               />
             </div>
           </div>

@@ -547,10 +547,10 @@
       "description": "Represents an appointment booked with a tenant.",
       "properties": {
         "id": { "type": "string" },
-        "tenantId": { "type": "string", "description": "The ID of the tenant this appointment belongs to." },
+        "tenantId": { "type": "string", description: "The ID of the tenant this appointment belongs to." },
         "clientId": { "type": "string" },
         "serviceId": { "type": "string" },
-        "staffId": { "type": "string", "description": "The ID of the staff member performing the appointment." },
+        "staffId": { "type": "string", description: "The ID of the staff member performing the appointment." },
         "startTime": { "type": "string", "format": "date-time" },
         "endTime": { "type": "string", "format": "date-time" },
         "status": { "type": "string", "enum": ["confirmed", "completed", "cancelled", "deposit_pending", "ready_for_checkout", "servicing"] },
@@ -854,7 +854,7 @@
         "clientId": { "type": "string" },
         "eventName": { "type": "string" },
         "eventDate": { "type": "string", "format": "date" },
-        "eventLocation": { "type": "string" },
+        "eventLocation": { "type": "object" },
         "lineItems": {
           "type": "array",
           "items": { "type": "object" }
@@ -865,6 +865,7 @@
         "totalHours": { "type": "number" },
         "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined", "booked"] },
         "createdAt": { "type": "string", "format": "date-time" },
+        "sentAt": { "type": "string", "format": "date-time" },
         "userId": { "type": "string" },
         "requiredFormIds": {
           "type": "array",
@@ -882,7 +883,11 @@
             }
           },
           "description": "Defined payouts for staff members assigned to the event."
-        }
+        },
+        "depositAmount": { "type": "number" },
+        "depositType": { "type": "string", "enum": ["percentage", "flat"] },
+        "paymentTerms": { "type": "string", "enum": ["on_receipt", "net_15", "net_30"] },
+        "clientSecret": { "type": "string" }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
