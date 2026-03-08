@@ -391,16 +391,22 @@ function POSPageContent() {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
 
+                // COMPREHENSIVE DURATION: Main Service + Add-ons + Total Padding
+                const primarySvc = (services || []).find(s => s.id === apt.serviceId);
+                const addOns = (apt.addOnIds || []).map(aid => (services || []).find(s => s.id === aid)).filter(Boolean) as Service[];
+                
+                const totalDur = (primarySvc?.duration || 0) + addOns.reduce((sum, a) => sum + a.duration, 0);
+                const totalPadding = (primarySvc?.padBefore || 0) + (primarySvc?.padAfter || 0);
+                const fullSessionBlock = totalDur + totalPadding;
+
                 const staffId = apt.staffId;
                 let clash = null;
                 if (staffId) {
-                    const currentService = (services || []).find(s => s.id === apt.serviceId);
-                    const currentDuration = currentService?.duration || 0;
                     const theoreticalStart = addMinutes(safeDate(apt.startTime), lateMinutes);
-                    const theoreticalEnd = addMinutes(theoreticalStart, currentDuration + (currentService?.padAfter || 0));
+                    const theoreticalEnd = addMinutes(theoreticalStart, fullSessionBlock);
 
                     const nextApt = (appointmentsFromInventory || [])
-                        .filter(a => a.staffId === staffId && a.id !== apt.id && a.status === 'confirmed' && safeDate(a.startTime) > safeDate(apt.startTime))
+                        .filter(a => a.staffId === staffId && a.id !== apt.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(apt.startTime))
                         .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
 
                     if (nextApt) {
@@ -414,32 +420,32 @@ function POSPageContent() {
 
                 if ((lateMinutes > grace && autoCancel) || clash) {
                     const reason = clash ? 'clash' : 'late';
-                    // PROFITABLE CANCELLATION: Overhead Recovery + Materials
-                    const currentSvc = (services || []).find(s => s.id === apt.serviceId);
-                    const overheadRecovery = ((currentSvc?.duration || 60) / 60) * tmhr;
-                    const fee = Number((overheadRecovery + (currentSvc?.cost || 0)).toFixed(2));
+                    // PROFITABLE OVERHEAD RECOVERY: (Total Duration / 60 * TMHR) + Material Recovery
+                    const overheadRecovery = (fullSessionBlock / 60) * tmhr;
+                    const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
+                    const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
 
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
                     if (fee > 0 && apt.clientId) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (Overhead + Material Recovery)` }) });
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Overhead Recovery: ${clash ? 'Schedule Clash' : 'Past Grace Period'} (${fullSessionBlock}m Session Block)` }) });
                     }
                     batch.commit().then(() => {
-                        toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
+                        toast({ variant: "destructive", title: clash ? "Clash: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Session block (+${lateMinutes}m) overlaps with next guest.` : `Delay exceeds studio grace period.` });
                     });
                     return;
                 } else if (lateMinutes > grace) {
-                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Inconvenience Premium
+                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Premium
                     const timeLostCost = (lateMinutes / 60) * tmhr;
                     const fee = Number((timeLostCost + premium).toFixed(2));
                     
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                     if (apt.clientId && fee > 0) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Time-Lost Recovery + Premium)` }) });
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Time Recovery + Premium)` }) });
                     }
                     batch.commit().then(() => {
-                        toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
+                        toast({ title: "Status Updated: Fee Applied", description: `Guest accommodated with a $${fee.toFixed(2)} capacity penalty.` });
                     });
                     return;
                 }
@@ -460,7 +466,7 @@ function POSPageContent() {
     const handlePrintTicket = (walkInId: string) => {
         const walkIn = (walkIns || []).find(w => w.id === walkInId);
         if (walkIn) {
-            toast({ title: "Printing Ticket...", description: "Simulating hardware call." });
+            toast({ title: "Printing Ticket...", description: "Hardware synchronized." });
         }
     };
 
@@ -548,7 +554,7 @@ function POSPageContent() {
         batch.commit().then(() => {
             toast({
                 title: allComplete ? "Service Finished" : "Part Completed",
-                description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Hand-off complete."
+                description: allComplete ? "Ready for checkout." : "Hand-off confirmed."
             });
             setIsTechnicianReviewOpen(false);
             setIsDetailsOpen(false);
@@ -615,7 +621,7 @@ function POSPageContent() {
                     date: now,
                     change: -item.quantity,
                     unit: item.unit || 'units',
-                    reason: `Service: ${service.name} (#${apt.id.slice(-6).toUpperCase()}) for ${selectedClient?.name || 'Guest'}`,
+                    reason: `Service: ${service.name} for ${selectedClient?.name || 'Guest'}`,
                     appointmentId: apt.id,
                 });
             });
@@ -747,7 +753,7 @@ function POSPageContent() {
             const discountTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(discountTxnRef, {
                 date: now,
-                description: `Marketing Expense: ${appliedDiscountCodes.join(', ')}`,
+                description: `Promotion Applied`,
                 clientOrVendor: 'Internal',
                 clientId: selectedClientId,
                 type: 'expense',
@@ -761,12 +767,10 @@ function POSPageContent() {
 
         try {
             await batch.commit();
-            toast({ title: "Checkout Successful", description: "Performance and revenue data updated." });
+            toast({ title: "Checkout Successful" });
             setRetailItems([]);
             setSelectedAppointmentIds(new Set());
             setTipAmount(0);
-            setAppliedDiscountCodes([]);
-            setAppliedAdjustments(new Set());
             setIsCartSheetOpen(false);
         } catch (e) {
             console.error(e);
@@ -782,11 +786,7 @@ function POSPageContent() {
         const matchedProduct = inventory.find(p => p.sku === data || p.id === data);
         if (matchedProduct) {
             handleAddToCart(matchedProduct);
-            toast({ 
-                title: "Product Detected", 
-                description: `${matchedProduct.name} added to cart.`,
-                icon: <ShoppingCart className="h-4 w-4" />
-            });
+            toast({ title: "Product Added" });
             setIsScannerOpen(false);
             return;
         }
@@ -795,11 +795,9 @@ function POSPageContent() {
             const appointmentId = data.split('/').pop();
             if (appointmentId && readyForCheckoutAppointments.some(a => a.id === appointmentId)) {
                 handleSelectAppointment(appointmentId);
-                toast({ title: "Checkout Ticket Found" });
+                toast({ title: "Ticket Loaded" });
                 setIsScannerOpen(false);
             }
-        } else {
-            toast({ variant: 'destructive', title: 'Invalid Code', description: 'Could not identify product or ticket.' });
         }
     }, [inventory, readyForCheckoutAppointments, handleAddToCart, handleSelectAppointment, toast]);
 

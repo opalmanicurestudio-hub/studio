@@ -35,8 +35,8 @@ const sanitizeDataForFirebase = (data: any, stripId: boolean = false): any => {
     const result: any = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
-            // CRITICAL: Document IDs are immutable. We MUST strip the 'id' field for updates
-            // to prevent "Missing or insufficient permissions" errors.
+            // CRITICAL: Document IDs are immutable in Firestore. 
+            // We MUST strip the 'id' field for updates to prevent permission errors.
             if (stripId && key === 'id') continue; 
             const val = data[key];
             if (val !== undefined) {
@@ -78,8 +78,7 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
 }
 
 export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
-  // CRITICAL: We strip the 'id' field for updates because document IDs are immutable in Firestore.
-  // This prevents "Missing or insufficient permissions" errors caused by field-level immutability.
+  // CRITICAL: Strip 'id' field to prevent permission errors from immutable field updates
   const sanitizedData = sanitizeDataForFirebase(data, true);
   updateDoc(docRef, sanitizedData)
     .catch(error => {

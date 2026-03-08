@@ -74,7 +74,7 @@
         },
         "cancellationFee": {
             "type": "number",
-            "description": "Fee charged for late cancellations."
+            "description": "Base fee charged for late cancellations."
         },
         "cancellationWindowHours": {
             "type": "number",
@@ -862,7 +862,7 @@
         "clientId": { "type": "string" },
         "eventName": { "type": "string" },
         "eventDate": { "type": "string", "format": "date" },
-        "eventLocation": { "type": "object" },
+        "eventLocation": { "type": "string" },
         "lineItems": {
           "type": "array",
           "items": { "type": "object" }
@@ -873,29 +873,12 @@
         "totalHours": { "type": "number" },
         "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined", "booked"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "sentAt": { "type": "string", "format": "date-time" },
         "userId": { "type": "string" },
         "requiredFormIds": {
           "type": "array",
           "items": { "type": "string" },
           "description": "Required consent forms attached to the quote."
-        },
-        "staffPayouts": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "staffId": { "type": "string" },
-              "name": { "type": "string" },
-              "amount": { "type": "number" }
-            }
-          },
-          "description": "Defined payouts for staff members assigned to the event."
-        },
-        "depositAmount": { "type": "number" },
-        "depositType": { "type": "string", "enum": ["percentage", "flat"] },
-        "paymentTerms": { "type": "string", "enum": ["on_receipt", "net_15", "net_30"] },
-        "clientSecret": { "type": "string" }
+        }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
@@ -977,7 +960,7 @@
         "description": { "type": "string", "description": "An internal description of the discount." },
         "type": { "type": "string", "enum": ["percentage", "fixed"], "description": "The type of discount." },
         "value": { "type": "number", "description": "The discount value (percentage or fixed amount)." },
-        "usageLimit": { "type": "number", "description": "Total number of times the code has been used. 0 for unlimited." },
+        "usageLimit": { "type": "number", "description": "Total number of times the code can be used. 0 for unlimited." },
         "usageCount": { "type": "number", "description": "How many times the code has been used." },
         "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
         "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },

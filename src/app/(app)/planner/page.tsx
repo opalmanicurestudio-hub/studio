@@ -229,16 +229,21 @@ function PlannerPageContent() {
             const grace = selectedTenant.lateArrivalGracePeriod || 15;
             const autoCancel = selectedTenant.autoCancelLateArrivals === true;
 
+            // COMPREHENSIVE DURATION: Primary + Add-ons + Padding
+            const primarySvc = services?.find(s => s.id === apt.serviceId);
+            const addOns = (apt.addOnIds || []).map(aid => services?.find(s => s.id === aid)).filter(Boolean) as Service[];
+            const totalDur = (primarySvc?.duration || 0) + addOns.reduce((sum, a) => sum + a.duration, 0);
+            const totalPadding = (primarySvc?.padBefore || 0) + (primarySvc?.padAfter || 0);
+            const fullSessionBlock = totalDur + totalPadding;
+
             const staffId = apt.staffId;
             let clash = null;
             if (staffId) {
-                const currentService = services?.find(s => s.id === apt.serviceId);
-                const currentDuration = currentService?.duration || 0;
                 const theoreticalStart = addMinutes(safeDate(apt.startTime), lateMinutes);
-                const theoreticalEnd = addMinutes(theoreticalStart, currentDuration + (currentService?.padAfter || 0));
+                const theoreticalEnd = addMinutes(theoreticalStart, fullSessionBlock);
 
                 const nextApt = (appointments || [])
-                    .filter(a => a.staffId === staffId && a.id !== apt.id && a.status === 'confirmed' && safeDate(a.startTime) > safeDate(apt.startTime))
+                    .filter(a => a.staffId === staffId && a.id !== apt.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(apt.startTime))
                     .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
 
                 if (nextApt) {
@@ -252,18 +257,18 @@ function PlannerPageContent() {
 
             if ((lateMinutes > grace && autoCancel) || clash) {
                 const reason = clash ? 'clash' : 'late';
-                // PROFITABLE CANCELLATION: Overhead Recovery + Materials
-                const currentSvc = services?.find(s => s.id === apt.serviceId);
-                const overheadRecovery = ((currentSvc?.duration || 60) / 60) * tmhr;
-                const fee = Number((overheadRecovery + (currentSvc?.cost || 0)).toFixed(2));
+                // PROFITABLE OVERHEAD RECOVERY: (Total Block Duration / 60 * TMHR) + Material Sunk Costs
+                const overheadRecovery = (fullSessionBlock / 60) * tmhr;
+                const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
+                const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
 
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
                 if (fee > 0 && apt.clientId) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (Overhead + Materials)` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (${fullSessionBlock}m session block)` }) });
                 }
                 batch.commit().then(() => {
-                    toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
+                    toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Session block overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond grace.` });
                 });
                 return;
             } else if (lateMinutes > grace) {
@@ -277,7 +282,7 @@ function PlannerPageContent() {
                     batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Time Recovery + Premium)` }) });
                 }
                 batch.commit().then(() => {
-                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
+                    toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty.` });
                 });
                 return;
             }
@@ -359,7 +364,7 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     
-    const apt = appointments?.find(a => a.id === appointmentId);
+    const apt = (appointmentsFromInventory || []).find(a => a.id === appointmentId);
     if (!apt) return;
 
     const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
@@ -417,7 +422,7 @@ function PlannerPageContent() {
     batch.commit().then(() => {
         toast({
             title: allComplete ? "Service Finished" : "Part Completed",
-            description: allComplete ? "The appointment has been sent to the front desk for checkout." : "Your part is done. Hand-off complete."
+            description: allComplete ? "Ready for checkout." : "Hand-off confirmed."
         });
         setIsTechnicianReviewOpen(false);
         setIsDetailsOpen(false);
