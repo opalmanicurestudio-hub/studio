@@ -76,7 +76,8 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
 }
 
 export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
-  // CRITICAL: We strip the 'id' field for updates because document IDs are immutable.
+  // CRITICAL: We strip the 'id' field for updates because document IDs are immutable in Firestore.
+  // This prevents "Missing or insufficient permissions" errors caused by field-level immutability.
   const sanitizedData = sanitizeDataForFirebase(data, true);
   updateDoc(docRef, sanitizedData)
     .catch(error => {
@@ -87,7 +88,7 @@ export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) 
           operation: 'update',
           requestResourceData: sanitizedData,
         })
-      )
+      );
     });
 }
 

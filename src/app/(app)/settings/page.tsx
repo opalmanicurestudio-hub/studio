@@ -42,6 +42,11 @@ import {
   Users,
   Info,
   TrendingDown,
+  Landmark,
+  TrendingUp,
+  MessageSquare,
+  ListChecks,
+  Loader
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -483,7 +488,7 @@ function SettingsContent() {
       });
   }, [services, selectedTenant?.tmhr]);
 
-  const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
+  const isLoadingTotal = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building className="w-4 h-4" /> },
@@ -494,7 +499,7 @@ function SettingsContent() {
     { value: "messaging", label: "Messaging", icon: <MessageSquare className="w-4 h-4" /> },
   ];
 
-  if (isLoading) {
+  if (isLoadingTotal) {
     return (
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Settings" />
@@ -762,8 +767,8 @@ function SettingsContent() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="builder" className="mt-6 space-y-6">
-                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden text-left">
+            <TabsContent value="builder" className="mt-6 space-y-6 text-left">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
                             <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
@@ -1043,7 +1048,7 @@ function SettingsContent() {
                             <div className="space-y-3"><Label htmlFor="twilio-token" className="text-[10px] font-black uppercase tracking-widest ml-1">Secure Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing} className="h-12 rounded-xl border-2" /></div>
                             <div className="space-y-3 md:col-span-2"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5" /></div>
                         </div>
-                    </CardHeader>
+                    </CardContent>
                 </Card>
             </TabsContent>
           </Tabs>

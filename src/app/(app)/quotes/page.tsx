@@ -1,36 +1,29 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  MoreHorizontal,
-  PlusCircle,
-  TrendingUp,
-  FileCheck,
-  Percent,
-  Clock,
-  FileText,
-  Printer,
-  FileStack,
-  Trash2,
-  BarChart,
-  Loader,
-  DollarSign,
-  Target,
-  Activity,
-  ArrowRight,
-  Hash,
-  Sparkles,
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { 
+    PlusCircle, 
+    TrendingUp, 
+    FileCheck, 
+    Percent, 
+    Clock, 
+    FileText, 
+    Printer, 
+    FileStack, 
+    Trash2, 
+    BarChart, 
+    Loader, 
+    DollarSign, 
+    Target, 
+    Activity, 
+    ArrowRight, 
+    Hash, 
+    Sparkles,
+    MoreHorizontal
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -61,14 +54,6 @@ import { collection, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetTrigger,
-} from '@/components/ui/sheet';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -297,7 +282,7 @@ export default function QuotesPage() {
         if (!firestore || !tenantId) return;
         const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', id);
         updateDocumentNonBlocking(quoteRef, { status });
-        toast({ title: "Status Synchronized", description: `Quote status updated to ${status}.` });
+        toast({ title: "Status Synchronized", description: `Quote status updated to ${status.toUpperCase()}.` });
     };
     
     const handleBookEvent = async (quote: QuoteType) => {
@@ -310,7 +295,7 @@ export default function QuotesPage() {
             type: 'business',
             startTime: quote.eventDate || new Date().toISOString(),
             endTime: quote.eventDate || new Date().toISOString(),
-            location: quote.eventLocation?.street ? `${quote.eventLocation.street}, ${quote.eventLocation.city}` : 'Client Site',
+            location: typeof quote.eventLocation === 'string' ? quote.eventLocation : (quote.eventLocation?.street ? `${quote.eventLocation.street}, ${quote.eventLocation.city}` : 'Client Site'),
             notes: `Booked from Quote #${quote.id.slice(-6).toUpperCase()}. \n\n${quote.notes || ''}`,
             quoteId: quote.id
         }
@@ -349,7 +334,7 @@ export default function QuotesPage() {
                 <KpiCard title="Secured Pipeline" value={`$${kpiData.acceptedValue.toFixed(0)}`} icon={FileCheck} description="Yield from accepted quotes" colorClass="text-green-600" />
                 <KpiCard title="Engagement Delta" value={`${kpiData.conversionRate.toFixed(0)}%`} icon={Percent} description="Acceptance velocity" />
                 <KpiCard title="Average Ticket" value={`$${kpiData.avgQuoteValue.toFixed(0)}`} icon={TrendingUp} description="Mean proposal value" colorClass="text-primary" />
-                <KpiCard title="Awaiting Signal" value={kpiData.awaitingResponse.toString()} icon={Clock} description="Pending client review" />
+                <KpiCard title="Awaiting Response" value={kpiData.awaitingResponse.toString()} icon={Clock} description="Pending client review" />
             </div>
         </motion.div>
 
