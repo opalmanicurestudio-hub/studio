@@ -54,6 +54,7 @@ import {
   CheckCircle2,
   Sparkles,
   Zap,
+  TrendingDown,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -463,6 +464,22 @@ function SettingsContent() {
     }
   };
 
+  const lateFeeImpacts = useMemo(() => {
+      const tmhr = selectedTenant?.tmhr || 50;
+      const premium = tenantData.lateInconveniencePremium || 0;
+      const intervals = [10, 15, 20, 30];
+      
+      return intervals.map(mins => {
+          const timeLostCost = (mins / 60) * tmhr;
+          const totalFee = timeLostCost + premium;
+          return {
+              mins,
+              timeLostCost,
+              totalFee
+          };
+      });
+  }, [selectedTenant?.tmhr, tenantData.lateInconveniencePremium]);
+
   const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
@@ -650,6 +667,28 @@ function SettingsContent() {
                                     </div>
                                     <p className="text-[10px] text-muted-foreground uppercase font-bold">Added to time-lost fee (Late Mins * TMHR).</p>
                                 </div>
+                                
+                                <div className="md:col-span-2 space-y-4">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Impact
+                                    </Label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        {lateFeeImpacts.map(impact => (
+                                            <div key={impact.mins} className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-center space-y-1 shadow-inner">
+                                                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{impact.mins}m Delay</p>
+                                                <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${impact.totalFee.toFixed(2)}</p>
+                                                <p className="text-[8px] font-bold text-primary/60 uppercase">(${impact.timeLostCost.toFixed(2)} Lost Time)</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3">
+                                        <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                                        <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed">
+                                            Calculated using your <strong>${(selectedTenant?.tmhr || 50).toFixed(2)}/hr</strong> studio foundation. Fees only apply when guests are accommodated past the grace period.
+                                        </p>
+                                    </div>
+                                </div>
+
                                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20 md:col-span-2">
                                     <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
                                     <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
