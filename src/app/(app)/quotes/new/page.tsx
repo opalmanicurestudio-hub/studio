@@ -61,7 +61,7 @@ import {
     Zap
 } from 'lucide-react';
 import Link from 'next/link';
-import { type Client, type Service, type ConsentForm, type Staff } from '@/lib/data';
+import { type Client, type Service, type ConsentForm, type Staff, getServicePrice } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -346,25 +346,34 @@ export default function QuoteGeneratorPage() {
         const member = staff.find(s => s.id === staffId);
         if (!member) return;
 
-        let suggestion = 0;
         const hours = totalHours || 1;
+        const totalServicesRevenue = lineItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const numStaff = staffPayouts.length || 1;
 
+        // HIGH-PERFORMANCE LOGIC:
+        // 1. Calculate Revenue-Based Share (What they generate)
+        // Share = (Total Service Revenue / Num Staff) * Commission %
+        const revenueShare = (totalServicesRevenue / numStaff) * ((member.commissionRate || 40) / 100);
+
+        // 2. Calculate Time-Based Floor (What they need to earn at minimum)
+        let timeFloor = 0;
         if (member.payStructure === 'hourly' && member.hourlyRate) {
-            suggestion = hours * member.hourlyRate;
-        } else if (member.payStructure === 'commission') {
-            // Suggest based on % of studio time value (TMHR)
-            suggestion = (hours * tmhr) * ((member.commissionRate || 40) / 100);
+            timeFloor = hours * member.hourlyRate;
         } else {
-            suggestion = hours * tmhr;
+            // share of the studio's minimum time value
+            timeFloor = (hours * tmhr) * ((member.commissionRate || 40) / 100);
         }
 
-        // Add 15% opportunity premium for events
+        // 3. Select Higher of Revenue Share or Time Floor
+        let suggestion = Math.max(revenueShare, timeFloor);
+
+        // 4. Apply 15% Event/Opportunity Premium
         suggestion = suggestion * 1.15;
 
         handleStaffPayoutChange(staffId, Number(suggestion.toFixed(2)));
         toast({
-            title: "Payout Suggested",
-            description: `Rate for ${member.name.split(' ')[0]} calculated based on their ${member.payStructure} profile.`
+            title: "Effective Rate Calculated",
+            description: `Suggested $${suggestion.toFixed(2)} based on revenue share and event premium.`
         });
     };
 
@@ -385,7 +394,7 @@ export default function QuoteGeneratorPage() {
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic project configuration</p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm shadow-sm">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
                     <Link href="/quotes"><ArrowLeft className="mr-2 h-4 w-4" />Return</Link>
                 </Button>
                 <Button onClick={handleSaveQuote} className="flex-1 md:flex-none h-14 px-10 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
