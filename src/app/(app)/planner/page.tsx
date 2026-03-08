@@ -3,10 +3,10 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -224,12 +224,57 @@ function PlannerPageContent() {
         .map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
   }, [billInstances, billDefinitions]);
 
-  const handleUpdateStatus = (id: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId) return;
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', id);
-    updateDocumentNonBlocking(appointmentRef, { status });
-    const apt = appointments?.find(a => a.id === id);
-    if (apt?.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { status, tenantId });
+  const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
+    if (!firestore || !tenantId || !selectedTenant) return;
+    const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+    
+    if (status === 'running_late' && lateMinutes && !isWalkIn) {
+        const apt = appointments?.find(a => a.id === id);
+        if (apt) {
+            const grace = selectedTenant.lateArrivalGracePeriod || 15;
+            const overGrace = lateMinutes > grace;
+            const autoCancel = selectedTenant.autoCancelLateArrivals === true;
+
+            const staffId = apt.staffId;
+            let clash = null;
+            if (staffId) {
+                const currentService = services?.find(s => s.id === apt.serviceId);
+                const currentDuration = currentService?.duration || 0;
+                const theoreticalStart = addMinutes(safeDate(apt.startTime), lateMinutes);
+                const theoreticalEnd = addMinutes(theoreticalStart, currentDuration + (currentService?.padAfter || 0));
+
+                const nextApt = (appointments || [])
+                    .filter(a => a.staffId === staffId && a.id !== apt.id && a.status === 'confirmed' && safeDate(a.startTime) > safeDate(apt.startTime))
+                    .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
+
+                if (nextApt) {
+                    const nextService = services?.find(s => s.id === nextApt.serviceId);
+                    const nextStartWithPad = subMinutes(safeDate(nextApt.startTime), nextService?.padBefore || 0);
+                    if (theoreticalEnd > nextStartWithPad) {
+                        clash = { nextApt, clashTime: format(nextStartWithPad, 'h:mm a') };
+                    }
+                }
+            }
+
+            if ((overGrace && autoCancel) || clash) {
+                const reason = clash ? 'clash' : 'late';
+                const fee = selectedTenant.cancellationFee || 0;
+                const batch = writeBatch(firestore);
+                batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
+                if (fee > 0 && apt.clientId) {
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancelled: ${clash ? 'Clash with next session' : 'Beyond grace period'}` }) });
+                }
+                batch.commit().then(() => {
+                    toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
+                });
+                return;
+            }
+        }
+    }
+
+    const updates: any = { checkInStatus: status };
+    if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
+    updateDocumentNonBlocking(docRef, updates);
     toast({ title: "Status Updated" });
   };
 
