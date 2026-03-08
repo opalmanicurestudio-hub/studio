@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
@@ -49,6 +50,9 @@ import {
   MessageCircleQuestion,
   ImagePlus,
   Grip,
+  Activity,
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
@@ -62,7 +66,7 @@ import {
 } from '@/components/ui/select';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
-import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem } from '@/lib/data';
+import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -71,6 +75,8 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -122,6 +128,42 @@ const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; da
   );
 };
 
+const SentimentCurationItem = ({ review, onTogglePublic, onToggleFeatured }: { review: Review, onTogglePublic: (id: string, isPublic: boolean) => void, onToggleFeatured: (id: string, isFeatured: boolean) => void }) => {
+    return (
+        <div className={cn(
+            "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all",
+            review.isPublic ? "border-primary/20 bg-primary/[0.02]" : "border-border/50 bg-white opacity-60"
+        )}>
+            <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl shrink-0">
+                <AvatarImage src={review.clientAvatarUrl} className="object-cover" />
+                <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(review.clientName || 'C')[0]}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0 text-left">
+                <div className='flex items-center gap-2'>
+                    <p className="font-black uppercase tracking-tight text-[11px] text-slate-900 truncate">{review.clientName}</p>
+                    {review.isFeatured && <Badge className="bg-primary text-white border-none text-[7px] h-4 font-black uppercase">Spotlight</Badge>}
+                </div>
+                <p className="text-[9px] font-medium text-slate-500 line-clamp-1 italic">"{review.text}"</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className={cn("h-8 w-8 rounded-xl border-2 transition-all", review.isFeatured ? "bg-primary/10 border-primary text-primary" : "border-transparent text-slate-300")}
+                    onClick={() => onToggleFeatured(review.id, !review.isFeatured)}
+                >
+                    <Star className={cn("h-4 w-4", review.isFeatured && "fill-current")} />
+                </Button>
+                <Switch 
+                    checked={review.isPublic} 
+                    onCheckedChange={(val) => onTogglePublic(review.id, val)}
+                    className="data-[state=checked]:bg-primary"
+                />
+            </div>
+        </div>
+    );
+};
+
 function SettingsContent() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
@@ -156,6 +198,12 @@ function SettingsContent() {
     return collection(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`);
   }, [selectedTenant, firestore]);
   const { data: initialScheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+
+  const reviewsQuery = useMemoFirebase(() => {
+    if (!selectedTenant || !firestore) return null;
+    return collection(firestore, `tenants/${selectedTenant.id}/reviews`);
+  }, [selectedTenant, firestore]);
+  const { data: reviews } = useCollection<Review>(reviewsQuery);
 
   useEffect(() => {
     if (selectedTenant) {
@@ -374,6 +422,18 @@ function SettingsContent() {
       toast({ variant: 'destructive', title: 'Save Failed' });
     }
   };
+
+  const handleToggleReviewPublic = (id: string, isPublic: boolean) => {
+      if (!firestore || !selectedTenant) return;
+      const reviewRef = doc(firestore, `tenants/${selectedTenant.id}/reviews`, id);
+      updateDocumentNonBlocking(reviewRef, { isPublic });
+  }
+
+  const handleToggleReviewFeatured = (id: string, isFeatured: boolean) => {
+      if (!firestore || !selectedTenant) return;
+      const reviewRef = doc(firestore, `tenants/${selectedTenant.id}/reviews`, id);
+      updateDocumentNonBlocking(reviewRef, { isFeatured });
+  }
 
   const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
     const grace = tenantData.lateArrivalGracePeriod || 15;
@@ -733,6 +793,31 @@ function SettingsContent() {
                                                 className="h-8 text-xs"
                                             />
                                         </div>
+                                        
+                                        {/* EXPANDED REVIEWS CURATION */}
+                                        {section.key === 'Reviews' && tenantData.bookingPageSettings?.showReviews !== false && (
+                                            <div className="pt-4 mt-2 border-t border-dashed space-y-4">
+                                                <p className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2">
+                                                    <Sparkles className="w-3 h-3" /> Sentiment Curation
+                                                </p>
+                                                <ScrollArea className="h-[200px] -mx-2 px-2">
+                                                    <div className="space-y-2 pr-4">
+                                                        {reviews && reviews.length > 0 ? (
+                                                            reviews.sort((a,b) => (a.isFeatured ? -1 : 1)).map(review => (
+                                                                <SentimentCurationItem 
+                                                                    key={review.id} 
+                                                                    review={review} 
+                                                                    onTogglePublic={handleToggleReviewPublic} 
+                                                                    onToggleFeatured={handleToggleReviewFeatured} 
+                                                                />
+                                                            ))
+                                                        ) : (
+                                                            <p className="text-[9px] font-bold text-center text-muted-foreground py-10 uppercase tracking-widest opacity-40">Archive Idle</p>
+                                                        )}
+                                                    </div>
+                                                </ScrollArea>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
