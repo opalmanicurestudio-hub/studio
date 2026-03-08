@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,7 +51,11 @@ import {
     List,
     Clock,
     Tag,
-    Landmark
+    Landmark,
+    Truck,
+    ShieldCheck,
+    Percent,
+    ShoppingCart
 } from 'lucide-react';
 import Link from 'next/link';
 import { type Client, type Service } from '@/lib/data';
@@ -68,6 +72,7 @@ import { format } from 'date-fns';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { nanoid } from 'nanoid';
 
 type LineItem = {
     id: string;
@@ -79,8 +84,8 @@ type LineItem = {
 };
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
-    <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+    <div className="flex items-center gap-4 py-2">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
             <Icon className="w-5 h-5" />
         </div>
         <div className="space-y-0.5 text-left">
@@ -270,7 +275,6 @@ export default function QuoteGeneratorPage() {
         };
 
         try {
-            const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', quoteData.id);
             await addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'quotes'), quoteData);
             toast({ title: 'Protocol Saved', description: 'Your quote has been cached as a draft.' });
             router.push('/quotes');
@@ -329,212 +333,227 @@ export default function QuoteGeneratorPage() {
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                        <SectionHeader icon={Landmark} title="Engagement Profile" step={1} />
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={Landmark} title="Engagement Profile" step={1} />
+                        </AccordionTrigger>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                        <div className="space-y-3">
-                           <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
-                            <div className="flex gap-3">
-                              <Select value={clientId} onValueChange={(value) => {
-                                  if (value === 'add-new') { setIsAddingClient(true); setClientId(''); } 
-                                  else { setIsAddingClient(false); setClientId(value); }
-                              }}>
-                                <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
-                                  <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                  {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
-                                  <SelectItem value="add-new" className="font-black text-primary">
-                                      <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                        </div>
-                        {isAddingClient && (
-                            <Card className="bg-primary/[0.02] border-primary/10 p-6 rounded-[2rem] space-y-4 shadow-inner">
-                                <p className="text-[10px] font-black uppercase text-primary tracking-widest">Rapid Registry</p>
-                                <Input placeholder="FULL LEGAL NAME" className="h-12 rounded-xl border-2 font-bold" />
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <Input type="email" placeholder="EMAIL ADDRESS" className="h-12 rounded-xl border-2 font-bold" />
-                                    <Input type="tel" placeholder="MOBILE CONTACT" className="h-12 rounded-xl border-2 font-bold" />
-                                </div>
-                            </Card>
-                        )}
-                        <div className="space-y-3">
-                          <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Label</Label>
-                          <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., THE ANDERSON WEDDING" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
-                        </div>
-                        <div className="space-y-3">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deployment Zone</Label>
-                             <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
-                                <Input value={eventLocation.street} onChange={(e) => setEventLocation(prev => ({ ...prev, street: e.target.value }))} placeholder="STREET ADDRESS" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <Input value={eventLocation.city} onChange={(e) => setEventLocation(prev => ({ ...prev, city: e.target.value }))} placeholder="CITY" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-                                    <Input value={eventLocation.state} onChange={(e) => setEventLocation(prev => ({ ...prev, state: e.target.value }))} placeholder="STATE / PROVINCE" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
                             <div className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Event Timestamp</Label>
-                                <Input
-                                  type="date"
-                                  value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
-                                  onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                                  className="h-14 rounded-2xl border-2 font-black text-lg"
-                                />
+                            <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
+                                <div className="flex gap-3">
+                                <Select value={clientId} onValueChange={(value) => {
+                                    if (value === 'add-new') { setIsAddingClient(true); setClientId(''); } 
+                                    else { setIsAddingClient(false); setClientId(value); }
+                                }}>
+                                    <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
+                                    <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                    {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
+                                    <SelectItem value="add-new" className="font-black text-primary">
+                                        <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
+                                    </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                </div>
+                            </div>
+                            {isAddingClient && (
+                                <Card className="bg-primary/[0.02] border-primary/10 p-6 rounded-[2rem] space-y-4 shadow-inner">
+                                    <p className="text-[10px] font-black uppercase text-primary tracking-widest">Rapid Registry</p>
+                                    <Input placeholder="FULL LEGAL NAME" className="h-12 rounded-xl border-2 font-bold" />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <Input type="email" placeholder="EMAIL ADDRESS" className="h-12 rounded-xl border-2 font-bold" />
+                                        <Input type="tel" placeholder="MOBILE CONTACT" className="h-12 rounded-xl border-2 font-bold" />
+                                    </div>
+                                </Card>
+                            )}
+                            <div className="space-y-3">
+                            <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Label</Label>
+                            <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., THE ANDERSON WEDDING" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                             </div>
                             <div className="space-y-3">
-                                <Label htmlFor="total-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Resource Allocation (Hours)</Label>
-                                <div className="relative">
-                                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                    <Input id="total-hours" type="number" value={totalHours || ''} onChange={e => setTotalHours(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner" />
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deployment Zone</Label>
+                                <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                                    <Input value={eventLocation.street} onChange={(e) => setEventLocation(prev => ({ ...prev, street: e.target.value }))} placeholder="STREET ADDRESS" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <Input value={eventLocation.city} onChange={(e) => setEventLocation(prev => ({ ...prev, city: e.target.value }))} placeholder="CITY" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                                        <Input value={eventLocation.state} onChange={(e) => setEventLocation(prev => ({ ...prev, state: e.target.value }))} placeholder="STATE / PROVINCE" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </CardContent>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Event Timestamp</Label>
+                                    <Input
+                                    type="date"
+                                    value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                    className="h-14 rounded-2xl border-2 font-black text-lg"
+                                    />
+                                </div>
+                                <div className="space-y-3">
+                                    <Label htmlFor="total-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Resource Allocation (Hours)</Label>
+                                    <div className="relative">
+                                        <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="total-hours" type="number" value={totalHours || ''} onChange={e => setTotalHours(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner" />
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </AccordionContent>
                   </Card>
                 </AccordionItem>
                 
                 <AccordionItem value="services-products" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                        <SectionHeader icon={ShoppingCart} title="Protocol Manifest" step={2} />
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={ShoppingCart} title="Protocol Manifest" step={2} />
+                        </AccordionTrigger>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                        <div className="space-y-4">
-                            {lineItems.length > 0 ? (
-                                <div className="space-y-3">
-                                    {lineItems.map(item => (
-                                        <div key={item.id} className="flex justify-between items-center p-5 bg-muted/20 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all group">
-                                            <div className="min-w-0 flex-1">
-                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
-                                                <p className="text-[10px] font-black text-primary uppercase tracking-widest opacity-60 mt-0.5">${item.price.toFixed(2)} unit value</p>
-                                            </div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex items-center gap-2">
-                                                    <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
-                                                    <Input type="number" value={item.quantity} onChange={e => handleLineItemQuantityChange(item.id, Number(e.target.value))} className="w-16 h-10 rounded-xl border-2 text-center font-black" />
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                            <div className="space-y-4">
+                                {lineItems.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {lineItems.map(item => (
+                                            <div key={item.id} className="flex justify-between items-center p-5 bg-muted/20 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all group">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                                    <p className="text-[10px] font-black text-primary uppercase tracking-widest opacity-60 mt-0.5">${item.price.toFixed(2)} unit value</p>
                                                 </div>
-                                                <Button variant="ghost" size="icon" className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeLineItem(item.id)}>
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                                        <Input type="number" value={item.quantity} onChange={e => handleLineItemQuantityChange(item.id, Number(e.target.value))} className="w-16 h-10 rounded-xl border-2 text-center font-black" />
+                                                    </div>
+                                                    <Button variant="ghost" size="icon" className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeLineItem(item.id)}>
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className='p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4'>
+                                        <List className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">No Manifest Items</p>
+                                    </div>
+                                )}
+                                <div className='pt-4'>
+                                    <Select onValueChange={addServiceAsLineItem}>
+                                        <SelectTrigger className="h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] bg-muted/5 shadow-inner">
+                                            <PlusCircle className="mr-2 h-4 w-4 text-primary" />
+                                            <SelectValue placeholder="APPEND FROM STUDIO LIBRARY..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                            {services.map(s => <SelectItem key={s.id} value={s.id} disabled={lineItems.some(li => li.id === s.id)} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
-                            ) : (
-                                 <div className='p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4'>
-                                    <List className="w-12 h-12" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest">No Manifest Items</p>
-                                </div>
-                            )}
-                            <div className='pt-4'>
-                                <Select onValueChange={addServiceAsLineItem}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] bg-muted/5 shadow-inner">
-                                        <PlusCircle className="mr-2 h-4 w-4 text-primary" />
-                                        <SelectValue placeholder="APPEND FROM STUDIO LIBRARY..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                        {services.map(s => <SelectItem key={s.id} value={s.id} disabled={lineItems.some(li => li.id === s.id)} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
                             </div>
-                        </div>
-                    </CardContent>
+                        </CardContent>
+                    </AccordionContent>
                   </Card>
                 </AccordionItem>
 
                  <AccordionItem value="travel-expenses" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                        <SectionHeader icon={Truck} title="Logistics & Deployment" step={3} />
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={Truck} title="Logistics & Deployment" step={3} />
+                        </AccordionTrigger>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-10 text-left">
-                        <div className="space-y-8">
-                            <div className="p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-8 shadow-inner">
-                                <div className="flex flex-col sm:flex-row items-center gap-6">
-                                    <div className="flex-1 w-full space-y-3">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Round Trip (Miles)</Label>
-                                        <div className="relative">
-                                            <Car className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                            <Input type="number" value={roundTripDistance || ''} onChange={e => setRoundTripDistance(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-white" />
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-10 text-left">
+                            <div className="space-y-8">
+                                <div className="p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-8 shadow-inner">
+                                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                                        <div className="flex-1 w-full space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Round Trip (Miles)</Label>
+                                            <div className="relative">
+                                                <Car className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                                <Input type="number" value={roundTripDistance || ''} onChange={e => setRoundTripDistance(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-white" />
+                                            </div>
+                                        </div>
+                                        <Button onClick={handleCalculateTravel} disabled={isCalculatingTravel} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg w-full sm:w-auto">
+                                            {isCalculatingTravel ? <Loader className="animate-spin mr-2 h-4 w-4"/> : <Activity className="mr-2 h-4 w-4"/>}
+                                            ANALYZE ROUTE
+                                        </Button>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-3">
+                                            <Label htmlFor="cost-per-mile" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Landed Rate / Mile</Label>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                                                <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="h-12 pl-10 rounded-xl border-2 font-black font-mono bg-white" />
+                                            </div>
+                                        </div>
+                                        <div className="p-4 rounded-xl bg-white border flex justify-between items-center shadow-sm">
+                                            <span className="text-[9px] font-black uppercase text-muted-foreground">Est. Mileage Cost</span>
+                                            <span className="text-lg font-black font-mono text-slate-900">${(roundTripDistance * costPerMile).toFixed(2)}</span>
                                         </div>
                                     </div>
-                                    <Button onClick={handleCalculateTravel} disabled={isCalculatingTravel} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg w-full sm:w-auto">
-                                        {isCalculatingTravel ? <Loader className="animate-spin mr-2 h-4 w-4"/> : <Activity className="mr-2 h-4 w-4"/>}
-                                        ANALYZE ROUTE
-                                    </Button>
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    <div className="space-y-3">
-                                        <Label htmlFor="cost-per-mile" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Landed Rate / Mile</Label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                                            <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="h-12 pl-10 rounded-xl border-2 font-black font-mono bg-white" />
-                                        </div>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-white border flex justify-between items-center shadow-sm">
-                                        <span className="text-[9px] font-black uppercase text-muted-foreground">Est. Mileage Cost</span>
-                                        <span className="text-lg font-black font-mono text-slate-900">${(roundTripDistance * costPerMile).toFixed(2)}</span>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-10 pt-4">
-                                <div className="space-y-6">
-                                    <div className="space-y-3">
-                                        <Label htmlFor="flights-cost" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Plane className="w-3 h-3 text-primary"/> Air Logistics</Label>
-                                        <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input id="flights-cost" type="number" value={flightsCost || ''} onChange={e => setFlightsCost(Number(e.target.value))} placeholder="0.00" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Label htmlFor="equipment-rental-cost" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Briefcase className="w-3 h-3 text-primary" /> Resource Rentals</Label>
-                                        <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input id="equipment-rental-cost" type="number" value={equipmentRentalCost || ''} onChange={e => setEquipmentRentalCost(Number(e.target.value))} placeholder="0.00" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
-                                    </div>
-                                </div>
-                                <div className="space-y-6">
-                                    <div className="space-y-3">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Hotel className="w-3 h-3 text-primary"/> Accommodation Archive</Label>
-                                        <div className="flex items-center gap-3">
-                                            <Input type="number" value={lodgingNights || ''} onChange={e => setLodgingNights(Number(e.target.value))} placeholder="NIGHTS" className="h-12 rounded-xl border-2 text-center font-black" />
-                                            <span className="text-muted-foreground font-black text-xs">@</span>
-                                            <div className="relative flex-1"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={lodgingRatePerNight || ''} onChange={e => setLodgingRatePerNight(Number(e.target.value))} placeholder="RATE" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-10 pt-4">
+                                    <div className="space-y-6">
+                                        <div className="space-y-3">
+                                            <Label htmlFor="flights-cost" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Plane className="w-3 h-3 text-primary"/> Air Logistics</Label>
+                                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input id="flights-cost" type="number" value={flightsCost || ''} onChange={e => setFlightsCost(Number(e.target.value))} placeholder="0.00" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <Label htmlFor="equipment-rental-cost" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Briefcase className="w-3 h-3 text-primary" /> Resource Rentals</Label>
+                                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input id="equipment-rental-cost" type="number" value={equipmentRentalCost || ''} onChange={e => setEquipmentRentalCost(Number(e.target.value))} placeholder="0.00" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
                                         </div>
                                     </div>
-                                    <div className="space-y-3">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Utensils className="w-3 h-3 text-primary"/> Per Diem Engine (Meals)</Label>
-                                        <div className="flex items-center gap-3">
-                                            <Input type="number" value={numberOfDays || ''} onChange={e => setNumberOfDays(Number(e.target.value))} placeholder="DAYS" className="h-12 rounded-xl border-2 text-center font-black" />
-                                            <span className="text-muted-foreground font-black text-xs">@</span>
-                                            <div className="relative flex-1"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={ratePerDay || ''} onChange={e => setRatePerDay(Number(e.target.value))} placeholder="RATE" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
+                                    <div className="space-y-6">
+                                        <div className="space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Hotel className="w-3 h-3 text-primary"/> Accommodation Archive</Label>
+                                            <div className="flex items-center gap-3">
+                                                <Input type="number" value={lodgingNights || ''} onChange={e => setLodgingNights(Number(e.target.value))} placeholder="NIGHTS" className="h-12 rounded-xl border-2 text-center font-black" />
+                                                <span className="text-muted-foreground font-black text-xs">@</span>
+                                                <div className="relative flex-1"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={lodgingRatePerNight || ''} onChange={e => setLodgingRatePerNight(Number(e.target.value))} placeholder="RATE" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2"><Utensils className="w-3 h-3 text-primary"/> Per Diem Engine (Meals)</Label>
+                                            <div className="flex items-center gap-3">
+                                                <Input type="number" value={numberOfDays || ''} onChange={e => setNumberOfDays(Number(e.target.value))} placeholder="DAYS" className="h-12 rounded-xl border-2 text-center font-black" />
+                                                <span className="text-muted-foreground font-black text-xs">@</span>
+                                                <div className="relative flex-1"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" /><Input type="number" value={ratePerDay || ''} onChange={e => setRatePerDay(Number(e.target.value))} placeholder="RATE" className="h-12 pl-9 rounded-xl border-2 font-bold font-mono" /></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </AccordionContent>
+                        </CardContent>
+                    </AccordionContent>
+                  </Card>
                 </AccordionItem>
                 
                  <AccordionItem value="fees-payment" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-                        <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={4} />
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={4} />
+                        </AccordionTrigger>
                     </CardHeader>
-                    <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-3">
-                                <Label htmlFor="project-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Administrative Project Fee (%)</Label>
-                                <div className="relative"><Input id="project-fee" type="number" value={projectFee || ''} onChange={e => setProjectFee(Number(e.target.value))} placeholder="0" className="h-14 pr-10 rounded-2xl border-2 font-black text-xl text-primary shadow-inner" /><Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40"/></div>
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <Label htmlFor="project-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Administrative Project Fee (%)</Label>
+                                    <div className="relative"><Input id="project-fee" type="number" value={projectFee || ''} onChange={e => setProjectFee(Number(e.target.value))} placeholder="0" className="h-14 pr-10 rounded-2xl border-2 font-black text-xl text-primary shadow-inner" /><Percent className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40"/></div>
+                                </div>
                             </div>
-                        </div>
-                        <div className="space-y-3">
-                            <Label htmlFor="notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Cavets & Footnotes</Label>
-                            <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="ENTER PROPOSAL CONDITIONS OR LOGISTICS NOTES..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20" />
-                        </div>
-                    </CardContent>
+                            <div className="space-y-3">
+                                <Label htmlFor="notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Cavets & Footnotes</Label>
+                                <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="ENTER PROPOSAL CONDITIONS OR LOGISTICS NOTES..." className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20" />
+                            </div>
+                        </CardContent>
+                    </AccordionContent>
                   </Card>
                 </AccordionItem>
               </Accordion>
