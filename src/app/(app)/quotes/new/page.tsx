@@ -57,10 +57,11 @@ import {
     ShieldCheck,
     Percent,
     ShoppingCart,
-    FileSignature
+    FileSignature,
+    Users
 } from 'lucide-react';
 import Link from 'next/link';
-import { type Client, type Service, type ConsentForm } from '@/lib/data';
+import { type Client, type Service, type ConsentForm, type Staff } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -76,6 +77,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { nanoid } from 'nanoid';
 import { BrowseConsentFormsDialog } from '@/components/services/BrowseConsentFormsDialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type LineItem = {
     id: string;
@@ -84,6 +86,12 @@ type LineItem = {
     price: number;
     cost: number;
     quantity: number;
+};
+
+type StaffPayout = {
+    staffId: string;
+    name: string;
+    amount: number;
 };
 
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
@@ -101,12 +109,14 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
 const YieldEngineCard = ({ 
     lineItems,
     travelAndExpenses,
+    staffPayouts,
     projectFeePercent,
     tmhr,
     totalHours,
 } : {
     lineItems: LineItem[];
     travelAndExpenses: number;
+    staffPayouts: StaffPayout[];
     projectFeePercent: number;
     tmhr: number;
     totalHours: number;
@@ -117,11 +127,12 @@ const YieldEngineCard = ({
         return { servicesSubtotal: subtotal, servicesCost: cost };
     }, [lineItems]);
 
+    const totalStaffPayout = staffPayouts.reduce((acc, s) => acc + s.amount, 0);
     const projectFee = servicesSubtotal * (projectFeePercent / 100);
     const totalQuotePrice = servicesSubtotal + travelAndExpenses + projectFee;
     
     const timeCost = totalHours * tmhr;
-    const breakEvenPoint = servicesCost + travelAndExpenses + timeCost;
+    const breakEvenPoint = servicesCost + travelAndExpenses + timeCost + totalStaffPayout;
     
     const netProfit = totalQuotePrice - breakEvenPoint;
     const profitMargin = totalQuotePrice > 0 ? (netProfit / totalQuotePrice) * 100 : 0;
@@ -161,12 +172,12 @@ const YieldEngineCard = ({
         </div>
 
         <div className="space-y-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Profit Distribution</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hard Cost Allocations</p>
             <div className="grid gap-3">
                 <div className="p-4 rounded-2xl bg-muted/20 border-2 flex justify-between items-center">
                     <div className="space-y-0.5">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Services Subtotal</p>
-                        <p className="text-sm font-black font-mono text-slate-900">${servicesSubtotal.toFixed(2)}</p>
+                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Services Overhead</p>
+                        <p className="text-sm font-black font-mono text-slate-900">${servicesCost.toFixed(2)}</p>
                     </div>
                     <Target className="w-4 h-4 text-muted-foreground opacity-20" />
                 </div>
@@ -179,10 +190,10 @@ const YieldEngineCard = ({
                 </div>
                 <div className="p-4 rounded-2xl bg-muted/20 border-2 flex justify-between items-center">
                     <div className="space-y-0.5">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Project Fee ({projectFeePercent}%)</p>
-                        <p className="text-sm font-black font-mono text-slate-900">${projectFee.toFixed(2)}</p>
+                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Staff Labor Cost</p>
+                        <p className="text-sm font-black font-mono text-slate-900">${totalStaffPayout.toFixed(2)}</p>
                     </div>
-                    <Tag className="w-4 h-4 text-muted-foreground opacity-20" />
+                    <Users className="w-4 h-4 text-muted-foreground opacity-20" />
                 </div>
             </div>
         </div>
@@ -205,7 +216,7 @@ const YieldEngineCard = ({
 };
 
 export default function QuoteGeneratorPage() {
-    const { clients, services, consentForms } = useInventory();
+    const { clients, services, consentForms, staff } = useInventory();
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
     const { toast } = useToast();
@@ -234,6 +245,9 @@ export default function QuoteGeneratorPage() {
     const [numberOfDays, setNumberOfDays] = useState(0);
     const [ratePerDay, setRatePerDay] = useState(0);
     const [equipmentRentalCost, setEquipmentRentalCost] = useState(0);
+
+    // Team & Labor
+    const [staffPayouts, setStaffPayouts] = useState<StaffPayout[]>([]);
 
     // Fees & Payment
     const [projectFee, setProjectFee] = useState(0);
@@ -273,6 +287,7 @@ export default function QuoteGeneratorPage() {
             eventLocation: eventLocation,
             lineItems: lineItems,
             travelExpenses: travelAndExpenses,
+            staffPayouts: staffPayouts,
             projectFee,
             notes,
             totalHours,
@@ -315,6 +330,21 @@ export default function QuoteGeneratorPage() {
         setLineItems(prev => prev.map(item => item.id === id ? {...item, quantity: Math.max(1, quantity)} : item));
     }
 
+    const handleAddStaff = (staffId: string) => {
+        const member = staff.find(s => s.id === staffId);
+        if (member && !staffPayouts.some(s => s.staffId === member.id)) {
+            setStaffPayouts(prev => [...prev, { staffId: member.id, name: member.name, amount: 0 }]);
+        }
+    };
+
+    const handleStaffPayoutChange = (staffId: string, amount: number) => {
+        setStaffPayouts(prev => prev.map(s => s.staffId === staffId ? { ...s, amount } : s));
+    };
+
+    const removeStaff = (staffId: string) => {
+        setStaffPayouts(prev => prev.filter(s => s.staffId !== staffId));
+    };
+
     const assignedForms = useMemo(() => consentForms.filter(f => requiredFormIds.includes(f.id)), [requiredFormIds, consentForms]);
 
   return (
@@ -339,7 +369,7 @@ export default function QuoteGeneratorPage() {
 
           <div className="grid lg:grid-cols-3 gap-10">
             <div className="lg:col-span-2 space-y-10">
-              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'legal-compliance']} className="w-full space-y-10">
+              <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'team-labor', 'legal-compliance']} className="w-full space-y-10">
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -543,11 +573,74 @@ export default function QuoteGeneratorPage() {
                   </Card>
                 </AccordionItem>
 
+                <AccordionItem value="team-labor" className="border-none">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                        <AccordionTrigger className="hover:no-underline">
+                            <SectionHeader icon={Users} title="Team & Labor Matrix" step={4} />
+                        </AccordionTrigger>
+                    </CardHeader>
+                    <AccordionContent>
+                        <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                            <div className="space-y-4">
+                                <div className='flex items-center justify-between px-1'>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Provider Payouts</Label>
+                                    <Select onValueChange={handleAddStaff}>
+                                        <SelectTrigger className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm w-48">
+                                            <PlusCircle className="w-3 h-3 mr-1.5" /> Assign Provider
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                            {staff.filter(s => !staffPayouts.some(p => p.staffId === s.id)).map(s => (
+                                                <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[9px] tracking-widest">{s.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                
+                                {staffPayouts.length > 0 ? (
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {staffPayouts.map(payout => (
+                                            <div key={payout.staffId} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group gap-4">
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <Avatar className="h-8 w-8 border shadow-sm">
+                                                        <AvatarImage src={staff.find(s => s.id === payout.staffId)?.avatarUrl} />
+                                                        <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(payout.name || 'S')[0]}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">{payout.name}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="relative w-32">
+                                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                                                        <Input 
+                                                            type="number" 
+                                                            value={payout.amount || ''} 
+                                                            onChange={e => handleStaffPayoutChange(payout.staffId, Number(e.target.value))} 
+                                                            placeholder="0.00" 
+                                                            className="h-10 pl-8 rounded-xl border-2 font-black font-mono text-xs" 
+                                                        />
+                                                    </div>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeStaff(payout.staffId)}><Trash2 className="w-4 h-4" /></Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <Users className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">Solo Project (No Staff Labor)</p>
+                                    </div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </AccordionContent>
+                  </Card>
+                </AccordionItem>
+
                 <AccordionItem value="legal-compliance" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
-                            <SectionHeader icon={FileSignature} title="Legal & Compliance" step={4} />
+                            <SectionHeader icon={FileSignature} title="Legal & Compliance" step={5} />
                         </AccordionTrigger>
                     </CardHeader>
                     <AccordionContent>
@@ -586,7 +679,7 @@ export default function QuoteGeneratorPage() {
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
-                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={5} />
+                            <SectionHeader icon={ShieldCheck} title="Logic & Conditions" step={6} />
                         </AccordionTrigger>
                     </CardHeader>
                     <AccordionContent>
@@ -611,6 +704,7 @@ export default function QuoteGeneratorPage() {
               <YieldEngineCard 
                 lineItems={lineItems}
                 travelAndExpenses={travelAndExpenses}
+                staffPayouts={staffPayouts}
                 projectFeePercent={projectFee}
                 tmhr={tmhr}
                 totalHours={totalHours}

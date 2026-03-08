@@ -865,7 +865,24 @@
         "totalHours": { "type": "number" },
         "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined", "booked"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "userId": { "type": "string" }
+        "userId": { "type": "string" },
+        "requiredFormIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required consent forms attached to the quote."
+        },
+        "staffPayouts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "staffId": { "type": "string" },
+              "name": { "type": "string" },
+              "amount": { "type": "number" }
+            }
+          },
+          "description": "Defined payouts for staff members assigned to the event."
+        }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
@@ -951,7 +968,7 @@
         "usageCount": { "type": "number", "description": "How many times the code has been used." },
         "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
         "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
-        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
+        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." },
         "applicableServiceIds": {
             "type": "array",
             "items": { "type": "string" },
@@ -1033,7 +1050,6 @@
         "rating": { "type": "number" },
         "text": { "type": "string" },
         "isPublic": { "type": "boolean" },
-        "isFeatured": { "type": "boolean", "default": false },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
@@ -1099,7 +1115,7 @@
       },
       "description": "Clients belonging to a specific tenant."
     },
-     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
+    "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
         "schema": { "$ref": "#/entities/SignedConsent" },
         "description": "Stores instances of consent forms signed by a specific client."
     },
@@ -1120,16 +1136,6 @@
         "$ref": "#/entities/Event"
       },
       "description": "Calendar events for a tenant, including booked quotes."
-    },
-    "/tenants/{tenantId}/orders/{orderId}": {
-        "schema": { "$ref": "#/entities/Order" },
-        "description": "Purchase orders for inventory supplies."
-    },
-    "/tenants/{tenantId}/quotes/{quoteId}": {
-      "schema": {
-        "$ref": "#/entities/Quote"
-      },
-      "description": "Quotes or proposals for a specific tenant."
     },
     "/tenants/{tenantId}/orders/{orderId}": {
         "schema": { "$ref": "#/entities/Order" },
