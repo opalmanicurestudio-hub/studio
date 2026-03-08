@@ -9,43 +9,38 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
     /**
      * @description Checks if the user is the legal owner of the tenant.
-     * Hardened to use get().data.userId directly.
+     * Uses a direct lookup on the tenant document.
      */
     function isTenantOwner(tenantId) {
       return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
     // --- UNIVERSAL OWNER OVERRIDE ---
-    // If you own the tenant, you have total control over all its nested data.
-    // This resolves evaluates crashes and "get-limit" issues.
+    // The "Simpler Way": If you own the tenant, you have total control over all its nested data.
+    // This resolves evaluation crashes and "get-limit" issues for owners.
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isTenantOwner(tenantId);
     }
 
-    // --- Specific Rule Adjustments for Performance ---
+    // --- Specific Rule Adjustments for Performance & Access ---
 
     // Top-level tenant document access
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isTenantOwner(tenantId);
       allow list: if isSignedIn() && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
     }
 
     // User profiles
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
     // Staff Directory (Lookup for roles)
     match /staffDirectory/{staffId} {
-      allow get: if isOwner(staffId);
+      allow get: if isSignedIn() && (request.auth.uid == staffId || isTenantOwner(resource.data.tenantId));
       allow write: if isSignedIn(); 
     }
 
@@ -56,14 +51,6 @@ service cloud.firestore {
       allow update: if 
         (isSignedIn()) || 
         (request.auth == null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
-    }
-    
-    // Explicit rule for Quotes to allow creators who aren't necessarily admins yet
-    match /tenants/{tenantId}/quotes/{quoteId} {
-      allow read, write: if isSignedIn() && (
-        request.resource.data.userId == request.auth.uid ||
-        resource.data.userId == request.auth.uid
-      );
     }
   }
 }

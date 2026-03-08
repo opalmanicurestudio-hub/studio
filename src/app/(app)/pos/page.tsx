@@ -382,14 +382,14 @@ function POSPageContent() {
         if (!firestore || !tenantId || !selectedTenant) return;
         
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-        
+        const tmhr = selectedTenant.tmhr || 50;
+        const premium = selectedTenant.lateInconveniencePremium || 0;
+
         if (status === 'running_late' && lateMinutes && !isWalkIn) {
             const apt = (appointmentsFromInventory || []).find(a => a.id === id);
             if (apt) {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
                 const autoCancel = selectedTenant.autoCancelLateArrivals === true;
-                const tmhr = selectedTenant.tmhr || 50;
-                const premium = selectedTenant.lateInconveniencePremium || 0;
 
                 const staffId = apt.staffId;
                 let clash = null;
@@ -414,25 +414,29 @@ function POSPageContent() {
 
                 if ((lateMinutes > grace && autoCancel) || clash) {
                     const reason = clash ? 'clash' : 'late';
-                    const fee = selectedTenant.cancellationFee || 0;
+                    // PROFITABLE CANCELLATION LOGIC:
+                    const currentSvc = services?.find(s => s.id === apt.serviceId);
+                    const overheadRecovery = ((currentSvc?.duration || 60) / 60) * tmhr;
+                    const fee = Number((overheadRecovery + (currentSvc?.cost || 0)).toFixed(2));
+
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
                     if (fee > 0 && apt.clientId) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancelled: ${clash ? 'Clash with next session' : 'Beyond grace period'}` }) });
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (Overhead + Material Recovery)` }) });
                     }
                     batch.commit().then(() => {
                         toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
                     });
                     return;
                 } else if (lateMinutes > grace) {
-                    // APPLY DYNAMIC LATE FEE BUT ACCOMMODATE
+                    // DYNAMIC LATE FEE: (Time Lost * TMHR) + Premium
                     const timeLostCost = (lateMinutes / 60) * tmhr;
                     const fee = Number((timeLostCost + premium).toFixed(2));
                     
                     const batch = writeBatch(firestore);
                     batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                     if (apt.clientId && fee > 0) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accurate Time-Lost + Premium)` }) });
+                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Time-Lost Recovery + Premium)` }) });
                     }
                     batch.commit().then(() => {
                         toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
@@ -694,7 +698,7 @@ function POSPageContent() {
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
-                amount: retailAmount,
+                amount: retailTotal,
                 paymentMethod: paymentTab,
                 hasReceipt: true
             });
@@ -924,7 +928,7 @@ function POSPageContent() {
                         <KpiCard title="Daily Gross" value={`$${kpiData.totalDailyGrossRevenue.toFixed(2)}`} icon={<DollarSign className="text-amber-500"/>} iconBgColor="bg-amber-100 dark:bg-amber-900/50" description="Current yield." />
                     </div>
 
-                    <div className="grid gap-10 grid-cols-1">
+                    <div className="grid gap-10 grid-cols-1 text-left">
                         <TeamStatus staff={staff} onStatusChange={(id, act) => {}} appointments={todayAppointments} services={services} onReorder={handleStaffReorder} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={handleForceIdle} />
                         <WalkInQueue walkIns={walkIns} appointments={todayAppointments} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={handlePrintTicket} onSkip={handleSkip} onReturnToQueue={handleReturnToQueue} groupSizes={new Map()} onToggleWaitForStaff={() => {}} onScanClick={() => setIsScannerOpen(true)} onFinishService={handleFinishService} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={handleResolve} />
                         <div className="space-y-4">
@@ -942,14 +946,12 @@ function POSPageContent() {
                 )}>
                     {isCartCollapsed ? (
                         <div className="flex flex-col items-center py-8 gap-8 h-full">
-                            <Button 
-                                variant="ghost" 
-                                size="icon" 
+                            <button 
                                 onClick={() => setIsCartCollapsed(false)} 
-                                className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm"
+                                className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"
                             >
                                 <ChevronLeft className="h-6 w-6" />
-                            </Button>
+                            </button>
                             <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180">
                                 <span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span>
                                 <span className="font-black text-primary text-xl mt-6 tracking-tighter">${total.toFixed(2)}</span>

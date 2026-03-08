@@ -15,45 +15,32 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { 
-  DollarSign, 
-  Save, 
-  ListChecks, 
-  MessageSquare, 
-  Clock, 
   Building, 
-  Edit, 
-  PlusCircle, 
-  MoreHorizontal, 
-  Check, 
-  Link as LinkIcon, 
+  Clock, 
   FileText, 
-  Trash2, 
-  Users, 
-  Info,
-  Ban,
+  Edit, 
+  Check, 
+  Globe, 
+  Palette, 
+  ImageIcon, 
+  CircleHelp, 
+  Award, 
+  Star, 
+  Repeat, 
+  Plus, 
+  X, 
+  MessageCircleQuestion, 
+  ImagePlus, 
+  Activity, 
+  CheckCircle2, 
+  Sparkles, 
+  Zap, 
   ShieldAlert,
+  Ban,
   Calculator,
-  Loader,
-  Globe,
-  Palette,
-  Eye,
-  EyeOff,
-  ImageIcon,
-  CircleHelp,
-  Award,
-  Star,
-  Repeat,
-  Plus,
-  X,
-  MessageCircleQuestion,
-  ImagePlus,
-  Grip,
-  Activity,
-  CheckCircle2,
-  Sparkles,
-  Zap,
+  Users,
+  Info,
   TrendingDown,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -68,7 +55,7 @@ import {
 } from '@/components/ui/select';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
-import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review } from '@/lib/data';
+import { type Tenant, type BookingPageSettings, type BookingFAQItem, type BookingGalleryItem, type Review, type Service } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -78,7 +65,8 @@ import { cn } from '@/lib/utils';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { formatDistanceToNow, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { useInventory } from '@/context/InventoryContext';
 
 const DayHoursRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
@@ -170,6 +158,7 @@ function SettingsContent() {
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { tenants, selectedTenant, isLoading: isTenantContextLoading } = useTenant();
+  const { services } = useInventory();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
 
@@ -480,6 +469,20 @@ function SettingsContent() {
       });
   }, [selectedTenant?.tmhr, tenantData.lateInconveniencePremium]);
 
+  const serviceBreakevenImpacts = useMemo(() => {
+      const tmhr = selectedTenant?.tmhr || 50;
+      if (!services) return [];
+      return services.slice(0, 5).map(s => {
+          const timeCost = (s.duration / 60) * tmhr;
+          const materialCost = s.cost || 0;
+          return {
+              name: s.name,
+              duration: s.duration,
+              breakeven: timeCost + materialCost
+          };
+      });
+  }, [services, selectedTenant?.tmhr]);
+
   const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
   
   const tabs = [
@@ -507,7 +510,7 @@ function SettingsContent() {
       <AppHeader title="Business Settings" />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto space-y-8 p-4 md:p-8 pb-20">
-          <div>
+          <div className="text-left">
             <h1 className="text-3xl font-bold">Business Settings</h1>
             <p className="text-muted-foreground mt-1">
               Manage your application-wide settings and configurations.
@@ -517,12 +520,12 @@ function SettingsContent() {
            <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
              <div className="md:hidden">
               <Select onValueChange={setActiveTab} value={activeTab}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full h-12 rounded-xl border-2">
                     <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-2xl border-2">
                   {tabs.map(tab => (
-                    <SelectItem key={tab.value} value={tab.value}>
+                    <SelectItem key={tab.value} value={tab.value} className="font-bold uppercase text-[10px] tracking-widest">
                         <div className="flex items-center gap-2">
                            {tab.icon}
                            <span>{tab.label}</span>
@@ -534,45 +537,46 @@ function SettingsContent() {
              </div>
              <div className="hidden md:block">
                 <ScrollArea>
-                    <TabsList>
+                    <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 shadow-inner">
                         {tabs.map(tab => (
-                        <TabsTrigger key={tab.value} value={tab.value}>
+                        <TabsTrigger key={tab.value} value={tab.value} className="rounded-xl font-black text-[10px] uppercase tracking-widest px-6 h-10 data-[state=active]:bg-white data-[state=active]:shadow-md">
                             {React.cloneElement(tab.icon as React.ReactElement, { className: "mr-2" })}
                             {tab.label}
                         </TabsTrigger>
                         ))}
                     </TabsList>
-                    <ScrollBar orientation="horizontal" />
+                    <ScrollBar orientation="horizontal" className="hidden" />
                 </ScrollArea>
              </div>
 
             <TabsContent value="profile" className="mt-6">
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
-                        <CardDescription>Manage your business locations and branding.</CardDescription>
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="bg-muted/5 border-b p-6 sm:p-8">
+                        <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
+                        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Manage your business locations and branding.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-2">
+                    <CardContent className="p-6 sm:p-8 space-y-2">
                         {tenants.map(tenant => (
-                            <div key={tenant.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                            <div key={tenant.id} className="flex items-center justify-between p-4 bg-muted/20 rounded-2xl border-2 border-transparent hover:border-primary/10 transition-all">
                                 {editingTenantId === tenant.id ? (
                                     <div className="flex-1 flex items-center gap-2">
                                         <Input
                                             value={tempTenantName}
                                             onChange={(e) => setTempTenantName(e.target.value)}
                                             onKeyDown={(e) => e.key === 'Enter' && setEditingTenantId(null)}
+                                            className="h-11 rounded-xl border-2 font-black uppercase"
                                             autoFocus
                                         />
-                                        <Button size="icon" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
-                                            <Check className="h-4 w-4" />
+                                        <Button size="icon" className="h-11 w-11 rounded-xl" onClick={() => setEditingTenantId(null)}>
+                                            <Check className="h-5 w-5" />
                                         </Button>
                                     </div>
                                 ) : (
                                     <React.Fragment>
-                                        <p className="font-medium">{tenant.name}</p>
+                                        <p className="font-black uppercase tracking-tight text-sm">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
-                                            {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                            <Button variant="ghost" size="icon" onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
+                                            {tenant.id === selectedTenant?.id && <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase tracking-widest h-5 px-2">Active</Badge>}
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
                                                 <Edit className="w-4 h-4" />
                                             </Button>
                                         </div>
@@ -585,29 +589,29 @@ function SettingsContent() {
             </TabsContent>
 
             <TabsContent value="hours" className="mt-6">
-                 <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                 <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
-                            <CardTitle className="flex items-center gap-2">
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
                                 <Clock className="w-5 h-5 text-primary" />
                                 Business Hours
                             </CardTitle>
-                            <CardDescription>Set your standard availability.</CardDescription>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Set your standard availability.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                         {isScheduleEditing ? (
                             <>
-                                <Button variant="outline" onClick={handleScheduleCancel}>Cancel</Button>
-                                <Button onClick={handleScheduleSave}>Save</Button>
+                                <Button variant="outline" onClick={handleScheduleCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                <Button onClick={handleScheduleSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Schedule</Button>
                             </>
                         ) : (
-                            <Button onClick={handleScheduleEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                            <Button onClick={handleScheduleEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
                     <CardContent className="p-0">
                     {activeScheduleProfile && (
-                        <div>
+                        <div className="divide-y-2 divide-dashed divide-border/50">
                             {orderedDays.map((day) => (
                                 <DayHoursRow 
                                     key={day} 
@@ -623,132 +627,135 @@ function SettingsContent() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="policies" className="mt-6 space-y-6">
-                <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
+            <TabsContent value="policies" className="mt-6 space-y-10">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
+                        <div className="text-left">
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
                             <FileText className="w-5 h-5 text-primary" />
                             Business Policies
                             </CardTitle>
-                            <CardDescription>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
                             Define rules for cancellations and late arrivals.
                             </CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                         {isPoliciesEditing ? (
                             <>
-                                <Button variant="outline" onClick={handlePoliciesCancel}>Cancel</Button>
-                                <Button onClick={handlePoliciesSave}>Save</Button>
+                                <Button variant="outline" onClick={handlePoliciesCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                <Button onClick={handlePoliciesSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Policies</Button>
                             </>
                         ) : (
-                            <Button onClick={handlePoliciesEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                            <Button onClick={handlePoliciesEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-3.5 w-3.5"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-8">
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                    <CardContent className="p-6 sm:p-8 space-y-12">
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
                                 <Clock className="w-4 h-4" /> Lateness & Grace Periods
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="late-grace-period">Arrival Grace Period (minutes)</Label>
-                                    <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <Label htmlFor="late-grace-period" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Arrival Grace Period (Minutes)</Label>
+                                    <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="late-inconvenience-premium" className="flex items-center gap-2">
+                                <div className="space-y-3">
+                                    <Label htmlFor="late-inconvenience-premium" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
                                         <Zap className="w-3 h-3 text-primary" />
                                         Inconvenience Premium ($)
                                     </Label>
                                     <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="late-inconvenience-premium" type="number" value={tenantData.lateInconveniencePremium || ''} onChange={(e) => setTenantData(prev => ({...prev, lateInconveniencePremium: Number(e.target.value)}))} placeholder="e.g., 10.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="late-inconvenience-premium" type="number" value={tenantData.lateInconveniencePremium || ''} onChange={(e) => setTenantData(prev => ({...prev, lateInconveniencePremium: Number(e.target.value)}))} placeholder="e.g., 10.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Added to time-lost fee (Late Mins * TMHR).</p>
+                                    <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 ml-1">Flat rate added to lost time cost.</p>
                                 </div>
                                 
-                                <div className="md:col-span-2 space-y-4">
+                                <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Impact
+                                        <Calculator className="w-3.5 h-3.5" /> Projected Late Fee Matrix
                                     </Label>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                         {lateFeeImpacts.map(impact => (
-                                            <div key={impact.mins} className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-center space-y-1 shadow-inner">
+                                            <div key={impact.mins} className="p-5 rounded-[2rem] bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all text-center space-y-1 shadow-inner">
                                                 <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{impact.mins}m Delay</p>
-                                                <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${impact.totalFee.toFixed(2)}</p>
-                                                <p className="text-[8px] font-bold text-primary/60 uppercase">(${impact.timeLostCost.toFixed(2)} Lost Time)</p>
+                                                <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${impact.totalFee.toFixed(2)}</p>
+                                                <p className="text-[8px] font-bold text-primary/60 uppercase">(${impact.timeLostCost.toFixed(2)} Time Value)</p>
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3">
-                                        <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                                        <p className="text-[9px] font-bold uppercase text-muted-foreground leading-relaxed">
-                                            Calculated using your <strong>${(selectedTenant?.tmhr || 50).toFixed(2)}/hr</strong> studio foundation. Fees only apply when guests are accommodated past the grace period.
+                                    <div className="p-5 rounded-2xl border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
+                                        <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
+                                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
+                                            These projections are calculated using your <strong>${(selectedTenant?.tmhr || 50).toFixed(2)}/hr</strong> foundation. Actual fees are only applied when guests are accommodated past your grace period.
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20 md:col-span-2">
-                                    <Label htmlFor="auto-cancel" className="font-bold flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Auto-Cancel Rule</Label>
-                                    <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
-                                </div>
-                            </div>
-                        </div>
-
-                        <Separator />
-
-                        <div className="space-y-4">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                    <Ban className="w-4 h-4" /> Cancellation Policy
-                                </h3>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="cancellation-window">Notice Window (hours)</Label>
-                                    <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="cancellation-fee">Cancellation Fee ($)</Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="e.g., 25.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                <div className="flex items-center justify-between rounded-[2rem] border-2 p-6 bg-primary/5 md:col-span-2 shadow-inner">
+                                    <div className='space-y-1 text-left'>
+                                        <Label htmlFor="auto-cancel" className="text-base font-black uppercase tracking-tight flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-destructive" /> Enforce Auto-Cancel</Label>
+                                        <p className='text-[10px] font-bold text-muted-foreground uppercase opacity-60'>Void sessions if delay overlaps following bookings</p>
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Applied for late notice or auto-cancellation.</p>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="cancellation-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">Policy Text</Label>
-                                <div className="relative">
-                                    <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
-                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Regenerate</Button>}
+                                    <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} className="scale-125" />
                                 </div>
                             </div>
                         </div>
 
-                        <Separator />
+                        <Separator className="border-dashed" />
 
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <Users className="w-4 h-4" /> No-Show Enforcement
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <Ban className="w-4 h-4" /> Cancellation Logic
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="no-show-fee">No-Show Fee ($)</Label>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <Label htmlFor="cancellation-window" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Protocol Window (Hours)</Label>
+                                    <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" disabled={!isPoliciesEditing} />
+                                </div>
+                                <div className="space-y-3">
+                                    <Label htmlFor="cancellation-fee" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Base Overhead Recovery ($)</Label>
                                     <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="no-show-fee" type="number" value={tenantData.noShowFee || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="e.g., 50.00" className="pl-8" disabled={!isPoliciesEditing}/>
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="cancellation-fee" type="number" value={tenantData.cancellationFee || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="e.g., 25.00" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isPoliciesEditing}/>
+                                    </div>
+                                    <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 ml-1">Applied for late notice or no-shows.</p>
+                                </div>
+
+                                <div className="md:col-span-2 space-y-4 pt-4 border-t-2 border-dashed">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                        <Landmark className="w-3.5 h-3.5" /> Profitable Recovery Matrix (Breakeven)
+                                    </Label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {serviceBreakevenImpacts.map(s => (
+                                            <div key={s.name} className="p-4 rounded-2xl bg-destructive/[0.02] border-2 border-transparent hover:border-destructive/10 transition-all flex justify-between items-center group">
+                                                <div className="min-w-0">
+                                                    <p className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{s.name}</p>
+                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{s.duration}m duration</p>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <p className="text-sm font-black font-mono tracking-tighter text-destructive">${s.breakeven.toFixed(2)}</p>
+                                                    <p className="text-[8px] font-black uppercase text-destructive/40">Recovery Target</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="p-5 rounded-2xl border-2 border-dashed bg-destructive/[0.02] flex items-start gap-4">
+                                        <TrendingDown className="w-5 h-5 text-destructive shrink-0 mt-0.5 opacity-40" />
+                                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
+                                            A truly profitable fee covers your **Overhead Recovery**. This equals your `Time Lost (Duration * TMHR) + Material Sunk Cost`. Use the target values above to set your base fee.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="no-show-policy" className="text-xs font-bold uppercase text-muted-foreground tracking-tighter">No-Show Policy Text</Label>
-                                <div className="relative">
-                                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder="Enter policy text..." rows={3} disabled={!isPoliciesEditing} />
-                                    {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2 h-6 text-[9px]" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Regenerate</Button>}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between px-1">
+                                    <Label htmlFor="cancellation-policy" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Digital Policy Text (Public)</Label>
+                                    {isPoliciesEditing && <Button variant="ghost" size="sm" className="h-7 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))}>Auto-Draft Strategy</Button>}
                                 </div>
+                                <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Draft protocol conditions..." rows={4} className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed text-slate-700" disabled={!isPoliciesEditing} />
                             </div>
                         </div>
                     </CardContent>
@@ -756,105 +763,110 @@ function SettingsContent() {
             </TabsContent>
 
             <TabsContent value="builder" className="mt-6 space-y-6">
-                <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden text-left">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
-                            <CardTitle className="flex items-center gap-2">
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight">
                                 <Globe className="w-5 h-5 text-primary" />
-                                Booking Page Builder
+                                Page Builder
                             </CardTitle>
-                            <CardDescription>Skin your booking experience and customize section headers.</CardDescription>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Skin your guest experience.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                             {isBookingBuilderEditing ? (
                                 <>
-                                    <Button variant="outline" onClick={handleBookingBuilderCancel}>Cancel</Button>
-                                    <Button onClick={handleBookingBuilderSave}>Save Layout</Button>
+                                    <Button variant="outline" onClick={handleBookingBuilderCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                    <Button onClick={handleBookingBuilderSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Design</Button>
                                 </>
                             ) : (
-                                <Button onClick={handleBookingBuilderEdit}><Edit className="mr-2 h-4 w-4"/>Edit Design</Button>
+                                <Button onClick={handleBookingBuilderEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Edit Design</Button>
                             )}
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-10">
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><ImageIcon className="w-4 h-4"/> Landing Hook</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label>Custom Hero Image</Label>
+                    <CardContent className="p-6 sm:p-8 space-y-12">
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ImageIcon className="w-4 h-4"/> Landing Hook</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Custom Hero Banner</Label>
                                     <ImageUpload onImageUploaded={(url) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroImageUrl: url}}))} initialImage={tenantData.bookingPageSettings?.heroImageUrl} />
                                 </div>
-                                <div className="space-y-4">
+                                <div className="space-y-6">
                                     <div className="space-y-2">
-                                        <Label>Hero Headline</Label>
-                                        <Input value={tenantData.bookingPageSettings?.heroTitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroTitle: e.target.value}}))} placeholder="e.g., Welcome to Excellence" disabled={!isBookingBuilderEditing} />
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hero Headline</Label>
+                                        <Input value={tenantData.bookingPageSettings?.heroTitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroTitle: e.target.value}}))} placeholder="e.g., Welcome to Excellence" className="h-12 rounded-xl border-2 font-black uppercase tracking-tight" disabled={!isBookingBuilderEditing} />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Welcome Text (Hero)</Label>
-                                        <Input value={tenantData.bookingPageSettings?.heroSubtitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroSubtitle: e.target.value}}))} placeholder="e.g., Your transformation starts here." disabled={!isBookingBuilderEditing} />
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Sub-Headline</Label>
+                                        <Input value={tenantData.bookingPageSettings?.heroSubtitle || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, heroSubtitle: e.target.value}}))} placeholder="e.g., Secure your transformation." className="h-12 rounded-xl border-2 font-bold" disabled={!isBookingBuilderEditing} />
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Welcome Quote (Intro Section)</Label>
-                                <Textarea value={tenantData.bookingPageSettings?.welcomeMessage || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, welcomeMessage: e.target.value}}))} placeholder="A personalized welcome note for your clients..." disabled={!isBookingBuilderEditing} />
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Introductory Mission</Label>
+                                <Textarea value={tenantData.bookingPageSettings?.welcomeMessage || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, welcomeMessage: e.target.value}}))} placeholder="Draft a personalized welcome for your community..." className="rounded-2xl border-2 bg-muted/5 font-medium leading-relaxed min-h-[120px]" disabled={!isBookingBuilderEditing} />
                             </div>
                         </div>
 
-                        <Separator />
+                        <Separator className="border-dashed" />
 
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><Palette className="w-4 h-4"/> Brand Theme</h3>
-                            <div className="space-y-2">
-                                <Label>Primary Brand Color</Label>
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl border shadow-sm" style={{ backgroundColor: tenantData.bookingPageSettings?.primaryColor || 'hsl(var(--primary))' }} />
-                                    <Input value={tenantData.bookingPageSettings?.primaryColor || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, primaryColor: e.target.value}}))} placeholder="e.g., #000000 or hsl(210, 40%, 55%)" disabled={!isBookingBuilderEditing} className="font-mono" />
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Palette className="w-4 h-4"/> Brand Signature</h3>
+                            <div className="space-y-3">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Primary Theme Color</Label>
+                                <div className="flex items-center gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/5 shadow-inner">
+                                    <div className="w-20 h-20 rounded-[1.5rem] border-4 border-white shadow-2xl shrink-0" style={{ backgroundColor: tenantData.bookingPageSettings?.primaryColor || 'hsl(var(--primary))' }} />
+                                    <div className="flex-1 space-y-2">
+                                        <Input value={tenantData.bookingPageSettings?.primaryColor || ''} onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, primaryColor: e.target.value}}))} placeholder="HEX or HSL code..." disabled={!isBookingBuilderEditing} className="h-12 rounded-xl border-2 font-mono font-black tracking-widest" />
+                                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Controls buttons, links, and accents.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <Separator />
+                        <Separator className="border-dashed" />
 
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2"><ListChecks className="w-4 h-4"/> Visibility & Copy</h3>
-                            <p className="text-xs text-muted-foreground">Toggle sections on/off and customize the terminology used.</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                        <div className="space-y-8">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ListChecks className="w-4 h-4"/> Visibility & Nomenclature</h3>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 ml-6">Toggle modules and customize terminology.</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {[
-                                    { key: 'Team', label: 'Pro Team', icon: <Users className="w-4 h-4"/>, titleKey: 'teamSectionTitle', showKey: 'showTeam' },
-                                    { key: 'Reviews', label: 'Reviews', icon: <Star className="w-4 h-4"/>, titleKey: 'reviewsSectionTitle', showKey: 'showReviews' },
-                                    { key: 'Gallery', label: 'Portfolio/Gallery', icon: <ImageIcon className="w-4 h-4"/>, titleKey: 'gallerySectionTitle', showKey: 'showGallery' },
+                                    { key: 'Team', label: 'Technicians', icon: <Users className="w-4 h-4"/>, titleKey: 'teamSectionTitle', showKey: 'showTeam' },
+                                    { key: 'Reviews', label: 'Sentiment', icon: <Star className="w-4 h-4"/>, titleKey: 'reviewsSectionTitle', showKey: 'showReviews' },
+                                    { key: 'Gallery', label: 'Portfolio', icon: <ImageIcon className="w-4 h-4"/>, titleKey: 'gallerySectionTitle', showKey: 'showGallery' },
                                     { key: 'Faq', label: 'FAQ', icon: <CircleHelp className="w-4 h-4"/>, titleKey: 'faqSectionTitle', showKey: 'showFaq' },
-                                    { key: 'Memberships', label: 'Memberships', icon: <Award className="w-4 h-4"/>, titleKey: 'membershipsSectionTitle', showKey: 'showMemberships' },
-                                    { key: 'Packages', label: 'Packages', icon: <Repeat className="w-4 h-4"/>, titleKey: 'packagesSectionTitle', showKey: 'showPackages' }
+                                    { key: 'Memberships', label: 'Access Clubs', icon: <Award className="w-4 h-4"/>, titleKey: 'membershipsSectionTitle', showKey: 'showMemberships' },
+                                    { key: 'Packages', label: 'Secure Bundles', icon: <Repeat className="w-4 h-4"/>, titleKey: 'packagesSectionTitle', showKey: 'showPackages' }
                                 ].map(section => (
-                                    <div key={section.key} className="space-y-3 p-4 rounded-xl border bg-muted/10">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2 font-bold text-sm">{section.icon}{section.label}</div>
+                                    <div key={section.key} className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/10 shadow-inner group transition-all hover:bg-muted/20">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-3 font-black uppercase tracking-tight text-xs text-slate-900">{section.icon}{section.label}</div>
                                             <Switch 
                                                 checked={tenantData.bookingPageSettings?.[section.showKey as keyof BookingPageSettings] !== false} 
                                                 onCheckedChange={(val) => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, [section.showKey]: val}}))}
                                                 disabled={!isBookingBuilderEditing}
+                                                className="scale-110"
                                             />
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-[10px] uppercase font-black text-muted-foreground">Display Title</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[8px] uppercase font-black text-muted-foreground tracking-widest ml-1">Module Heading</Label>
                                             <Input 
                                                 value={tenantData.bookingPageSettings?.[section.titleKey as keyof BookingPageSettings] as string || ''} 
                                                 onChange={e => setTenantData(p => ({...p, bookingPageSettings: {...p.bookingPageSettings, [section.titleKey]: e.target.value}}))}
                                                 placeholder={`e.g., ${section.label}`}
                                                 disabled={!isBookingBuilderEditing}
-                                                className="h-8 text-xs"
+                                                className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-tight bg-white"
                                             />
                                         </div>
                                         
-                                        {/* EXPANDED REVIEWS CURATION */}
                                         {section.key === 'Reviews' && tenantData.bookingPageSettings?.showReviews !== false && (
-                                            <div className="pt-4 mt-2 border-t border-dashed space-y-4">
-                                                <p className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2">
+                                            <div className="pt-4 mt-2 border-t border-dashed border-primary/10 space-y-4">
+                                                <p className="text-[9px] font-black uppercase text-primary/60 tracking-[0.2em] flex items-center gap-2 px-1">
                                                     <Sparkles className="w-3 h-3" /> Sentiment Curation
                                                 </p>
-                                                <ScrollArea className="h-[200px] -mx-2 px-2">
+                                                <ScrollArea className="h-[200px]">
                                                     <div className="space-y-2 pr-4">
                                                         {reviews && reviews.length > 0 ? (
                                                             reviews.sort((a,b) => (a.isFeatured ? -1 : 1)).map(review => (
@@ -866,7 +878,7 @@ function SettingsContent() {
                                                                 />
                                                             ))
                                                         ) : (
-                                                            <p className="text-[9px] font-bold text-center text-muted-foreground py-10 uppercase tracking-widest opacity-40">Archive Idle</p>
+                                                            <p className="text-[9px] font-black text-center text-muted-foreground py-10 uppercase tracking-widest opacity-40 border-2 border-dashed rounded-xl">Archive Idle</p>
                                                         )}
                                                     </div>
                                                 </ScrollArea>
@@ -877,96 +889,99 @@ function SettingsContent() {
                             </div>
                         </div>
 
-                        <Separator />
+                        <Separator className="border-dashed" />
 
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                    <MessageCircleQuestion className="w-4 h-4"/> FAQ Management
+                        <div className="space-y-8">
+                            <div className="flex items-center justify-between px-1">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                    <MessageCircleQuestion className="w-4 h-4"/> Intel Repository (FAQ)
                                 </h3>
-                                <Button variant="outline" size="sm" onClick={handleAddFaq} disabled={!isBookingBuilderEditing}>
-                                    <Plus className="w-4 h-4 mr-2" /> Add Question
+                                <Button variant="outline" size="sm" onClick={handleAddFaq} disabled={!isBookingBuilderEditing} className="h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white">
+                                    <Plus className="w-3.5 h-3.5 mr-2" /> Add Logic Entry
                                 </Button>
                             </div>
                             <div className="space-y-4">
                                 {(tenantData.bookingPageSettings?.faqs || []).map((faq) => (
-                                    <div key={faq.id} className="p-4 rounded-xl border-2 bg-muted/10 space-y-4 group">
-                                        <div className="flex justify-between items-start gap-4">
-                                            <div className="flex-1 space-y-4">
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-black uppercase text-muted-foreground">Question</Label>
-                                                    <Input 
-                                                        value={faq.question} 
-                                                        onChange={e => handleUpdateFaq(faq.id, 'question', e.target.value)} 
-                                                        disabled={!isBookingBuilderEditing}
-                                                        placeholder="e.g., What is your cancellation policy?"
-                                                    />
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-black uppercase text-muted-foreground">Answer</Label>
-                                                    <Textarea 
-                                                        value={faq.answer} 
-                                                        onChange={e => handleUpdateFaq(faq.id, 'answer', e.target.value)} 
-                                                        disabled={!isBookingBuilderEditing}
-                                                        placeholder="Enter answer details..."
-                                                        rows={2}
-                                                    />
-                                                </div>
+                                    <div key={faq.id} className="p-6 rounded-[2rem] border-2 bg-muted/10 space-y-6 group relative transition-all hover:bg-muted/20">
+                                        <div className="space-y-4">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Question Protocol</Label>
+                                                <Input 
+                                                    value={faq.question} 
+                                                    onChange={e => handleUpdateFaq(faq.id, 'question', e.target.value)} 
+                                                    disabled={!isBookingBuilderEditing}
+                                                    placeholder="ENTER QUERY..."
+                                                    className="h-12 rounded-xl border-2 font-black uppercase text-xs bg-white"
+                                                />
                                             </div>
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
-                                                className="text-destructive h-8 w-8" 
-                                                onClick={() => handleRemoveFaq(faq.id)}
-                                                disabled={!isBookingBuilderEditing}
-                                            >
-                                                <X className="w-4 h-4" />
-                                            </Button>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Resolution Response</Label>
+                                                <Textarea 
+                                                    value={faq.answer} 
+                                                    onChange={e => handleUpdateFaq(faq.id, 'answer', e.target.value)} 
+                                                    disabled={!isBookingBuilderEditing}
+                                                    placeholder="PROVIDE LOGIC..."
+                                                    rows={3}
+                                                    className="rounded-xl border-2 bg-white font-medium"
+                                                />
+                                            </div>
                                         </div>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="absolute top-4 right-4 text-destructive h-8 w-8 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity" 
+                                            onClick={() => handleRemoveFaq(faq.id)}
+                                            disabled={!isBookingBuilderEditing}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
                                     </div>
                                 ))}
                                 {(tenantData.bookingPageSettings?.faqs || []).length === 0 && (
-                                    <p className="text-xs text-center text-muted-foreground py-10 border-2 border-dashed rounded-xl">No custom FAQs added. We'll show the defaults.</p>
+                                    <div className="text-center py-20 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                                        <MessageCircleQuestion className="w-12 h-12" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest">No Manual FAQs</p>
+                                    </div>
                                 )}
                             </div>
                         </div>
 
-                        <Separator />
+                        <Separator className="border-dashed" />
 
-                        <div className="space-y-6">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                <ImagePlus className="w-4 h-4"/> Gallery Management
+                        <div className="space-y-8">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <ImagePlus className="w-4 h-4"/> Asset Gallery
                             </h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                                 {(tenantData.bookingPageSettings?.gallery || []).map((item) => (
-                                    <div key={item.id} className="relative group aspect-square rounded-2xl overflow-hidden border-2 bg-muted">
-                                        <img src={item.url} alt="Gallery item" className="w-full h-full object-cover" />
-                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-4 flex flex-col justify-between">
+                                    <div key={item.id} className="relative group aspect-[4/5] rounded-[2rem] overflow-hidden border-4 border-white shadow-2xl bg-muted ring-1 ring-border/50">
+                                        <img src={item.url} alt="Gallery item" className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" />
+                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all duration-500 p-6 flex flex-col justify-between">
                                             <div className="flex justify-end">
                                                 <Button 
                                                     variant="destructive" 
                                                     size="icon" 
-                                                    className="h-8 w-8 rounded-full" 
+                                                    className="h-10 w-10 rounded-2xl shadow-xl shadow-destructive/20 border-2 border-white/20" 
                                                     onClick={() => handleRemoveGalleryImage(item.id)}
                                                     disabled={!isBookingBuilderEditing}
                                                 >
-                                                    <X className="w-4 h-4" />
+                                                    <X className="w-5 h-5" />
                                                 </Button>
                                             </div>
                                             <Input 
                                                 value={item.caption || ''} 
                                                 onChange={e => handleUpdateGalleryCaption(item.id, e.target.value)} 
-                                                placeholder="Add caption..."
-                                                className="h-8 text-[10px] bg-white/20 border-none text-white placeholder:text-white/60"
+                                                placeholder="LABEL ASSET..."
+                                                className="h-10 rounded-xl bg-white/20 border-none text-white font-black uppercase text-[10px] tracking-widest placeholder:text-white/60 backdrop-blur-md"
                                                 disabled={!isBookingBuilderEditing}
                                             />
                                         </div>
                                     </div>
                                 ))}
                                 {isBookingBuilderEditing && (
-                                    <div className="aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 text-center">
-                                        <ImagePlus className="w-8 h-8 text-muted-foreground mb-2" />
-                                        <p className="text-[10px] font-black uppercase text-muted-foreground mb-4">Add Images</p>
+                                    <div className="aspect-[4/5] rounded-[2rem] border-4 border-dashed border-primary/20 bg-primary/[0.02] flex flex-col items-center justify-center p-8 text-center space-y-4 shadow-inner">
+                                        <div className="p-4 bg-primary/10 rounded-full"><ImagePlus className="w-8 h-8 text-primary" /></div>
+                                        <p className="text-[10px] font-black uppercase text-primary tracking-widest">Ingest Visual Assets</p>
                                         <ImageUpload onImageUploaded={handleAddGalleryImage} multiple={true} clearOnUpload={true} />
                                     </div>
                                 )}
@@ -976,56 +991,59 @@ function SettingsContent() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="queue" className="mt-6">
-                <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <TabsContent value="queue" className="mt-6 text-left">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
-                            <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
-                            <CardDescription>Manage your smart walk-in queue logic.</CardDescription>
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight"><ListChecks className="w-5 h-5 text-primary" />Queue Strategy</CardTitle>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Manage your smart walk-in queue logic.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                         {isQueueEditing ? (
                             <>
-                                <Button variant="outline" onClick={handleQueueCancel}>Cancel</Button>
-                                <Button onClick={handleQueueSave}>Save</Button>
+                                <Button variant="outline" onClick={handleQueueCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                <Button onClick={handleQueueSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Save Protocol</Button>
                             </>
                         ) : (
-                            <Button onClick={handleQueueEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                            <Button onClick={handleQueueEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
-                    <CardContent>
-                        <div className="space-y-2">
-                            <Label htmlFor="skip-timer">Skip Timer (minutes)</Label>
-                            <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} />
+                    <CardContent className="p-6 sm:p-8">
+                        <div className="space-y-3 max-w-sm">
+                            <Label htmlFor="skip-timer" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waitlist Skip Timer (Minutes)</Label>
+                            <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5" />
+                            <p className='text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1'>Grace period before a guest is auto-skipped in the terminal.</p>
                         </div>
                     </CardContent>
                 </Card>
             </TabsContent>
 
-            <TabsContent value="messaging" className="mt-6">
-                <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <TabsContent value="messaging" className="mt-6 text-left">
+                <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 border-b p-6 sm:p-8">
                         <div>
-                            <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging & Notifications</CardTitle>
-                            <CardDescription>Configure your Twilio settings for SMS updates.</CardDescription>
+                            <CardTitle className="flex items-center gap-2 text-base font-black uppercase tracking-tight"><MessageSquare className="w-5 h-5 text-primary" />Communications Archive</CardTitle>
+                            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Configure your Twilio settings for secure SMS transmission.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                         {isSmsEditing ? (
                             <>
-                                <Button variant="outline" onClick={handleSmsCancel}>Cancel</Button>
-                                <Button onClick={handleSmsSave}>Save</Button>
+                                <Button variant="outline" onClick={handleSmsCancel} className="h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+                                <Button onClick={handleSmsSave} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Auth</Button>
                             </>
                         ) : (
-                            <Button onClick={handleSmsEdit}><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                            <Button onClick={handleSmsEdit} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"><Edit className="mr-2 h-4 w-4"/>Modify</Button>
                         )}
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-6">
-                        <div className="space-y-2"><Label htmlFor="twilio-sid">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} /></div>
-                        <div className="space-y-2"><Label htmlFor="twilio-token">Twilio Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing}/></div>
-                        <div className="space-y-2"><Label htmlFor="twilio-phone">Twilio Phone Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing}/></div>
-                    </CardContent>
+                    <CardContent className="p-6 sm:p-8 space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3"><Label htmlFor="twilio-sid" className="text-[10px] font-black uppercase tracking-widest ml-1">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} className="h-12 rounded-xl border-2 font-mono font-bold" /></div>
+                            <div className="space-y-3"><Label htmlFor="twilio-token" className="text-[10px] font-black uppercase tracking-widest ml-1">Secure Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••" disabled={!isSmsEditing} className="h-12 rounded-xl border-2" /></div>
+                            <div className="space-y-3 md:col-span-2"><Label htmlFor="twilio-phone" className="text-[10px] font-black uppercase tracking-widest ml-1">Verified Sender Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing} className="h-14 rounded-2xl border-2 font-black text-xl tracking-widest shadow-inner bg-muted/5" /></div>
+                        </div>
+                    </CardHeader>
                 </Card>
             </TabsContent>
           </Tabs>

@@ -227,14 +227,14 @@ function PlannerPageContent() {
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
     const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-    
+    const tmhr = selectedTenant.tmhr || 50;
+    const premium = selectedTenant.lateInconveniencePremium || 0;
+
     if (status === 'running_late' && lateMinutes && !isWalkIn) {
         const apt = appointments?.find(a => a.id === id);
         if (apt) {
             const grace = selectedTenant.lateArrivalGracePeriod || 15;
             const autoCancel = selectedTenant.autoCancelLateArrivals === true;
-            const tmhr = selectedTenant.tmhr || 50;
-            const premium = selectedTenant.lateInconveniencePremium || 0;
 
             const staffId = apt.staffId;
             let clash = null;
@@ -259,25 +259,29 @@ function PlannerPageContent() {
 
             if ((lateMinutes > grace && autoCancel) || clash) {
                 const reason = clash ? 'clash' : 'late';
-                const fee = selectedTenant.cancellationFee || 0;
+                // PROFITABLE CANCELLATION: Overhead Recovery + Materials
+                const currentSvc = services?.find(s => s.id === apt.serviceId);
+                const overheadRecovery = ((currentSvc?.duration || 60) / 60) * tmhr;
+                const fee = Number((overheadRecovery + (currentSvc?.cost || 0)).toFixed(2));
+
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
                 if (fee > 0 && apt.clientId) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Auto-Cancelled: ${clash ? 'Clash with next session' : 'Beyond grace period'}` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Profitable Auto-Cancel: ${clash ? 'Clash with next session' : 'Beyond grace period'} (Overhead + Materials)` }) });
                 }
                 batch.commit().then(() => {
                     toast({ variant: "destructive", title: clash ? "Conflict: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Arriving +${lateMinutes}m overlaps with session at ${clash.clashTime}.` : `Arrival of +${lateMinutes}m is beyond the ${grace}m grace period.` });
                 });
                 return;
             } else if (lateMinutes > grace) {
-                // APPLY DYNAMIC LATE FEE BUT ACCOMMODATE
+                // DYNAMIC LATE FEE: (Time Lost * TMHR) + Inconvenience Premium
                 const timeLostCost = (lateMinutes / 60) * tmhr;
                 const fee = Number((timeLostCost + premium).toFixed(2));
                 
                 const batch = writeBatch(firestore);
                 batch.update(docRef, { checkInStatus: 'running_late', lateTimeMinutes: lateMinutes });
                 if (apt.clientId && fee > 0) {
-                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Late Arrival Penalty: +${lateMinutes}m (Accurate Time-Lost + Premium)` }) });
+                    batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Dynamic Late Penalty: +${lateMinutes}m (Time Recovery + Premium)` }) });
                 }
                 batch.commit().then(() => {
                     toast({ title: "Status Updated: Late Fee Applied", description: `Client accommodated with a $${fee.toFixed(2)} penalty covering lost studio capacity.` });
@@ -435,7 +439,7 @@ function PlannerPageContent() {
       <div className="p-3 sm:p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-10">
                 <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 text-left">
                         <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
                         <p className="hidden sm:block text-[10px] sm:text-xs text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
@@ -497,7 +501,7 @@ function PlannerPageContent() {
                 dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
                 onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }} onRebook={a => { setAppointmentToRebook(a); setIsAddAppointmentOpen(true); }}
                 onStartService={handleStartService} onFinishService={handleFinishService} onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setIsAddAppointmentOpen(true); }}
-                onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
+                onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))} onDeleteAppointmentFromDB={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
                 walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
             />
       </main>
