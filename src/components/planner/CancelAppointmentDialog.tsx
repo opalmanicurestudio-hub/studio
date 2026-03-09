@@ -17,12 +17,17 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { type Appointment, type Tenant, type Service } from '@/lib/data';
+import { type Appointment, type Tenant, type Service, type Membership, type Package } from '@/lib/data';
 import { 
   CreditCard, 
   Landmark, 
   Loader, 
   TrendingDown, 
+  Award,
+  Repeat,
+  AlertTriangle,
+  ShieldAlert,
+  Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
@@ -48,7 +53,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   tenant,
   onConfirm,
 }) => {
-  const { services } = useInventory();
+  const { services, clients, memberships, packages } = useInventory();
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
@@ -59,6 +64,31 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const cardOnFile = { brand: 'Visa', last4: '4242' };
 
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
+  const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [clients, appointment.clientId]);
+
+  // Determine if this is a membership perk or package session
+  const activeOffer = useMemo(() => {
+    if (!client) return null;
+    
+    // Check Membership
+    if (client.activeMembershipId) {
+        const membership = memberships.find(m => m.id === client.activeMembershipId);
+        const isPerk = membership?.includedServices?.some(p => p.id === appointment.serviceId);
+        if (isPerk) return { type: 'membership', name: membership.name, forfeitOnLate: !!membership.forfeitOnLateCancel, forfeitOnNoShow: !!membership.forfeitOnNoShow };
+    }
+
+    // Check Package
+    const activePack = client.activePackages?.find(p => {
+        const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+        return pkgDef?.serviceId === appointment.serviceId;
+    });
+    if (activePack) {
+        const pkgDef = packages.find(pkg => pkg.id === activePack.packageId);
+        return { type: 'package', name: pkgDef?.name || 'Package', sessions: activePack.sessionsRemaining };
+    }
+
+    return null;
+  }, [client, appointment.serviceId, memberships, packages]);
 
   const isLateCancellation = useMemo(() => {
     if (!appointment || !tenant?.cancellationWindowHours) return false;
@@ -66,6 +96,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     const hoursUntil = differenceInHours(startTime, new Date());
     return hoursUntil < (tenant.cancellationWindowHours || 24);
   }, [appointment, tenant]);
+
+  const willForfeit = useMemo(() => {
+    if (!activeOffer) return false;
+    if (reason === 'no-show') return true; // Standard industry practice: no-show always forfeits
+    if (isLateCancellation && (reason === 'client_request' || reason === 'other')) {
+        return activeOffer.type === 'package' || (activeOffer.type === 'membership' && activeOffer.forfeitOnLate);
+    }
+    return false;
+  }, [activeOffer, reason, isLateCancellation]);
 
   const dynamicFees = useMemo(() => {
     if (!service || !tenant?.tmhr) return { overheadRecovery: 0, noShowPenalty: 0, duration: 0 };
@@ -94,147 +133,175 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden flex flex-col max-h-[95dvh]">
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/10 shrink-0 text-left">
-          <DialogTitle>Cancel Appointment</DialogTitle>
-          <DialogDescription>
-            Confirming cancellation for <strong>{appointment.clientName}</strong>.
+      <DialogContent className="sm:max-w-md p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col max-h-[95dvh] bg-background">
+        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 shrink-0 text-left">
+          <div className="flex items-center gap-3 mb-2">
+            <Ban className="w-5 h-5 text-destructive" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Protocol Termination</span>
+          </div>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Cancel Appointment</DialogTitle>
+          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
+            Guest: <strong>{appointment.clientName}</strong>
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 overflow-y-auto bg-background">
-            <div className="px-6 py-6 space-y-6 pb-12">
-                <div className="space-y-3">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation Reason</Label>
-                  <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-2">
-                    <div 
+        <ScrollArea className="flex-1">
+            <div className="p-8 space-y-10">
+                <div className="space-y-4">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Logic</Label>
+                  <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 gap-3">
+                    <label 
+                        htmlFor="reason-client"
                         className={cn(
-                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
-                            reason === 'client_request' && "border-primary bg-primary/5 shadow-sm"
+                            "flex items-center space-x-4 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50 border-border",
+                            reason === 'client_request' && "border-primary bg-primary/5 shadow-md"
                         )}
-                        onClick={() => setReason('client_request')}
                     >
                         <RadioGroupItem value="client_request" id="reason-client" />
-                        <Label htmlFor="reason-client" className="flex-1 cursor-pointer">
-                            <p className="font-semibold text-sm">Client Request</p>
-                            {isLateCancellation && <p className="text-[9px] text-amber-600 font-bold uppercase tracking-tighter">Late Notice</p>}
-                        </Label>
-                    </div>
-                    <div 
+                        <div className="flex-1 text-left">
+                            <p className="font-black uppercase tracking-tight text-sm text-slate-900">Client Request</p>
+                            {isLateCancellation && <p className="text-[9px] text-amber-600 font-black uppercase tracking-widest mt-0.5">Late Notice Encountered</p>}
+                        </div>
+                    </label>
+                    <label 
+                        htmlFor="reason-noshow"
                         className={cn(
-                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
-                            reason === 'no-show' && "border-primary bg-primary/5 shadow-sm"
+                            "flex items-center space-x-4 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50 border-border",
+                            reason === 'no-show' && "border-primary bg-primary/5 shadow-md"
                         )}
-                        onClick={() => setReason('no-show')}
                     >
                         <RadioGroupItem value="no-show" id="reason-noshow" />
-                        <Label htmlFor="reason-noshow" className="flex-1 cursor-pointer">
-                            <span className="font-semibold text-sm">No-Show</span>
-                            <span className="text-[9px] text-destructive font-black uppercase tracking-tighter block">Penalty: 100% Price</span>
-                        </Label>
-                    </div>
-                    <div 
+                        <div className="flex-1 text-left">
+                            <span className="font-black uppercase tracking-tight text-sm text-slate-900">No-Show</span>
+                            <span className="text-[9px] text-destructive font-black uppercase tracking-widest block mt-0.5">Penalty: 100% Protocol Value</span>
+                        </div>
+                    </label>
+                    <label 
+                        htmlFor="reason-other"
                         className={cn(
-                            "flex items-center space-x-3 border-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-muted border-border",
-                            reason === 'other' && "border-primary bg-primary/5 shadow-sm"
+                            "flex items-center space-x-4 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50 border-border",
+                            reason === 'other' && "border-primary bg-primary/5 shadow-md"
                         )}
-                        onClick={() => setReason('other')}
                     >
                         <RadioGroupItem value="other" id="reason-other" />
-                        <Label htmlFor="reason-other" className="flex-1 cursor-pointer font-semibold text-sm">Other</Label>
-                    </div>
+                        <span className="font-black uppercase tracking-tight text-sm text-slate-900">Custom Protocol</span>
+                    </label>
                   </RadioGroup>
                   {reason === 'other' && (
                     <Textarea 
-                        placeholder="Details..." 
+                        placeholder="ENTER AUDIT NOTES..." 
                         value={customReason} 
                         onChange={(e) => setCustomReason(e.target.value)}
-                        className="mt-2 bg-muted/30"
+                        className="mt-2 bg-muted/5 border-2 rounded-xl focus-visible:ring-primary/20"
                     />
                   )}
                 </div>
 
-                <Card className="bg-muted/30 border-2 shadow-sm">
-                  <CardHeader className="p-4 pb-2">
-                      <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                              <TrendingDown className="w-3 h-3" />
-                              Lost Opportunity
-                          </p>
-                          <Badge variant="outline" className="font-mono text-[9px] uppercase">{dynamicFees.duration}m Service</Badge>
-                      </div>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-0 space-y-2 text-sm">
-                      <div className="flex justify-between items-baseline border-b border-dashed pb-2">
-                          <span className="text-xs text-muted-foreground">Reserved Overhead</span>
-                          <span className="font-bold text-sm text-destructive">${dynamicFees.overheadRecovery.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between items-baseline">
-                          <span className="text-xs text-muted-foreground">Service Value</span>
-                          <span className="font-bold text-sm text-destructive">${dynamicFees.noShowPenalty.toFixed(2)}</span>
-                      </div>
-                  </CardContent>
-                </Card>
+                <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Yield Impact Analysis</p>
+                    <div className="grid gap-4">
+                        {willForfeit && activeOffer && (
+                            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-6 rounded-[2rem] border-4 border-primary bg-primary/5 shadow-2xl shadow-primary/5 space-y-4 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-5"><ShieldAlert className="w-12 h-12 text-primary" /></div>
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-primary rounded-xl shadow-lg shadow-primary/20">
+                                        {activeOffer.type === 'membership' ? <Award className="w-5 h-5 text-white" /> : <Repeat className="w-5 h-5 text-white" />}
+                                    </div>
+                                    <div className="space-y-0.5 text-left">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none">Dossier Consequence</p>
+                                        <p className="text-sm font-black uppercase tracking-tight text-slate-900">Protocol Forfeit Triggered</p>
+                                    </div>
+                                </div>
+                                <p className="text-xs font-bold text-slate-600 leading-relaxed uppercase text-left">
+                                    This cancellation violates the window for <strong>{activeOffer.name}</strong>. The session will be deducted from the client's balance as "Forfeited."
+                                </p>
+                            </motion.div>
+                        )}
+
+                        <Card className="bg-muted/20 border-2 shadow-inner rounded-[2rem]">
+                            <CardContent className="p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                                        <TrendingDown className="w-3.5 h-3.5 opacity-40" />
+                                        Overhead Liability
+                                    </p>
+                                    <Badge variant="outline" className="font-mono text-[9px] uppercase h-5 px-2 bg-white border-2">{dynamicFees.duration}m Session</Badge>
+                                </div>
+                                <div className="space-y-2 text-sm font-bold uppercase">
+                                    <div className="flex justify-between items-baseline opacity-60">
+                                        <span className="text-[10px]">Reserved Foundation</span>
+                                        <span className="font-mono">${dynamicFees.overheadRecovery.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-baseline opacity-60">
+                                        <span className="text-[10px]">Treatment Value</span>
+                                        <span className="font-mono">${dynamicFees.noShowPenalty.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </div>
 
                 {(isLateCancellation || reason === 'no-show') && (
-                    <div className="space-y-4 pt-2">
-                        <Separator />
-                        <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/10">
-                            <div className="space-y-0.5">
-                                <Label className="text-base font-black">Enforce Policy Fee</Label>
-                                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight">Recover fixed costs</p>
+                    <div className="space-y-6 pt-2">
+                        <Separator className="border-dashed" />
+                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-destructive/10 bg-destructive/[0.02] shadow-inner transition-all">
+                            <div className="space-y-1 text-left">
+                                <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2"><DollarSign className="w-4 h-4" /> Enforce Monetary Penalty</Label>
+                                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight opacity-60">Collect independent of session forfeit</p>
                             </div>
-                            <div className="flex flex-col items-end gap-1">
-                                <span className={cn("text-xl font-black", chargeFee ? "text-destructive" : "text-muted-foreground")}>
+                            <div className="flex flex-col items-end gap-2">
+                                <span className={cn("text-2xl font-black font-mono tracking-tighter", chargeFee ? "text-destructive" : "text-muted-foreground opacity-40")}>
                                     ${feeAmount.toFixed(2)}
                                 </span>
-                                <Switch checked={chargeFee} onCheckedChange={setChargeFee} disabled={isSubmitting} />
+                                <Switch checked={chargeFee} onCheckedChange={setChargeFee} disabled={isSubmitting} className="data-[state=checked]:bg-destructive" />
                             </div>
                         </div>
                         
                         {chargeFee && feeAmount > 0 && (
-                            <div className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collection Method</Label>
-                                <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-2">
-                                    <div className="flex flex-col h-full">
+                            <div className="space-y-4 animate-in slide-in-from-top-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Protocol</Label>
+                                <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-3">
+                                    <label htmlFor="pay-card" className="cursor-pointer flex-1 h-full">
                                         <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" />
-                                        <Label htmlFor="pay-card" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
-                                            <CreditCard className={cn("w-5 h-5 mb-1.5", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground")} />
-                                            <span className="text-[10px] font-black uppercase">Card on File</span>
-                                            <span className="text-[9px] text-muted-foreground mt-1 truncate w-full px-1">Visa •••• {cardOnFile.last4}</span>
-                                        </Label>
-                                    </div>
-                                    <div className="flex flex-col h-full">
+                                        <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'card_on_file' ? "border-primary" : "border-border bg-white")}>
+                                            <CreditCard className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 leading-none">Card on File</span>
+                                            <span className="text-[8px] text-primary/60 font-black uppercase mt-2 tracking-tighter">Visa •••• {cardOnFile.last4}</span>
+                                        </div>
+                                    </label>
+                                    <label htmlFor="pay-balance" className="cursor-pointer flex-1 h-full">
                                         <RadioGroupItem value="add_to_balance" id="pay-balance" className="peer sr-only" />
-                                        <Label htmlFor="pay-balance" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all hover:bg-muted text-center flex-1 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-md border-border")}>
-                                            <Landmark className={cn("w-5 h-5 mb-1.5", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground")} />
-                                            <span className="text-[10px] font-black uppercase leading-tight">Add to Client<br/>Balance</span>
-                                        </Label>
-                                    </div>
+                                        <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'add_to_balance' ? "border-primary" : "border-border bg-white")}>
+                                            <Landmark className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'add_to_balance' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 leading-none">Client Arrears</span>
+                                            <span className="text-[8px] text-muted-foreground font-bold uppercase mt-2 opacity-60">Add to Dossier Balance</span>
+                                        </div>
+                                    </label>
                                 </RadioGroup>
                             </div>
                         )}
                     </div>
                 )}
             </div>
-        </div>
+        </ScrollArea>
 
-        <DialogFooter className="p-6 pt-4 border-t gap-2 bg-background shrink-0">
-          <div className="grid grid-cols-2 gap-2 w-full">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="h-12 font-bold uppercase tracking-tight">Back</Button>
+        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
             <Button 
-                variant={chargeFee && feeAmount > 0 ? "default" : "destructive"} 
                 onClick={handleAction} 
-                className="font-bold h-12 uppercase tracking-tight shadow-lg"
+                className="w-full h-16 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/30 transition-all active:scale-95 group"
                 disabled={isSubmitting}
             >
                 {isSubmitting ? (
-                    <><Loader className="w-4 h-4 animate-spin mr-2" /> Processing...</>
+                    <Loader className="w-6 h-6 animate-spin" />
                 ) : (
-                    chargeFee && feeAmount > 0 ? (paymentMethod === 'card_on_file' ? 'Collect & Cancel' : 'Add & Cancel') : 'Confirm Cancel'
+                    <>
+                        Finalize Termination 
+                        <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                    </>
                 )}
             </Button>
-          </div>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isSubmitting} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Cancellation</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
