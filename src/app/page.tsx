@@ -16,7 +16,9 @@ import {
     ArrowRight,
     MousePointer2,
     Calculator,
-    Smartphone
+    Smartphone,
+    LayoutDashboard,
+    Users2
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -27,25 +29,25 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 const features = [
     {
         title: "Yield Architecture",
-        desc: "Automated TMHR calculation ensures every session is priced for maximum studio profit.",
+        desc: "Automated TMHR calculation ensures every session—for you or your team—is priced for maximum studio profit.",
         icon: Calculator,
         color: "text-primary"
     },
     {
-        title: "Loyalty Engine",
-        desc: "Convert transient guests into recurring members with integrated subscription tiers.",
-        icon: Award,
+        title: "Command Hub",
+        desc: "Manage booth renters or employees with automated turn-orders, staff performance tracking, and unified payroll logic.",
+        icon: Users2,
         color: "text-indigo-500"
     },
     {
         title: "Terminal Flow",
-        desc: "A high-fidelity POS terminal that handles walk-ins, retail, and tips with one tap.",
+        desc: "A high-fidelity POS terminal that handles group checkouts, retail sales, and team-wide tip allocations with one tap.",
         icon: Zap,
         color: "text-amber-500"
     },
     {
         title: "AI CFO Intel",
-        desc: "Strategic daily debriefs and financial forecasting powered by your own studio data.",
+        desc: "Strategic daily debriefs and financial forecasting powered by your own real-time studio and team performance data.",
         icon: Sparkles,
         color: "text-primary"
     }
@@ -109,7 +111,7 @@ export default function LandingPage() {
                         <span className="text-primary italic font-serif lowercase tracking-normal">Start</span> Growing.
                     </h2>
                     <p className="mt-8 max-w-2xl mx-auto text-lg md:text-xl text-slate-600 font-medium leading-relaxed">
-                        The all-in-one "Studio Operating System" designed exclusively for solo service professionals. Protect your time, secure your yield, and find your flow.
+                        The all-in-one "Studio Operating System" built for solo masters and high-performance teams. Protect your time, secure your yield, and find your flow.
                     </p>
                 </motion.div>
 
@@ -144,8 +146,8 @@ export default function LandingPage() {
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent" />
                         <div className="absolute bottom-10 left-10 right-10 p-8 bg-white/10 backdrop-blur-xl border border-white/20 rounded-[2rem] shadow-2xl">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mb-2">Live Insight</p>
-                            <p className="text-white text-xl font-black uppercase tracking-tight leading-tight">"I moved from $40/hr to $120/hr average just by following the yield matrix."</p>
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mb-2">Studio Insight</p>
+                            <p className="text-white text-xl font-black uppercase tracking-tight leading-tight">"From solo master to studio lead—ClarityFlow scales the foundation of our entire team."</p>
                         </div>
                     </div>
                 </div>
@@ -154,7 +156,7 @@ export default function LandingPage() {
                     <SectionHeader 
                         badge="Strategic Capabilities" 
                         title="Architecture for Profit" 
-                        subtitle="Standardize your excellence." 
+                        subtitle="Standardize excellence across your team." 
                     />
                     <div className="grid gap-8">
                         {features.map((feature, i) => (
@@ -186,7 +188,7 @@ export default function LandingPage() {
                 <SectionHeader 
                     badge="Investment" 
                     title="Simple. Transparent. Scalable." 
-                    subtitle="One plan for absolute studio control." 
+                    subtitle="One pass for total studio orchestration." 
                 />
                 
                 <Card className="border-4 border-primary rounded-[3rem] shadow-3xl overflow-hidden bg-white relative">
@@ -205,15 +207,15 @@ export default function LandingPage() {
                     </CardHeader>
                     <CardContent className="p-12 grid md:grid-cols-2 gap-12 text-left">
                         <div className="space-y-6">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Core Privileges</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Master Orchestration</p>
                             <ul className="space-y-4">
                                 {[
                                     'Unlimited Client Dossiers',
-                                    'Master Inventory Logic',
-                                    'Multi-Tenant Capability',
+                                    'Multi-User Team Sync',
+                                    'Automated Turn-Order Logic',
                                     'Encrypted POS Terminal',
                                     'Public Booking Microsite',
-                                    'Team Performance Tracking'
+                                    'Staff Performance Analytics'
                                 ].map((item, i) => (
                                     <li key={i} className="flex items-center gap-3">
                                         <div className="p-1 bg-green-500/10 rounded-full text-green-600 shrink-0">
@@ -225,14 +227,14 @@ export default function LandingPage() {
                             </ul>
                         </div>
                         <div className="space-y-6">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Intelligence & AI</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Intelligence & Yield</p>
                             <ul className="space-y-4">
                                 {[
                                     'Daily Yield Debriefs',
-                                    'Strategy Performance Reports',
-                                    'Automated Loyalty Logic',
-                                    'Landed Cost Calculation',
-                                    'Security Audit Log',
+                                    'Team Payout Computation',
+                                    'Automated Loyalty Engine',
+                                    'Landed Cost Manifest',
+                                    'Security Audit Logs',
                                     'Unlimited SMS Notifications'
                                 ].map((item, i) => (
                                     <li key={i} className="flex items-center gap-3">
@@ -265,7 +267,7 @@ export default function LandingPage() {
                 <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-[0.9]">
                     Find Your <span className="text-primary italic font-serif lowercase tracking-normal">flow</span> today.
                 </h2>
-                <p className="text-xl text-slate-500 font-medium">Join the elite solo professionals taking control of their foundation.</p>
+                <p className="text-xl text-slate-500 font-medium">Join the masters taking absolute control of their studio foundation.</p>
                 <div className="pt-6">
                     <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), "h-20 px-16 rounded-[2.5rem] text-2xl font-black uppercase shadow-3xl shadow-primary/40 tracking-tighter group")}>
                         Get Started <ArrowRight className="ml-4 w-8 h-8 transition-transform group-hover:translate-x-2" />
@@ -280,7 +282,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-4">
                 <ClarityFlowLogo className="w-8 h-8 opacity-20" />
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-40">
-                    &copy; {new Date().getFullYear()} ClarityFlow Studio Management &middot; Verified Pro Tool
+                    &copy; {new Date().getFullYear()} ClarityFlow Studio OS &middot; Professional Ecosystem
                 </p>
             </div>
             <div className="flex justify-start md:justify-end gap-8">
