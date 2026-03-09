@@ -31,7 +31,8 @@ import {
   ShieldAlert,
   Info,
   Ban,
-  ArrowRight
+  ArrowRight,
+  DollarSign
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
