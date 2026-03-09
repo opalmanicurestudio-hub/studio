@@ -1,27 +1,28 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection, type InventoryItem, type Resource, type Redemption } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, formatDistanceToNow, format, subMinutes } from 'date-fns';
+import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, MessageSquare, Play, XCircle, Fingerprint, UserPlus, Sparkles, Scan, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -32,7 +33,7 @@ import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDia
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { Html5Qrcode } from 'html5-qrcode';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 
@@ -63,7 +64,66 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
   </Card>
 );
 
-function POSPageContent() {
+const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge' | 'waive') => void }) => {
+    const [pin, setPin] = useState('');
+    const { toast } = useToast();
+
+    const handleAction = (action: 'charge' | 'waive') => {
+        const authorized = staff.find(s => s.pin === pin && s.role === 'admin');
+        if (!authorized) {
+            toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required.' });
+            return;
+        }
+        onResolve(action);
+        setPin('');
+    };
+
+    if (!data) return null;
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
+                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+                    <div className="flex items-center gap-3 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-destructive" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Policy Intervention</span>
+                    </div>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Status Resolution</DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Guest: {data.appointment.clientName}</DialogDescription>
+                </DialogHeader>
+                <div className="p-8 space-y-8">
+                    <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-4 shadow-inner">
+                        <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Calculated Recovery Fee</p>
+                        <p className="text-5xl font-black text-destructive tracking-tighter font-mono">${data.fee.toFixed(2)}</p>
+                        <div className="pt-4 border-t border-destructive/10 space-y-1">
+                            <p className="text-[10px] font-bold text-slate-600 uppercase">Reason: {data.reason === 'clash' ? 'Schedule Conflict' : 'Critical Delay'}</p>
+                            <p className="text-[9px] font-medium text-slate-500 uppercase">Based on {data.fullSessionBlock}m reserved window</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Manager Authorization</Label>
+                        <Input 
+                            type="password" 
+                            placeholder="ENTER 4-DIGIT PIN" 
+                            maxLength={4}
+                            value={pin}
+                            onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                            className="h-14 rounded-2xl border-2 text-center text-2xl font-black tracking-[0.5em] shadow-inner bg-muted/5"
+                        />
+                    </div>
+                </div>
+                <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
+                    <Button onClick={() => handleAction('charge')} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Charge & Cancel</Button>
+                    <Button variant="outline" onClick={() => handleAction('waive')} className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest border-2">Absorb Fee & Restore</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Back</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default function POSPage() {
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, discounts, memberships, packages, resources, isLoading: isInventoryLoading } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
@@ -105,6 +165,8 @@ function POSPageContent() {
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
     const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package' | 'retail_discount'; id: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
+
+    const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
 
     const readyForCheckoutAppointments = useMemo(() => {
         if (!appointmentsFromInventory || !clients || !services || !staff) return [];
@@ -422,13 +484,15 @@ function POSPageContent() {
                     const materialRecovery = (primarySvc?.cost || 0) + addOns.reduce((sum, a) => sum + (a.cost || 0), 0);
                     const fee = Number((overheadRecovery + materialRecovery).toFixed(2));
 
-                    const batch = writeBatch(firestore);
-                    batch.update(docRef, { checkInStatus: 'auto_cancelled', status: 'cancelled', lateTimeMinutes: lateMinutes, cancellationReason: reason, cancellationFeeApplied: fee });
-                    if (fee > 0 && apt.clientId) {
-                        batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { outstandingBalance: increment(fee), unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: apt.id, appointmentDate: safeDate(apt.startTime).toISOString(), feeAmount: fee, reason: `Overhead Recovery: ${clash ? 'Schedule Clash' : 'Past Grace Period'} (${fullSessionBlock}m Session Block)` }) });
-                    }
-                    batch.commit().then(() => {
-                        toast({ variant: "destructive", title: clash ? "Clash: Auto-Cancelled" : "Late: Auto-Cancelled", description: clash ? `Session block (+${lateMinutes}m) overlaps with next guest.` : `Delay exceeds studio grace period.` });
+                    setPolicyEnforcementData({
+                        id, 
+                        isWalkIn, 
+                        fee, 
+                        reason, 
+                        minutes: lateMinutes,
+                        appointment: apt,
+                        service: primarySvc,
+                        fullSessionBlock
                     });
                     return;
                 } else if (lateMinutes > grace) {
@@ -452,6 +516,47 @@ function POSPageContent() {
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
         updateDocumentNonBlocking(docRef, updates);
         toast({ title: "Status Updated" });
+    };
+
+    const handleResolvePolicyEnforcement = async (action: 'charge' | 'waive') => {
+        if (!policyEnforcementData || !firestore || !tenantId) return;
+        const { appointment: apt, fee, reason, id, isWalkIn, minutes } = policyEnforcementData;
+        const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        
+        const batch = writeBatch(firestore);
+        
+        if (action === 'charge') {
+            batch.update(docRef, { 
+                checkInStatus: 'auto_cancelled', 
+                status: 'cancelled', 
+                lateTimeMinutes: minutes, 
+                cancellationReason: reason, 
+                cancellationFeeApplied: fee 
+            });
+            if (fee > 0 && apt.clientId) {
+                batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { 
+                    outstandingBalance: increment(fee), 
+                    unpaidFees: arrayUnion({ 
+                        feeId: nanoid(), 
+                        appointmentId: apt.id, 
+                        appointmentDate: safeDate(apt.startTime).toISOString(), 
+                        feeAmount: fee, 
+                        reason: `Overhead Recovery: ${reason === 'clash' ? 'Schedule Clash' : 'Past Grace Period'}` 
+                    }) 
+                });
+            }
+            toast({ title: "Protocol Enforced", description: "Cancellation finalized and fee applied." });
+        } else {
+            batch.update(docRef, { 
+                checkInStatus: 'running_late', 
+                lateTimeMinutes: minutes,
+                cancellationFeeWaived: true
+            });
+            toast({ title: "Protocol Waived", description: "Guest restored to active schedule." });
+        }
+
+        await batch.commit();
+        setPolicyEnforcementData(null);
     };
 
     const handleResolve = (item: any) => {
@@ -737,8 +842,8 @@ function POSPageContent() {
                     offeringName: redeemedOffer.type === 'membership' 
                         ? memberships.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
                         : packages.find(p => p.id === redeemedOffer.id)?.name || 'Package',
-                    serviceId: appointmentsData[0].service.id,
-                    serviceName: appointmentsData[0].service.name,
+                    serviceId: selectedAptsData[0].service.id,
+                    serviceName: selectedAptsData[0].service.name,
                     date: now,
                     staffId: currentUser?.uid
                 };
@@ -754,7 +859,7 @@ function POSPageContent() {
                     updates.activePackages = nextPackages;
                 } else if (redeemedOffer.type === 'membership') {
                     const currentUsage = selectedClient.subscription?.perkUsage || {};
-                    const svcId = appointmentsData[0].service.id;
+                    const svcId = selectedAptsData[0].service.id;
                     const nextUsage = { ...currentUsage, [svcId]: (currentUsage[svcId] || 0) + 1 };
                     updates['subscription.perkUsage'] = nextUsage;
                     updates['subscription.perkLastUsed'] = now;
@@ -1116,6 +1221,14 @@ function POSPageContent() {
                 <DialogFooter className="p-6 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter>
               </DialogContent>
             </Dialog>
+
+            <PolicyEnforcementDialog 
+                open={!!policyEnforcementData} 
+                onOpenChange={() => setPolicyEnforcementData(null)} 
+                data={policyEnforcementData} 
+                staff={staff || []}
+                onResolve={handleResolvePolicyEnforcement}
+            />
         </div>
     );
 }

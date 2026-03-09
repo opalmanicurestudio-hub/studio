@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -84,7 +85,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         const apts = (appointments || []).filter(a => 
             !a.isWalkIn && 
             isSameDay(new Date(a.startTime), today) && 
-            (a.status === 'confirmed' || a.status === 'deposit_pending')
+            (a.status === 'confirmed' || a.status === 'deposit_pending' || a.checkInStatus === 'auto_cancelled')
         ).map(a => ({ ...a, type: 'appointment' as const }));
 
         return [...wins, ...apts].sort((a, b) => {

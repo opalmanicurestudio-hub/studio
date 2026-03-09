@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,7 +8,6 @@ import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format, isSameMonth } from 'date-fns';
 import { 
     Clock, 
-    Play, 
     Users, 
     Trash2, 
     TrendingUp, 
@@ -19,7 +19,8 @@ import {
     Cake, 
     UserPlus,
     Award,
-    Repeat
+    Repeat,
+    ShieldAlert
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -91,12 +92,15 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     const isMember = !!(client?.activeMembershipId || client?.subscription);
     const hasPackage = (client?.activePackages?.length || 0) > 0;
 
+    const isAutoCancelled = checkInStatus === 'auto_cancelled';
+
     return (
         <Card className={cn(
             "transition-all border-2 rounded-2xl overflow-hidden",
             checkInStatus === 'arrived' ? "border-green-500/20 bg-green-500/[0.03] shadow-lg shadow-green-500/5" : 
             checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/[0.03]" : 
             checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/[0.03]" :
+            isAutoCancelled ? "border-destructive ring-4 ring-destructive/10 bg-destructive/[0.02]" :
             isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-white"
         )}>
             <CardContent className="p-5 space-y-4" onClick={onResolve}>
@@ -127,37 +131,52 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
-                    <div className="flex gap-1.5">
-                        {statusOptions.map((status) => {
-                            const Icon = status.icon;
-                            const isActive = checkInStatus === status.value;
-                            return (
-                                <TooltipProvider key={status.value}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={(e) => { e.stopPropagation(); status.value === 'running_late' ? setIsLateEntryOpen(true) : onUpdateStatus(item.id, isWalkIn, status.value); }}>
-                                                <Icon className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">{status.label}</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            );
-                        })}
+                {!isAutoCancelled && (
+                    <div className="flex items-center justify-between gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
+                        <div className="flex gap-1.5">
+                            {statusOptions.map((status) => {
+                                const Icon = status.icon;
+                                const isActive = checkInStatus === status.value;
+                                return (
+                                    <TooltipProvider key={status.value}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={(e) => { e.stopPropagation(); status.value === 'running_late' ? setIsLateEntryOpen(true) : onUpdateStatus(item.id, isWalkIn, status.value); }}>
+                                                    <Icon className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">{status.label}</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                );
+                            })}
+                        </div>
+                        {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
+                        {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">Arrived</Badge>}
+                        {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
                     </div>
-                    {checkInStatus === 'running_late' && <Badge className="bg-amber-500 border-none text-[9px] font-black uppercase animate-pulse">+{lateTimeMinutes}m Late</Badge>}
-                    {checkInStatus === 'arrived' && <Badge className="bg-green-500 border-none text-[9px] font-black uppercase tracking-widest">Arrived</Badge>}
-                    {checkInStatus === 'on_my_way' && <Badge className="bg-blue-500 border-none text-[9px] font-black uppercase tracking-widest"><Car className="w-2.5 h-2.5 mr-1" />EN ROUTE</Badge>}
-                </div>
+                )}
 
-                {isPotentialAlias && (
+                {isAutoCancelled && (
+                    <div className="p-4 rounded-2xl bg-destructive/10 border-2 border-destructive/20 space-y-3 shadow-inner">
+                        <div className="flex items-center gap-2 text-destructive">
+                            <ShieldAlert className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Protocol Intervention Required</span>
+                        </div>
+                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-tight">Session auto-cancelled due to critical delay (+{lateTimeMinutes}m).</p>
+                        <Button variant="destructive" size="sm" className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl" onClick={(e) => { e.stopPropagation(); onResolve(); }}>
+                            Resolve Resolution
+                        </Button>
+                    </div>
+                )}
+
+                {isPotentialAlias && !isAutoCancelled && (
                     <Button size="sm" variant="destructive" className="w-full h-10 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-xl shadow-destructive/20 animate-in slide-in-from-top-2" onClick={(e) => { e.stopPropagation(); onResolve(); }}>
                         <Fingerprint className="w-4 h-4 mr-2" /> Resolve Identity Match
                     </Button>
                 )}
 
-                {preferredStaff && (
+                {preferredStaff && !isAutoCancelled && (
                     <div className={cn("flex items-center gap-2 p-2 rounded-xl border-2 w-fit", isWalkIn ? "bg-primary/5 border-primary/10" : "bg-indigo-500/5 border-indigo-500/10")}>
                         <Avatar className="h-6 w-6 border-2 border-background shadow-inner rounded-lg"><AvatarImage src={preferredStaff.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black">{(preferredStaff.name || 'S').charAt(0)}</AvatarFallback></Avatar>
                         <span className={cn("text-[9px] font-black uppercase tracking-widest", isWalkIn ? "text-primary" : "text-indigo-700")}>{isWalkIn ? 'Pref:' : 'With:'} {preferredStaff.name.split(' ')[0]}</span>
@@ -165,45 +184,47 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 )}
             </CardContent>
             
-            <div className="p-2 pt-0 grid grid-cols-1 gap-2">
-                <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={() => onAssign()}>
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Assign Session
-                </Button>
-                
-                <div className="grid grid-cols-3 gap-2">
-                    <TooltipProvider>
-                        {isWalkIn && onMoveToFront && (
+            {!isAutoCancelled && (
+                <div className="p-2 pt-0 grid grid-cols-1 gap-2">
+                    <Button variant="secondary" className="w-full h-12 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-sm" onClick={() => onAssign()}>
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Assign Session
+                    </Button>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                        <TooltipProvider>
+                            {isWalkIn && onMoveToFront && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-primary hover:bg-primary/5" onClick={() => onMoveToFront(item.id)}>
+                                            <TrendingUp className="w-4 h-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black text-[10px] uppercase tracking-widest">Move to Front</TooltipContent>
+                                </Tooltip>
+                            )}
+                            
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-primary hover:bg-primary/5" onClick={() => onMoveToFront(item.id)}>
-                                        <TrendingUp className="w-4 h-4" />
+                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onPrintTicket(item.id)}>
+                                        <Printer className="w-4 h-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className="font-black uppercase text-[10px]">Move to Front</TooltipContent>
+                                <TooltipContent className="font-black uppercase text-[10px]">Print Ticket</TooltipContent>
                             </Tooltip>
-                        )}
-                        
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2" onClick={() => onPrintTicket(item.id)}>
-                                    <Printer className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="font-black uppercase text-[10px]">Print Ticket</TooltipContent>
-                        </Tooltip>
 
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
-                                    <Trash2 className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="font-black uppercase text-[10px]">Cancel Visit</TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-destructive hover:bg-destructive/5" onClick={() => onCancel(item.id, isWalkIn)}>
+                                        <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="font-black uppercase text-[10px]">Cancel Visit</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
                 <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl" onClick={(e) => e.stopPropagation()}>
