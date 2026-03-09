@@ -26,7 +26,8 @@ import {
     SlidersHorizontal,
     Target,
     Filter,
-    Loader
+    Loader,
+    Box
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
@@ -49,14 +50,14 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-1 md:pb-2">
+            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate mr-1">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-3.5 w-3.5 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-3 w-3 md:h-3.5 md:w-3.5 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
-        <CardContent className="p-4 pt-0">
-            <div className={cn("text-xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+        <CardContent className="p-3 md:p-4 pt-0">
+            <div className={cn("text-lg md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
                 {value}
             </div>
             <p className="text-[8px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
@@ -66,8 +67,8 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
 
 const AutomationCard = ({ icon: Icon, title, description, onSetup }: { icon: any, title: string, description: string, onSetup: () => void }) => (
     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white">
-        <CardHeader className="p-6 md:p-8 flex-1">
-            <div className="flex flex-col items-center text-center space-y-4">
+        <CardHeader className="p-6 md:p-8 flex-1 text-left">
+            <div className="flex flex-col items-center sm:items-start text-center sm:text-left space-y-4">
                 <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 shadow-inner group-hover:bg-primary transition-all duration-500">
                     <Icon className="w-8 h-8 text-primary group-hover:text-white transition-colors" />
                 </div>
@@ -144,7 +145,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                 <p className="text-[10px] font-bold text-slate-600 uppercase leading-relaxed tracking-tight text-center">{triggerText[discount.automation?.trigger || 'none']}</p>
             </CardContent>
             <CardFooter className="p-4 border-t border-primary/10 bg-primary/[0.02] mt-auto">
-                <div className="flex justify-between items-center w-full">
+                <div className="flex justify-between items-center w-full px-1">
                     <span className="text-[9px] font-black uppercase text-primary/40 tracking-widest">Protocol Code</span>
                     <Badge variant="secondary" className="bg-white border-2 border-primary/10 text-primary font-mono font-black text-[10px] h-6 px-3">{discount.code}</Badge>
                 </div>
@@ -329,7 +330,7 @@ function DiscountsContent() {
     }, [discounts, searchTerm]);
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+        <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
             <AppHeader title="Incentive Hub" />
             <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
@@ -344,7 +345,7 @@ function DiscountsContent() {
                     </Button>
                 </div>
                 
-                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-6">
                     <KpiCard title="Total Redemptions" value={kpiData.totalRedemptions.toString()} icon={TicketIcon} description="Across all campaigns" />
                     <KpiCard title="Marketing Expense" value={`-$${kpiData.totalGrossDiscountsValue.toFixed(0)}`} icon={Percent} description="Total direct savings" colorClass="text-destructive" />
                     <KpiCard title="Promo Retention" value={`${kpiData.promoRetentionRate.toFixed(1)}%`} icon={Repeat} description="Repeat rate %" colorClass="text-teal-600" />
@@ -372,7 +373,7 @@ function DiscountsContent() {
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                     <Input 
                                         placeholder="SEARCH SCRIPTS..." 
-                                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 bg-white"
+                                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
