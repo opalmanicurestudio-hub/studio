@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -18,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { Loader, Sparkles, Building, User, Target, ArrowRight, ArrowLeft, ShieldCheck, Users } from 'lucide-react';
+import { Loader, Sparkles, Building, User, Target, ArrowRight, ArrowLeft, ShieldCheck, Users, DollarSign } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
@@ -34,12 +33,21 @@ const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
   email: z.string().email('Invalid email address.'),
   password: z.string().min(6, 'Password must be at least 6 characters.'),
+  confirmPassword: z.string(),
   // Step 2: Business
   businessName: z.string().min(2, 'Business name is required.'),
   category: z.enum(['hair', 'skin', 'nails', 'fitness', 'tattoo', 'other']),
   teamSize: z.enum(['solo', 'team']),
   // Step 3: Goals
   targetHourlyRate: z.coerce.number().min(1, 'Target rate is required for TMHR initialization.').default(50),
+}).superRefine(({ confirmPassword, password }, ctx) => {
+    if (confirmPassword !== password) {
+        ctx.addIssue({
+            code: "custom",
+            message: "The passwords do not match",
+            path: ['confirmPassword'],
+        });
+    }
 });
 
 type SignupFormData = z.infer<typeof signupSchema>;
@@ -56,6 +64,7 @@ export default function SignupPage() {
     control,
     trigger,
     formState: { errors },
+    watch
   } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
     defaultValues: {
@@ -67,7 +76,7 @@ export default function SignupPage() {
 
   const handleNext = async () => {
     let fieldsToValidate: (keyof SignupFormData)[] = [];
-    if (step === 1) fieldsToValidate = ['name', 'email', 'password'];
+    if (step === 1) fieldsToValidate = ['name', 'email', 'password', 'confirmPassword'];
     if (step === 2) fieldsToValidate = ['businessName', 'category', 'teamSize'];
     
     const isValid = await trigger(fieldsToValidate);
@@ -205,7 +214,7 @@ export default function SignupPage() {
                                 key="step1"
                                 className="space-y-6"
                             >
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Legal Name</Label>
                                     <div className="relative">
                                         <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
@@ -213,17 +222,17 @@ export default function SignupPage() {
                                     </div>
                                     {errors.name && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Secure Email</Label>
                                     <Input type="email" placeholder="ALEX@EXAMPLE.COM" {...register('email')} className="h-14 rounded-2xl border-2 font-bold shadow-inner focus-visible:ring-primary/20" />
                                     {errors.email && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.email.message}</p>}
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Master Password</Label>
                                     <Input type="password" {...register('password')} className="h-14 rounded-2xl border-2 font-bold shadow-inner focus-visible:ring-primary/20" />
                                     {errors.password && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.password.message}</p>}
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Confirm Identity</Label>
                                     <Input type="password" {...register('confirmPassword')} className="h-14 rounded-2xl border-2 font-bold shadow-inner focus-visible:ring-primary/20" />
                                     {errors.confirmPassword && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.confirmPassword.message}</p>}
@@ -239,7 +248,7 @@ export default function SignupPage() {
                                 key="step2"
                                 className="space-y-8"
                             >
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Business Label</Label>
                                     <div className="relative">
                                         <Building className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
@@ -248,7 +257,7 @@ export default function SignupPage() {
                                     {errors.businessName && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.businessName.message}</p>}
                                 </div>
 
-                                <div className="space-y-3">
+                                <div className="space-y-3 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Specialty Vertical</Label>
                                     <Controller
                                         name="category"
@@ -271,7 +280,7 @@ export default function SignupPage() {
                                     />
                                 </div>
 
-                                <div className="space-y-3">
+                                <div className="space-y-3 text-left">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Operational Model</Label>
                                     <Controller
                                         name="teamSize"
@@ -313,7 +322,7 @@ export default function SignupPage() {
                                 key="step3"
                                 className="space-y-10"
                             >
-                                <div className="space-y-4">
+                                <div className="space-y-4 text-left">
                                     <div className="flex items-center gap-3">
                                         <Target className="w-6 h-6 text-primary" />
                                         <h3 className="text-xl font-black uppercase tracking-tight text-slate-900">Yield Objective</h3>
@@ -321,7 +330,7 @@ export default function SignupPage() {
                                     <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight">Set a preliminary target hourly rate. We will refine this using your actual expenses later.</p>
                                 </div>
 
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label htmlFor="rate" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Initial Target (TMHR)</Label>
                                     <div className="relative">
                                         <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary" />
@@ -331,7 +340,7 @@ export default function SignupPage() {
                                     {errors.targetHourlyRate && <p className="text-[10px] font-bold text-destructive uppercase ml-1 text-center">{errors.targetHourlyRate.message}</p>}
                                 </div>
 
-                                <div className="p-6 rounded-[2rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4">
+                                <div className="p-6 rounded-[2rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left">
                                     <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5 opacity-40" />
                                     <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
                                         This rate acts as your "Breakeven Baseline." All service pricing will be mathematically verified against this value to protect your studio profit.
