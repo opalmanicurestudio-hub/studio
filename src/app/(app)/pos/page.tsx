@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -199,7 +198,7 @@ function POSPageContent() {
         return retailSub * (membership.retailDiscount / 100);
     }, [selectedClientId, clients, memberships, retailItems]);
 
-    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount, tax, tipAmount]);
+    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount]);
     const total = useMemo(() => Math.max(0, subtotal - discount - membershipDiscount + tax + tipAmount), [subtotal, discount, membershipDiscount, tax, tipAmount]);
 
     const handleSkip = (walkInId: string) => {
@@ -1046,7 +1045,7 @@ function POSPageContent() {
                 service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
                 tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
                 onStartService={handleStartService}
-                onFinishService={handleFinishService}
+                onFinishService={handleSendToFrontDesk}
                 onEdit={() => {}}
                 onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onCancel={handleCancelAction}
