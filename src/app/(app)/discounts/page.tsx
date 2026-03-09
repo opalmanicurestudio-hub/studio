@@ -49,17 +49,17 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-3.5 w-3.5 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
-        <CardContent>
-            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+        <CardContent className="p-4 pt-0">
+            <div className={cn("text-xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
                 {value}
             </div>
-            <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40">{description}</p>
+            <p className="text-[8px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
         </CardContent>
     </Card>
 );
@@ -344,11 +344,11 @@ function DiscountsContent() {
                     </Button>
                 </div>
                 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                     <KpiCard title="Total Redemptions" value={kpiData.totalRedemptions.toString()} icon={TicketIcon} description="Across all campaigns" />
-                    <KpiCard title="Marketing Expense" value={`-$${kpiData.totalGrossDiscountsValue.toFixed(0)}`} icon={Percent} description="Total direct savings given" colorClass="text-destructive" />
-                    <KpiCard title="Promo Retention" value={`${kpiData.promoRetentionRate.toFixed(1)}%`} icon={Repeat} description="% of clients who returned" colorClass="text-teal-600" />
-                    <KpiCard title="Dominant Script" value={kpiData.mostPopularCode} icon={Star} description="Top performing campaign" colorClass="text-primary" />
+                    <KpiCard title="Marketing Expense" value={`-$${kpiData.totalGrossDiscountsValue.toFixed(0)}`} icon={Percent} description="Total direct savings" colorClass="text-destructive" />
+                    <KpiCard title="Promo Retention" value={`${kpiData.promoRetentionRate.toFixed(1)}%`} icon={Repeat} description="Repeat rate %" colorClass="text-teal-600" />
+                    <KpiCard title="Dominant Script" value={kpiData.mostPopularCode} icon={Star} description="Top performing" colorClass="text-primary" />
                 </div>
                 
                 <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
