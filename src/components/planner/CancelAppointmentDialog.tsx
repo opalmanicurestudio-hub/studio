@@ -17,6 +17,8 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { motion } from 'framer-motion';
 import { type Appointment, type Tenant, type Service, type Membership, type Package } from '@/lib/data';
 import { 
   CreditCard, 
@@ -68,18 +70,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
   const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [clients, appointment.clientId]);
 
-  // Determine if this is a membership perk or package session
   const activeOffer = useMemo(() => {
     if (!client) return null;
     
-    // Check Membership
     if (client.activeMembershipId) {
         const membership = memberships.find(m => m.id === client.activeMembershipId);
         const isPerk = membership?.includedServices?.some(p => p.id === appointment.serviceId);
         if (isPerk) return { type: 'membership', name: membership.name, forfeitOnLate: !!membership.forfeitOnLateCancel, forfeitOnNoShow: !!membership.forfeitOnNoShow };
     }
 
-    // Check Package
     const activePack = client.activePackages?.find(p => {
         const pkgDef = packages.find(pkg => pkg.id === p.packageId);
         return pkgDef?.serviceId === appointment.serviceId;
@@ -101,7 +100,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   const willForfeit = useMemo(() => {
     if (!activeOffer) return false;
-    if (reason === 'no-show') return true; // Standard industry practice: no-show always forfeits
+    if (reason === 'no-show') return true;
     if (isLateCancellation && (reason === 'client_request' || reason === 'other')) {
         return activeOffer.type === 'package' || (activeOffer.type === 'membership' && activeOffer.forfeitOnLate);
     }
