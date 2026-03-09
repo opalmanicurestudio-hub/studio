@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -305,7 +304,7 @@ export default function ProductDetailPage() {
                     </Card>
                     <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><DollarSign className="w-3 h-3"/>Stock Value</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">${stockValue.toFixed(0)}</p></CardContent>
+                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 font-mono">${stockValue.toFixed(2)}</p></CardContent>
                     </Card>
                     <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><AlertCircle className="w-3 h-3"/>Threshold</CardTitle></CardHeader>
@@ -321,7 +320,7 @@ export default function ProductDetailPage() {
                         </CardHeader>
                         <CardContent className="p-4 pt-0 text-left">
                             <p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">
-                                {product.type === 'professional' ? `$${professionalPerformance.totalCostOfUse.toFixed(0)}` : `$${(retailPerformance?.totalProfit || 0).toFixed(0)}`}
+                                {product.type === 'professional' ? `$${professionalPerformance.totalCostOfUse.toFixed(2)}` : `$${(retailPerformance?.totalProfit || 0).toFixed(2)}`}
                             </p>
                         </CardContent>
                     </Card>
@@ -446,7 +445,7 @@ export default function ProductDetailPage() {
                                                             <Badge variant="secondary" className="h-6 px-2.5 font-black font-mono bg-muted/50 border-none shadow-sm">{batch.stock} Units</Badge>
                                                         </TableCell>
                                                         <TableCell className="text-right pr-10">
-                                                            <span className="font-black font-mono text-base tracking-tighter text-slate-900">${batch.costPerUnit.toFixed(2)}</span>
+                                                            <span className="font-black font-mono text-base md:text-xl tracking-tighter text-slate-900">${batch.costPerUnit.toFixed(2)}</span>
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}
@@ -505,7 +504,7 @@ export default function ProductDetailPage() {
                                                     </div>
                                                     <div className="text-right flex flex-col">
                                                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Landed / Use</span>
-                                                        <span className="text-3xl font-black tracking-tighter font-mono text-indigo-600">${((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)).toFixed(3)}</span>
+                                                        <span className="text-3xl font-black tracking-tighter font-mono text-indigo-600">${((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                                 <div className="pt-4 border-t border-indigo-500/10 space-y-2">
@@ -515,7 +514,7 @@ export default function ProductDetailPage() {
                                                     </div>
                                                     <div className="flex justify-between items-center text-sm font-black uppercase tracking-tight text-indigo-700">
                                                         <span>Final Cost / Use</span>
-                                                        <span className="font-mono">${(((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)) * (1 + (product.restockingMarkup || 0) / 100)).toFixed(3)}</span>
+                                                        <span className="font-mono">${(((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)) * (1 + (product.restockingMarkup || 0) / 100)).toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             </div>

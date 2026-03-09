@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -207,7 +205,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                             <span className='text-xs text-muted-foreground flex items-center gap-1'><MapPin className="w-2.5 h-2.5"/>{p.location}</span>
                         </div>
                     </div>
-                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(3)}</span>
+                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(2)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
         </div>
@@ -225,7 +223,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                 </div>
                 <span className="font-medium text-xs">{e.name}</span>
             </div>
-            <span className="font-semibold text-xs">${e.cost.toFixed(3)}</span>
+            <span className="font-semibold text-xs">${e.cost.toFixed(2)}</span>
         </div>
          )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
       </div>

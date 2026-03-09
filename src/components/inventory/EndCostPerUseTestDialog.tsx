@@ -132,7 +132,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                 </CardHeader>
                 <CardContent className="p-6 pt-0 text-center space-y-2">
                   <p className="text-4xl font-black tracking-tighter text-slate-900 font-mono">
-                    ${isEquipment ? estimatedCostPerMonth.toFixed(2) : oldCostPerUse.toFixed(3)}
+                    ${isEquipment ? estimatedCostPerMonth.toFixed(2) : oldCostPerUse.toFixed(2)}
                   </p>
                   <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Per {isEquipment ? 'Month' : 'Use'}</p>
                   <div className="pt-4 border-t border-dashed border-border/50">
@@ -148,7 +148,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                 </CardHeader>
                 <CardContent className="p-6 pt-0 text-center space-y-2">
                   <p className="text-4xl font-black tracking-tighter text-primary font-mono">
-                    ${isEquipment ? actualCostPerMonth.toFixed(2) : newCostPerUse.toFixed(3)}
+                    ${isEquipment ? actualCostPerMonth.toFixed(2) : newCostPerUse.toFixed(2)}
                   </p>
                   <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest">Per {isEquipment ? 'Month' : 'Use'}</p>
                   <div className="pt-4 border-t border-dashed border-primary/10">
