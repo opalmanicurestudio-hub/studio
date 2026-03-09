@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -370,8 +369,128 @@ function POSPage() {
       toast({ title: "Staff Assigned" });
     };
 
+    const handleConfirmCancellation = async (data: any) => {
+        if (!selectedAppointment || !firestore || !tenantId) return;
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+        const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
+        const currentClient = clients?.find(c => c.id === selectedAppointment.clientId);
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+
+        // 1. Core Cancellation Update
+        batch.update(appointmentRef, { 
+            status: 'cancelled', 
+            cancellationReason: data.reason, 
+            cancellationFeeApplied: data.feeAmount, 
+            cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') 
+        });
+        
+        if (selectedAppointment.checkInToken) {
+            batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { 
+                status: 'cancelled', 
+                cancellationReason: data.reason, 
+                tenantId 
+            });
+        }
+
+        // 2. Financial Logging
+        if (data.chargeFee && data.feeAmount > 0) {
+            if (data.paymentMethod === 'card_on_file') {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { 
+                    date: now, 
+                    description: `Cancellation Fee: ${selectedAppointment.clientName}`, 
+                    clientOrVendor: selectedAppointment.clientName || 'Client', 
+                    clientId: selectedAppointment.clientId, 
+                    type: 'income', 
+                    context: 'Business', 
+                    category: 'Cancellation Fee', 
+                    amount: data.feeAmount, 
+                    paymentMethod: 'Card on File', 
+                    hasReceipt: false, 
+                    appointmentId: selectedAppointment.id, 
+                    staffId: selectedAppointment.staffId 
+                });
+            } else if (data.paymentMethod === 'add_to_balance') {
+                batch.update(clientRef, { 
+                    unpaidFees: arrayUnion({ 
+                        feeId: nanoid(), 
+                        appointmentId: selectedAppointment.id, 
+                        appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), 
+                        feeAmount: data.feeAmount, 
+                        reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, 
+                        staffId: selectedAppointment.staffId 
+                    }), 
+                    outstandingBalance: increment(data.feeAmount) 
+                });
+            }
+        }
+
+        // 3. Forfeit Logic (Memberships & Packages)
+        if (currentClient && (data.reason === 'late' || data.reason === 'no-show' || data.reason === 'client_request' || data.reason === 'other')) {
+            const isLateOrNoShow = data.reason === 'late' || data.reason === 'no-show';
+            
+            // Handle Membership Forfeit
+            if (currentClient.activeMembershipId && memberships) {
+                const membership = memberships.find(m => m.id === currentClient.activeMembershipId);
+                const shouldForfeit = (data.reason === 'no-show' && membership?.forfeitOnNoShow) || ((data.reason === 'late' || data.reason === 'client_request' || data.reason === 'other') && membership?.forfeitOnLateCancel);
+                
+                if (shouldForfeit) {
+                    const perkId = selectedAppointment.serviceId;
+                    const currentUsage = currentClient.subscription?.perkUsage || {};
+                    const nextUsage = { ...currentUsage, [perkId]: (currentUsage[perkId] || 0) + 1 };
+                    
+                    batch.update(clientRef, { 'subscription.perkUsage': nextUsage, 'subscription.perkLastUsed': now });
+                    
+                    const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
+                    batch.set(redemptionRef, {
+                        id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services?.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
+                    });
+                }
+            }
+
+            // Handle Package Forfeit
+            const activePack = currentClient.activePackages?.find(p => {
+                const pkgDef = packages?.find(pkg => pkg.id === p.packageId);
+                return pkgDef?.serviceId === selectedAppointment.serviceId;
+            });
+
+            if (activePack && (isLateOrNoShow || data.reason === 'client_request' || data.reason === 'other')) {
+                const nextPackages = currentClient.activePackages!.map(p => {
+                    if (p.packageId === activePack.packageId) return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                    return p;
+                }).filter(p => p.sessionsRemaining > 0);
+
+                batch.update(clientRef, { activePackages: nextPackages });
+
+                const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
+                const pkgDef = packages?.find(pkg => pkg.id === activePack.packageId);
+                batch.set(redemptionRef, {
+                    id: redemptionRef.id, clientId: currentClient.id, type: 'package', offeringId: activePack.packageId, offeringName: pkgDef?.name || 'Package', serviceId: selectedAppointment.serviceId, serviceName: services?.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
+                });
+            }
+        }
+
+        try {
+            await batch.commit();
+            toast({ title: "Policy Enforced", description: "Appointment voided and logic reconciled." });
+        } catch (e) {
+            console.error("Cancellation failed:", e);
+            toast({ variant: 'destructive', title: "Process Error" });
+        }
+
+        setIsCancelDialogOpen(false);
+        setIsDetailsOpen(false);
+    };
+
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
-        if (!isWalkIn) { setSelectedAppointment((appointmentsFromInventory || []).find(a => a.id === id) || null); setIsCancelDialogOpen(true); return; }
+        if (!isWalkIn) { 
+            const apt = (appointmentsFromInventory || []).find(a => a.id === id);
+            if (apt) {
+                setSelectedAppointment(apt);
+                setIsCancelDialogOpen(true);
+            }
+            return; 
+        }
         setConfirmation({
             isOpen: true, title: 'Are you sure?', description: 'This will remove the guest from the queue.',
             onConfirm: async () => {
@@ -623,7 +742,7 @@ function POSPage() {
     };
 
     const handleFinishService = (apt: Appointment) => {
-        setAppointmentToReview(apt);
+        setSelectedAppointment(apt);
         setIsTechnicianReviewOpen(true);
     };
 
@@ -872,8 +991,8 @@ function POSPage() {
                     type: redeemedOffer.type,
                     offeringId: redeemedOffer.id,
                     offeringName: redeemedOffer.type === 'membership' 
-                        ? memberships.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
-                        : packages.find(p => p.id === redeemedOffer.id)?.name || 'Package',
+                        ? memberships?.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
+                        : packages?.find(p => p.id === redeemedOffer.id)?.name || 'Package',
                     serviceId: selectedAptsData[0].service.id,
                     serviceName: selectedAptsData[0].service.name,
                     date: now,
@@ -1200,12 +1319,7 @@ function POSPage() {
                     onOpenChange={setIsCancelDialogOpen}
                     appointment={selectedAppointment}
                     tenant={selectedTenant}
-                    onConfirm={async (data) => {
-                        const batch = writeBatch(firestore!);
-                        batch.update(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment.id), { status: 'cancelled', cancellationReason: data.reason });
-                        await batch.commit();
-                        setIsCancelDialogOpen(false);
-                    }}
+                    onConfirm={handleConfirmCancellation}
                 />
             )}
 
