@@ -10,11 +10,12 @@ service cloud.firestore {
 
     /**
      * @description Checks if the user is the master owner of the tenant.
-     * Uses short-circuit logic to grant immediate authority via direct userId check.
+     * Prioritizes direct userId check on the tenant document for immediate authority.
      */
     function isOwner(tenantId) {
+      let tenantDoc = get(/databases/$(database)/documents/tenants/$(tenantId));
       return isSignedIn() && (
-        get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid ||
+        tenantDoc.data.userId == request.auth.uid ||
         (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'owner')
       );
@@ -24,7 +25,8 @@ service cloud.firestore {
       return isSignedIn() && (
         isOwner(tenantId) ||
         (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin')
+         (get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin' || 
+          get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'owner'))
       );
     }
 

@@ -1,8 +1,7 @@
-
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -11,17 +10,22 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '../ui/scroll-area';
 import { type Order } from '@/lib/data';
-import { Calendar } from '../ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign } from 'lucide-react';
+import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { buttonVariants } from '../ui/button';
 
 export type ReceivedItem = {
   productId: string;
@@ -46,6 +50,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   order,
   onConfirm,
 }) => {
+  const isMobile = useIsMobile();
   const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
 
   useEffect(() => {
@@ -54,7 +59,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         productId: item.productId,
         productName: item.productName,
         quantityOrdered: item.quantity,
-        quantityReceived: item.quantity, // Default to receiving all
+        quantityReceived: item.quantity,
         quantityDamaged: 0,
         costPerUnit: item.costPerUnit,
         expirationDate: undefined,
@@ -66,16 +71,12 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
     setReceivedItems(prev => prev.map(item => {
         if (item.productId === productId) {
             const updatedItem = { ...item, [field]: value };
-
             if (field === 'quantityReceived' || field === 'quantityDamaged') {
               const received = field === 'quantityReceived' ? (value as number) : updatedItem.quantityReceived;
               const damaged = field === 'quantityDamaged' ? (value as number) : updatedItem.quantityDamaged;
               if (received + damaged > item.quantityOrdered) {
-                if (field === 'quantityReceived') {
-                  updatedItem.quantityDamaged = Math.max(0, item.quantityOrdered - received);
-                } else { // field === 'quantityDamaged'
-                  updatedItem.quantityReceived = Math.max(0, item.quantityOrdered - damaged);
-                }
+                if (field === 'quantityReceived') updatedItem.quantityDamaged = Math.max(0, item.quantityOrdered - received);
+                else updatedItem.quantityReceived = Math.max(0, item.quantityOrdered - damaged);
               }
             }
             return updatedItem;
@@ -91,62 +92,70 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   
   if (!order) return null;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Receive Stock for Order #{order.id.slice(-6).toUpperCase()}</DialogTitle>
-          <DialogDescription>
-            Confirm the quantity of items received from {order.supplier}.
-          </DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="max-h-[60vh] -mx-6 px-6">
-            <div className="space-y-4 py-4">
-                {receivedItems.map(item => (
-                    <div key={item.productId} className="p-4 border rounded-lg space-y-3">
-                        <p className="font-semibold">{item.productName}</p>
-                         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                            <Label htmlFor={`qty-ordered-${item.productId}`} className="text-sm">Ordered</Label>
-                            <Input id={`qty-ordered-${item.productId}`} value={item.quantityOrdered} disabled className="w-20 h-8 text-center" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-2">
-                                <Label htmlFor={`qty-received-${item.productId}`}>Qty OK</Label>
-                                <Input 
-                                    id={`qty-received-${item.productId}`}
-                                    type="number"
-                                    value={item.quantityReceived}
-                                    onChange={(e) => handleItemChange(item.productId, 'quantityReceived', parseInt(e.target.value) || 0)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor={`qty-damaged-${item.productId}`}>Qty Damaged</Label>
-                                <Input 
-                                    id={`qty-damaged-${item.productId}`}
-                                    type="number"
-                                    value={item.quantityDamaged}
-                                    onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)}
-                                />
-                            </div>
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor={`expiry-${item.productId}`}>Expiration Date (Optional)</Label>
-                            <Input
-                                id={`expiry-${item.productId}`}
-                                type="date"
-                                value={item.expirationDate ? format(item.expirationDate, 'yyyy-MM-dd') : ''}
-                                onChange={(e) => handleItemChange(item.productId, 'expirationDate', e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                            />
-                        </div>
+  const innerContent = (
+    <div className="space-y-8">
+        {receivedItems.map(item => (
+            <div key={item.productId} className="p-6 rounded-[2.5rem] border-2 bg-white shadow-xl space-y-6">
+                <div className="space-y-1">
+                    <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.productName}</p>
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-muted/50 border-none font-black text-[8px] uppercase h-5 px-2">Ordered: {item.quantityOrdered} Units</Badge>
                     </div>
-                ))}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label htmlFor={`qty-ok-${item.productId}`} className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Verified OK</Label>
+                        <Input id={`qty-ok-${item.productId}`} type="number" value={item.quantityReceived} onChange={(e) => handleItemChange(item.productId, 'quantityReceived', parseInt(e.target.value) || 0)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-primary/5 border-primary/20 text-primary text-center" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor={`qty-dmg-${item.productId}`} className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Damaged</Label>
+                        <Input id={`qty-dmg-${item.productId}`} type="number" value={item.quantityDamaged} onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-destructive/5 border-destructive/20 text-destructive text-center" />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Shelf Expiry (If Applicable)</Label>
+                    <Input
+                        type="date"
+                        value={item.expirationDate ? format(item.expirationDate, 'yyyy-MM-dd') : ''}
+                        onChange={(e) => handleItemChange(item.productId, 'expirationDate', e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                        className="h-12 rounded-xl border-2 font-bold"
+                    />
+                </div>
+            </div>
+        ))}
+    </div>
+  );
+
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const DialogContentContainer = isMobile ? SheetContent : DialogContent;
+
+  return (
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <DialogContentContainer side="right" className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[95dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+          <div className="flex items-center gap-3 mb-2">
+            <PackageOpen className="w-5 h-5 text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Logistics intake</span>
+          </div>
+          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Receive Manifest</SheetTitle>
+          <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verifying shipment from: {order.supplier}</SheetDescription>
+        </SheetHeader>
+        
+        <ScrollArea className="flex-1">
+            <div className="p-8">
+                {innerContent}
             </div>
         </ScrollArea>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConfirmClick}>Confirm & Add to Stock</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+          <div className="flex flex-col gap-3 w-full">
+            <Button onClick={handleConfirmClick} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit to Inventory <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" /></Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Intake</Button>
+          </div>
+        </SheetFooter>
+      </DialogContentContainer>
+    </DialogContainer>
   );
 };
