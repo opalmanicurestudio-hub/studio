@@ -15,6 +15,10 @@
           "description": "User's email address.",
           "format": "email"
         },
+        "phone": {
+          "type": "string",
+          "description": "User's contact phone number."
+        },
         "firstName": {
           "type": "string",
           "description": "User's first name."
