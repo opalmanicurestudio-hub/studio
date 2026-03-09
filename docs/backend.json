@@ -53,7 +53,7 @@
         },
         "subscriptionTier": {
             "type": "string",
-            "enum": ["none", "pro"],
+            "enum": ["none", "solo", "studio", "enterprise"],
             "description": "The subscription tier of the tenant."
         },
         "queueSkipTimeMinutes": {
@@ -839,23 +839,6 @@
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
     },
-    "Redemption": {
-        "title": "Redemption",
-        "type": "object",
-        "description": "An audit trail record for a membership perk or package session usage.",
-        "properties": {
-            "id": { "type": "string" },
-            "clientId": { "type": "string" },
-            "type": { "type": "string", "enum": ["membership", "package"] },
-            "offeringId": { "type": "string" },
-            "offeringName": { "type": "string" },
-            "serviceId": { "type": "string" },
-            "serviceName": { "type": "string" },
-            "date": { "type": "string", "format": "date-time" },
-            "staffId": { "type": "string" }
-        },
-        "required": ["id", "clientId", "type", "offeringId", "offeringName", "serviceId", "serviceName", "date"]
-    },
     "StockCorrection": {
       "title": "Stock Correction",
       "type": "object",
@@ -895,8 +878,7 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Required consent forms attached to the quote."
-        },
-        "clientSecret": { "type": "string" }
+        }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
@@ -1064,173 +1046,9 @@
         "rating": { "type": "number" },
         "text": { "type": "string" },
         "isPublic": { "type": "boolean" },
-        "isFeatured": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
-    }
-  },
-  "auth": {
-    "providers": [
-      "password"
-    ]
-  },
-  "firestore": {
-    "/users/{userId}": {
-      "schema": {
-        "$ref": "#/entities/User"
-      },
-      "description": "Stores user profiles."
-    },
-    "/tenants/{tenantId}": {
-      "schema": {
-        "$ref": "#/entities/Tenant"
-      },
-      "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
-    },
-    "/appointmentCheckIns/{token}": {
-        "schema": {
-            "$ref": "#/entities/Appointment"
-        },
-        "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
-    },
-    "/staffDirectory/{staffId}": {
-        "schema": {
-            "$ref": "#/entities/StaffDirectoryEntry"
-        },
-        "description": "Maps staff UIDs to their tenant and role."
-    },
-    "/tenants/{tenantId}/staff/{staffId}": {
-      "schema": {
-        "$ref": "#/entities/Staff"
-      },
-      "description": "Staff members belonging to a specific tenant."
-    },
-    "/tenants/{tenantId}/activityLogs/{logId}": {
-        "schema": {
-            "$ref": "#/entities/ActivityLog"
-        },
-        "description": "Immutable log of all staff activities for a tenant."
-    },
-    "/tenants/{tenantId}/services/{serviceId}": {
-      "schema": {
-        "$ref": "#/entities/Service"
-      },
-      "description": "Services offered by a specific tenant."
-    },
-    "/tenants/{tenantId}/resources/{resourceId}": {
-      "schema": {
-        "$ref": "#/entities/Resource"
-      },
-      "description": "Bookable assets like rooms or specific equipment."
-    },
-    "/tenants/{tenantId}/products/{productId}": {
-      "schema": {
-        "$ref": "#/entities/Product"
-      },
-      "description": "Products sold or used by a specific tenant."
-    },
-    "/tenants/{tenantId}/clients/{clientId}": {
-      "schema": {
-        "$ref": "#/entities/Client"
-      },
-      "description": "Clients belonging to a specific tenant."
-    },
-    "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
-        "schema": { "$ref": "#/entities/SignedConsent" },
-        "description": "Stores instances of consent forms signed by a specific client."
-    },
-    "/tenants/{tenantId}/clients/{clientId}/redemptions/{redemptionId}": {
-        "schema": { "$ref": "#/entities/Redemption" },
-        "description": "Audit trail for membership perks or package sessions used by a specific client."
-    },
-    "/tenants/{tenantId}/appointments/{appointmentId}": {
-      "schema": {
-        "$ref": "#/entities/Appointment"
-      },
-      "description": "Appointments for a specific tenant."
-    },
-    "/tenants/{tenantId}/walkIns/{walkInId}": {
-      "schema": {
-        "$ref": "#/entities/WalkIn"
-      },
-      "description": "The smart queue for walk-in customers."
-    },
-    "/tenants/{tenantId}/events/{eventId}": {
-      "schema": {
-        "$ref": "#/entities/Event"
-      },
-      "description": "Calendar events for a tenant, including booked quotes."
-    },
-    "/tenants/{tenantId}/orders/{orderId}": {
-        "schema": { "$ref": "#/entities/Order" },
-        "description": "Purchase orders for inventory supplies."
-    },
-    "/tenants/{tenantId}/quotes/{quoteId}": {
-      "schema": {
-        "$ref": "#/entities/Quote"
-      },
-      "description": "Quotes or proposals for a specific tenant."
-    },
-    "/tenants/{tenantId}/bills/{billId}": {
-      "schema": {
-        "$ref": "#/entities/Bill"
-      },
-      "description": "Recurring bills and expenses for a specific tenant."
-    },
-     "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
-      "schema": {
-        "$ref": "#/entities/LifestyleProfile"
-      },
-      "description": "Personal financial profiles for the user owning the tenant."
-    },
-    "/tenants/{tenantId}/businessProfiles/{profileId}": {
-      "schema": {
-        "$ref": "#/entities/BusinessProfile"
-      },
-      "description": "Business cost profiles for a specific tenant."
-    },
-    "/tenants/{tenantId}/scheduleProfiles/{profileId}": {
-      "schema": {
-        "$ref": "#/entities/ScheduleProfile"
-      },
-      "description": "Work schedule profiles for a specific tenant."
-    },
-    "/tenants/{tenantId}/transactions/{transactionId}": {
-      "schema": {
-        "$ref": "#/entities/Transaction"
-      },
-      "description": "Financial transaction log for a specific tenant."
-    },
-    "/tenants/{tenantId}/stockCorrections/{correctionId}": {
-      "schema": {
-        "$ref": "#/entities/StockCorrection"
-      },
-      "description": "An audit log of all inventory stock changes."
-    },
-    "/tenants/{tenantId}/consentForms/{formId}": {
-      "schema": {
-        "$ref": "#/entities/ConsentForm"
-      },
-      "description": "Stores consent form templates created by the tenant."
-    },
-    "/tenants/{tenantId}/discounts/{discountId}": {
-      "schema": {
-        "$ref": "#/entities/Discount"
-      },
-      "description": "Stores discount codes for a specific tenant."
-    },
-    "/tenants/{tenantId}/campaigns/{campaignId}": {
-      "schema": {
-        "$ref": "#/entities/Campaign"
-      },
-      "description": "Stores marketing campaigns for a tenant."
-    },
-    "/tenants/{tenantId}/reviews/{reviewId}": {
-      "schema": {
-        "$ref": "#/entities/Review"
-      },
-      "description": "Client reviews for the tenant."
     }
   }
 }

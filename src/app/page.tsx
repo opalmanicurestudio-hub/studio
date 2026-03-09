@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -18,13 +19,14 @@ import {
     Calculator,
     Smartphone,
     LayoutDashboard,
-    Users2
+    Users2,
+    User
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 const features = [
     {
@@ -53,6 +55,56 @@ const features = [
     }
 ]
 
+const pricingTiers = [
+    {
+        name: "Solo",
+        price: "29",
+        desc: "The independent master's essential toolkit.",
+        features: [
+            "Full Client Dossier",
+            "Strategic Planner",
+            "Base POS Terminal",
+            "Public Booking Page",
+            "Unlimited SMS Alerts"
+        ],
+        cta: "Initialize Solo",
+        highlight: false,
+        icon: User
+    },
+    {
+        name: "Studio",
+        price: "79",
+        desc: "Complete orchestration for high-performance teams.",
+        features: [
+            "Everything in Solo",
+            "Unlimited Staff Accounts",
+            "Automated Turn-Orders",
+            "Team Yield Analytics",
+            "Unified Payroll Ledger",
+            "Marketing Outreach Suite"
+        ],
+        cta: "Scale Your Studio",
+        highlight: true,
+        icon: Sparkles
+    },
+    {
+        name: "Enterprise",
+        price: "199",
+        desc: "Multi-location scale and brand governance.",
+        features: [
+            "Everything in Studio",
+            "Multi-Location Central",
+            "Custom White-Labeling",
+            "API Distribution Access",
+            "Priority Support",
+            "Growth Strategy"
+        ],
+        cta: "Custom Deployment",
+        highlight: false,
+        icon: ShieldCheck
+    }
+];
+
 const SectionHeader = ({ badge, title, subtitle }: { badge: string, title: string, subtitle: string }) => (
     <div className="space-y-4 mb-16 text-center lg:text-left">
         <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1.5 rounded-full border border-primary/10">
@@ -65,7 +117,7 @@ const SectionHeader = ({ badge, title, subtitle }: { badge: string, title: strin
 
 export default function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-background selection:bg-primary/20">
+    <div className="flex flex-col min-h-screen bg-background selection:bg-primary/20 overflow-x-hidden">
       {/* ATMOSPHERIC BACKGROUND */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
@@ -111,7 +163,7 @@ export default function LandingPage() {
                         <span className="text-primary italic font-serif lowercase tracking-normal">Start</span> Growing.
                     </h2>
                     <p className="mt-8 max-w-2xl mx-auto text-lg md:text-xl text-slate-600 font-medium leading-relaxed">
-                        The all-in-one "Studio Operating System" built for solo masters and high-performance teams. Protect your time, secure your yield, and find your flow.
+                        The all-in-one "Studio Operating System" built for solo masters and growing studio teams. Protect your time, secure your yield, and find your flow.
                     </p>
                 </motion.div>
 
@@ -147,7 +199,7 @@ export default function LandingPage() {
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent" />
                         <div className="absolute bottom-10 left-10 right-10 p-8 bg-white/10 backdrop-blur-xl border border-white/20 rounded-[2rem] shadow-2xl">
                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mb-2">Studio Insight</p>
-                            <p className="text-white text-xl font-black uppercase tracking-tight leading-tight">"From solo master to studio lead—ClarityFlow scales the foundation of our entire team."</p>
+                            <p className="text-white text-xl font-black uppercase tracking-tight leading-tight">"From independent independence to team lead—ClarityFlow scales the foundation of our entire studio."</p>
                         </div>
                     </div>
                 </div>
@@ -156,7 +208,7 @@ export default function LandingPage() {
                     <SectionHeader 
                         badge="Strategic Capabilities" 
                         title="Architecture for Profit" 
-                        subtitle="Standardize excellence across your team." 
+                        subtitle="Standardize excellence across your operation." 
                     />
                     <div className="grid gap-8">
                         {features.map((feature, i) => (
@@ -184,75 +236,69 @@ export default function LandingPage() {
 
         {/* PRICING SECTION */}
         <section className="container py-32 mx-auto px-6">
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-7xl mx-auto space-y-16">
                 <SectionHeader 
-                    badge="Investment" 
-                    title="Simple. Transparent. Scalable." 
-                    subtitle="One pass for total studio orchestration." 
+                    badge="Investment Architecture" 
+                    title="Built to Scale With You" 
+                    subtitle="Select the tier that matches your studio load." 
                 />
                 
-                <Card className="border-4 border-primary rounded-[3rem] shadow-3xl overflow-hidden bg-white relative">
-                    <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
-                        <Award className="w-64 h-64 text-primary" />
-                    </div>
-                    <CardHeader className="p-12 text-center border-b bg-muted/5">
-                        <div className="inline-flex items-center gap-2 bg-primary text-white px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg mb-6">
-                            <ShieldCheck className="w-3.5 h-3.5" /> Pro Access
-                        </div>
-                        <CardTitle className="text-5xl font-black tracking-tighter uppercase leading-none">Studio Pass Pro</CardTitle>
-                        <div className="flex items-baseline justify-center gap-2 pt-8">
-                            <span className="text-7xl font-black tracking-tighter text-primary font-mono">$49</span>
-                            <span className="text-muted-foreground font-black uppercase tracking-widest text-xs">/ per month</span>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="p-12 grid md:grid-cols-2 gap-12 text-left">
-                        <div className="space-y-6">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Master Orchestration</p>
-                            <ul className="space-y-4">
-                                {[
-                                    'Unlimited Client Dossiers',
-                                    'Multi-User Team Sync',
-                                    'Automated Turn-Order Logic',
-                                    'Encrypted POS Terminal',
-                                    'Public Booking Microsite',
-                                    'Staff Performance Analytics'
-                                ].map((item, i) => (
-                                    <li key={i} className="flex items-center gap-3">
-                                        <div className="p-1 bg-green-500/10 rounded-full text-green-600 shrink-0">
-                                            <Check className="w-3.5 h-3.5" />
-                                        </div>
-                                        <span className="text-xs font-black uppercase tracking-tight text-slate-700">{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                        <div className="space-y-6">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Intelligence & Yield</p>
-                            <ul className="space-y-4">
-                                {[
-                                    'Daily Yield Debriefs',
-                                    'Team Payout Computation',
-                                    'Automated Loyalty Engine',
-                                    'Landed Cost Manifest',
-                                    'Security Audit Logs',
-                                    'Unlimited SMS Notifications'
-                                ].map((item, i) => (
-                                    <li key={i} className="flex items-center gap-3">
-                                        <div className="p-1 bg-primary/10 rounded-full text-primary shrink-0">
-                                            <Sparkles className="w-3.5 h-3.5" />
-                                        </div>
-                                        <span className="text-xs font-black uppercase tracking-tight text-slate-700">{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </CardContent>
-                    <CardFooter className="p-12 pt-0">
-                        <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), "w-full h-20 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 tracking-widest")}>
-                            Secure Your Studio Pass
-                        </Link>
-                    </CardFooter>
-                </Card>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    {pricingTiers.map((tier, idx) => (
+                        <motion.div
+                            key={tier.name}
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.1 }}
+                            viewport={{ once: true }}
+                        >
+                            <Card className={cn(
+                                "relative flex flex-col h-full rounded-[2.5rem] border-4 transition-all duration-500 hover:shadow-2xl",
+                                tier.highlight ? "border-primary bg-primary/[0.02] shadow-xl shadow-primary/10" : "border-border/50 bg-white"
+                            )}>
+                                {tier.highlight && (
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg">
+                                        MOST POPULAR
+                                    </div>
+                                )}
+                                <CardHeader className="p-8 pb-4 text-center">
+                                    <div className={cn("mx-auto p-4 rounded-2xl mb-4 shadow-inner w-fit", tier.highlight ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                                        <tier.icon className="w-8 h-8" />
+                                    </div>
+                                    <CardTitle className="text-2xl font-black uppercase tracking-tighter">{tier.name}</CardTitle>
+                                    <CardDescription className="mt-2 font-medium">{tier.desc}</CardDescription>
+                                    <div className="flex items-baseline justify-center gap-2 pt-8">
+                                        <span className="text-6xl font-black tracking-tighter text-slate-900 font-mono">${tier.price}</span>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">/ mo</span>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="flex-1 px-8 py-4 space-y-6">
+                                    <ul className="space-y-4">
+                                        {tier.features.map((feature, i) => (
+                                            <li key={i} className="flex items-start gap-3">
+                                                <div className="p-1 bg-green-500/10 rounded-full text-green-600 shrink-0">
+                                                    <Check className="w-3 h-3" />
+                                                </div>
+                                                <span className="text-xs font-bold uppercase tracking-tight text-slate-700">{feature}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </CardContent>
+                                <CardFooter className="p-8">
+                                    <Link 
+                                        href="/signup" 
+                                        className={cn(
+                                            buttonVariants({ variant: tier.highlight ? 'default' : 'outline' }),
+                                            "w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/10"
+                                        )}
+                                    >
+                                        {tier.cta}
+                                    </Link>
+                                </CardFooter>
+                            </Card>
+                        </motion.div>
+                    ))}
+                </div>
             </div>
         </section>
 
