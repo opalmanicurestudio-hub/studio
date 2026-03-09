@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { 
     PlusCircle, 
@@ -18,7 +18,7 @@ import {
     Trash2, 
     Eye, 
     TrendingUp, 
-    DollarSign, 
+    DollarSign as DollarSignIcon, 
     FlaskConical, 
     Gift, 
     Loader,
@@ -27,50 +27,50 @@ import {
     Activity,
     ChevronRight,
     Search,
-    FileCheck,
-    Percent,
-    FileText,
-    FileStack,
-    Hash,
     CheckCircle
 } from 'lucide-react';
-import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
-import { useInventory } from '@/context/InventoryContext';
-import { type Quote as QuoteType, type Client } from '@/lib/data';
+import { type Campaign, type Quote as QuoteType } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuPortal, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
-const statusConfig: {
-  [key in QuoteType['status']]: {
-    label: string;
-    className: string;
-  };
-} = {
-  draft: { label: 'DRAFT', className: 'bg-muted text-muted-foreground border-transparent' },
-  sent: { label: 'DISPATCHED', className: 'bg-blue-500/10 text-blue-700 border-blue-200' },
-  accepted: { label: 'ACCEPTED', className: 'bg-green-500/10 text-green-700 border-green-200 shadow-sm' },
-  declined: { label: 'DECLINED', className: 'bg-destructive/10 text-destructive border-destructive/20' },
-  booked: { label: 'COMMITTED', className: 'bg-primary text-white border-none shadow-lg' },
+const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) => {
+    switch (audience) {
+        case 'all': return <Users className="w-3.5 h-3.5" />;
+        case 'new': return <UserPlus className="w-3.5 h-3.5" />;
+        case 'loyal': return <Star className="w-3.5 h-3.5" />;
+        case 'inactive_90': return <Clock className="w-3.5 h-3.5" />;
+        case 'specific': return <Users className="w-3.5 h-3.5" />;
+        case 'birthday': return <Gift className="w-3.5 h-3.5" />;
+        default: return null;
+    }
+}
+
+const audienceText: Record<Campaign['targetAudience'], string> = {
+    all: 'ALL GUESTS',
+    new: 'NEW GUESTS',
+    loyal: 'LOYAL GUESTS',
+    inactive_90: 'INACTIVE (90D)',
+    specific: 'SPECIFIC GROUP',
+    birthday: 'BIRTHDAY MONTH',
 };
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
+    <Card className="border-2 shadow-sm min-w-0 text-left">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass)} />
         </CardHeader>
         <CardContent>
             <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
@@ -81,344 +81,302 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent, onDelete }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void, onDelete: (q: QuoteType) => void }) => {
-  const client = clients.find((c) => c.id === quote.clientId);
-  const statusInfo = statusConfig[quote.status];
-  const quoteDate = quote.eventDate ? parseISO(quote.eventDate) : parseISO(quote.createdAt);
-
-  const total = useMemo(() => {
-    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
-    const fee = servicesTotal * (quote.projectFee / 100);
-    return servicesTotal + quote.travelExpenses + fee;
-  }, [quote]);
-
-  return (
-    <TableRow className="group hover:bg-primary/[0.02] transition-colors border-b">
-      <TableCell className="p-6">
-        <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-muted/30 rounded-xl border shadow-inner shrink-0">
-                <Hash className="w-3.5 h-3.5 text-muted-foreground opacity-40" />
+const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
+    <Card className="border-2 shadow-sm rounded-[1.5rem] overflow-hidden group">
+        <CardContent className="p-5 space-y-4">
+            <div className="flex justify-between items-start gap-4">
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{campaign.name}</p>
+                        {campaign.subjectB && <FlaskConical className="h-3 w-3 text-purple-500 shrink-0" />}
+                    </div>
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1.5">
+                        {campaign.type === 'email' ? <Mail className="w-2.5 h-2.5" /> : <MessageSquare className="w-2.5 h-2.5" />}
+                        {campaign.type} &middot; {audienceText[campaign.targetAudience]}
+                    </p>
+                </div>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2 rounded-lg"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
+                        <DropdownMenuItem onClick={() => onSend(campaign.id)} disabled={campaign.status === 'sent'} className="font-bold text-[10px] uppercase tracking-widest">
+                            <Send className="mr-2 h-3.5 w-3.5" /> Dispatch Now
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest" onClick={() => onDelete(campaign)}>
+                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Terminate
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
-            <span className="font-black font-mono text-xs text-slate-900">{quote.id.slice(-6).toUpperCase()}</span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8 border-2 border-background shadow-sm rounded-xl">
-                <AvatarImage src={client?.avatarUrl} className="object-cover" />
-                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(client?.name || 'G').charAt(0)}</AvatarFallback>
-            </Avatar>
-            <span className="font-black uppercase tracking-tight text-xs text-slate-700">{client?.name || 'Guest'}</span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="max-w-[200px] truncate">
-            <p className="font-black uppercase tracking-tight text-xs text-slate-900">{quote.eventName}</p>
-            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Strategic Proposal</p>
-        </div>
-      </TableCell>
-      <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">
-        {format(quoteDate, 'MMM d, yyyy')}
-      </TableCell>
-      <TableCell>
-        <Badge variant="outline" className={cn('h-6 px-2.5 rounded-lg border-2 font-black text-[8px] uppercase tracking-widest bg-white shadow-sm', statusInfo.className)}>
-          {statusInfo.label}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-right">
-        <span className="font-black font-mono text-sm md:text-base tracking-tighter text-slate-900">${total.toFixed(2)}</span>
-      </TableCell>
-      <TableCell className="text-right pr-10">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button aria-haspopup="true" size="icon" variant="ghost" className="rounded-xl hover:bg-primary/5 transition-all">
-              <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">Toggle menu</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest cursor-pointer">
-              <Link href={`/quotes/${quote.id}`}>
-                <FileText className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                <span>View/Edit</span>
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="font-bold text-[10px] uppercase tracking-widest">
-              <Printer className="mr-2 h-3.5 w-3.5 opacity-40"/>
-              <span>Print Quote</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="font-bold text-[10px] uppercase tracking-widest">Mark as...</DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="rounded-xl border-2 shadow-2xl p-1">
-                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'sent')} className="font-bold text-[10px] uppercase">Sent</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'accepted')} className="font-bold text-[10px] uppercase">Accepted</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'declined')} className="font-bold text-[10px] uppercase text-destructive">Declined</DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase tracking-widest text-primary">
-              <FileStack className="mr-2 h-3.5 w-3.5"/>
-              <span>Finalize & Book</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onDelete(quote)} className="text-destructive font-bold text-[10px] uppercase tracking-widest">
-              <Trash2 className="mr-2 h-3.5 w-3.5"/>
-              <span>Terminate</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
-  );
-};
-
-const QuoteCard = ({ quote, clients, onStatusChange, onBookEvent, onDelete }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void, onDelete: (q: QuoteType) => void }) => {
-    const client = clients.find((c) => c.id === quote.clientId);
-    const statusInfo = statusConfig[quote.status];
-
-    const total = useMemo(() => {
-        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
-        const fee = servicesTotal * (quote.projectFee / 100);
-        return servicesTotal + quote.travelExpenses + fee;
-    }, [quote]);
-
-    return (
-        <Card className="border-2 shadow-sm rounded-[1.5rem] overflow-hidden group bg-white">
-            <CardContent className="p-5 space-y-4">
-                 <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-1 min-w-0 text-left">
-                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{quote.eventName}</p>
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 truncate">
-                            {client?.name || 'N/A'} &middot; #{quote.id.slice(-6).toUpperCase()}
-                        </p>
-                    </div>
-                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 -mr-2 rounded-lg'>
-                                <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-                            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase cursor-pointer">
-                                <Link href={`/quotes/${quote.id}`}>View/Edit</Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">
-                                <CheckCircle className="mr-2 h-3.5 w-3.5 opacity-40"/>
-                                <span>Finalize & Book</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onDelete(quote)} className="text-destructive font-bold text-[10px] uppercase">Terminate</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+            
+            <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
+                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Reach</p>
+                    <p className="font-black font-mono text-sm">{campaign.status === 'sent' ? (campaign.recipientCount || 0) : '—'}</p>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                    <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Investment</p>
-                        <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${total.toFixed(2)}</p>
-                    </div>
-                    <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner text-right">
-                        <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Status</p>
-                        <Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase border-2 bg-white", statusInfo.className)}>{statusInfo.label}</Badge>
-                    </div>
+                <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
+                    <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Yield</p>
+                    <p className="font-black font-mono text-sm text-primary">${(campaign.generatedRevenue || 0).toFixed(0)}</p>
                 </div>
-            </CardContent>
-        </Card>
-    )
-}
+            </div>
 
-export default function QuotesPage() {
-    const { firestore, user } = useFirebase();
-    const { clients, isLoading: isInventoryLoading } = useInventory();
-    const { toast } = useToast();
-    const router = useRouter();
-    const { selectedTenant } = useTenant();
-    const tenantId = selectedTenant?.id;
+            <div className="flex items-center justify-between pt-3 border-t border-dashed mt-2">
+                <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
+                <span className="text-[9px] font-black uppercase text-muted-foreground opacity-40">{campaign.sentAt ? format(new Date(campaign.sentAt), 'MMM d, yy') : 'NOT DISPATCHED'}</span>
+            </div>
+        </CardContent>
+    </Card>
+);
+
+const QuoteCard = ({ quote, onBookEvent, onDelete }: { quote: QuoteType, onBookEvent: (quote: QuoteType) => void, onDelete: (id: string) => void }) => (
+    <Card className="border-2 shadow-sm rounded-[1.5rem] overflow-hidden group">
+        <CardContent className="p-5 space-y-4">
+            <div className="flex justify-between items-start gap-4">
+                <div className="flex-1 min-w-0 text-left">
+                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{quote.eventName}</p>
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">Status: {quote.status}</p>
+                </div>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2 rounded-lg"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
+                        <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest">
+                            <Link href={`/quotes/${quote.id}`}>
+                                <Eye className="mr-2 h-3.5 w-3.5 opacity-40"/>
+                                View Details
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">
+                            <CheckCircle className="mr-2 h-3.5 w-3.5 opacity-40"/>
+                            <span>Finalize & Book</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase" onClick={() => onDelete(quote.id)}>
+                            <Trash2 className="mr-2 h-3.5 w-3.5 opacity-40"/>
+                            Terminate
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
+                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Value</p>
+                    <p className="font-black font-mono text-sm">${(quote.lineItems.reduce((acc, i) => acc + (i.price * i.quantity), 0) + quote.travelExpenses).toFixed(0)}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
+                    <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Retainer</p>
+                    <p className="font-black font-mono text-sm text-primary">${(quote as any).depositAmount?.toFixed(0) || '0'}</p>
+                </div>
+            </div>
+        </CardContent>
+    </Card>
+);
+
+export default function CampaignsPage() {
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { toast } = useToast();
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+
+  const campaignsQuery = useMemoFirebase(() => 
+    firestore && selectedTenant
+      ? collection(firestore, 'tenants', selectedTenant.id, 'campaigns')
+      : null
+  , [firestore, selectedTenant]);
+
+  const { data: campaigns, isLoading } = useCollection<Campaign>(campaignsQuery);
+
+  const handleSendCampaign = (campaignId: string) => {
+    if (!firestore || !selectedTenant) return;
+    const campaignRef = doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId);
+    updateDocumentNonBlocking(campaignRef, {
+        status: 'sent',
+        sentAt: new Date().toISOString(),
+    });
+    toast({ title: "Campaign Dispatched!", description: "Dispatch successful. Data tracking initiated." });
+  };
+
+  const handleDeleteClick = (campaign: Campaign) => {
+    setCampaignToDelete(campaign);
+  };
+
+  const confirmDelete = () => {
+    if (!campaignToDelete || !firestore || !selectedTenant) return;
+    const campaignRef = doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignToDelete.id);
+    deleteDocumentNonBlocking(campaignRef);
+    toast({ title: "Campaign Terminated" });
+    setCampaignToDelete(null);
+  };
+  
+  const sortedCampaigns = useMemo(() => {
+    if (!campaigns) return [];
+    return [...campaigns].sort((a,b) => {
+        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : 0;
+        return bDate - aDate;
+    })
+  }, [campaigns]);
+
+  const kpiData = useMemo(() => {
+    if (!campaigns) return { totalCampaigns: 0, totalRecipients: 0, avgOpenRate: 0, totalRevenue: 0 };
     
-    const [quoteToDelete, setQuoteToDelete] = useState<QuoteType | null>(null);
-
-    const quotesQuery = useMemoFirebase(() => {
-        if (!user || !firestore || !tenantId) return null;
-        return collection(firestore, 'tenants', tenantId, 'quotes');
-    }, [user, firestore, tenantId]);
+    const sentCampaigns = campaigns.filter(c => c.status === 'sent');
+    const totalRecipients = sentCampaigns.reduce((sum, c) => sum + (c.recipientCount || 0), 0);
+    const totalRevenue = sentCampaigns.reduce((sum, c) => sum + (c.generatedRevenue || 0), 0);
     
-    const { data: quotes, isLoading } = useCollection<QuoteType>(quotesQuery);
-    
-    const sortedQuotes = useMemo(() => {
-        if (!quotes) return [];
-        return [...quotes].sort((a,b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime());
-    }, [quotes]);
-    
-    const kpiData = useMemo(() => {
-        if (!quotes) return { acceptedValue: 0, conversionRate: 0, avgQuoteValue: 0, awaitingResponse: 0 };
-        
-        const sentOrBeyond = quotes.filter(q => q.status !== 'draft');
-        const accepted = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
-        
-        const acceptedValue = accepted.reduce((acc, q) => {
-            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + ((item.price || 0) * (item.quantity || 1)), 0);
-            const fee = servicesTotal * (q.projectFee / 100);
-            return acc + servicesTotal + q.travelExpenses + fee;
-        }, 0);
-        
-        const totalValue = sentOrBeyond.reduce((acc, q) => {
-             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + ((item.price || 0) * (item.quantity || 1)), 0);
-            const fee = servicesTotal * (q.projectFee / 100);
-            return acc + servicesTotal + q.travelExpenses + fee;
-        }, 0);
+    const campaignsWithOpenRate = sentCampaigns.filter(c => typeof c.openRate === 'number');
+    const avgOpenRate = campaignsWithOpenRate.length > 0
+      ? campaignsWithOpenRate.reduce((sum, c) => sum + (c.openRate || 0), 0) / campaignsWithOpenRate.length
+      : 0;
 
-        return {
-            acceptedValue,
-            conversionRate: sentOrBeyond.length > 0 ? (accepted.length / sentOrBeyond.length) * 100 : 0,
-            avgQuoteValue: sentOrBeyond.length > 0 ? totalValue / sentOrBeyond.length : 0,
-            awaitingResponse: quotes.filter(q => q.status === 'sent').length
-        }
-
-    }, [quotes]);
-
-    const handleStatusChange = (id: string, status: QuoteType['status']) => {
-        if (!firestore || !tenantId) return;
-        const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', id);
-        updateDocumentNonBlocking(quoteRef, { status });
-        toast({ title: "Status Synchronized", description: `Quote status updated to ${status.toUpperCase()}.` });
+    return {
+      totalCampaigns: campaigns.length,
+      totalRecipients,
+      avgOpenRate: parseFloat(avgOpenRate.toFixed(1)),
+      totalRevenue,
     };
-    
-    const handleDeleteQuote = () => {
-        if (!quoteToDelete || !firestore || !tenantId) return;
-        const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', quoteToDelete.id);
-        deleteDocumentNonBlocking(quoteRef);
-        toast({ title: "Proposal Purged", variant: "destructive" });
-        setQuoteToDelete(null);
-    }
-
-    const handleBookEvent = async (quote: QuoteType) => {
-        if (!firestore || !tenantId) return;
-
-        const eventRef = collection(firestore, 'tenants', tenantId, 'events');
-        
-        const newEvent = {
-            title: quote.eventName,
-            type: 'business',
-            startTime: quote.eventDate || new Date().toISOString(),
-            endTime: quote.eventDate || new Date().toISOString(),
-            location: typeof quote.eventLocation === 'string' ? quote.eventLocation : 'Client Site',
-            notes: `Booked from Quote #${quote.id.slice(-6).toUpperCase()}. \n\n${quote.notes || ''}`,
-            quoteId: quote.id
-        }
-
-        await addDocumentNonBlocking(eventRef, newEvent);
-        handleStatusChange(quote.id, 'booked');
-
-        toast({
-            title: "Project Secured!",
-            description: `"${quote.eventName}" has been locked into the planner.`,
-        });
-        
-        router.push('/planner');
-    }
+  }, [campaigns]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
-      <AppHeader title="Project Invoicing" />
+      <AppHeader title="Outreach Pulse" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1 text-left">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Quote Ledger</h1>
+          <div className="space-y-1">
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Campaign Hub</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
-              Project proposals & secured yields
+              Retention engine & dispatch matrix
             </p>
           </div>
           <Button asChild className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
-            <Link href="/quotes/new">
-              <PlusCircle className="mr-2 h-4 w-4" /> Initiate New Quote
+            <Link href="/campaigns/new">
+                <PlusCircle className="mr-2 h-4 w-4" /> New Dispatch
             </Link>
           </Button>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiCard title="Secured Pipeline" value={`$${kpiData.acceptedValue.toFixed(0)}`} icon={CheckCircle} description="Yield from accepted quotes" colorClass="text-green-600" />
-                <KpiCard title="Engagement Delta" value={`${kpiData.conversionRate.toFixed(0)}%`} icon={Percent} description="Acceptance velocity" />
-                <KpiCard title="Average Ticket" value={`$${kpiData.avgQuoteValue.toFixed(0)}`} icon={TrendingUp} description="Mean proposal value" colorClass="text-primary" />
-                <KpiCard title="Awaiting Response" value={kpiData.awaitingResponse.toString()} icon={Clock} description="Pending client review" />
-            </div>
-        </motion.div>
-
-        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white/80 backdrop-blur-xl">
-            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
-                <div className="space-y-1 text-left">
-                    <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Audit Trail</CardTitle>
-                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Historical project proposals.</CardDescription>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard title="Total Dispatches" value={kpiData.totalCampaigns.toString()} icon={Megaphone} description="Total campaigns created." />
+            <KpiCard title="Tactical Reach" value={kpiData.totalRecipients.toLocaleString()} icon={Users} description="Total clients engaged." />
+            <KpiCard title="Avg. Open Velocity" value={`${kpiData.avgOpenRate}%`} icon={Eye} description="Email engagement rate." />
+            <KpiCard title="Marketing Yield" value={`$${kpiData.totalRevenue.toFixed(0)}`} icon={TrendingUp} colorClass="text-primary" description="Direct revenue yield." />
+        </div>
+        
+        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+          <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+            <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Dispatch Archive</CardTitle>
+            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Complete audit trail of studio outreach.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+                <div className="flex flex-col items-center justify-center p-24 gap-4">
+                    <Loader className="animate-spin h-8 w-8 text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archive...</p>
                 </div>
-                <div className="hidden sm:flex items-center gap-2 p-2 bg-primary/5 rounded-full border border-primary/10">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-[10px] font-black uppercase text-primary tracking-widest px-2">Live Insights</span>
-                </div>
-            </CardHeader>
-            <CardContent className="p-0">
-                {(isLoading || isInventoryLoading) ? (
-                    <div className="flex flex-col items-center justify-center p-24 gap-4">
-                        <Loader className="animate-spin h-8 w-8 text-primary" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archive...</p>
-                    </div>
-                ) : sortedQuotes.length > 0 ? (
-                    <>
-                        <div className="hidden md:block overflow-x-auto">
-                            <Table>
-                            <TableHeader className="bg-muted/10 border-b-2">
-                                <TableRow>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Logic ID</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Entity</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Project Label</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Timestamp</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Logic Status</TableHead>
-                                <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary">Yield</TableHead>
-                                <TableHead className="text-right pr-10 font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Actions</TableHead>
+            ) : campaigns && campaigns.length > 0 ? (
+              <>
+                <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                        <TableHeader className="bg-muted/10 border-b-2">
+                            <TableRow>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Campaign Label</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Logic Type</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Target Audience</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Reach</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Yield</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Status</TableHead>
+                                <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10 text-slate-900">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {sortedCampaigns.map(campaign => (
+                                <TableRow key={campaign.id} className="group hover:bg-primary/[0.02] transition-colors border-b">
+                                    <TableCell className="p-6">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-black uppercase tracking-tight text-sm text-slate-900">{campaign.name}</span>
+                                            {campaign.subjectB && (
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger><FlaskConical className="h-3.5 w-3.5 text-purple-500 opacity-60" /></TooltipTrigger>
+                                                        <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">A/B Strategy Active</TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge variant="outline" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit">
+                                            {campaign.type === 'email' ? <Mail className="w-2.5 h-2.5" /> : <MessageSquare className="w-2.5 h-2.5" />}
+                                            {campaign.type}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-600 tracking-tight">
+                                            <AudienceIcon audience={campaign.targetAudience} />
+                                            <span>{audienceText[campaign.targetAudience]}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-slate-700">{campaign.status === 'sent' ? (campaign.recipientCount || '0') : '—'}</TableCell>
+                                    <TableCell className="font-black font-mono text-sm text-primary">{campaign.status === 'sent' ? `$${(campaign.generatedRevenue || 0).toFixed(0)}` : '—'}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="h-5 px-2 font-black text-[8px] uppercase border-none shadow-sm">{campaign.status}</Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right pr-10">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/5"><MoreHorizontal className="h-4 w-4" /></Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
+                                                <DropdownMenuItem onClick={() => handleSendCampaign(campaign.id)} disabled={campaign.status === 'sent'} className="font-bold text-[10px] uppercase tracking-widest">
+                                                    <Send className="mr-2 h-3.5 w-3.5" /> Dispatch Now
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest" onClick={() => handleDeleteClick(campaign)}>
+                                                    <Trash2 className="mr-2 h-3.5 w-3.5" /> Terminate
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TableCell>
                                 </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {sortedQuotes.map((quote) => (
-                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} onDelete={setQuoteToDelete} />
-                                ))}
-                            </TableBody>
-                            </Table>
-                        </div>
-                        <div className="grid gap-4 md:hidden p-5">
-                            {sortedQuotes.map((quote) => (
-                                <QuoteCard key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} onDelete={setQuoteToDelete} />
                             ))}
-                        </div>
-                    </>
-                ) : (
-                    <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6 m-8">
-                        <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><FileText className="h-16 w-16 text-muted-foreground" /></div>
-                        <div className="space-y-2 text-center">
-                            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Manifest Clear</h3>
-                            <p className="text-sm font-bold uppercase tracking-tight max-sm mx-auto">
-                                No active project proposals in the archive. Initiate a new quote to start tracking project yields.
-                            </p>
-                        </div>
-                        <Button size="lg" asChild className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
-                            <Link href="/quotes/new">Create First Quote</Link>
-                        </Button>
-                    </div>
-                )}
-            </CardContent>
+                        </TableBody>
+                    </Table>
+                </div>
+                <div className="md:hidden space-y-4 p-5">
+                    {sortedCampaigns.map(campaign => (
+                        <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
+                    ))}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
+                <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><Megaphone className="h-16 w-16 text-muted-foreground" /></div>
+                <div className="space-y-2">
+                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Archive Idle</h3>
+                    <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto">
+                        Your retention engine is waiting. Create a targeted Email or SMS dispatch to drive growth.
+                    </p>
+                </div>
+                <Button size="lg" asChild className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
+                    <Link href="/campaigns/new">Initiate First Dispatch</Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
         </Card>
       </main>
 
-      <AlertDialog open={!!quoteToDelete} onOpenChange={() => setQuoteToDelete(null)}>
+      <AlertDialog open={!!campaignToDelete} onOpenChange={() => setCampaignToDelete(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
-                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Proposal</AlertDialogTitle>
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Dispatch</AlertDialogTitle>
                 <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
-                    You are about to permanently delete the protocol for <strong>"{quoteToDelete?.eventName}"</strong>. This will purge all associated financial projections. <strong>This action is non-reversible.</strong>
+                    You are about to permanently delete the archive for <strong>"{campaignToDelete?.name}"</strong>. This will purge all associated performance metrics and history. <strong>This action is non-reversible.</strong>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                <Button onClick={handleDeleteQuote} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
+                <Button onClick={confirmDelete} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
                 <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>

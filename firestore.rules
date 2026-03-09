@@ -9,22 +9,24 @@ service cloud.firestore {
     }
 
     /**
-     * @description Master Authority check. 
-     * Verifies ownership directly on the Tenant document via the userId field.
+     * @description Universal Owner Override.
+     * Checks the Tenant document directly for technical ownership.
      */
     function isOwner(tenantId) {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid
+      );
     }
 
     /**
-     * @description Role-based management check.
-     * Inherits from ownership or checks the explicitly assigned role in the staff subcollection.
+     * @description Master Admin Protocol.
+     * Inherits from ownership or verifies admin role in directory.
      */
     function isAdmin(tenantId) {
       return isSignedIn() && (
         isOwner(tenantId) ||
-        get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin']
+        (exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin'])
       );
     }
 
@@ -35,28 +37,22 @@ service cloud.firestore {
       );
     }
 
-    // --- UNIVERSAL DATA PROTOCOL ---
+    // --- STRATEGIC DATA ACCESS ---
 
-    // Master rule for all studio data - Owners and Admins have full control
+    // Master rule for all studio data subcollections
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isAdmin(tenantId);
       allow read: if isStaff(tenantId);
     }
 
-    // Special case for public assets and creation
+    // Tenant Profile Access
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn();
       allow update: if isAdmin(tenantId);
     }
 
-    // Public Quote Access (For guest review and acceptance)
-    match /tenants/{tenantId}/quotes/{quoteId} {
-      allow get: if true;
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']);
-    }
-
-    // Identity & Directory
+    // Identity & Access Mapping
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
@@ -66,12 +62,19 @@ service cloud.firestore {
       allow write: if isSignedIn(); 
     }
 
+    // Public Terminal & Check-in Logic
     match /appointmentCheckIns/{token} {
       allow read: if true;
       allow create: if isSignedIn();
       allow update: if 
         (isSignedIn()) || 
         (request.auth == null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
+    }
+    
+    // Explicit Public Quote Review
+    match /tenants/{tenantId}/quotes/{quoteId} {
+      allow get: if true;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']);
     }
   }
 }
