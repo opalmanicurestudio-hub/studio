@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
@@ -25,7 +26,8 @@ import {
     Loader,
     Box,
     Activity,
-    SlidersHorizontal
+    SlidersHorizontal,
+    Megaphone
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
@@ -47,18 +49,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-1 md:pb-2">
-            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate mr-1">
+            <CardTitle className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate mr-1">
                 {title}
             </CardTitle>
             <Icon className={cn("h-3 w-3 md:h-3.5 md:w-3.5 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
         <CardContent className="p-3 md:p-4 pt-0">
-            <div className={cn("text-lg md:text-2xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+            <div className={cn("text-lg md:text-2xl font-black tracking-tighter font-mono truncate", colorClass || "text-slate-900")}>
                 {value}
             </div>
-            <p className="text-[8px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
+            <p className="text-[7px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
         </CardContent>
     </Card>
 );
@@ -124,7 +126,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                     </div>
                     <DropdownMenu>
                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/10"><MoreHorizontal className="h-4 w-4 text-primary"/></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/10 transition-all"><MoreHorizontal className="h-4 w-4 text-primary"/></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
                             <DropdownMenuItem onClick={() => onEdit(discount)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40"/>Modify</DropdownMenuItem>
@@ -333,8 +335,8 @@ function DiscountsContent() {
             <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
                     <div className="space-y-1">
-                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Incentives</h1>
-                        <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Incentives</h1>
+                        <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
                             Retention matrix & logic control
                         </p>
                     </div>
@@ -351,14 +353,13 @@ function DiscountsContent() {
                 </div>
                 
                 <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                    <ScrollArea className="w-full">
-                        <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max mx-auto sm:mx-0">
+                    <div className="w-full overflow-x-auto pb-4 scrollbar-hide">
+                        <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-4 min-w-full sm:min-w-0">
                             <TabsTrigger value="codes" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
                             <TabsTrigger value="automations" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
                             <TabsTrigger value="referrals" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
                         </TabsList>
-                        <ScrollBar orientation="horizontal" className="hidden" />
-                    </ScrollArea>
+                    </div>
                     
                     <TabsContent value="codes" className="mt-0">
                         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
