@@ -70,7 +70,7 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass)} />
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
         <CardContent>
             <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>

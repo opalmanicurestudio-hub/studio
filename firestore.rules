@@ -10,7 +10,7 @@ service cloud.firestore {
 
     /**
      * @description Universal Owner Override.
-     * Checks the Tenant document directly for technical ownership.
+     * Grants Jessica Marshall (Technical Owner) immediate master authority.
      */
     function isOwner(tenantId) {
       return isSignedIn() && (
@@ -39,7 +39,7 @@ service cloud.firestore {
 
     // --- STRATEGIC DATA ACCESS ---
 
-    // Master rule for all studio data subcollections
+    // Master rule for all studio data subcollections (Inventory, Quotes, Ledger, etc.)
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isAdmin(tenantId);
       allow read: if isStaff(tenantId);
@@ -66,9 +66,7 @@ service cloud.firestore {
     match /appointmentCheckIns/{token} {
       allow read: if true;
       allow create: if isSignedIn();
-      allow update: if 
-        (isSignedIn()) || 
-        (request.auth == null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
+      allow update: if true;
     }
     
     // Explicit Public Quote Review
