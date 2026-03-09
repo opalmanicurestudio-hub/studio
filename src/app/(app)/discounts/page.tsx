@@ -25,7 +25,8 @@ import {
     Activity,
     SlidersHorizontal,
     Target,
-    Filter
+    Filter,
+    Loader
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
@@ -135,7 +136,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
             </CardHeader>
             <CardContent className="px-6 md:px-8 pb-6 flex-1 text-left space-y-4">
                 <div className="p-5 rounded-2xl bg-white border-2 border-primary/10 shadow-inner text-center">
-                    <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Incentive Yield</p>
+                    <p className="text-[9px] font-black uppercase text-primary/60 tracking-[0.2em]">Incentive Yield</p>
                     <p className="text-3xl font-black text-primary tracking-tighter font-mono">
                         {discount.type === 'percentage' ? `${discount.value}%` : `$${discount.value.toFixed(2)}`}<span className="text-xs ml-1 uppercase">Off</span>
                     </p>
