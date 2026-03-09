@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History } from 'lucide-react';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History, AlertTriangle } from 'lucide-react';
 import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -180,7 +180,7 @@ export default function ClientPortalPage() {
             <Tabs defaultValue="appointments">
                 <TabsList className="w-full justify-start border-b rounded-none bg-transparent h-auto p-0 mb-6">
                     <TabsTrigger value="appointments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Appointments</TabsTrigger>
-                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Redemption Log</TabsTrigger>
+                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Usage Log</TabsTrigger>
                     <TabsTrigger value="benefits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Benefits & Perks</TabsTrigger>
                     <TabsTrigger value="profile" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">My Information</TabsTrigger>
                 </TabsList>
@@ -234,23 +234,25 @@ export default function ClientPortalPage() {
                 <TabsContent value="history" className="space-y-6">
                     <div>
                         <h3 className="text-lg font-bold mb-4">Perk & Session Usage</h3>
-                        <p className="text-sm text-muted-foreground mb-6">A complete history of your non-monetary redemptions.</p>
+                        <p className="text-sm text-muted-foreground mb-6">A complete history of your non-monetary redemptions and policy adjustments.</p>
                         {redemptions && redemptions.length > 0 ? (
                             <div className="grid gap-3">
                                 {redemptions.sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(r => (
-                                    <div key={r.id} className="flex items-center justify-between p-4 border rounded-xl bg-card shadow-sm hover:border-primary/20 transition-all text-left">
+                                    <div key={r.id} className={cn("flex items-center justify-between p-4 border rounded-xl bg-card shadow-sm hover:border-primary/20 transition-all text-left", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
                                         <div className="flex items-center gap-4">
-                                            <div className={cn("p-2 rounded-lg", r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
-                                                {r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                            <div className={cn("p-2 rounded-lg", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                                {r.isForfeit ? <AlertTriangle className="w-5 h-5" /> : r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
                                             </div>
                                             <div>
                                                 <p className="font-bold text-sm">{r.serviceName}</p>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Redeemed from {r.offeringName}</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Applied to {r.offeringName}</p>
                                             </div>
                                         </div>
                                         <div className="text-right">
                                             <p className="font-mono font-bold text-xs">{format(parseISO(r.date), 'MMM d, yyyy')}</p>
-                                            <Badge variant="outline" className="text-[10px] mt-1">Verified</Badge>
+                                            <Badge variant={r.isForfeit ? "destructive" : "outline"} className="text-[10px] mt-1 uppercase font-black border-none shadow-sm">
+                                                {r.isForfeit ? "Forfeited" : "Verified"}
+                                            </Badge>
                                         </div>
                                     </div>
                                 ))}

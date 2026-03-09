@@ -133,6 +133,7 @@ export type Redemption = {
     serviceName: string;
     date: string; // ISO timestamp
     staffId?: string;
+    isForfeit?: boolean;
 };
 
 export type Client = {
@@ -634,6 +635,7 @@ export type Tenant = {
   };
   tmhr?: number;
   bookingPageSettings?: BookingPageSettings;
+  lateInconveniencePremium?: number;
 };
 
 export type Resource = {

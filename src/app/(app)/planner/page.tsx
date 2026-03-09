@@ -1,9 +1,10 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle } from 'lucide-react';
-import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service } from '@/lib/data';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square } from 'lucide-react';
+import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption } from '@/lib/data';
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
@@ -63,7 +64,7 @@ function PlannerPageContent() {
   const router = useRouter();
   
   const { 
-      inventory, clients, services, staff: allStaff, appointments: appointmentsFromInventory, events: eventsFromInventory, walkIns, billDefinitions, billInstances, transactions, memberships, isLoading
+      inventory, clients, services, staff: allStaff, appointments: appointmentsFromInventory, events: eventsFromInventory, walkIns, billDefinitions, billInstances, transactions, memberships, packages, isLoading
   } = useInventory();
 
   const [tmhr, setTmhr] = useState(0);
@@ -295,15 +296,89 @@ function PlannerPageContent() {
     if (!selectedAppointment || !firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
+    const currentClient = clients.find(c => c.id === selectedAppointment.clientId);
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
-    batch.update(appointmentRef, { status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') });
-    if (selectedAppointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'cancelled', cancellationReason: data.reason, tenantId });
-    if (data.chargeFee && data.feeAmount > 0) {
-        if (data.paymentMethod === 'card_on_file') batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
-        else if (data.paymentMethod === 'add_to_balance') batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
+
+    // 1. Core Cancellation Update
+    batch.update(appointmentRef, { 
+        status: 'cancelled', 
+        cancellationReason: data.reason, 
+        cancellationFeeApplied: data.feeAmount, 
+        cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') 
+    });
+    
+    if (selectedAppointment.checkInToken) {
+        batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'cancelled', cancellationReason: data.reason, tenantId });
     }
-    await batch.commit();
+
+    // 2. Financial Logging
+    if (data.chargeFee && data.feeAmount > 0) {
+        if (data.paymentMethod === 'card_on_file') {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { 
+                date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId 
+            });
+        } else if (data.paymentMethod === 'add_to_balance') {
+            batch.update(clientRef, { 
+                unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), 
+                outstandingBalance: increment(data.feeAmount) 
+            });
+        }
+    }
+
+    // 3. Forfeit Logic (Memberships & Packages)
+    if (currentClient && (data.reason === 'late' || data.reason === 'no-show' || data.reason === 'client_request')) {
+        const isLateOrNoShow = data.reason === 'late' || data.reason === 'no-show';
+        
+        // Handle Membership Forfeit
+        if (currentClient.activeMembershipId) {
+            const membership = memberships.find(m => m.id === currentClient.activeMembershipId);
+            const shouldForfeit = (data.reason === 'no-show' && membership?.forfeitOnNoShow) || (data.reason === 'late' && membership?.forfeitOnLateCancel);
+            
+            if (shouldForfeit) {
+                const perkId = selectedAppointment.serviceId;
+                const currentUsage = currentClient.subscription?.perkUsage || {};
+                const nextUsage = { ...currentUsage, [perkId]: (currentUsage[perkId] || 0) + 1 };
+                
+                batch.update(clientRef, { 'subscription.perkUsage': nextUsage, 'subscription.perkLastUsed': now });
+                
+                const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
+                batch.set(redemptionRef, {
+                    id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
+                });
+            }
+        }
+
+        // Handle Package Forfeit
+        const activePack = currentClient.activePackages?.find(p => {
+            const pkgDef = packages.find(pkg => pkg.id === p.packageId);
+            return pkgDef?.serviceId === selectedAppointment.serviceId;
+        });
+
+        if (activePack && isLateOrNoShow) {
+            const nextPackages = currentClient.activePackages!.map(p => {
+                if (p.packageId === activePack.packageId) return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                return p;
+            }).filter(p => p.sessionsRemaining > 0);
+
+            batch.update(clientRef, { activePackages: nextPackages });
+
+            const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
+            const pkgDef = packages.find(pkg => pkg.id === activePack.packageId);
+            batch.set(redemptionRef, {
+                id: redemptionRef.id, clientId: currentClient.id, type: 'package', offeringId: activePack.packageId, offeringName: pkgDef?.name || 'Package', serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true
+            });
+        }
+    }
+
+    try {
+        await batch.commit();
+        toast({ title: "Policy Enforced", description: "Appointment voided and logic reconciled." });
+    } catch (e) {
+        console.error("Cancellation failed:", e);
+        toast({ variant: 'destructive', title: "Process Error" });
+    }
+
     setIsCancelDialogOpen(false);
     setIsDetailsOpen(false);
   };

@@ -123,7 +123,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
     return (
         <Card className={cn("bg-white border-2 rounded-[2rem] shadow-xl overflow-hidden relative transition-all", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
             <div className={cn("absolute top-0 left-0 w-1.5 h-full", client.status === 'banned' ? "bg-destructive" : "bg-primary")} />
-            <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4">
+            <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
                 {client.status === 'banned' && (
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div>
@@ -228,7 +228,7 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
                     <Award className="w-3 h-3" /> Loyalty Program
                 </CardTitle>
             </CardHeader>
-            <CardContent className="p-6 space-y-6">
+            <CardContent className="p-6 space-y-6 text-left">
                 <div className="text-center space-y-1">
                     {milestoneReached ? (
                         <p className="font-black text-xl text-green-600 uppercase tracking-tight flex items-center justify-center gap-2">
@@ -340,8 +340,8 @@ export default function ClientDetailPage() {
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Guest Dossier" />
       <main className="flex-1 p-4 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-                <div className="space-y-1 text-left">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
+                <div className="space-y-1">
                     <h1 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Detail</h1>
                     <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Identity & performance profile</p>
                 </div>
@@ -441,7 +441,7 @@ export default function ClientDetailPage() {
                                 </CardHeader>
                                 <CardContent className="p-6 md:p-8">
                                     {(!activeMembership && (!client.activePackages || client.activePackages.length === 0)) ? (
-                                        <div className="text-center py-10 md:py-12 border-4 border-dashed rounded-[2rem] opacity-30">
+                                        <div className="text-center py-10 md:py-12 border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
                                             <Award className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3" />
                                             <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest">No active memberships</p>
                                         </div>
@@ -484,13 +484,13 @@ export default function ClientDetailPage() {
                             <div className="space-y-4">
                                 <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Scheduled Events</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={setAppointmentToRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30"><Calendar className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
+                                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={setAppointmentToRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Calendar className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
                                 </div>
                             </div>
                             <div className="space-y-4 pt-6 border-t border-dashed">
                                 <h3 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 text-left">Historical Records</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={setAppointmentToRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
+                                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={setAppointmentToRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>
                             </div>
                         </TabsContent>
@@ -505,10 +505,10 @@ export default function ClientDetailPage() {
                                     {redemptions && redemptions.length > 0 ? (
                                         <div className="grid gap-4">
                                             {redemptions.sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(r => (
-                                                <div key={r.id} className="flex items-center justify-between p-5 rounded-2xl bg-white border-2 border-border/50 hover:border-primary/20 transition-all text-left">
+                                                <div key={r.id} className={cn("flex items-center justify-between p-5 rounded-2xl bg-white border-2 border-border/50 hover:border-primary/20 transition-all text-left", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
                                                     <div className="flex items-center gap-4">
-                                                        <div className={cn("p-3 rounded-2xl shadow-inner", r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
-                                                            {r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                                        <div className={cn("p-3 rounded-2xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                                            {r.isForfeit ? <AlertTriangle className="w-5 h-5" /> : r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
                                                         </div>
                                                         <div>
                                                             <p className="font-black text-sm uppercase tracking-tight text-slate-900">{r.serviceName}</p>
@@ -517,7 +517,11 @@ export default function ClientDetailPage() {
                                                     </div>
                                                     <div className="text-right">
                                                         <p className="font-black font-mono text-xs text-slate-900">{format(parseISO(r.date), 'MMM d, yyyy')}</p>
-                                                        <p className="text-[8px] font-black uppercase text-primary/60 mt-1">Status: Redeemed</p>
+                                                        {r.isForfeit ? (
+                                                            <Badge variant="destructive" className="text-[8px] h-4 px-1.5 font-black uppercase border-none shadow-sm mt-1">Status: Forfeited</Badge>
+                                                        ) : (
+                                                            <p className="text-[8px] font-black uppercase text-primary/60 mt-1">Status: Redeemed</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
