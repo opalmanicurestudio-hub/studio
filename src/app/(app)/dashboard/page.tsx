@@ -121,21 +121,21 @@ const OwnerDashboard = ({
 }: any) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <Card className="border-2 border-primary/10 bg-primary/[0.02] shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary">
               Today's Revenue
             </CardTitle>
             <DollarSign className="h-4 w-4 text-primary opacity-40" />
           </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-10 w-32"/> : <div className="text-3xl font-black tracking-tighter text-primary">${todaysRevenue.toFixed(2)}</div>}
+          <CardContent className="p-3 md:p-4 pt-0">
+            {isLoading ? <Skeleton className="h-10 w-32"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-primary">${todaysRevenue.toFixed(2)}</div>}
             {!isLoading && (
                 <div className="mt-1 flex items-center gap-1">
                     <TrendingUp className="w-3 h-3 text-primary" />
                     <span className="text-[10px] font-bold text-primary uppercase">
-                        {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
+                        {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}%
                     </span>
                 </div>
             )}
@@ -143,52 +143,52 @@ const OwnerDashboard = ({
         </Card>
         
         <Card className="border-2 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               Sessions
             </CardTitle>
             <CalendarIcon className="h-4 w-4 text-muted-foreground opacity-40" />
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-black tracking-tighter text-slate-900">
+          <CardContent className="p-3 md:p-4 pt-0">
+            <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">
               {isLoading ? <Skeleton className="h-10 w-10 inline-block" /> : todayAppointments?.length || 0}
             </div>
-             {!isLoading && <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1">{todayAppointments?.filter((a: any) => a.status === 'completed').length || 0} COMPLETED &middot; {todayAppointments?.filter((a: any) => a.status !== 'completed').length || 0} REMAINING</p>}
+             {!isLoading && <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1 truncate">{todayAppointments?.filter((a: any) => a.status === 'completed').length || 0} DONE &middot; {todayAppointments?.filter((a: any) => a.status !== 'completed').length || 0} LEFT</p>}
           </CardContent>
         </Card>
 
         <Card className={cn("border-2 shadow-sm", totalOutstandingDebt > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-muted/10")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Outstanding Debt</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Arrears</CardTitle>
             <Wallet className={cn("h-4 w-4 opacity-40", totalOutstandingDebt > 0 ? "text-destructive" : "text-muted-foreground")} />
           </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className={cn("text-3xl font-black tracking-tighter", totalOutstandingDebt > 0 ? "text-destructive" : "text-slate-900")}>${totalOutstandingDebt.toFixed(2)}</div>}
-            <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1">Across all client logs</p>
+          <CardContent className="p-3 md:p-4 pt-0">
+            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className={cn("text-2xl md:text-3xl font-black tracking-tighter", totalOutstandingDebt > 0 ? "text-destructive" : "text-slate-900")}>${totalOutstandingDebt.toFixed(2)}</div>}
+            <p className="text-[10px] font-bold uppercase text-muted-foreground opacity-60 mt-1">Pending recovery</p>
           </CardContent>
         </Card>
 
         <Card className="border-2 border-accent/10 bg-accent/[0.02] shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-teal-700">Client Retention</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-teal-700">Retention</CardTitle>
             <HeartHandshake className="h-4 w-4 text-accent opacity-40" />
           </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className="text-3xl font-black tracking-tighter text-teal-700">{clientRetentionRate.toFixed(0)}%</div>}
-            <p className="text-[10px] font-bold uppercase text-teal-600/60 mt-1">All-time repeat rate</p>
+          <CardContent className="p-3 md:p-4 pt-0">
+            {isLoading ? <Skeleton className="h-10 w-20 inline-block"/> : <div className="text-2xl md:text-3xl font-black tracking-tighter text-teal-700">{clientRetentionRate.toFixed(0)}%</div>}
+            <p className="text-[10px] font-bold uppercase text-teal-600/60 mt-1">Repeat rate</p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
         <Card className="md:col-span-3 border-2 shadow-sm overflow-hidden">
-          <CardHeader className="p-6 border-b bg-muted/5">
+          <CardHeader className="p-4 md:p-6 border-b bg-muted/5">
             <CardTitle className="text-sm font-black uppercase tracking-widest">Weekly Profit Yield</CardTitle>
-            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Revenue vs Overhead across 7 days.</CardDescription>
+            <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Revenue vs Overhead across 7 days.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="p-4 md:p-6">
             <ClientOnly>
-              <ChartContainer config={barChartConfig} className="h-[300px] w-full">
+              <ChartContainer config={barChartConfig} className="h-[200px] md:h-[300px] w-full">
                 {isLoading ? <Skeleton className="w-full h-full rounded-xl" /> : (
                     <BarChart accessibilityLayer data={barChartData}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.1} />
@@ -219,27 +219,27 @@ const OwnerDashboard = ({
         </Card>
 
          <Card className="md:col-span-2 border-2 shadow-sm overflow-hidden flex flex-col">
-          <CardHeader className="p-6 border-b bg-muted/5">
+          <CardHeader className="p-4 md:p-6 border-b bg-muted/5">
             <CardTitle className="text-sm font-black uppercase tracking-widest">Revenue Mix</CardTitle>
-            <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Services vs. Retail vs. Tips.</CardDescription>
+            <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Distribution matrix.</CardDescription>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col items-center justify-center p-6">
+          <CardContent className="flex-1 flex flex-col items-center justify-center p-4 md:p-6">
             <ClientOnly>
               <ChartContainer
                 config={pieChartConfig}
-                className="mx-auto aspect-square h-[220px]"
+                className="mx-auto aspect-square h-[180px] md:h-[220px]"
               >
                 <PieChart>
                   <ChartTooltip
                     cursor={false}
                     content={<ChartTooltipContent hideLabel className="rounded-xl border-2" />}
                   />
-                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={65} strokeWidth={4}>
+                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={55} md:innerRadius={65} strokeWidth={4}>
                     {revenueBreakdown.map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
-                   <ChartLegend content={<ChartLegendContent nameKey="name" className="font-black uppercase text-[10px] tracking-widest" />} />
+                   <ChartLegend content={<ChartLegendContent nameKey="name" className="font-black uppercase text-[9px] md:text-[10px] tracking-widest" />} />
                 </PieChart>
               </ChartContainer>
             </ClientOnly>
@@ -247,13 +247,13 @@ const OwnerDashboard = ({
         </Card>
 
         <Card className="md:col-span-5 border-2 shadow-sm overflow-hidden">
-          <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
+          <CardHeader className="p-4 md:p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
             <div className="space-y-1">
                 <CardTitle className="text-sm font-black uppercase tracking-widest">Recent Activity</CardTitle>
-                <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Latest sessions and client transactions.</CardDescription>
+                <CardDescription className="text-[10px] md:text-xs font-bold uppercase tracking-tight opacity-60">Latest ledger entries.</CardDescription>
             </div>
-            <Button variant="ghost" size="sm" asChild className="h-8 rounded-xl font-black uppercase text-[10px] tracking-widest">
-                <Link href="/planner">View Full Agenda <ChevronRight className="ml-1 h-3 w-3" /></Link>
+            <Button variant="ghost" size="sm" asChild className="h-8 rounded-xl font-black uppercase text-[10px] tracking-widest px-3">
+                <Link href="/planner">View Full <ChevronRight className="ml-1 h-3 w-3" /></Link>
             </Button>
           </CardHeader>
           <CardContent className="p-0">
@@ -273,26 +273,26 @@ const OwnerDashboard = ({
                 {recentActivities.map(({ apt, client, service }: any) => {
                     if (!client || !service) return null;
                     return (
-                    <div key={apt.id} className="flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors">
-                        <Avatar className="h-10 w-10 border-2 rounded-2xl shadow-sm">
+                    <div key={apt.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 hover:bg-muted/30 transition-colors">
+                        <Avatar className="h-9 w-9 md:h-10 md:w-10 border-2 rounded-2xl shadow-sm shrink-0">
                         <AvatarImage src={client.avatarUrl || undefined} alt="Avatar" className="object-cover" />
-                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">
+                        <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">
                             {client.name.split(' ').map((n: string) => n[0]).join('').substring(0,2).toUpperCase()}
                         </AvatarFallback>
                         </Avatar>
-                        <div className="grid gap-0.5 min-w-0">
-                        <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                        <div className="grid gap-0.5 min-w-0 flex-1 text-left">
+                        <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-900 truncate">
                             {client.name}
                         </p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">
+                        <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">
                             {service.name} &middot; {format(safeDate(apt.startTime), 'MMM d @ h:mm a')}
                         </p>
                         </div>
-                        <div className="ml-auto flex flex-col items-end gap-1">
-                            <p className="font-black font-mono text-sm text-primary">
+                        <div className="flex flex-col items-end gap-1">
+                            <p className="font-black font-mono text-xs md:text-sm text-primary">
                                 +${(service.price).toFixed(2)}
                             </p>
-                            <Badge variant="secondary" className="h-4 px-1.5 text-[8px] font-black uppercase tracking-tighter border-none">
+                            <Badge variant="secondary" className="h-3.5 md:h-4 px-1 md:px-1.5 text-[7px] md:text-[8px] font-black uppercase tracking-tighter border-none">
                                 {apt.status}
                             </Badge>
                         </div>
@@ -309,23 +309,23 @@ const OwnerDashboard = ({
           <div className="absolute top-0 right-0 p-8 opacity-5 transition-opacity group-hover:opacity-10">
             <Sparkles className="w-32 h-32 text-primary" />
           </div>
-          <CardHeader className="p-8 pb-4">
+          <CardHeader className="p-6 md:p-8 pb-4 text-left">
             <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-primary rounded-xl">
-                    <Sparkles className="w-5 h-5 text-white" />
+                    <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-white" />
                 </div>
                 <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Intelligence Hub</span>
             </div>
-            <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter">AI-Powered CFO Debrief</CardTitle>
-            <CardDescription className="text-sm font-medium text-slate-600 max-w-lg">Get a strategic summary of today's performance, inventory needs, and actionable growth insights.</CardDescription>
+            <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">AI-Powered CFO Debrief</CardTitle>
+            <CardDescription className="text-xs md:text-sm font-medium text-slate-600 max-w-lg mt-2">Strategic performance summary and growth insights.</CardDescription>
           </CardHeader>
-          <CardContent className="p-8 pt-4">
+          <CardContent className="p-6 md:p-8 pt-4">
             <Button
               size="lg"
-              className="h-14 rounded-2xl px-10 text-lg font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
+              className="w-full sm:w-auto h-12 md:h-14 rounded-2xl px-10 text-sm md:text-lg font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
               onClick={onGenerateDebrief}
             >
-              Generate Today's Insights
+              Generate Insights
             </Button>
           </CardContent>
         </Card>
@@ -407,15 +407,15 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
     const renderActionButtons = () => {
         if (!staffMember) return null;
         if (!staffMember.active) {
-          return <Button size="lg" className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-xl" onClick={() => handleStatusChangeInitiate('clock_in')}>Clock In</Button>;
+          return <Button size="lg" className="w-full h-14 sm:h-16 rounded-2xl text-base md:text-lg font-black uppercase shadow-xl" onClick={() => handleStatusChangeInitiate('clock_in')}>Clock In</Button>;
         }
         if (staffMember.onBreak) {
-          return <Button size="lg" variant="outline" className="w-full h-16 rounded-2xl text-lg font-black uppercase border-2 shadow-sm" onClick={() => handleStatusChangeInitiate('break_end')}><Coffee className="mr-2 h-5 w-5"/>End Break</Button>;
+          return <Button size="lg" variant="outline" className="w-full h-14 sm:h-16 rounded-2xl text-base md:text-lg font-black uppercase border-2 shadow-sm" onClick={() => handleStatusChangeInitiate('break_end')}><Coffee className="mr-2 h-5 w-5"/>End Break</Button>;
         }
         return (
-          <div className="grid grid-cols-2 gap-4">
-            <Button size="lg" variant="outline" className="h-16 rounded-2xl text-base font-black uppercase border-2" onClick={() => handleStatusChangeInitiate('break_start')}>Start Break</Button>
-            <Button size="lg" variant="destructive" className="h-16 rounded-2xl text-base font-black uppercase shadow-xl" onClick={() => handleStatusChangeInitiate('clock_out')}>Clock Out</Button>
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
+            <Button size="lg" variant="outline" className="h-14 sm:h-16 rounded-2xl text-sm md:text-base font-black uppercase border-2" onClick={() => handleStatusChangeInitiate('break_start')}>Break</Button>
+            <Button size="lg" variant="destructive" className="h-14 sm:h-16 rounded-2xl text-sm md:text-base font-black uppercase shadow-xl" onClick={() => handleStatusChangeInitiate('clock_out')}>Out</Button>
           </div>
         );
       };
@@ -433,14 +433,14 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 
     return (
       <div className="space-y-8 animate-in fade-in duration-700">
-        <Card className="text-center border-2 shadow-2xl rounded-[3rem] overflow-hidden bg-primary/[0.02] border-primary/10">
-          <CardHeader className="p-10 pb-6">
-            <div className="p-3 bg-primary/10 rounded-full w-fit mx-auto mb-4 border border-primary/20">
-                <Sparkles className="w-6 h-6 text-primary" />
+        <Card className="text-center border-2 shadow-2xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-primary/[0.02] border-primary/10">
+          <CardHeader className="p-6 md:p-10 pb-4 md:pb-6">
+            <div className="p-2.5 md:p-3 bg-primary/10 rounded-full w-fit mx-auto mb-4 border border-primary/20">
+                <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-primary" />
             </div>
-            <CardTitle className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">Hello, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
+            <CardTitle className="text-3xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">Hello, {staffMember?.name?.split(' ')[0] || 'Staff'}!</CardTitle>
             {staffMember && (
-                 <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto mt-4 h-7 px-4 rounded-full font-black uppercase text-[10px] tracking-[0.2em] border-2 shadow-sm", {
+                 <Badge variant={staffMember.active ? (staffMember.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize w-fit mx-auto mt-4 h-6 md:h-7 px-3 md:px-4 rounded-full font-black uppercase text-[9px] md:text-[10px] tracking-[0.2em] border-2 shadow-sm", {
                     'bg-green-500 text-white border-none': staffMember.active && !staffMember.onBreak,
                     'bg-amber-500 text-white border-none': staffMember.active && staffMember.onBreak,
                  })}>
@@ -448,103 +448,103 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                 </Badge>
             )}
           </CardHeader>
-          <CardContent className="px-10 pb-6">
+          <CardContent className="px-6 md:px-10 pb-4 md:pb-6">
             {renderActionButtons()}
           </CardContent>
-          <CardFooter className="px-10 pb-10">
-            <Button variant="ghost" className="w-full font-black uppercase tracking-widest text-[10px] text-muted-foreground hover:bg-primary/5" onClick={onViewActivity}>My Performance Activity</Button>
+          <CardFooter className="px-6 md:px-10 pb-6 md:pb-10">
+            <Button variant="ghost" className="w-full font-black uppercase tracking-widest text-[9px] md:text-[10px] text-muted-foreground hover:bg-primary/5" onClick={onViewActivity}>Performance Activity</Button>
           </CardFooter>
         </Card>
   
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-3">
              <Card className="border-2 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Wallet className="w-3 h-3 text-primary" />Today's Take-Home</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
+                    <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Wallet className="w-3 h-3 text-primary" />Today's Take-Home</CardTitle>
                 </CardHeader>
-                <CardContent><p className="text-3xl font-black tracking-tighter text-slate-900">${todayKpis.earnings.toFixed(2)}</p><p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Est. base + tips</p></CardContent>
+                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${todayKpis.earnings.toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Est. base + tips</p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3 text-primary" />Gifts & Tips</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
+                    <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3 text-primary" />Gifts & Tips</CardTitle>
                 </CardHeader>
-                <CardContent><p className="text-3xl font-black tracking-tighter text-slate-900">${todayKpis.tips.toFixed(2)}</p><p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">From completed work</p></CardContent>
+                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">${todayKpis.tips.toFixed(2)}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">From completed work</p></CardContent>
             </Card>
             <Card className="border-2 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><CalendarIcon className="w-3 h-3 text-primary" />Sessions Done</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
+                    <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><CalendarIcon className="w-3 h-3 text-primary" />Sessions Done</CardTitle>
                 </CardHeader>
-                <CardContent><p className="text-3xl font-black tracking-tighter text-slate-900">{todayKpis.completed}</p><p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Completed appointments</p></CardContent>
+                <CardContent className="px-4 pb-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">{todayKpis.completed}</p><p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase opacity-60 mt-1">Completed apps</p></CardContent>
             </Card>
         </div>
         
         <Card className="border-2 shadow-xl rounded-[2.5rem] overflow-hidden">
-            <CardHeader className="p-8 border-b bg-muted/5"><CardTitle className="text-lg font-black uppercase tracking-tight">Today's Agenda</CardTitle></CardHeader>
-            <CardContent className="p-8">
+            <CardHeader className="p-6 md:p-8 border-b bg-muted/5 text-left"><CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Today's Agenda</CardTitle></CardHeader>
+            <CardContent className="p-4 md:p-8">
                 {nextAppointment && (
-                    <div className="mb-8 p-6 border-2 border-primary bg-primary/5 rounded-[2rem] space-y-6 shadow-2xl shadow-primary/5">
+                    <div className="mb-6 md:mb-8 p-5 md:p-6 border-2 border-primary bg-primary/5 rounded-[2rem] space-y-5 md:space-y-6 shadow-2xl shadow-primary/5">
                          <div className="flex items-center justify-between">
-                            <Badge className="bg-primary text-white border-none uppercase font-black tracking-[0.2em] text-[9px] h-6 px-3">Up Next</Badge>
+                            <Badge className="bg-primary text-white border-none uppercase font-black tracking-[0.2em] text-[8px] md:text-[9px] h-5 md:h-6 px-2 md:px-3">Up Next</Badge>
                             {nextAppointment.checkInStatus === 'arrived' && (
-                                <Badge className="bg-green-500 hover:bg-green-600 border-none uppercase font-black text-[9px] h-6 px-3 shadow-lg shadow-green-500/20">
-                                    <MapPin className="w-3 h-3 mr-1.5" />
+                                <Badge className="bg-green-500 hover:bg-green-600 border-none uppercase font-black text-[8px] md:text-[9px] h-5 md:h-6 px-2 md:px-3 shadow-lg shadow-green-500/20">
+                                    <MapPin className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1" />
                                     Guest Arrived
                                 </Badge>
                             )}
                             {nextAppointment.checkInStatus === 'running_late' && (
-                                <Badge className="bg-amber-500 hover:bg-amber-600 border-none uppercase font-black text-[9px] h-6 px-3 shadow-lg shadow-amber-500/20 animate-pulse">
-                                    <Clock className="w-3 h-3 mr-1.5" />
-                                    +{nextAppointment.lateTimeMinutes}m Late
+                                <Badge className="bg-amber-500 hover:bg-amber-600 border-none uppercase font-black text-[8px] md:text-[9px] h-5 md:h-6 px-2 md:px-3 shadow-lg shadow-amber-500/20 animate-pulse">
+                                    <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1" />
+                                    +{nextAppointment.lateTimeMinutes}m
                                 </Badge>
                             )}
                          </div>
-                        <div className="flex items-center gap-6">
-                            <Avatar className="h-16 w-16 border-4 border-background shadow-xl rounded-2xl">
+                        <div className="flex items-center gap-4 md:gap-6 text-left">
+                            <Avatar className="h-14 w-14 md:h-16 md:w-16 border-4 border-background shadow-xl rounded-2xl shrink-0">
                                 <AvatarImage src={nextAppointment.client?.avatarUrl || undefined} className="object-cover" />
-                                <AvatarFallback className="font-black text-xl bg-primary/10 text-primary">{getInitials(nextAppointment.client?.name)}</AvatarFallback>
+                                <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{getInitials(nextAppointment.client?.name)}</AvatarFallback>
                             </Avatar>
-                            <div className="min-w-0">
-                                <p className="font-black text-2xl uppercase tracking-tighter leading-none mb-1 truncate">{nextAppointment.client?.name}</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{nextAppointment.service?.name}</p>
+                            <div className="min-w-0 flex-1">
+                                <p className="font-black text-xl md:text-2xl uppercase tracking-tighter leading-none mb-1 truncate">{nextAppointment.client?.name}</p>
+                                <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{nextAppointment.service?.name}</p>
                             </div>
-                            <div className="ml-auto text-right shrink-0">
-                                <p className="font-black text-xl text-primary tracking-tighter font-mono">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
+                            <div className="shrink-0 text-right">
+                                <p className="font-black text-lg md:text-xl text-primary tracking-tighter font-mono">{format(safeDate(nextAppointment.startTime), 'h:mm a')}</p>
                             </div>
                         </div>
-                        <Button asChild className="w-full h-14 rounded-2xl text-base font-black uppercase shadow-xl shadow-primary/20 group">
+                        <Button asChild className="w-full h-12 md:h-14 rounded-2xl text-sm md:text-base font-black uppercase shadow-xl shadow-primary/20 group">
                             <Link href={`/planner?view=staff&staffId=${staffMember?.id}`}>
-                                Start Consultation <ChevronRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
+                                Start Consultation <ChevronRight className="ml-1 md:ml-2 h-4 w-4 md:h-5 md:w-5 transition-transform group-hover:translate-x-1" />
                             </Link>
                         </Button>
                     </div>
                 )}
                 {upcomingAppointments.length > 0 ? (
-                    <div className="space-y-4">
+                    <div className="space-y-3 md:space-y-4">
                         {upcomingAppointments.map((apt: any) => (
-                            <div key={apt.id} className="flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all group">
-                                <Avatar className="h-12 w-12 border-2 rounded-2xl shadow-sm">
+                            <div key={apt.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all group text-left">
+                                <Avatar className="h-10 w-10 md:h-12 md:w-12 border-2 rounded-2xl shadow-sm shrink-0">
                                     <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} className="object-cover" />
-                                    <AvatarFallback className="font-black text-xs bg-muted text-muted-foreground">{getInitials(apt.client?.name)}</AvatarFallback>
+                                    <AvatarFallback className="font-black text-[10px] bg-muted text-muted-foreground">{getInitials(apt.client?.name)}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{apt.client?.name}</p>
-                                        {apt.checkInStatus === 'arrived' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-sm" title="Arrived" />}
-                                        {apt.checkInStatus === 'running_late' && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shadow-sm" title={`Late (+${apt.lateTimeMinutes}m)`} />}
+                                    <div className="flex items-center gap-1.5">
+                                        <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{apt.client?.name}</p>
+                                        {apt.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" title="Arrived" />}
+                                        {apt.checkInStatus === 'running_late' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shadow-sm" title={`Late (+${apt.lateTimeMinutes}m)`} />}
                                     </div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{apt.service?.name}</p>
+                                    <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{apt.service?.name}</p>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="font-black text-sm font-mono tracking-tighter text-slate-900">{format(safeDate(apt.startTime), 'h:mm a')}</p>
-                                    {apt.isWalkIn && <Badge variant="secondary" className="text-[8px] h-4 px-1.5 border-none font-black uppercase tracking-tighter bg-primary/10 text-primary">Walk-in</Badge>}
+                                    <p className="font-black text-xs md:text-sm font-mono tracking-tighter text-slate-900">{format(safeDate(apt.startTime), 'h:mm a')}</p>
+                                    {apt.isWalkIn && <Badge variant="secondary" className="text-[7px] md:text-[8px] h-3.5 md:h-4 px-1 md:px-1.5 border-none font-black uppercase tracking-tighter bg-primary/10 text-primary">Walk-in</Badge>}
                                 </div>
                                 {apt.status === 'confirmed' ? (
-                                    <Button size="sm" onClick={() => handleStartService(apt.id)} className="shrink-0 h-9 rounded-xl font-bold uppercase text-[10px] tracking-widest shadow-md">
+                                    <Button size="sm" onClick={() => handleStartService(apt.id)} className="shrink-0 h-8 md:h-9 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest shadow-md px-3 md:px-4">
                                         Start
                                     </Button>
                                 ) : apt.status === 'servicing' ? (
-                                    <Button size="sm" variant="outline" disabled className="shrink-0 h-9 rounded-xl font-black uppercase text-[10px] tracking-widest">Active</Button>
+                                    <Button size="sm" variant="outline" disabled className="shrink-0 h-8 md:h-9 rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest px-2 md:px-3">Active</Button>
                                 ) : (
-                                    <Button variant="ghost" size="icon" asChild className="shrink-0 h-9 w-9 rounded-xl">
+                                    <Button variant="ghost" size="icon" asChild className="shrink-0 h-8 w-8 md:h-9 md:w-9 rounded-xl">
                                         <Link href="/planner">
                                             <MoreHorizontal className="h-4 w-4" />
                                         </Link>
@@ -554,9 +554,9 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center py-20 border-2 border-dashed rounded-[2rem] opacity-40">
-                        <CalendarIcon className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                        <p className="text-sm font-black uppercase tracking-widest text-muted-foreground">End of Agenda</p>
+                    <div className="text-center py-16 md:py-20 border-2 border-dashed rounded-[2rem] opacity-40">
+                        <CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="text-[10px] md:text-sm font-black uppercase tracking-widest text-muted-foreground">End of Agenda</p>
                     </div>
                 )}
             </CardContent>
@@ -564,7 +564,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
 
         <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}>
             <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
-                <DialogHeader className="p-6 pb-0">
+                <DialogHeader className="p-6 pb-0 text-left">
                     <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter">
                         <KeyRound className="w-6 h-6 text-primary" />
                         Security Verify
@@ -848,20 +848,20 @@ export default function DashboardPage() {
       )}
       <Dialog open={isDebriefDialogOpen} onOpenChange={setIsDebriefDialogOpen}>
         <DialogContent className="sm:max-w-lg rounded-[3rem] border-4">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter">End-of-Day Analysis</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Your AI-powered strategic summary.</DialogDescription>
+          <DialogHeader className="p-6 pb-0 text-left">
+            <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter">Analysis Insight</DialogTitle>
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Your AI-powered strategic summary.</DialogDescription>
           </DialogHeader>
-          <div className="p-8">
+          <div className="p-6 md:p-8">
             {isGenerating ? (
               <div className="flex flex-col items-center justify-center gap-4 py-10">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-primary">Synthesizing Data...</span>
               </div>
-            ) : <p className="text-sm leading-relaxed font-medium text-slate-700 whitespace-pre-wrap">{debriefContent}</p>}
+            ) : <p className="text-sm leading-relaxed font-medium text-slate-700 whitespace-pre-wrap text-left">{debriefContent}</p>}
           </div>
           <DialogFooter className="p-6 pt-0">
-            <Button type="button" variant="outline" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]" onClick={() => setIsDebriefDialogOpen(false)}>Close Debrief</Button>
+            <Button type="button" variant="outline" className="w-full h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]" onClick={() => setIsDebriefDialogOpen(false)}>Close Debrief</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

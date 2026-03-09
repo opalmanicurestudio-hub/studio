@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -641,7 +642,7 @@ export const CheckoutHub = ({
                             type="number" 
                             value={tipAmount || ''} 
                             onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} 
-                            className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-lg md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
+                            className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" 
                             placeholder="0.00" 
                         />
                     </div>
@@ -673,12 +674,12 @@ export const CheckoutHub = ({
                     </div>
                 )}
 
-                <div className="flex justify-between items-baseline font-black text-2xl md:text-4xl text-primary tracking-tighter px-1 pt-4">
+                <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4">
                     <div className="space-y-0.5 text-left">
                         <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Grand Total</p>
                         <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON FINALIZE</p>
                     </div>
-                    <p className="font-mono text-3xl md:text-4xl">${total.toFixed(2)}</p>
+                    <p className="font-mono text-2xl md:text-4xl">${total.toFixed(2)}</p>
                 </div>
 
                 <div className="space-y-3 md:space-y-4 pt-6">
@@ -692,17 +693,17 @@ export const CheckoutHub = ({
                         <div className="space-y-3 md:space-y-4 pt-1 md:pt-2 animate-in slide-in-from-top-4 duration-500">
                             <div className="grid grid-cols-2 gap-3 md:gap-4">
                                 <div className="space-y-1.5 text-left">
-                                    <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Tendered</Label>
+                                    <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Tendered</Label>
                                     <div className="relative">
                                         <DollarSign className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 h-4 w-4 md:h-5 md:w-5 text-muted-foreground font-black" />
-                                        <Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8 md:pl-10 h-12 md:h-14 font-black text-xl md:text-2xl border-2 rounded-xl md:rounded-2xl shadow-inner bg-muted/5 focus-visible:ring-primary/20" />
+                                        <Input type="number" value={amountTendered || ''} onChange={(e) => setAmountTendered(parseFloat(e.target.value) || 0)} className="pl-8 md:pl-10 h-12 md:h-14 font-black text-lg md:text-2xl border-2 rounded-xl md:rounded-2xl shadow-inner bg-muted/5 focus-visible:ring-primary/20" />
                                     </div>
                                 </div>
                                 {amountTendered > total && (
                                     <div className="space-y-1.5 text-left">
-                                        <Label className="text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
+                                        <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-green-600 ml-2">Change Due</Label>
                                         <div className="h-12 md:h-14 flex items-center justify-center bg-green-500/10 border-2 border-green-500/20 rounded-xl md:rounded-2xl shadow-sm">
-                                            <p className="font-black text-xl md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
+                                            <p className="font-black text-lg md:text-2xl text-green-600 font-mono tracking-tighter">-${(amountTendered - total).toFixed(2)}</p>
                                         </div>
                                     </div>
                                 )}
@@ -718,7 +719,7 @@ export const CheckoutHub = ({
 
                     <div className="pt-2">
                         <Button 
-                            className="w-full h-14 md:h-16 text-lg md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
+                            className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-[2rem] shadow-2xl shadow-primary/30 transition-all hover:scale-[1.02] active:scale-95 uppercase tracking-tight" 
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
                             disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty}
                         >

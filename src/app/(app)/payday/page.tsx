@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -88,11 +89,11 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
         <div className="flex items-center gap-3">
             <div className={cn("w-2 h-8 rounded-full", color)} />
             <div>
-                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">{label}</p>
-                <p className="text-[10px] font-bold text-muted-foreground opacity-60">{percentage}% Allocation</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
+                <p className="text-[8px] font-bold text-muted-foreground opacity-60">{percentage}% Allocation</p>
             </div>
         </div>
-        <p className="text-lg font-black font-mono tracking-tighter text-slate-900">${amount.toFixed(2)}</p>
+        <p className="text-base md:text-lg font-black font-mono tracking-tighter text-slate-900">${amount.toFixed(2)}</p>
     </div>
 );
 
@@ -208,7 +209,7 @@ export default function PaydayPage() {
             name: member.name,
             avatarUrl: member.avatarUrl,
             amount: totalOwed,
-            details: `${member.payStructure === 'commission' ? 'Commission' : 'Hourly'} + Tips`
+            details: `${member.payStructure === 'commission' ? 'Comm' : 'Hr'} + Tips`
         };
     }).filter(o => o.amount > 0);
   }, [staff, filteredTransactions, activityLogs, dateRange]);
@@ -300,12 +301,12 @@ export default function PaydayPage() {
         await batch.commit();
         toast({
             title: "Distributions Confirmed",
-            description: `Logged ${staffObligations.length + suggestions.filter(s => s.amount > 0 && s.label !== 'OpEx / Bills').length} distribution transactions.`
+            description: `Logged distributions successfully.`
         });
         setAllocationAmount(0);
     } catch (e) {
         console.error("Distributions failed:", e);
-        toast({ variant: 'destructive', title: "Distribution Failed", description: "Could not save transactions." });
+        toast({ variant: 'destructive', title: "Distribution Failed" });
     } finally {
         setIsSubmitting(false);
     }
@@ -316,7 +317,7 @@ export default function PaydayPage() {
           <div className="flex min-h-screen w-full flex-col bg-white">
             <AppHeader title="Payday" />
             <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-                <Loader className="w-8 h-8 animate-spin" />
+                <Loader className="w-8 h-8 animate-spin text-primary" />
             </main>
           </div>
       )
@@ -326,30 +327,29 @@ export default function PaydayPage() {
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader title="Payday" />
       <main className="flex-1 p-4 md:p-8">
-        <div className="max-w-2xl mx-auto px-4 md:px-0 space-y-10">
+        <div className="max-w-2xl mx-auto px-2 md:px-0 space-y-8 md:space-y-10">
             <div className="text-center space-y-1">
-                <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
-                <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
+                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
+                <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
                     Reconcile Period & Allocate Revenue
                 </p>
             </div>
 
             <div className="space-y-6">
-                <div className="max-w-[340px] mx-auto flex gap-2 p-3 bg-muted border-2 border-muted rounded-2xl shadow-inner">
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Weekly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('bi-weekly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'bi-weekly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Bi-Weekly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('monthly')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'monthly' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Monthly</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleCadenceChange('custom')} className={cn("flex-1 text-[10px] font-black uppercase h-9 rounded-xl transition-all", cadence === 'custom' ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>Custom</Button>
+                <div className="max-w-[340px] mx-auto flex gap-1.5 p-2 bg-muted border-2 border-muted rounded-2xl shadow-inner">
+                    {(['weekly', 'bi-weekly', 'monthly', 'custom'] as Cadence[]).map(c => (
+                        <Button key={c} variant="ghost" size="sm" onClick={() => handleCadenceChange(c)} className={cn("flex-1 text-[9px] font-black uppercase h-8 rounded-xl transition-all", cadence === c ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>{c.replace('-', ' ')}</Button>
+                    ))}
                 </div>
 
                 {cadence === 'custom' ? (
-                    <div className="p-10 md:p-16 bg-muted/30 rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-8 shadow-inner">
-                        <div className="flex items-center gap-3 justify-center text-[11px] font-black uppercase tracking-widest text-primary">
+                    <div className="p-6 md:p-16 bg-muted/30 rounded-[2.5rem] md:rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-6 md:space-y-8 shadow-inner">
+                        <div className="flex items-center gap-3 justify-center text-[10px] md:text-[11px] font-black uppercase tracking-widest text-primary">
                             <CalendarRange className="w-4 h-4" /> Select Custom Window
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 px-2 md:px-4">
-                            <div className="space-y-3">
-                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">Start Date</Label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8 px-2 md:px-4">
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[9px] uppercase font-black text-muted-foreground ml-2">Start Date</Label>
                                 <input 
                                     type="date" 
                                     value={format(dateRange.from, 'yyyy-MM-dd')}
@@ -357,11 +357,11 @@ export default function PaydayPage() {
                                         const newDate = e.target.value ? startOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.from;
                                         setDateRange(prev => ({ ...prev, from: newDate }));
                                     }}
-                                    className="w-full h-16 rounded-2xl border-2 bg-background px-4 font-black text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
+                                    className="w-full h-12 sm:h-16 rounded-2xl border-2 bg-background px-4 font-black text-sm sm:text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
                                 />
                             </div>
-                            <div className="space-y-3">
-                                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-2">End Date</Label>
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[9px] uppercase font-black text-muted-foreground ml-2">End Date</Label>
                                 <input 
                                     type="date" 
                                     value={format(dateRange.to, 'yyyy-MM-dd')}
@@ -369,25 +369,25 @@ export default function PaydayPage() {
                                         const newDate = e.target.value ? endOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.to;
                                         setDateRange(prev => ({ ...prev, to: newDate }));
                                     }}
-                                    className="w-full h-16 rounded-2xl border-2 bg-background px-4 font-black text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
+                                    className="w-full h-12 sm:h-16 rounded-2xl border-2 bg-background px-4 font-black text-sm sm:text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
                                 />
                             </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 mx-1 md:mx-0 shadow-inner">
+                    <div className="flex items-center justify-between p-4 md:p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 mx-1 md:mx-0 shadow-inner">
                         <Button 
                             variant="ghost" 
                             size="icon" 
                             onClick={handlePrevPeriod} 
-                            className="h-12 w-12 hover:bg-white rounded-full shadow-sm"
+                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-white rounded-full shadow-sm"
                         >
-                            <ChevronLeft className="w-6 h-6"/>
+                            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6"/>
                         </Button>
                         
-                        <div className="text-center px-4">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Reconciling Period</p>
-                            <p className="text-base md:text-xl font-black text-slate-900 leading-none">
+                        <div className="text-center px-2">
+                            <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary mb-1">Reconciling Period</p>
+                            <p className="text-sm md:text-xl font-black text-slate-900 leading-none">
                                 {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
                             </p>
                         </div>
@@ -396,9 +396,9 @@ export default function PaydayPage() {
                             variant="ghost" 
                             size="icon" 
                             onClick={handleNextPeriod} 
-                            className="h-12 w-12 hover:bg-white rounded-full shadow-sm"
+                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-white rounded-full shadow-sm"
                         >
-                            <ChevronRight className="w-6 h-6"/>
+                            <ChevronRight className="w-5 h-5 md:w-6 md:h-6"/>
                         </Button>
                     </div>
                 )}
@@ -406,23 +406,23 @@ export default function PaydayPage() {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Card className="border-2 shadow-sm bg-primary/5 border-primary/10">
-                    <CardContent className="p-6 flex flex-col justify-center">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-widest mb-1">Period Net Income</p>
-                        <p className="text-3xl font-black tracking-tighter text-primary">${currentBalance.toFixed(2)}</p>
+                    <CardContent className="p-5 md:p-6 flex flex-col justify-center text-left">
+                        <p className="text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest mb-1">Period Net Income</p>
+                        <p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${currentBalance.toFixed(2)}</p>
                     </CardContent>
                 </Card>
                 <Card className={cn("border-2 shadow-sm", totalHardObligations > currentBalance ? "bg-destructive/5 border-destructive/20" : "bg-muted/20")}>
-                    <CardContent className="p-6 flex flex-col justify-center">
-                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Period Obligations Total</p>
+                    <CardContent className="p-5 md:p-6 flex flex-col justify-center text-left">
+                        <p className="text-[9px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Obligations Total</p>
                         <div className="flex items-center justify-between">
-                            <p className={cn("text-3xl font-black tracking-tighter", totalHardObligations > currentBalance && "text-destructive")}>
+                            <p className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", totalHardObligations > currentBalance && "text-destructive")}>
                                 ${totalHardObligations.toFixed(2)}
                             </p>
                             {totalHardObligations > currentBalance && (
                                 <TooltipProvider>
                                     <Tooltip>
                                         <TooltipTrigger><AlertCircle className="w-5 h-5 text-destructive animate-pulse" /></TooltipTrigger>
-                                        <TooltipContent><p>Warning: Obligations exceed period income.</p></TooltipContent>
+                                        <TooltipContent className="border-2 rounded-xl font-black uppercase text-[9px]">Warning: Obligations exceed period income.</TooltipContent>
                                     </Tooltip>
                                 </TooltipProvider>
                             )}
@@ -432,45 +432,45 @@ export default function PaydayPage() {
             </div>
 
             <Card className="border-2 shadow-xl overflow-hidden">
-                <CardHeader className="p-6">
-                    <CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
-                        <Calculator className="w-5 h-5 text-primary" />
+                <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
+                    <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight flex items-center gap-2">
+                        <Calculator className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                         Allocation Engine
                     </CardTitle>
-                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Suggestions based on Profit First methodology</CardDescription>
+                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Profit First methodology suggestions</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-8 p-6 pt-0">
-                    <div className="space-y-2">
+                <CardContent className="space-y-6 md:space-y-8 p-5 md:p-6">
+                    <div className="space-y-2 text-left">
                         <div className="relative">
-                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground" />
+                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 md:h-6 md:w-6 text-muted-foreground opacity-40" />
                             <Input 
                                 id="allocation-amount" 
                                 type="number" 
                                 placeholder="0.00" 
-                                className="pl-12 text-3xl font-black h-20 border-2 rounded-2xl tracking-tighter focus-visible:ring-primary/20" 
+                                className="pl-12 text-2xl md:text-3xl font-black h-16 md:h-20 border-2 rounded-2xl tracking-tighter focus-visible:ring-primary/20 bg-muted/5 shadow-inner" 
                                 value={allocationAmount || ''}
                                 onChange={(e) => setAllocationAmount(parseFloat(e.target.value) || 0)}
                             />
                         </div>
                         <div className="flex justify-between items-center px-1">
-                            <p className="text-[10px] font-black uppercase text-muted-foreground">Amount to Distribute</p>
-                            <Button variant="link" className="h-auto p-0 text-[10px] font-black uppercase" onClick={handleSetMaxBalance}>Use Period Income</p>
+                            <p className="text-[9px] font-black uppercase text-muted-foreground">Amount to Distribute</p>
+                            <Button variant="link" className="h-auto p-0 text-[9px] font-black uppercase text-primary underline underline-offset-4" onClick={handleSetMaxBalance}>Use Period Income</Button>
                         </div>
                     </div>
 
                     {allocationAmount > 0 && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
-                            <Separator />
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Suggested Distribution</p>
+                            <Separator className="border-dashed" />
+                            <p className="text-[9px] font-black uppercase tracking-widest text-primary text-center">Suggested Distribution</p>
                             <div className="grid gap-3">
                                 {suggestions.map(s => (
                                     <AllocationItem key={s.label} label={s.label} percentage={s.pct} amount={s.amount} color={s.color} />
                                 ))}
                             </div>
-                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3">
-                                <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
-                                    Your <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} stays in your main business account to cover the ${totalHardObligations.toFixed(2)} in hard obligations for this period.
+                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3 text-left">
+                                <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                                <p className="text-[10px] text-muted-foreground leading-relaxed font-bold uppercase tracking-tight">
+                                    The <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} stays in your studio account to cover the ${totalHardObligations.toFixed(2)} in period obligations.
                                 </p>
                             </div>
                         </div>
@@ -478,84 +478,86 @@ export default function PaydayPage() {
 
                      <Accordion type="single" collapsible className="w-full border-t pt-6">
                         <AccordionItem value="obligations-summary" className="border-none">
-                            <AccordionTrigger className="p-5 bg-muted/30 rounded-2xl border-2 hover:no-underline">
+                            <AccordionTrigger className="p-4 md:p-5 bg-muted/30 rounded-2xl border-2 hover:no-underline shadow-sm">
                                 <div className="flex items-center gap-2">
                                     <Receipt className="w-4 h-4 text-primary" />
-                                    <span className="font-black uppercase text-xs tracking-widest">Unpaid Period Obligations Detail</span>
+                                    <span className="font-black uppercase text-[10px] md:text-xs tracking-widest">Unpaid Obligations Detail</span>
                                 </div>
                             </AccordionTrigger>
-                            <AccordionContent className="pt-6 space-y-6">
-                                <div className='p-5 bg-muted/50 rounded-2xl border-2 space-y-4'>
-                                    <h4 className='font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-primary'><Users className='w-3 h-3'/>Staff Earnings in Period</h4>
-                                    <div className="space-y-3">
+                            <AccordionContent className="pt-6 space-y-6 text-left">
+                                <div className='p-4 md:p-5 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
+                                    <h4 className='font-black text-[9px] md:text-[10px] uppercase tracking-widest flex items-center gap-2 text-primary'><Users className='w-3 h-3'/>Staff Earnings</h4>
+                                    <div className="space-y-2">
                                         {staffObligations.length > 0 ? staffObligations.map((owed, idx) => (
-                                            <div key={idx} className='flex items-center justify-between bg-background p-3 rounded-xl border shadow-sm'>
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={owed.avatarUrl} />
-                                                        <AvatarFallback>{(owed.name || 'S').charAt(0)}</AvatarFallback>
+                                            <div key={idx} className='flex items-center justify-between bg-background p-2.5 rounded-xl border shadow-sm'>
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Avatar className="h-7 w-7 rounded-lg border">
+                                                        <AvatarImage src={owed.avatarUrl} className="object-cover" />
+                                                        <AvatarFallback className="text-[8px] font-black">{(owed.name || 'S').charAt(0)}</AvatarFallback>
                                                     </Avatar>
-                                                    <div>
-                                                        <p className="text-xs font-bold leading-none">{owed.name}</p>
-                                                        <p className="text-[10px] text-muted-foreground uppercase font-medium mt-1">{owed.details}</p>
+                                                    <div className="min-w-0">
+                                                        <p className="text-[10px] font-black uppercase tracking-tight truncate">{owed.name}</p>
+                                                        <p className="text-[8px] text-muted-foreground uppercase font-bold tracking-widest mt-0.5">{owed.details}</p>
                                                     </div>
                                                 </div>
-                                                <span className="font-mono font-bold text-sm">${owed.amount.toFixed(2)}</span>
+                                                <span className="font-mono font-black text-xs md:text-sm ml-2">${owed.amount.toFixed(2)}</span>
                                             </div>
-                                        )) : <p className="text-[10px] text-muted-foreground italic">No staff earnings recorded for this period.</p>}
+                                        )) : <p className="text-[9px] text-muted-foreground uppercase font-bold text-center py-4 border-2 border-dashed rounded-xl opacity-40">No staff earnings</p>}
                                     </div>
-                                    <div className='flex justify-between text-sm border-t border-primary/20 pt-3 font-black'>
-                                        <span className="uppercase text-[10px]">Total Staff Owed</span>
-                                        <span className="text-primary">${staffTotalOwed.toFixed(2)}</span>
+                                    <div className='flex justify-between text-xs border-t border-primary/20 pt-3 font-black uppercase'>
+                                        <span className="tracking-widest opacity-60">Total Staff</span>
+                                        <span className="text-primary tracking-tighter">${staffTotalOwed.toFixed(2)}</span>
                                     </div>
                                 </div>
 
-                                <div className='p-5 bg-muted/50 rounded-2xl border-2 space-y-4'>
-                                    <h4 className='font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-blue-600'><Building className='w-3 h-3'/>Business Bills Due</h4>
-                                    <div className="space-y-2">
-                                        {upcomingBusiness.length > 0 ? upcomingBusiness.map((item, idx) => (
-                                            <div key={idx} className='flex justify-between text-xs font-bold'>
-                                                <span className="text-muted-foreground">{item.definition?.name}</span>
-                                                <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
-                                            </div>
-                                        )) : <p className="text-[10px] text-muted-foreground italic">No business bills due in this window.</p>}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className='p-4 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
+                                        <h4 className='font-black text-[9px] uppercase tracking-widest flex items-center gap-2 text-blue-600'><Building className='w-3 h-3'/>Business Bills</h4>
+                                        <div className="space-y-1.5">
+                                            {upcomingBusiness.length > 0 ? upcomingBusiness.map((item, idx) => (
+                                                <div key={idx} className='flex justify-between text-[9px] font-black uppercase'>
+                                                    <span className="text-muted-foreground truncate mr-2">{item.definition?.name}</span>
+                                                    <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
+                                                </div>
+                                            )) : <p className="text-[8px] text-muted-foreground uppercase font-bold italic opacity-40">No entries</p>}
+                                        </div>
+                                        <div className='flex justify-between text-[10px] border-t border-blue-500/20 pt-2 font-black uppercase'>
+                                            <span className="tracking-widest opacity-60">Total</span>
+                                            <span className="text-blue-600">${businessBillsTotal.toFixed(2)}</span>
+                                        </div>
                                     </div>
-                                    <div className='flex justify-between text-sm border-t border-blue-500/20 pt-3 font-black'>
-                                        <span className="uppercase text-[10px]">Total Business</span>
-                                        <span className="text-blue-600">${businessBillsTotal.toFixed(2)}</span>
-                                    </div>
-                                </div>
 
-                                 <div className='p-5 bg-muted/50 rounded-2xl border-2 space-y-4'>
-                                    <h4 className='font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-purple-600'><User className='w-3 h-3'/>Personal Needs Due</h4>
-                                    <div className="space-y-2">
-                                        {upcomingPersonal.length > 0 ? upcomingPersonal.map((item, idx) => (
-                                            <div key={idx} className='flex justify-between text-xs font-bold'>
-                                                <span className="text-muted-foreground">{item.definition?.name}</span>
-                                                <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
-                                            </div>
-                                        )) : <p className="text-[10px] text-muted-foreground italic">No personal bills due in this window.</p>}
-                                    </div>
-                                    <div className='flex justify-between text-sm border-t border-purple-500/20 pt-3 font-black'>
-                                        <span className="uppercase text-[10px]">Total Personal</span>
-                                        <span className="text-purple-600">${personalBillsTotal.toFixed(2)}</span>
+                                    <div className='p-4 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
+                                        <h4 className='font-black text-[9px] uppercase tracking-widest flex items-center gap-2 text-purple-600'><User className='w-3 h-3'/>Personal Needs</h4>
+                                        <div className="space-y-1.5">
+                                            {upcomingPersonal.length > 0 ? upcomingPersonal.map((item, idx) => (
+                                                <div key={idx} className='flex justify-between text-[9px] font-black uppercase'>
+                                                    <span className="text-muted-foreground truncate mr-2">{item.definition?.name}</span>
+                                                    <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
+                                                </div>
+                                            )) : <p className="text-[8px] text-muted-foreground uppercase font-bold italic opacity-40">No entries</p>}
+                                        </div>
+                                        <div className='flex justify-between text-[10px] border-t border-purple-500/20 pt-2 font-black uppercase'>
+                                            <span className="tracking-widest opacity-60">Total</span>
+                                            <span className="text-purple-600">${personalBillsTotal.toFixed(2)}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </AccordionContent>
                         </AccordionItem>
                     </Accordion>
                 </CardContent>
-                <CardFooter className="p-6 pt-0">
+                <CardFooter className="p-5 md:p-6 pt-0">
                     <Button 
                         size="lg" 
-                        className="w-full h-16 rounded-2xl text-xl font-black uppercase tracking-tight shadow-xl shadow-primary/20" 
+                        className="w-full h-14 md:h-16 rounded-2xl text-base md:text-xl font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all active:scale-95" 
                         disabled={allocationAmount <= 0 || isSubmitting}
                         onClick={handleConfirmDistributions}
                     >
-                        {isSubmitting ? <Loader className="animate-spin h-7 w-7" /> : (
+                        {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (
                             <>
-                                <CheckCircle2 className="mr-3 h-7 w-7" />
-                                Confirm Distributions
+                                <CheckCircle2 className="mr-2 md:mr-3 h-5 w-5 md:h-7 md:w-7" />
+                                Confirm Payouts
                             </>
                         )}
                     </Button>

@@ -110,79 +110,79 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     }
 
     const LaneHeader = ({ icon: Icon, title, count, colorClass, action }: { icon: any, title: string, count: number, colorClass?: string, action?: React.ReactNode }) => (
-        <div className="flex items-center justify-between px-6 py-4 border-b bg-muted/10">
-            <div className="flex items-center gap-3">
-                <div className={cn("p-1.5 rounded-lg bg-background border shadow-sm", colorClass || "text-muted-foreground")}>
-                    <Icon className="w-4 h-4" />
+        <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b bg-muted/10">
+            <div className="flex items-center gap-2 md:gap-3">
+                <div className={cn("p-1 md:p-1.5 rounded-lg bg-background border shadow-sm", colorClass || "text-muted-foreground")}>
+                    <Icon className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 </div>
-                <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{title}</h3>
-                <Badge variant="secondary" className={cn("font-black text-[10px] h-5 px-1.5 border-none", colorClass ? "bg-primary text-white" : "bg-muted-foreground/20")}>{count}</Badge>
+                <h3 className="font-black text-[8px] md:text-[10px] uppercase tracking-[0.2em] text-muted-foreground truncate">{title}</h3>
+                <Badge variant="secondary" className={cn("font-black text-[8px] md:text-[10px] h-4 md:h-5 px-1 md:px-1.5 border-none", colorClass ? "bg-primary text-white" : "bg-muted-foreground/20")}>{count}</Badge>
             </div>
             {action}
         </div>
     );
 
     return (
-        <div className="flex flex-col border-4 rounded-[3rem] overflow-hidden bg-white shadow-2xl shadow-primary/5">
+        <div className="flex flex-col border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white shadow-2xl shadow-primary/5">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 divide-y xl:divide-y-0 xl:divide-x border-b">
-                <div className="flex flex-col min-h-[450px]">
-                    <LaneHeader icon={Users} title="Waitlist" count={unifiedWaitlist.length} action={<Button size="sm" variant="ghost" onClick={onAssignNext} className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5">AUTO-TURN</Button>} />
+                <div className="flex flex-col min-h-[400px] md:min-h-[450px]">
+                    <LaneHeader icon={Users} title="Waitlist" count={unifiedWaitlist.length} action={<Button size="sm" variant="ghost" onClick={onAssignNext} className="h-7 md:h-8 rounded-xl font-black uppercase text-[8px] md:text-[9px] tracking-widest text-primary hover:bg-primary/5">AUTO-TURN</Button>} />
                     <ScrollArea className="flex-1">
-                        <div className="p-6 space-y-4">
+                        <div className="p-4 md:p-6 space-y-4">
                             {unifiedWaitlist.length > 0 ? unifiedWaitlist.map(item => (
                                 <WaitingCustomerCard key={item.id} item={item} services={services} staffList={staff} onAssign={() => handleOpenAssignDialog(item)} onCancel={onCancel} onPrintTicket={onPrintTicket} groupSize={item.type === 'walk-in' ? (groupSizes.get(item.groupId) || 1) : 1} onUpdateStatus={onUpdateStatus} onResolve={() => onResolve(item)} />
                             )) : (
-                                <div className="text-center py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
-                                    <Sparkles className="w-10 h-10" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest">No Guests Arriving</p>
+                                <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                    <Sparkles className="w-8 h-8 md:w-10 md:h-10" />
+                                    <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest px-4">No Guests Arriving</p>
                                 </div>
                             )}
                         </div>
                     </ScrollArea>
                 </div>
 
-                <div className="flex flex-col min-h-[450px] bg-primary/[0.01]">
+                <div className="flex flex-col min-h-[400px] md:min-h-[450px] bg-primary/[0.01]">
                     <LaneHeader icon={CheckCircle} title="Notified" count={notifiedQueue.length} colorClass="text-green-500" />
                     <ScrollArea className="flex-1">
-                        <div className="p-6 space-y-4">
+                        <div className="p-4 md:p-6 space-y-4">
                             {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
                                 <NotifiedCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} onSkip={onSkip} onCancel={(id) => onCancel(id, true)} onReturnToQueue={onReturnToQueue} />
                             )) : (
-                                <div className="text-center py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
-                                    <Clock className="w-10 h-10" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest">Awaiting Prep</p>
+                                <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                    <Clock className="w-8 h-8 md:w-10 md:h-10" />
+                                    <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest px-4">Awaiting Prep</p>
                                 </div>
                             )}
                         </div>
                     </ScrollArea>
                 </div>
 
-                <div className="flex flex-col min-h-[450px]">
+                <div className="flex flex-col min-h-[400px] md:min-h-[450px]">
                     <LaneHeader icon={Activity} title="In Service" count={inServiceQueue.length} colorClass="text-blue-500" />
                     <ScrollArea className="flex-1">
-                        <div className="p-6 space-y-4">
+                        <div className="p-4 md:p-6 space-y-4">
                             {inServiceQueue.length > 0 ? inServiceQueue.map(apt => (
                                 <InServiceAppointmentCard key={apt.id} appointment={apt} services={services} staff={staff} onSendToCheckout={() => onFinishService(apt)} onRevertToReady={() => onRevertToReady(apt.id)} onViewDetails={() => onResolve(apt)} />
                             )) : (
-                                <div className="text-center py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
-                                    <Play className="w-10 h-10" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest">Lanes Idle</p>
+                                <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                    <Play className="w-8 h-8 md:w-10 md:h-10" />
+                                    <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest px-4">Lanes Idle</p>
                                 </div>
                             )}
                         </div>
                     </ScrollArea>
                 </div>
 
-                <div className="flex flex-col min-h-[450px] bg-orange-500/[0.01]">
-                    <LaneHeader icon={ShoppingCart} title="At Desk" count={readyForCheckoutAppointments.length} colorClass="text-orange-500" action={<Button size="sm" variant="ghost" onClick={onScanClick} className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest text-orange-600 hover:bg-orange-500/5"><QrCode className="w-3 h-3 mr-1.5" /> SCAN</Button>} />
+                <div className="flex flex-col min-h-[400px] md:min-h-[450px] bg-orange-500/[0.01]">
+                    <LaneHeader icon={ShoppingCart} title="At Desk" count={readyForCheckoutAppointments.length} colorClass="text-orange-500" action={<Button size="sm" variant="ghost" onClick={onScanClick} className="h-7 md:h-8 rounded-xl font-black uppercase text-[8px] md:text-[9px] tracking-widest text-orange-600 hover:bg-orange-500/5"><QrCode className="w-3 h-3 mr-1" /> SCAN</Button>} />
                     <ScrollArea className="flex-1">
-                        <div className="p-6 space-y-4">
+                        <div className="p-4 md:p-6 space-y-4">
                             {readyForCheckoutAppointments.length > 0 ? readyForCheckoutAppointments.map(data => (
                                 <CheckoutQueueCard key={data.id} appointmentData={data} isSelected={selectedAppointmentIds.has(data.id)} onSelect={() => onSelectAppointment(data.id)} onRevertToService={() => onRevertToService(data.id)} />
                             )) : (
-                                <div className="text-center py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
-                                    <DollarSign className="w-10 h-10" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest">Queue Clear</p>
+                                <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
+                                    <DollarSign className="w-8 h-8 md:w-10 md:h-10" />
+                                    <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest px-4">Queue Clear</p>
                                 </div>
                             )}
                         </div>

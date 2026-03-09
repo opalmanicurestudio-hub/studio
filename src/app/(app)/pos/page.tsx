@@ -51,15 +51,15 @@ const safeDate = (val: any): Date => {
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
       <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</CardTitle>
-      <div className={cn("p-2 rounded-xl", iconBgColor)}>
-        {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4' })}
+      <div className={cn("p-1.5 md:p-2 rounded-xl", iconBgColor)}>
+        {React.cloneElement(icon as React.ReactElement, { className: 'w-3.5 h-3.5 md:w-4 md:h-4' })}
       </div>
     </CardHeader>
-    <CardContent>
-      <div className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900">{value}</div>
-      <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-60">{description}</p>
+    <CardContent className="p-3 md:p-4 pt-0">
+      <div className="text-xl md:text-3xl font-black tracking-tighter text-slate-900">{value}</div>
+      <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-60 truncate">{description}</p>
     </CardContent>
   </Card>
 );
@@ -90,33 +90,32 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
-                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+                <DialogHeader className="p-6 md:p-8 pb-6 border-b bg-muted/5 text-left">
                     <div className="flex items-center gap-3 mb-2">
                         <AlertTriangle className="w-5 h-5 text-destructive" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Policy Intervention</span>
                     </div>
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Status Resolution</DialogTitle>
+                    <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Status Resolution</DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Guest: {data.appointment.clientName}</DialogDescription>
                 </DialogHeader>
-                <div className="p-8 space-y-8">
-                    <div className="p-6 rounded-[2rem] bg-amber-500/5 border-2 border-amber-500/10 text-center space-y-4 shadow-inner">
+                <div className="p-6 md:p-8 space-y-6 md:space-y-8">
+                    <div className="p-5 md:p-6 rounded-[2rem] bg-amber-500/5 border-2 border-amber-500/10 text-center space-y-2 md:space-y-4 shadow-inner">
                         <p className="text-[9px] font-black uppercase text-amber-600/60 tracking-widest">Calculated Delay Fee</p>
-                        <p className="text-5xl font-black text-amber-600 tracking-tighter font-mono">${finalFee.toFixed(2)}</p>
-                        <div className="pt-4 border-t border-amber-500/10 space-y-1">
+                        <p className="text-3xl md:text-5xl font-black text-amber-600 tracking-tighter font-mono">${finalFee.toFixed(2)}</p>
+                        <div className="pt-3 border-t border-amber-500/10 space-y-1">
                             <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m Delay</p>
-                            <p className="text-[9px] font-medium text-slate-500 uppercase">Accommodating Reserved window</p>
                         </div>
                     </div>
 
                     <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-transparent bg-muted/10 shadow-inner">
                         <div className="space-y-0.5 text-left">
                             <Label htmlFor="round-up-late" className="text-xs font-black uppercase tracking-tight cursor-pointer">Round Up Fee</Label>
-                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Standardize to nearest whole dollar</p>
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">To nearest dollar</p>
                         </div>
                         <Switch id="round-up-late" checked={shouldRoundUp} onCheckedChange={setShouldRoundUp} />
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Manager Authorization</Label>
                         <Input 
                             type="password" 
@@ -124,14 +123,14 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                             maxLength={4}
                             value={pin}
                             onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                            className="h-14 rounded-2xl border-2 text-center text-2xl font-black tracking-[0.5em] shadow-inner bg-muted/5"
+                            className="h-12 md:h-14 rounded-2xl border-2 text-center text-xl md:text-2xl font-black tracking-[0.5em] shadow-inner bg-muted/5"
                         />
                     </div>
                 </div>
-                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
-                    <Button onClick={() => handleAction('charge')} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:bg-primary/90">Charge Late Fee & Accommodate</Button>
-                    <Button variant="outline" onClick={() => handleAction('waive')} className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest border-2">Waive Fee & Accommodate</Button>
-                    <Button variant="ghost" onClick={() => handleAction('cancel')} className="w-full font-bold uppercase text-[10px] tracking-widest text-destructive">Decline Entry & Cancel Session</Button>
+                <DialogFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5 flex flex-col gap-2 md:gap-3">
+                    <Button onClick={() => handleAction('charge')} className="w-full h-12 md:h-16 rounded-2xl text-xs md:text-lg font-black uppercase shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:bg-primary/90">Charge Late Fee & Accommodate</Button>
+                    <Button variant="outline" onClick={() => handleAction('waive')} className="w-full h-10 md:h-14 rounded-2xl font-black uppercase text-[10px] md:text-xs tracking-widest border-2">Waive Fee & Accommodate</Button>
+                    <Button variant="ghost" onClick={() => handleAction('cancel')} className="w-full font-bold uppercase text-[9px] md:text-[10px] tracking-widest text-destructive">Decline & Cancel Session</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -578,7 +577,6 @@ function POSPage() {
             const totalPadding = (serviceObj?.padBefore || 0) + (serviceObj?.padAfter || 0);
             const fullSessionBlock = totalDur + totalPadding;
             
-            // Calculate potential fee based on total blocked time plus inconvenience premium
             const fee = Number(((fullSessionBlock / 60) * tmhrValue + premiumValue).toFixed(2));
 
             setPolicyEnforcementData({
@@ -865,7 +863,6 @@ function POSPage() {
                 lastAppointment: now
             };
 
-            // LOG REDEMPTIONS
             if (redeemedOffer) {
                 const redemptionId = nanoid();
                 const redemptionRef = doc(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`, redemptionId);
@@ -1094,7 +1091,7 @@ function POSPage() {
                 isCartCollapsed ? "lg:grid-cols-[1fr,80px]" : "lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px]"
             )}>
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-10 gap-10 pb-32 lg:pb-10">
-                    <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4">
                         <KpiCard title="Wait Velocity" value={`${kpiData.avgWaitTime.toFixed(0)}m`} icon={<Clock className="text-blue-500" />} iconBgColor="bg-blue-100 dark:bg-blue-900/50" description="Check-in to service." />
                         <KpiCard title="Success Rate" value={`${kpiData.walkInConversionRate.toFixed(0)}%`} icon={<TrendingUp className="text-green-500" />} iconBgColor="bg-green-100 dark:bg-green-900/50" description="Walk-in conversion." />
                         <KpiCard title="Arrival Count" value={kpiData.totalWalkIns.toString()} icon={<Users className="text-purple-500" />} iconBgColor="bg-purple-100 dark:bg-purple-900/50" description="Total guests today." />
