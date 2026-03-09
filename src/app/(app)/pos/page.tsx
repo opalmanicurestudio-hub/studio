@@ -63,9 +63,13 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
   </Card>
 );
 
-const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge' | 'waive' | 'cancel') => void }) => {
+const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge' | 'waive' | 'cancel', finalFee: number) => void }) => {
     const [pin, setPin] = useState('');
+    const [shouldRoundUp, setShouldRoundUp] = useState(false);
     const { toast } = useToast();
+
+    const baseFee = data?.fee || 0;
+    const finalFee = shouldRoundUp ? Math.ceil(baseFee) : baseFee;
 
     const handleAction = (action: 'charge' | 'waive' | 'cancel') => {
         if (action !== 'cancel') {
@@ -75,8 +79,9 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 return;
             }
         }
-        onResolve(action);
+        onResolve(action, finalFee);
         setPin('');
+        setShouldRoundUp(false);
     };
 
     if (!data) return null;
@@ -95,11 +100,19 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 <div className="p-8 space-y-8">
                     <div className="p-6 rounded-[2rem] bg-amber-500/5 border-2 border-amber-500/10 text-center space-y-4 shadow-inner">
                         <p className="text-[9px] font-black uppercase text-amber-600/60 tracking-widest">Calculated Late Fee</p>
-                        <p className="text-5xl font-black text-amber-600 tracking-tighter font-mono">${data.fee.toFixed(2)}</p>
+                        <p className="text-5xl font-black text-amber-600 tracking-tighter font-mono">${finalFee.toFixed(2)}</p>
                         <div className="pt-4 border-t border-amber-500/10 space-y-1">
                             <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m Delay</p>
                             <p className="text-[9px] font-medium text-slate-500 uppercase">Accommodating Reserved window</p>
                         </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-transparent bg-muted/10 shadow-inner">
+                        <div className="space-y-0.5 text-left">
+                            <Label htmlFor="round-up-late" className="text-xs font-black uppercase tracking-tight cursor-pointer">Round Up Fee</Label>
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">Standardize to nearest whole dollar</p>
+                        </div>
+                        <Switch id="round-up-late" checked={shouldRoundUp} onCheckedChange={setShouldRoundUp} />
                     </div>
 
                     <div className="space-y-4">
@@ -389,8 +402,8 @@ function POSPage() {
         const todayEnd = endOfDay(new Date());
 
         const walkInsToday = (walkIns || []).filter(w => {
-            const checkInDate = safeDate(w.checkInTime);
-            return checkInDate >= todayStart && checkInDate <= todayEnd;
+            const checkInTime = safeDate(w.checkInTime);
+            return checkInTime >= todayStart && checkInTime <= todayEnd;
         });
 
         const completedWalkIns = walkInsToday.filter(w => w.status === 'completed' && w.serviceStartTime);
@@ -504,10 +517,11 @@ function POSPage() {
         toast({ title: "Status Updated" });
     };
 
-    const handleResolvePolicyEnforcement = async (action: 'charge' | 'waive' | 'cancel') => {
+    const handleResolvePolicyEnforcement = async (action: 'charge' | 'waive' | 'cancel', finalFee: number) => {
         if (!policyEnforcementData || !firestore || !tenantId) return;
-        const { appointment: apt, fee, reason, id, isWalkIn, minutes } = policyEnforcementData;
+        const { appointment: apt, reason, id, isWalkIn, minutes } = policyEnforcementData;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
+        const fee = finalFee;
         
         const batch = writeBatch(firestore);
         
@@ -783,10 +797,8 @@ function POSPage() {
             });
         }
 
+        const retailTotalValue = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
         retailItems.forEach(item => {
-            const retailAmount = item.price * item.quantity;
-            totalLtvIncrease += retailAmount;
-
             const retailTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(retailTxnRef, {
                 date: now,
@@ -796,7 +808,7 @@ function POSPage() {
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
-                amount: retailTotal,
+                amount: item.price * item.quantity,
                 paymentMethod: paymentTab,
                 hasReceipt: true
             });
@@ -813,6 +825,7 @@ function POSPage() {
                 reason: `Retail Sale: ${item.name} for ${selectedClient?.name || 'Guest'}`,
             });
         });
+        totalLtvIncrease += retailTotalValue;
 
         if (selectedClient) {
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);

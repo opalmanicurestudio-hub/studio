@@ -61,6 +61,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const { services, clients, memberships, packages } = useInventory();
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
+  const [shouldRoundUp, setShouldRoundUp] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
   
@@ -116,10 +117,12 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     return { overheadRecovery, noShowPenalty, duration };
   }, [service, tenant?.tmhr]);
 
-  const feeAmount = useMemo(() => {
+  const baseFeeAmount = useMemo(() => {
     if (reason === 'no-show') return dynamicFees.noShowPenalty;
     return isLateCancellation ? dynamicFees.overheadRecovery : 0;
   }, [reason, isLateCancellation, dynamicFees]);
+
+  const feeAmount = shouldRoundUp ? Math.ceil(baseFeeAmount) : baseFeeAmount;
 
   const handleAction = async () => {
     setIsSubmitting(true);
@@ -262,7 +265,13 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         
                         {chargeFee && feeAmount > 0 && (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Protocol</Label>
+                                <div className="flex items-center justify-between px-1">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Protocol</Label>
+                                    <div className="flex items-center gap-2">
+                                        <Label htmlFor="round-up-cancel" className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Round Up</Label>
+                                        <Switch id="round-up-cancel" checked={shouldRoundUp} onCheckedChange={setShouldRoundUp} />
+                                    </div>
+                                </div>
                                 <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-3">
                                     <label htmlFor="pay-card" className="cursor-pointer flex-1 h-full">
                                         <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" />
