@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
@@ -11,7 +10,6 @@ import {
     DollarSign, 
     Percent, 
     Repeat, 
-    BarChart, 
     Star, 
     TicketIcon, 
     Gift, 
@@ -22,12 +20,12 @@ import {
     TrendingUp, 
     Trash2,
     Wand2,
-    Activity,
-    SlidersHorizontal,
     Target,
     Filter,
     Loader,
-    Box
+    Box,
+    Activity,
+    SlidersHorizontal
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
@@ -35,7 +33,7 @@ import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
 import { DiscountCard } from '@/components/discounts/DiscountCard';
 import { type Discount, type Tenant } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
@@ -57,7 +55,7 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
             <Icon className={cn("h-3 w-3 md:h-3.5 md:w-3.5 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
         <CardContent className="p-3 md:p-4 pt-0">
-            <div className={cn("text-lg md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+            <div className={cn("text-lg md:text-2xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
                 {value}
             </div>
             <p className="text-[8px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>

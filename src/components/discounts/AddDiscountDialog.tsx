@@ -30,8 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark } from 'lucide-react';
-import { useForm, Controller } from 'react-hook-form';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark, Sparkles } from 'lucide-react';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type Discount, type Service, type PricingTier } from '@/lib/data';
@@ -70,6 +70,18 @@ const discountSchema = z.object({
 
 type DiscountFormData = z.infer<typeof discountSchema>;
 
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Protocol Entry</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
+
 const ProfitabilityAnalysis = ({ 
     services, 
     discountType, 
@@ -94,8 +106,8 @@ const ProfitabilityAnalysis = ({
             <Accordion type="multiple" className="w-full space-y-2">
                 {services.map(service => {
                     return (
-                        <AccordionItem key={service.id} value={service.id} className="border rounded-xl overflow-hidden">
-                            <AccordionTrigger className="px-4 py-3 font-bold text-sm hover:no-underline bg-muted/20">
+                        <AccordionItem key={service.id} value={service.id} className="border-2 rounded-2xl overflow-hidden bg-white">
+                            <AccordionTrigger className="px-4 py-3 font-black uppercase text-[10px] tracking-widest hover:no-underline bg-muted/10">
                                 {service.name}
                             </AccordionTrigger>
                             <AccordionContent className="p-4 space-y-3">
@@ -111,17 +123,17 @@ const ProfitabilityAnalysis = ({
                                     const newMargin = discountedPrice > 0 ? (newProfit / discountedPrice) * 100 : 0;
 
                                     return (
-                                        <div key={tier.id} className="text-xs space-y-2 p-3 bg-background rounded-lg border shadow-sm">
+                                        <div key={tier.id} className="text-xs space-y-2 p-3 bg-background rounded-xl border shadow-sm">
                                             <div className="flex justify-between items-center">
                                                 <p className="font-black uppercase text-[10px] text-muted-foreground tracking-tight">{tier.name}</p>
-                                                {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[9px]">Loss Warning</Badge>}
+                                                {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[9px] font-black uppercase border-none">Loss Warning</Badge>}
                                             </div>
                                             <div className="flex justify-between items-baseline">
-                                                <span className="text-muted-foreground">Retail: <span className="font-bold text-foreground">${originalPrice.toFixed(2)}</span></span>
-                                                <span className="text-muted-foreground">New: <span className="font-bold text-primary">${discountedPrice.toFixed(2)}</span></span>
+                                                <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Retail: <span className="font-black text-slate-900">${originalPrice.toFixed(2)}</span></span>
+                                                <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">New: <span className="font-black text-primary">${discountedPrice.toFixed(2)}</span></span>
                                             </div>
                                             <div className="flex justify-between items-center pt-2 border-t border-dashed">
-                                                <span className="font-bold">Net Profit</span>
+                                                <span className="font-black uppercase text-[10px] tracking-widest">Net Profit</span>
                                                 <span className={cn("font-black font-mono text-sm", newProfit >= 0 ? "text-primary" : "text-destructive")}>
                                                     ${newProfit.toFixed(2)} ({newMargin.toFixed(0)}%)
                                                 </span>
@@ -161,7 +173,6 @@ const PotentialImpactAnalysis = ({
         let totalPotentialProfit = 0;
 
         if (selectedServices.length > 0) {
-            // Find a baseline tier, prefer 'Senior' or the one with rank 2/3
             const baselineTier = pricingTiers.find(t => t.name.toLowerCase().includes('senior')) || pricingTiers[Math.floor(pricingTiers.length / 2)] || pricingTiers[0];
             
             let totalOriginalPrice = 0;
@@ -201,20 +212,20 @@ const PotentialImpactAnalysis = ({
     }
 
     return (
-        <div className="space-y-2">
-            <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Exposure Risk Analysis</Label>
-            <Card className="bg-muted/50 border-2">
-                <CardContent className="p-4 grid grid-cols-2 gap-4">
-                     <div className="text-center p-3 rounded-xl bg-background border shadow-sm">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Max Expense</p>
+        <div className="space-y-3">
+            <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Exposure Risk Analysis</Label>
+            <Card className="bg-muted/50 border-2 rounded-[2rem] overflow-hidden shadow-inner">
+                <CardContent className="p-6 grid grid-cols-2 gap-4">
+                     <div className="text-center p-4 rounded-2xl bg-white border shadow-sm space-y-1">
+                        <p className="text-[9px] uppercase font-black text-muted-foreground opacity-60">Max Expense</p>
                         {isNaN(impact.loss) ? (
                              <p className="text-xl font-black text-destructive">N/A*</p>
                         ) : (
                              <p className="text-xl font-black text-destructive">-${impact.loss.toFixed(2)}</p>
                         )}
                     </div>
-                     <div className="text-center p-3 rounded-xl bg-background border shadow-sm">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Target Net Profit</p>
+                     <div className="text-center p-4 rounded-2xl bg-white border shadow-sm space-y-1">
+                        <p className="text-[9px] uppercase font-black text-muted-foreground opacity-60">Target Yield</p>
                          {isNaN(impact.profit) ? (
                             <p className="text-xl font-black text-primary">N/A*</p>
                         ) : (
@@ -223,8 +234,8 @@ const PotentialImpactAnalysis = ({
                     </div>
                 </CardContent>
                 {isNaN(impact.loss) && (
-                     <CardFooter className="p-3 pt-0">
-                        <p className="text-[10px] text-muted-foreground text-center w-full leading-tight">* Multi-service percentage discounts depend on the total cart value. Impact cannot be pre-calculated.</p>
+                     <CardFooter className="p-4 pt-0">
+                        <p className="text-[9px] font-bold text-muted-foreground text-center w-full leading-relaxed uppercase opacity-60">* Multi-service percentage discounts depend on the total cart value.</p>
                      </CardFooter>
                 )}
             </Card>
@@ -310,73 +321,92 @@ export const AddDiscountDialog: React.FC<{
         setValue('applicableServiceIds', selectedServiceIds.filter(serviceId => serviceId !== id), { shouldDirty: true });
     };
 
-    const formId = "discount-form";
-    const title = discountToEdit ? 'Edit Discount' : 'Create New Discount';
-    const description = "Define your rules and values. Note: Only one code can be applied per transaction.";
-
     const formContent = (
-      <div className="grid gap-6 py-4">
-        <div className="space-y-2">
-            <Label htmlFor="code" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Discount Code</Label>
-            <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} className="font-black h-12 text-xl tracking-tight" />
-            {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
+      <div className="grid gap-8 py-4">
+        <div className="space-y-3">
+            <Label htmlFor="code" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Discount Code</Label>
+            <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} className="font-black h-14 rounded-2xl border-2 text-3xl tracking-tighter shadow-inner bg-muted/5 focus-visible:ring-primary/20" />
+            {errors.code && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.code.message}</p>}
         </div>
-        <div className="space-y-2">
-            <Label htmlFor="description" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Internal Description</Label>
-            <Textarea id="description" placeholder="e.g., Seasonal promotion for email subscribers." {...register('description')} />
+        <div className="space-y-3">
+            <Label htmlFor="description" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Internal Description</Label>
+            <Textarea id="description" placeholder="e.g., Seasonal promotion for email subscribers." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
         </div>
         <Controller
             name="type"
             control={control}
             render={({ field }) => (
-                <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Discount Type</Label>
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                    <div><RadioGroupItem value="percentage" id="percentage-edit" className="peer sr-only" /><Label htmlFor="percentage-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"> % Percentage </Label></div>
-                    <div><RadioGroupItem value="fixed" id="fixed-edit" className="peer sr-only" /><Label htmlFor="fixed-edit" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-3 text-sm font-bold hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 [&:has([data-state=checked])]:border-primary transition-all cursor-pointer"> $ Fixed Amount </Label></div>
+                <div className="space-y-3">
+                <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Discount Mode</Label>
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
+                    <label htmlFor="percentage-edit" className="cursor-pointer">
+                        <div className={cn(
+                            "flex flex-col items-center justify-center p-5 rounded-[2rem] border-2 transition-all h-full",
+                            field.value === 'percentage' ? "border-primary bg-primary/5 shadow-md" : "border-border/50 bg-white hover:border-primary/20"
+                        )}>
+                            <Percent className={cn("mb-2 h-6 w-6", field.value === 'percentage' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">% Percentage</span>
+                            <RadioGroupItem value="percentage" id="percentage-edit" className="sr-only" />
+                        </div>
+                    </label>
+                    <label htmlFor="fixed-edit" className="cursor-pointer">
+                        <div className={cn(
+                            "flex flex-col items-center justify-center p-5 rounded-[2rem] border-2 transition-all h-full",
+                            field.value === 'fixed' ? "border-primary bg-primary/5 shadow-md" : "border-border/50 bg-white hover:border-primary/20"
+                        )}>
+                            <DollarSign className={cn("mb-2 h-6 w-6", field.value === 'fixed' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">$ Fixed Amount</span>
+                            <RadioGroupItem value="fixed" id="fixed-edit" className="sr-only" />
+                        </div>
+                    </label>
                 </RadioGroup>
                 </div>
             )}
         />
-        <div className="space-y-2">
-            <Label htmlFor="value" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Value</Label>
+        <div className="space-y-3">
+            <Label htmlFor="value" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Incentive Value</Label>
             <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground">
-                    {discountType === 'percentage' ? <Percent /> : <DollarSign />}
+                <span className={cn("absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-40 flex items-center justify-center")}>
+                    {discountType === 'percentage' ? <Percent className="w-6 h-6" /> : <DollarSign className="w-6 h-6" />}
                 </span>
-                <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-9 h-12 text-xl font-black" {...register('value')} />
+                <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-14 h-20 rounded-[2rem] border-4 font-black text-5xl tracking-tighter text-primary shadow-inner bg-muted/5 focus-visible:ring-primary/20 text-center" {...register('value')} />
             </div>
-            {errors.value && <p className="text-sm text-destructive">{errors.value.message}</p>}
+            {errors.value && <p className="text-[10px] font-bold text-destructive uppercase ml-1 text-center">{errors.value.message}</p>}
         </div>
 
-        <Separator />
+        <Separator className="border-dashed" />
 
-        <Accordion type="single" collapsible>
-            <AccordionItem value="applicability" className="border-0">
-                <AccordionTrigger className="p-0 hover:no-underline font-black text-[10px] uppercase tracking-widest text-muted-foreground">Rules & Applicability</AccordionTrigger>
-                <AccordionContent className="pt-4 space-y-6">
-                    <div className="space-y-2">
-                        <Label className="font-bold">Applicability Rules</Label>
-                        <p className="text-xs text-muted-foreground">
-                            Restrict this discount to specific services to protect your low-margin treatments. Leave empty to apply to the entire cart.
-                        </p>
+        <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="applicability" className="border-none">
+                <AccordionTrigger className="p-4 bg-muted/30 rounded-2xl border-2 hover:no-underline shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <ListChecks className="w-4 h-4 text-primary" />
+                        <span className="font-black uppercase text-xs tracking-widest text-primary">Rules & Applicability</span>
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent className="pt-8 space-y-10 px-1">
+                    <div className="space-y-6">
+                        <div className="space-y-1 text-left">
+                            <Label className="font-black uppercase text-[10px] tracking-widest text-muted-foreground ml-1">Service Constraints</Label>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight leading-relaxed ml-1 opacity-60">
+                                Restrict this discount to specific treatments to safeguard low-margin sessions. Leave empty for studio-wide application.
+                            </p>
+                        </div>
                         {selectedServices.length > 0 && (
-                            <Card className="rounded-xl border-2">
-                                <CardContent className="p-2 space-y-2">
-                                    {selectedServices.map(service => (
-                                        <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2.5 rounded-lg border border-border/50">
-                                            <span className="text-xs font-bold">{service.name}</span>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeService(service.id)} type="button">
-                                                <Trash2 className="h-4 w-4"/>
-                                            </Button>
-                                        </div>
-                                    ))}
-                                </CardContent>
-                            </Card>
+                            <div className="grid gap-2">
+                                {selectedServices.map(service => (
+                                    <div key={service.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border-2 shadow-sm group">
+                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{service.name}</span>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-40 group-hover:opacity-100 transition-opacity" onClick={() => removeService(service.id)} type="button">
+                                            <Trash2 className="h-4 w-4"/>
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
                         )}
-                        <Button variant="outline" type="button" className="w-full h-11 border-dashed" onClick={() => setIsServiceSelectorOpen(true)}>
-                            <PlusCircle className="mr-2 h-4 w-4"/>
-                            {selectedServices.length > 0 ? 'Modify Service Restrictions' : 'Restrict to Specific Services'}
+                        <Button variant="outline" type="button" className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] shadow-inner bg-muted/5" onClick={() => setIsServiceSelectorOpen(true)}>
+                            <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40"/>
+                            {selectedServices.length > 0 ? 'Modify Treatment Registry' : 'Define Service Constraints'}
                         </Button>
                     </div>
 
@@ -389,10 +419,9 @@ export const AddDiscountDialog: React.FC<{
                         />
                     )}
 
-                    <div className="space-y-2">
-                        <Label htmlFor="usage-limit" className="font-bold">Total Usage Limit</Label>
-                        <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} className="h-11" />
-                        <p className="text-[10px] text-muted-foreground font-medium uppercase">Set to 0 for unlimited campaign duration.</p>
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="usage-limit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Protocol Lifespan (Usage Limit)</Label>
+                        <Input id="usage-limit" type="number" placeholder="0 FOR UNLIMITED DEPLOYMENT" {...register('usageLimit')} className="h-12 rounded-xl border-2 font-black text-center text-sm shadow-inner bg-muted/5" />
                     </div>
 
                     <PotentialImpactAnalysis 
@@ -403,49 +432,54 @@ export const AddDiscountDialog: React.FC<{
                         pricingTiers={pricingTiers}
                     />
 
-                    <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/20">
-                        <div className="space-y-0.5">
-                            <Label htmlFor="limit-per-customer" className="font-bold flex items-center gap-2">One use per customer</Label>
-                            <p className="text-[10px] text-muted-foreground uppercase font-black">Prevents repeat exploitation</p>
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                        <div className="space-y-1 text-left">
+                            <Label htmlFor="limit-per-customer" className="text-base font-black uppercase tracking-tight">Cap Usage per Guest</Label>
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight opacity-60">Prevents repeated protocol exploitation</p>
                         </div>
-                        <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+                        <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
-                    <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-muted/20">
-                        <Label htmlFor="is-active" className="font-bold">Status: Active</Label>
-                        <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+                    <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10">
+                        <Label htmlFor="is-active" className="text-base font-black uppercase tracking-tight text-primary">Protocol Status: Active</Label>
+                        <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
         
-        <Separator />
+        <Separator className="border-dashed" />
 
-        <Accordion type="single" collapsible defaultValue={initialTrigger !== 'none' ? 'automation' : undefined}>
-            <AccordionItem value="automation" className="border-0">
-                <AccordionTrigger className="p-0 hover:no-underline font-black text-[10px] uppercase tracking-widest text-muted-foreground">Smart Automation</AccordionTrigger>
-                 <AccordionContent className="pt-4 space-y-4">
-                    <Alert className="bg-primary/5 border-primary/20">
-                        <Wand className="h-4 w-4 text-primary" />
-                        <AlertDescription className="text-xs">
-                            Automated discounts are intelligently suggested in the POS whenever an eligible client is checked out.
+        <Accordion type="single" collapsible className="w-full" defaultValue={initialTrigger !== 'none' ? 'automation' : undefined}>
+            <AccordionItem value="automation" className="border-none">
+                <AccordionTrigger className="p-4 bg-primary/5 rounded-2xl border-2 border-primary/10 hover:no-underline shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <Wand className="w-4 h-4 text-primary" />
+                        <span className="font-black uppercase text-xs tracking-widest text-primary">Smart Automation Architecture</span>
+                    </div>
+                </AccordionTrigger>
+                 <AccordionContent className="pt-8 space-y-8 px-1 text-left">
+                    <Alert className="bg-primary/5 border-primary/20 rounded-2xl p-5 border-2">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                        <AlertDescription className="text-[10px] font-bold uppercase tracking-tight leading-relaxed text-slate-600">
+                            Automated scripts are intelligently evaluated during guest checkout and suggested in the studio terminal when criteria are met.
                         </AlertDescription>
                     </Alert>
                     <Controller
                         name="automation.trigger"
                         control={control}
                         render={({ field }) => (
-                        <div className="space-y-2">
-                            <Label className="font-bold">Trigger Rule</Label>
+                        <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Automated Trigger Rule</Label>
                             <Select onValueChange={field.onChange} value={field.value}>
-                            <SelectTrigger className="h-11">
-                                <SelectValue placeholder="No Automation" />
+                            <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
+                                <SelectValue placeholder="Manual Entry Only" />
                             </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">Manual Entry Only</SelectItem>
-                                <SelectItem value="new_client">New Client Welcome (1st Visit)</SelectItem>
-                                <SelectItem value="loyalty">Loyalty Milestone (Visits)</SelectItem>
-                                <SelectItem value="re_engagement">Win-Back (Inactivity)</SelectItem>
-                                <SelectItem value="birthday">Birthday Celebration</SelectItem>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                <SelectItem value="none" className="font-bold uppercase text-[10px] tracking-widest">MANUAL PROTOCOL ONLY</SelectItem>
+                                <SelectItem value="new_client" className="font-bold uppercase text-[10px] tracking-widest">NEW GUEST WELCOME (1ST VISIT)</SelectItem>
+                                <SelectItem value="loyalty" className="font-bold uppercase text-[10px] tracking-widest">LOYALTY MILESTONE (VISIT THRESHOLD)</SelectItem>
+                                <SelectItem value="re_engagement" className="font-bold uppercase text-[10px] tracking-widest">WIN-BACK (DORMANT GUEST)</SelectItem>
+                                <SelectItem value="birthday" className="font-bold uppercase text-[10px] tracking-widest">BIRTHDAY CELEBRATION</SelectItem>
                             </SelectContent>
                             </Select>
                         </div>
@@ -456,10 +490,10 @@ export const AddDiscountDialog: React.FC<{
                         name="automation.appointmentThreshold"
                         control={control}
                         render={({ field }) => (
-                            <div className="space-y-2">
-                            <Label className="font-bold">Visit Threshold</Label>
-                            <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} className="h-11" />
-                            <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger reward after this many completed services.</p>
+                            <div className="space-y-3 animate-in slide-in-from-top-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visit Threshold</Label>
+                            <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center" />
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase text-center opacity-60">Authorize reward after this many completed treatments.</p>
                             </div>
                         )}
                         />
@@ -469,10 +503,10 @@ export const AddDiscountDialog: React.FC<{
                         name="automation.daysSinceLastVisit"
                         control={control}
                         render={({ field }) => (
-                            <div className="space-y-2">
-                            <Label className="font-bold">Days of Inactivity</Label>
-                            <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} className="h-11" />
-                            <p className="text-[10px] text-muted-foreground uppercase font-black">Trigger win-back offer after this many days away.</p>
+                            <div className="space-y-3 animate-in slide-in-from-top-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Inactivity window (Days)</Label>
+                            <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center" />
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase text-center opacity-60">Authorize acquisition script after this many dormant days.</p>
                             </div>
                         )}
                         />
@@ -490,23 +524,27 @@ export const AddDiscountDialog: React.FC<{
         <>
             <DialogComponent open={open} onOpenChange={onOpenChange}>
                 <ContentComponent
-                    className={isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-xl"}
+                    className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[90dvh]")}
                     side={isMobile ? "bottom" : undefined}
                 >
-                    <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
-                        <DialogHeader className={cn("p-6 pb-4 flex-shrink-0", isMobile && "p-4 border-b text-left")}>
-                            <DialogTitle>{title}</DialogTitle>
-                            <DialogDescription>{description}</DialogDescription>
+                    <form id="add-discount-wizard-form" onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+                        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
+                            <div className="flex items-center gap-3 mb-2">
+                                <Sparkles className="w-5 h-5 text-primary" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+                            </div>
+                            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Initialize Discount</DialogTitle>
+                            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define your rules and values. Note: Only one code can be applied per transaction.</DialogDescription>
                         </DialogHeader>
                         <ScrollArea className="flex-1">
-                            <div className={isMobile ? "p-4" : "p-6 pt-0"}>
+                            <div className={cn("pb-32", isMobile ? "p-8" : "p-8")}>
                                 {formContent}
                             </div>
                         </ScrollArea>
-                        <DialogFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 pt-4")}>
-                           <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
-                                <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-                                <Button type="submit">Save Discount & Apply Rules</Button>
+                        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-8 pt-4" : "p-8 pt-4")}>
+                           <div className="grid grid-cols-2 gap-3 w-full">
+                                <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                                <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30">Commit Protocol</Button>
                             </div>
                         </DialogFooter>
                     </form>
