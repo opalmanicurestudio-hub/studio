@@ -17,7 +17,9 @@ import {
     AlertTriangle, 
     Fingerprint, 
     Cake, 
-    UserPlus 
+    UserPlus,
+    Award,
+    Repeat
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -75,13 +77,19 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
         setIsLateEntryOpen(false);
     };
 
-    const isBirthdayToday = useMemo(() => {
+    const client = useMemo(() => {
         const clientId = isWalkIn ? (item as WalkIn).clientId : (item as Appointment).clientId;
-        const client = clients?.find(c => c.id === clientId);
+        return clients?.find(c => c.id === clientId);
+    }, [item, clients, isWalkIn]);
+
+    const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;
         const birth = safeDate(client.birthday);
         return isSameMonth(new Date(), birth) && birth.getDate() === new Date().getDate();
-    }, [item, clients, isWalkIn]);
+    }, [client]);
+
+    const isMember = !!(client?.activeMembershipId || client?.subscription);
+    const hasPackage = (client?.activePackages?.length || 0) > 0;
 
     return (
         <Card className={cn(
@@ -94,9 +102,19 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             <CardContent className="p-5 space-y-4" onClick={onResolve}>
                 <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
-                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase animate-bounce"><Cake className="w-2 h-2 mr-1" /> B-Day</Badge>}
+                            {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase animate-bounce"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
+                            {isMember && (
+                                <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Award className="w-2 h-2 mr-0.5" /> MEM
+                                </Badge>
+                            )}
+                            {hasPackage && (
+                                <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Repeat className="w-2 h-2 mr-0.5" /> PKG
+                                </Badge>
+                            )}
                         </div>
                         <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1 flex items-center gap-1.5 opacity-60">
                             <Clock className="w-2.5 h-2.5" />

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -13,7 +12,9 @@ import {
     XCircle, 
     Users, 
     Undo2, 
-    Cake 
+    Cake,
+    Award,
+    Repeat
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useTenant } from '@/context/TenantContext';
@@ -42,13 +43,17 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
         }
     }, [walkIn.notifiedTimestamp, selectedTenant]);
 
+    const client = useMemo(() => clients?.find(c => c.id === walkIn.clientId), [walkIn.clientId, clients]);
+
     const isBirthdayToday = useMemo(() => {
-        const client = clients?.find(c => c.id === walkIn.clientId);
         if (!client?.birthday) return false;
         const today = new Date();
         const birth = new Date(client.birthday);
         return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
-    }, [walkIn.clientId, clients]);
+    }, [client]);
+
+    const isMember = !!(client?.activeMembershipId || client?.subscription);
+    const hasPackage = (client?.activePackages?.length || 0) > 0;
 
     const assignedStaff = staff?.find((s:any) => s.id === walkIn.assignedStaffId);
     if (!assignedStaff) return null;
@@ -61,9 +66,19 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
             <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{walkIn.customerName}</p>
                             {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
+                            {isMember && (
+                                <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Award className="w-2 h-2 mr-0.5" /> MEM
+                                </Badge>
+                            )}
+                            {hasPackage && (
+                                <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Repeat className="w-2 h-2 mr-0.5" /> PKG
+                                </Badge>
+                            )}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 text-[9px] font-black uppercase h-5">Notified {timeSinceNotified} ago</Badge>

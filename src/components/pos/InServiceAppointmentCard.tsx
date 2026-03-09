@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
-import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity } from 'lucide-react';
+import { User, Clock, CheckCircle, Undo2, Check, Hourglass, PlusCircle, Zap, Workflow, Cake, Square, Activity, Award, Repeat } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { cn } from '@/lib/utils';
@@ -34,13 +34,17 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
     const [progress, setProgress] = useState(0);
     const [minsRemaining, setMinsRemaining] = useState(0);
 
+    const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [appointment.clientId, clients]);
+
     const isBirthdayToday = useMemo(() => {
-        const client = clients?.find(c => c.id === appointment.clientId);
         if (!client?.birthday) return false;
         const birth = safeDate(client.birthday);
         const today = new Date();
         return birth.getMonth() === today.getMonth() && birth.getDate() === today.getDate();
-    }, [appointment.clientId, clients]);
+    }, [client]);
+
+    const isMember = !!(client?.activeMembershipId || client?.subscription);
+    const hasPackage = (client?.activePackages?.length || 0) > 0;
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
@@ -79,9 +83,19 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
             <CardContent className="p-5 space-y-4" onClick={onViewDetails}>
                  <div className="flex justify-between items-start gap-3 cursor-pointer">
                     <div className="space-y-4 flex-1 min-w-0 text-left">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
                             {isBirthdayToday && <Badge className="bg-pink-500 text-white border-none text-[8px] h-4 font-black uppercase"><Cake className="w-2.5 h-2.5 mr-1" /> B-Day</Badge>}
+                            {isMember && (
+                                <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Award className="w-2 h-2 mr-0.5" /> MEM
+                                </Badge>
+                            )}
+                            {hasPackage && (
+                                <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Repeat className="w-2 h-2 mr-0.5" /> PKG
+                                </Badge>
+                            )}
                         </div>
                         
                         <div className="space-y-2">

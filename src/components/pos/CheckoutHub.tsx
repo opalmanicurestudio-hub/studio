@@ -216,6 +216,9 @@ export const CheckoutHub = ({
 
     const selectedClient = useMemo(() => clients.find((c: Client) => c.id === selectedClientId), [selectedClientId, clients]);
     
+    const isMember = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
+    const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
+
     const filteredPayerOptions = useMemo(() => {
         const listToFilter = payerOptions || [];
         if (!clientSearch.trim()) return listToFilter;
@@ -338,11 +341,22 @@ export const CheckoutHub = ({
                             >
                                 {selectedClient ? (
                                     <div className="flex items-center gap-3">
-                                        <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
-                                            <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <span className="truncate text-xs md:text-sm">{selectedClient.name}</span>
+                                        <div className="relative shrink-0">
+                                            <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
+                                                <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            {isMember && (
+                                                <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
+                                                    <Award className="w-2 h-2" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="truncate text-xs md:text-sm">{selectedClient.name}</span>
+                                            {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
+                                            {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] h-4 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
+                                        </div>
                                     </div>
                                 ) : <span className="opacity-40 text-xs md:text-sm">{isGroupCheckout ? "Select Account..." : "Search Payer..."}</span>}
                                 <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
@@ -373,26 +387,36 @@ export const CheckoutHub = ({
                                             <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
                                             <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
                                         </button>
-                                        {filteredPayerOptions.map((c: Client) => (
-                                            <button 
-                                                key={c.id} 
-                                                className={cn(
-                                                    "w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl",
-                                                    selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/[0.03] hover:border-primary/10"
-                                                )}
-                                                onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}
-                                            >
-                                                <Avatar className="h-10 w-10 border-2 shadow-sm rounded-xl">
-                                                    <AvatarImage src={c.avatarUrl} className="object-cover" />
-                                                    <AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback>
-                                                </Avatar>
-                                                <div className="min-w-0">
-                                                    <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>
-                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
-                                                </div>
-                                                {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
-                                            </button>
-                                        ))}
+                                        {filteredPayerOptions.map((c: Client) => {
+                                            const cMember = !!(c.activeMembershipId || c.subscription);
+                                            const cPkg = (c.activePackages?.length || 0) > 0;
+                                            return (
+                                                <button 
+                                                    key={c.id} 
+                                                    className={cn(
+                                                        "w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl",
+                                                        selectedClientId === c.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-primary/[0.03] hover:border-primary/10"
+                                                    )}
+                                                    onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}
+                                                >
+                                                    <div className="relative shrink-0">
+                                                        <Avatar className="h-10 w-10 border-2 shadow-sm rounded-xl">
+                                                            <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                                            <AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback>
+                                                        </Avatar>
+                                                        {cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>
+                                                            {cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
+                                                        </div>
+                                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
+                                                    </div>
+                                                    {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </ScrollArea>
                             </div>

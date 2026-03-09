@@ -8,7 +8,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
-import { Undo2, Cake, Users } from 'lucide-react';
+import { Undo2, Cake, Users, Award, Repeat } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,9 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
     const birth = safeDate(client.birthday);
     return birth.getMonth() === new Date().getMonth() && birth.getDate() === new Date().getDate();
   }, [client]);
+
+  const isMember = !!(client?.activeMembershipId || client?.subscription);
+  const hasPackage = (client?.activePackages?.length || 0) > 0;
 
   const totalPrice = useMemo(() => {
     const mainPrice = getServicePrice(service, primaryStaff);
@@ -65,9 +68,19 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                     <div className="flex items-center gap-4 min-w-0">
                         <Checkbox id={`pos-checkout-sel-${apt.id}`} checked={isSelected} onCheckedChange={onSelect} className="h-6 w-6 rounded-lg border-2" onClick={(e) => e.stopPropagation()} />
                         <div className="min-w-0 space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{client?.name || 'Walk-in'}</p>
                                 {isBirthdayToday && <Cake className="w-3.5 h-3.5 text-pink-500 animate-pulse shrink-0" />}
+                                {isMember && (
+                                    <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                        <Award className="w-2 h-2 mr-0.5" /> MEM
+                                    </Badge>
+                                )}
+                                {hasPackage && (
+                                    <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                        <Repeat className="w-2 h-2 mr-0.5" /> PKG
+                                    </Badge>
+                                )}
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{apt.startTime ? format(safeDate(apt.startTime), 'h:mm a') : 'Now'}</p>
