@@ -17,7 +17,8 @@ import {
     Lock, 
     Sparkles, 
     Landmark,
-    DollarSign
+    DollarSign,
+    Percent
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -47,17 +48,9 @@ export default function PublicQuotePage() {
     const { firestore } = useFirebase();
     const { toast } = useToast();
     
-    // 1. Locate the quote across all tenants by ID (Public access allowed by rules)
-    const quoteQuery = useMemoFirebase(() => {
-        if (!firestore || !id) return null;
-        // In a real multi-tenant app, we'd look up the tenantId from the URL or a mapping
-        // For this prototype, we'll assume the rules allow get if we have the specific ID
-        // Note: The path structure in rules matches /tenants/{tenantId}/quotes/{quoteId}
-        return null; // We need to handle this via a collection group query or tenant-in-path URL
-    }, [firestore, id]);
-
-    // For simplicity in this prototype, we use a search param or mapping to find the tenantId
-    const tenantId = "hoCsqf5Jq2qqW0_j41MZh"; // Placeholder: In production this is derived from the URL or a lookup
+    // In this prototype, we assume the tenantId is part of the path or looked up.
+    // For this implementation, we extract from path or use a persistent constant if multi-tenant lookup is complex.
+    const tenantId = "hoCsqf5Jq2qqW0_j41MZh"; 
     
     const quoteRef = useMemoFirebase(() => 
         firestore ? doc(firestore, `tenants/${tenantId}/quotes`, id) : null
@@ -77,8 +70,8 @@ export default function PublicQuotePage() {
         quote?.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0
     , [quote]);
     
-    const projectFee = servicesSubtotal * ((quote?.projectFee || 0) / 100);
-    const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFee;
+    const projectFeeAmount = servicesSubtotal * ((quote?.projectFee || 0) / 100);
+    const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFeeAmount;
 
     const handleAccept = () => {
         if (quote?.depositAmount && quote.depositAmount > 0) setStep('payment');
@@ -88,14 +81,14 @@ export default function PublicQuotePage() {
     const finalizeAcceptance = async () => {
         if (!quoteRef) return;
         setIsPaying(true);
-        updateDocumentNonBlocking(quoteRef, { status: 'accepted' });
+        updateDocumentNonBlocking(quoteRef, { status: 'accepted', acceptedAt: new Date().toISOString() });
         setStep('success');
         setIsPaying(false);
     };
 
     const handleDecline = () => {
         if (!quoteRef) return;
-        updateDocumentNonBlocking(quoteRef, { status: 'declined' });
+        updateDocumentNonBlocking(quoteRef, { status: 'declined', declinedAt: new Date().toISOString() });
         setStep('declined');
     };
 
@@ -189,7 +182,9 @@ export default function PublicQuotePage() {
                         <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
                         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
                     </div>
-                    <Button onClick={finalizeAcceptance} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30">Authorize Distribution</Button>
+                    <Button onClick={finalizeAcceptance} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30" disabled={isPaying}>
+                        {isPaying ? <Loader className="animate-spin" /> : 'Authorize Distribution'}
+                    </Button>
                     <div className="flex items-center justify-center gap-3 opacity-40"><Lock className="w-4 h-4"/><span className="text-[9px] font-black uppercase tracking-widest">Encrypted SSL Secure Tunnel</span></div>
                 </div>
             )}

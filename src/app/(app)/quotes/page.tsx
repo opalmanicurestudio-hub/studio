@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { 
     PlusCircle, 
@@ -405,7 +405,7 @@ export default function QuotesPage() {
                         <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><FileText className="h-16 w-16 text-muted-foreground" /></div>
                         <div className="space-y-2 text-center">
                             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Manifest Clear</h3>
-                            <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto">
+                            <p className="text-sm font-bold uppercase tracking-tight max-sm mx-auto">
                                 No active project proposals in the archive. Initiate a new quote to start tracking project yields.
                             </p>
                         </div>
@@ -428,7 +428,7 @@ export default function QuotesPage() {
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                 <Button onClick={handleDeleteQuote} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
-                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

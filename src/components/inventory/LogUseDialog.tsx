@@ -27,7 +27,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Pipette, Sparkles, X, Activity } from 'lucide-react';
+import { Pipette, Sparkles, X, Activity, Loader } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -141,8 +141,8 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
                     <div className="space-y-3 text-left">
                     <Label htmlFor="quantity" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Quantity to Deduct</Label>
                     <div className="relative">
-                            <Input id="quantity" type="number" step="0.1" {...field} className="h-16 rounded-2xl border-2 font-black text-3xl tracking-tighter shadow-inner bg-muted/5 pr-16 focus-visible:ring-primary/20" />
-                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black uppercase text-muted-foreground opacity-40">{unitLabel}</span>
+                            <Input id="quantity" type="number" step="0.1" {...field} className="h-20 rounded-[2rem] border-4 font-black text-5xl tracking-tighter shadow-inner bg-muted/5 pr-20 focus-visible:ring-primary/20 text-center" />
+                            <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs font-black uppercase text-muted-foreground opacity-40">{unitLabel}</span>
                     </div>
                     {errors.quantity && <p className="text-[10px] font-black text-destructive uppercase ml-1">{errors.quantity.message}</p>}
                 </div>
@@ -154,7 +154,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
             render={({ field }) => (
                 <div className="space-y-3 text-left">
                     <Label htmlFor="reason" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason / Note (Optional)</Label>
-                    <Textarea id="reason" placeholder="e.g., Dropped bottle, product test..." {...field} className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium" />
+                    <Textarea id="reason" placeholder="e.g., Dropped bottle, product test..." {...field} className="rounded-[2rem] border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6" />
                 </div>
             )}
         />
@@ -167,7 +167,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <DialogContentContainer className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[85dvh] rounded-t-[3rem]" : "sm:max-w-md")} side="bottom">
+      <DialogContentContainer className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[85dvh] rounded-t-[3rem]" : "sm:max-w-md rounded-[3.5rem] border-4")} side="bottom">
         <DialogHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -187,7 +187,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
 
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
-            <Button type="submit" form="log-use-strategic-form" className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30">Log Consumption</Button>
+            <Button type="submit" form="log-use-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">Log Consumption</Button>
             <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel Protocol</Button>
           </div>
         </DialogFooter>

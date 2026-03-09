@@ -169,7 +169,7 @@ export default function QuoteDetailPage() {
             <AppHeader title="Edit Proposal" />
             <main className="flex-1 p-4 md:p-10 w-full max-w-5xl mx-auto min-w-0 space-y-10">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                    <div className="space-y-1">
+                    <div className="space-y-1 text-left">
                         <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Modify Protocol</h1>
                         <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Status: {quote.status}</p>
                     </div>
@@ -215,7 +215,7 @@ export default function QuoteDetailPage() {
                                 <CardHeader className="p-10 border-b bg-muted/5"><CardTitle className="text-2xl font-black uppercase tracking-tighter">Operational Parameters</CardTitle></CardHeader>
                                 <CardContent className="p-10 space-y-10">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Client</Label>
                                             <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4">
                                                 <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
@@ -228,7 +228,7 @@ export default function QuoteDetailPage() {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 text-left">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Event Date</Label>
                                             <div className="p-4 h-14 rounded-2xl border-2 bg-muted/5 flex items-center gap-3 font-black uppercase text-sm">
                                                 <CalendarIcon className="w-4 h-4 text-primary opacity-40" />
@@ -237,7 +237,7 @@ export default function QuoteDetailPage() {
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 text-left">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Financial Components</Label>
                                         <div className="grid gap-3">
                                             {quote.lineItems.map((item, idx) => (

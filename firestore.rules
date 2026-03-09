@@ -9,8 +9,8 @@ service cloud.firestore {
     }
 
     /**
-     * @description Checks if the user is the technical owner of the tenant.
-     * Checks the userId field on the tenant document directly for Jessica Marshall's UID parity.
+     * @description Checks if the user is the master owner of the tenant.
+     * Uses short-circuit logic to grant immediate authority via direct userId check.
      */
     function isOwner(tenantId) {
       return isSignedIn() && (
@@ -35,29 +35,26 @@ service cloud.firestore {
 
     // --- Special Rules for Shared Access ---
 
-    // Top-level tenant document access
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn();
     }
 
-    // Public Quote Portal Access
+    // Public Quote Portal Access (Allows guests to view their proposal)
     match /tenants/{tenantId}/quotes/{quoteId} {
-      allow get: if true; // Allows guests to view their proposal
+      allow get: if true;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']);
     }
 
-    // User profiles
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
-    // Staff Directory (Safe Lookup)
     match /staffDirectory/{staffId} {
       allow get: if isSignedIn();
       allow write: if isSignedIn(); 
     }
 
-    // Public Check-in Portal
     match /appointmentCheckIns/{token} {
       allow read: if true;
       allow create: if isSignedIn();
