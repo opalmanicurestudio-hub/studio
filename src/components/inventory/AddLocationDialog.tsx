@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { PlusCircle, Upload, Save, Check, Box, Building, Store, ClipboardList, LucideIcon, MapPin, Sparkles, X, Activity, ShieldCheck, ThermometerSnowflake, Sun, Wind, Droplets } from 'lucide-react';
+import { PlusCircle, Upload, Save, Check, Box, Building, Store, ClipboardList, LucideIcon, MapPin, Sparkles, X, Activity, ShieldCheck, ThermometerSnowflake, Sun, Wind, Droplets, ArrowRight } from 'lucide-react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';

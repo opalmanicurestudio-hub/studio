@@ -239,7 +239,7 @@ export default function QuotesPage() {
                                 return (
                                     <TableRow key={quote.id} className="group hover:bg-primary/[0.02] transition-colors border-b text-left">
                                         <TableCell className="p-6">
-                                            <p className="font-black uppercase tracking-tight text-sm text-slate-900">{quote.eventName}</p>
+                                            <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900">{quote.eventName}</p>
                                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">ID: #{quote.id.slice(-6).toUpperCase()}</p>
                                         </TableCell>
                                         <TableCell className="font-black text-[10px] uppercase text-slate-600">
