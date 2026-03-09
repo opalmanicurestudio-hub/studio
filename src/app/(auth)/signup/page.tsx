@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -198,7 +197,9 @@ export default function SignupPage() {
   return (
     <div className="w-full max-w-lg">
         <div className="flex justify-center mb-8">
-            <ClarityFlowLogo className="w-16 h-16" />
+            <div className="p-4 bg-white rounded-[1.5rem] shadow-xl border-2 border-primary/10">
+                <ClarityFlowLogo className="w-12 h-12" />
+            </div>
         </div>
         
         <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/80 backdrop-blur-xl">
@@ -343,7 +344,7 @@ export default function SignupPage() {
             <CardFooter className="p-8 pt-0 flex flex-col gap-4">
                 <div className="flex w-full gap-3">
                     {step > 1 && (
-                        <Button variant="ghost" onClick={handleBack} className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">
+                        <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">
                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                         </Button>
                     )}
