@@ -1,11 +1,31 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit, MoreHorizontal, UserPlus, TrendingUp, Trash2 } from 'lucide-react';
+import { 
+    PlusCircle, 
+    Search, 
+    DollarSign, 
+    Percent, 
+    Repeat, 
+    BarChart, 
+    Star, 
+    TicketIcon, 
+    Gift, 
+    Save, 
+    Edit, 
+    MoreHorizontal, 
+    UserPlus, 
+    TrendingUp, 
+    Trash2,
+    Wand2,
+    Activity,
+    SlidersHorizontal,
+    Target
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -21,33 +41,43 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
-const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
-    <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
-        <h3 className="text-2xl font-semibold">Create Your First Discount</h3>
-        <p className="text-muted-foreground max-sm mx-auto mt-2 mb-6">
-            Offer special deals to attract new clients or reward your loyal customers.
-        </p>
-        <Button onClick={onAdd}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add New Discount
-        </Button>
-    </div>
-);
-
-const AutomationCard = ({ icon, title, description, onSetup }: { icon: React.ReactNode, title: string, description: string, onSetup: () => void }) => (
-    <Card>
-        <CardHeader>
-            <div className="flex items-center gap-4">
-                <div className="p-3 bg-primary/10 rounded-lg">{icon}</div>
-                <CardTitle>{title}</CardTitle>
-            </div>
+const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+                {title}
+            </CardTitle>
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
         </CardHeader>
         <CardContent>
-            <p className="text-sm text-muted-foreground">{description}</p>
+            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+                {value}
+            </div>
+            <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40">{description}</p>
         </CardContent>
-        <CardFooter>
-            <Button className="w-full" onClick={onSetup}>Set Up</Button>
+    </Card>
+);
+
+const AutomationCard = ({ icon: Icon, title, description, onSetup }: { icon: any, title: string, description: string, onSetup: () => void }) => (
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white">
+        <CardHeader className="p-6 md:p-8 flex-1">
+            <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 shadow-inner group-hover:bg-primary transition-all duration-500">
+                    <Icon className="w-8 h-8 text-primary group-hover:text-white transition-colors" />
+                </div>
+                <div className="space-y-1">
+                    <CardTitle className="text-lg font-black uppercase tracking-tight text-slate-900">{title}</CardTitle>
+                    <CardDescription className="text-xs font-medium text-slate-500 leading-relaxed uppercase tracking-tight">{description}</CardDescription>
+                </div>
+            </div>
+        </CardHeader>
+        <CardFooter className="p-4 bg-muted/5 border-t">
+            <Button className="w-full h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg" onClick={onSetup}>
+                Initialize Logic
+            </Button>
         </CardFooter>
     </Card>
 );
@@ -55,9 +85,9 @@ const AutomationCard = ({ icon, title, description, onSetup }: { icon: React.Rea
 const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discount, onEdit: (discount: Discount) => void, onDelete: (discountId: string) => void }) => {
     const triggerText = {
         loyalty: `Triggers after ${discount.automation?.appointmentThreshold || 'N/A'} visits.`,
-        re_engagement: `Triggers after ${discount.automation?.daysSinceLastVisit || 'N/A'} days of inactivity.`,
-        birthday: "Triggers during a client's birthday month.",
-        new_client: "Triggers for a new client's first visit.",
+        re_engagement: `Triggers after ${discount.automation?.daysSinceLastVisit || 'N/A'} days away.`,
+        birthday: "Triggers during birthday month.",
+        new_client: "Triggers for first visit.",
         none: ""
     };
     
@@ -66,45 +96,56 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
         re_engagement: Repeat,
         birthday: Gift,
         new_client: UserPlus,
-        none: Star // Default icon
+        none: Target
     }[discount.automation?.trigger || 'none'];
 
     const title = {
-         loyalty: 'Loyalty Program',
-        re_engagement: 'Re-engagement Offer',
+        loyalty: 'Loyalty Protocol',
+        re_engagement: 'Win-Back Logic',
         birthday: 'Birthday Special',
-        new_client: 'New Client Offer',
-        none: 'Automated Discount'
+        new_client: 'Welcome Reward',
+        none: 'Automated Logic'
     }[discount.automation?.trigger || 'none'];
 
     return (
-        <Card className="border-primary/20 bg-primary/5">
-            <CardHeader>
+        <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] overflow-hidden shadow-2xl shadow-primary/5 flex flex-col h-full">
+            <CardHeader className="p-6 md:p-8">
                 <div className="flex items-center justify-between">
                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-primary/10 rounded-lg">
+                        <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10">
                            <Icon className="w-6 h-6 text-primary" />
                         </div>
-                        <CardTitle>{title}</CardTitle>
+                        <div className="text-left min-w-0">
+                            <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight text-slate-900 truncate">{title}</CardTitle>
+                            <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest leading-none mt-1">Status: Active</p>
+                        </div>
                     </div>
                     <DropdownMenu>
                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4"/></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl hover:bg-primary/10"><MoreHorizontal className="h-4 w-4 text-primary"/></Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => onEdit(discount)}><Edit className="mr-2 h-4 w-4"/>Edit</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-4 w-4"/>Delete</DropdownMenuItem>
+                        <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                            <DropdownMenuItem onClick={() => onEdit(discount)} className="font-bold text-[10px] uppercase tracking-widest py-2.5"><Edit className="mr-2 h-3.5 w-3.5 opacity-40"/>Modify</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-3.5 w-3.5 opacity-40"/>Terminate</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-                <p className="font-semibold text-lg text-primary">
-                    {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
-                </p>
-                <p className="text-sm text-muted-foreground">{triggerText[discount.automation?.trigger || 'none']}</p>
-                <div className="text-xs text-muted-foreground pt-2 border-t">Associated code: <Badge variant="outline">{discount.code}</Badge></div>
+            <CardContent className="px-6 md:px-8 pb-6 flex-1 text-left space-y-4">
+                <div className="p-5 rounded-2xl bg-white border-2 border-primary/10 shadow-inner text-center">
+                    <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Incentive Yield</p>
+                    <p className="text-3xl font-black text-primary tracking-tighter font-mono">
+                        {discount.type === 'percentage' ? `${discount.value}%` : `$${discount.value.toFixed(2)}`}<span className="text-xs ml-1 uppercase">Off</span>
+                    </p>
+                </div>
+                <p className="text-[10px] font-bold text-slate-600 uppercase leading-relaxed tracking-tight text-center">{triggerText[discount.automation?.trigger || 'none']}</p>
             </CardContent>
+            <CardFooter className="p-4 border-t border-primary/10 bg-primary/[0.02] mt-auto">
+                <div className="flex justify-between items-center w-full">
+                    <span className="text-[9px] font-black uppercase text-primary/40 tracking-widest">Protocol Code</span>
+                    <Badge variant="secondary" className="bg-white border-2 border-primary/10 text-primary font-mono font-black text-[10px] h-6 px-3">{discount.code}</Badge>
+                </div>
+            </CardFooter>
         </Card>
     );
 }
@@ -204,12 +245,10 @@ export default function DiscountsPage() {
     const handleSave = (data: Partial<Discount>) => {
         if (!firestore || !tenantId) return;
         if (editingDiscount) {
-            // Update existing discount
             const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', editingDiscount.id);
             updateDocumentNonBlocking(discountRef, data);
             toast({ title: 'Discount Updated' });
         } else {
-            // Create new discount
             const newDiscount = {
                 ...data,
                 id: nanoid(),
@@ -230,21 +269,14 @@ export default function DiscountsPage() {
         }
 
         const discountTransactions = transactions.filter(t => t.type === 'expense' && t.category === 'Discounts');
-        
-        // Sum total redemptions from all discount objects directly
         const totalRedemptions = (discounts || []).reduce((sum, d) => sum + (d.usageCount || 0), 0);
-
-        // Sum the total "marketing expense" from the ledger
         const totalDiscountsValue = discountTransactions.reduce((acc, t) => acc + t.amount, 0);
     
-        // Distribute transaction-level savings to specific codes
         const codeSavings: Record<string, number> = {};
         const codeCounts: Record<string, number> = {};
 
         discountTransactions.forEach(t => {
             if (t.appliedDiscountCode) {
-                // If stacking was used, we distribute the total discount amount equally among the codes
-                // This is an accurate reflection of the total ledger impact
                 const codes = t.appliedDiscountCode.split(',').map(c => c.trim());
                 const perCodeAmount = t.amount / (codes.length || 1);
                 codes.forEach(c => {
@@ -263,17 +295,12 @@ export default function DiscountsPage() {
         uniqueDiscountedClientIds.forEach(clientId => {
             const clientDiscountTransactions = discountTransactions.filter(t => t.clientId === clientId);
             if (clientDiscountTransactions.length === 0) return;
-            
             const lastDiscountedTx = clientDiscountTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-            
             const hasSubsequentAppointment = appointments.some(apt => 
                 apt.clientId === clientId && 
                 new Date(apt.startTime) > new Date(lastDiscountedTx.date)
             );
-    
-            if (hasSubsequentAppointment) {
-                retainedClients++;
-            }
+            if (hasSubsequentAppointment) retainedClients++;
         });
     
         const promoRetentionRate = uniqueDiscountedClientIds.size > 0 
@@ -285,12 +312,7 @@ export default function DiscountsPage() {
             : 'N/A';
     
         return {
-          kpiData: {
-            totalGrossDiscountsValue: totalDiscountsValue,
-            promoRetentionRate,
-            mostPopularCode,
-            totalRedemptions,
-          },
+          kpiData: { totalGrossDiscountsValue: totalDiscountsValue, promoRetentionRate, mostPopularCode, totalRedemptions },
           savingsByCode: codeSavings
         };
       }, [transactions, discounts, appointments]);
@@ -304,86 +326,58 @@ export default function DiscountsPage() {
     }, [discounts, searchTerm]);
 
     return (
-        <div className="flex min-h-screen w-full flex-col">
-            <AppHeader title="Discounts & Automations" />
-            <main className="flex-1 p-4 md:p-8">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold">Discounts & Automations</h1>
-                        <p className="text-muted-foreground mt-1">
-                            Analyze performance and manage your promotional logic.
+        <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+            <AppHeader title="Incentive Hub" />
+            <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-10">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
+                    <div className="space-y-1">
+                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Incentives</h1>
+                        <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+                            Retention matrix & logic control
                         </p>
                     </div>
-                     <Button onClick={handleAdd}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Add New Discount
+                     <Button onClick={handleAdd} className="h-12 md:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
+                        <PlusCircle className="mr-2 h-4 w-4" /> New Protocol
                     </Button>
                 </div>
                 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
-                            <TicketIcon className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
-                            <p className="text-xs text-muted-foreground">Across all active campaigns.</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Total Savings Given</CardTitle>
-                            <Percent className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-destructive">-${kpiData.totalGrossDiscountsValue.toFixed(2)}</div>
-                            <p className="text-xs text-muted-foreground">Total direct cost of promotions.</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Promo Retention Rate</CardTitle>
-                            <Repeat className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{kpiData.promoRetentionRate.toFixed(1)}%</div>
-                            <p className="text-xs text-muted-foreground">% of discounted clients who returned.</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
-                            <Star className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
-                            <p className="text-xs text-muted-foreground">Your best performing campaign.</p>
-                        </CardContent>
-                    </Card>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                    <KpiCard title="Total Redemptions" value={kpiData.totalRedemptions.toString()} icon={TicketIcon} description="Across all campaigns" />
+                    <KpiCard title="Marketing Expense" value={`-$${kpiData.totalGrossDiscountsValue.toFixed(0)}`} icon={Percent} description="Total direct savings given" colorClass="text-destructive" />
+                    <KpiCard title="Promo Retention" value={`${kpiData.promoRetentionRate.toFixed(1)}%`} icon={Repeat} description="% of clients who returned" colorClass="text-teal-600" />
+                    <KpiCard title="Dominant Script" value={kpiData.mostPopularCode} icon={Star} description="Top performing campaign" colorClass="text-primary" />
                 </div>
                 
-                <Tabs value={activeTab} onValueChange={handleTabChange}>
-                    <TabsList>
-                        <TabsTrigger value="codes">Discount Codes</TabsTrigger>
-                        <TabsTrigger value="automations">Automations</TabsTrigger>
-                        <TabsTrigger value="referrals">Referrals</TabsTrigger>
+                <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+                    <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-fit mx-auto sm:mx-0">
+                        <TabsTrigger value="codes" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
+                        <TabsTrigger value="automations" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
+                        <TabsTrigger value="referrals" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="codes" className="mt-6">
-                        <Card>
-                            <CardHeader>
-                                 <div className="relative w-full max-w-sm">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    
+                    <TabsContent value="codes" className="mt-0">
+                        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-6 text-left">
+                                <div className="space-y-1">
+                                    <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Campaign Manifest</CardTitle>
+                                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Manually triggered promotion codes.</CardDescription>
+                                </div>
+                                <div className="relative w-full max-w-sm">
+                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                     <Input 
-                                        placeholder="Search by code or description..." 
-                                        className="pl-9"
+                                        placeholder="SEARCH SCRIPTS..." 
+                                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 bg-white"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
                                 </div>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="p-6 md:p-8">
                                 {isLoading ? (
-                                    <p>Loading...</p>
+                                    <div className="flex flex-col items-center justify-center p-24 gap-4">
+                                        <Loader className="animate-spin h-8 w-8 text-primary" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archives...</p>
+                                    </div>
                                 ) : filteredDiscounts.length > 0 ? (
                                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {filteredDiscounts.map(discount => (
@@ -397,20 +391,24 @@ export default function DiscountsPage() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <EmptyState onAdd={handleAdd} />
+                                    <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                                        <Filter className="w-16 h-16" />
+                                        <p className="text-sm font-black uppercase tracking-widest">No Scripts Found</p>
+                                    </div>
                                 )}
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="automations" className="mt-6">
+
+                    <TabsContent value="automations" className="mt-0">
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {loyaltyAutomation ? (
                                 <ActiveAutomationCard discount={loyaltyAutomation} onEdit={handleEdit} onDelete={handleDelete} />
                             ) : (
                                 <AutomationCard 
-                                    icon={<Star className="w-6 h-6 text-primary" />}
-                                    title="Loyalty Program"
-                                    description="Automatically reward clients after they complete a certain number of appointments."
+                                    icon={Star}
+                                    title="Loyalty Protocol"
+                                    description="Automatically reward guests after they complete a specified session volume."
                                     onSetup={() => handleSetupAutomation('loyalty')}
                                 />
                             )}
@@ -418,9 +416,9 @@ export default function DiscountsPage() {
                                 <ActiveAutomationCard discount={reEngagementAutomation} onEdit={handleEdit} onDelete={handleDelete} />
                             ) : (
                                 <AutomationCard 
-                                    icon={<Repeat className="w-6 h-6 text-primary" />}
-                                    title="Re-engagement"
-                                    description="Win back clients who haven't visited in a while with a special offer."
+                                    icon={Repeat}
+                                    title="Win-Back Flow"
+                                    description="Re-acquire guests who haven't visited in a target window with a specialized offer."
                                     onSetup={() => handleSetupAutomation('re_engagement')}
                                 />
                             )}
@@ -428,45 +426,56 @@ export default function DiscountsPage() {
                                 <ActiveAutomationCard discount={birthdayAutomation} onEdit={handleEdit} onDelete={handleDelete} />
                             ) : (
                                 <AutomationCard 
-                                    icon={<Gift className="w-6 h-6 text-primary" />}
+                                    icon={Gift}
                                     title="Birthday Special"
-                                    description="Delight clients by automatically sending them a birthday gift or discount."
+                                    description="Automatically dispatch a celebration script during a guest's birthday month."
                                     onSetup={() => handleSetupAutomation('birthday')}
                                 />
                             )}
                         </div>
                     </TabsContent>
-                     <TabsContent value="referrals" className="mt-6">
-                        <Card>
-                            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div>
-                                    <CardTitle className="flex items-center gap-2">
+
+                     <TabsContent value="referrals" className="mt-0">
+                        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                            <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 text-left">
+                                <div className="space-y-1">
+                                    <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
                                         <Gift className="w-5 h-5 text-primary" />
-                                        Referral Program Settings
+                                        Viral Yield Engine
                                     </CardTitle>
-                                    <CardDescription>Configure rewards for client referrals.</CardDescription>
+                                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Configure rewards for verified client referrals.</CardDescription>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                                <div className="flex items-center gap-3 flex-shrink-0 w-full sm:w-auto">
                                 {isReferralEditing ? (
                                     <>
-                                        <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                                        <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                                        <Button variant="ghost" onClick={handleReferralCancel} className="flex-1 sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                                        <Button onClick={handleReferralSave} className="flex-1 sm:w-auto h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Protocol</Button>
                                     </>
                                 ) : (
-                                    <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                                    <Button onClick={handleReferralEdit} className="w-full sm:w-auto h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><Edit className="mr-2 h-4 w-4"/>Edit Architecture</Button>
                                 )}
                                 </div>
                             </CardHeader>
-                            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="referrer-reward">Referrer Reward</Label>
-                                    <p className="text-xs text-muted-foreground">Store credit given to the existing client for a successful referral.</p>
-                                    <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="referrer-reward" type="number" value={tenantData.referrerReward?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))} placeholder="10.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                            <CardContent className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-10 text-left">
+                                <div className="space-y-4">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="referrer-reward" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Referrer Incentive</Label>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed mb-3">Store credit assigned to the advocate upon successful conversion.</p>
+                                    </div>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="referrer-reward" type="number" value={tenantData.referrerReward?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))} placeholder="10.00" className="pl-12 h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isReferralEditing}/>
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="new-client-discount">New Client Discount</Label>
-                                    <p className="text-xs text-muted-foreground">Discount on first service for the new client who was referred.</p>
-                                    <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="new-client-discount" type="number" value={tenantData.newClientDiscount?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))} placeholder="15.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                                <div className="space-y-4">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="new-client-discount" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Acquisition Incentive</Label>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed mb-3">One-time discount assigned to the new guest for their first treatment.</p>
+                                    </div>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                        <Input id="new-client-discount" type="number" value={tenantData.newClientDiscount?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))} placeholder="15.00" className="pl-12 h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner bg-muted/5" disabled={!isReferralEditing}/>
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>
