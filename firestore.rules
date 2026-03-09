@@ -9,8 +9,8 @@ service cloud.firestore {
     }
 
     /**
-     * @description Simplified Ownership Check.
-     * Prioritizes technical ownership (the UID on the Tenant document) to prevent directory lookup loops.
+     * @description Master Owner Protocol.
+     * Directly verifies the userId field on the Tenant document.
      */
     function isOwner(tenantId) {
       return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId;
@@ -38,6 +38,7 @@ service cloud.firestore {
     // --- STRATEGIC DATA ACCESS ---
 
     // Master rule for all studio data subcollections (Inventory, Quotes, Ledger, etc.)
+    // Recursively grants read/write to authorized members.
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isAdmin(tenantId);
       allow read: if isStaff(tenantId);
