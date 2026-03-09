@@ -17,6 +17,7 @@ import {
   Car,
   Square,
   Sparkles,
+  Repeat,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -120,6 +121,9 @@ export function AppointmentCard({
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   const totalDuration = service.duration + totalPadding;
 
+  const isMember = !!(client.activeMembershipId || client.subscription);
+  const hasPackage = (client.activePackages?.length || 0) > 0;
+
   return (
     <div style={style} className="flex flex-col h-full w-full group">
       {service.padBefore > 0 && <div style={{ height: `${(service.padBefore / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
@@ -137,6 +141,8 @@ export function AppointmentCard({
                 <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1 flex-wrap">
                     {checkInIndicator}
                     {appointment.status === 'servicing' && <Badge className="bg-primary text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 animate-pulse">LIVE</Badge>}
+                    {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Award className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />MEM</Badge>}
+                    {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Repeat className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PKG</Badge>}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
                     {isBirthdayToday && <Cake className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-pink-500" />}
