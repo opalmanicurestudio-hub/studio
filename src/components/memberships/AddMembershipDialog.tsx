@@ -39,6 +39,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -270,7 +271,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               <div className="space-y-4">
                 <div className='flex items-center justify-between px-1'>
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Included Services</Label>
-                    <Button variant="ghost" size="sm" onClick={() => setIsServiceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                    <Button variant="ghost" size="sm" onClick={() => setIsServiceSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
                         <PlusCircle className="w-3 h-3 mr-1.5" /> Select Library
                     </Button>
                 </div>

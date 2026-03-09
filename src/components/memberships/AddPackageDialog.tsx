@@ -31,10 +31,11 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { useIsMobile as useMobileHook } from '@/hooks/use-mobile';
 import { type Package, type Service } from '@/lib/data';
 import { Repeat, Sparkles, DollarSign, Clock, ListChecks, Target, Info, ArrowRight, Activity, ShieldCheck, Check } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { nanoid } from 'nanoid';
@@ -108,8 +109,6 @@ const ProfitabilityAnalysis = ({ service, sessions, price }: { service: Service 
         </Card>
     )
 };
-
-const Separator = ({ className }: { className?: string }) => <div className={cn("h-px w-full bg-border", className)} />;
 
 export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({
   open,
