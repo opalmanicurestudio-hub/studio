@@ -416,7 +416,10 @@
         "name": { "type": "string" },
         "type": { "type": "string", "enum": ["room", "equipment"] },
         "capacity": { "type": "number", "description": "Number of clients this resource can accommodate at once." },
-        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." }
+        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." },
+        "isOutOfService": { "type": "boolean", "description": "If true, the resource is hidden from scheduling." },
+        "amenities": { "type": "array", "items": { "type": "string" }, "description": "List of specific features for this resource." },
+        "maintenanceNotes": { "type": "string", "description": "Internal notes regarding service status." }
       },
       "required": ["id", "name", "type"]
     },
@@ -857,6 +860,20 @@
       },
       "required": ["id", "productId", "date", "change", "unit", "reason"]
     },
+    "StockCorrection": {
+      "title": "Stock Correction",
+      "type": "object",
+      "description": "Represents a single atomic change to inventory stock levels.",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string", "description": "The ID of the product being adjusted." },
+        "date": { "type": "string", "format": "date-time" },
+        "change": { "type": "number", "description": "The amount of change (e.g., -20 for 20ml used, 1 for 1 new container)." },
+        "unit": { "type": "string", "description": "The unit of the change (e.g., 'ml', 'uses', 'container')." },
+        "reason": { "type": "string", "description": "The reason for the correction (e.g., 'Appointment #123', 'Manual Count', 'Spoilage')." }
+      },
+      "required": ["id", "productId", "date", "change", "unit", "reason"]
+    },
     "Quote": {
       "title": "Quote",
       "type": "object",
@@ -1053,6 +1070,159 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password"
+    ]
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles."
+    },
+    "/tenants/{tenantId}": {
+      "schema": {
+        "$ref": "#/entities/Tenant"
+      },
+      "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
+    },
+    "/appointmentCheckIns/{token}": {
+        "schema": {
+            "$ref": "#/entities/Appointment"
+        },
+        "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
+    },
+    "/tenants/{tenantId}/staff/{staffId}": {
+      "schema": {
+        "$ref": "#/entities/Staff"
+      },
+      "description": "Staff members belonging to a specific tenant."
+    },
+    "/tenants/{tenantId}/activityLogs/{logId}": {
+        "schema": {
+            "$ref": "#/entities/ActivityLog"
+        },
+        "description": "Immutable log of all staff activities for a tenant."
+    },
+    "/tenants/{tenantId}/services/{serviceId}": {
+      "schema": {
+        "$ref": "#/entities/Service"
+      },
+      "description": "Services offered by a specific tenant."
+    },
+    "/tenants/{tenantId}/resources/{resourceId}": {
+      "schema": {
+        "$ref": "#/entities/Resource"
+      },
+      "description": "Bookable assets like rooms or specific equipment."
+    },
+    "/tenants/{tenantId}/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "Products sold or used by a specific tenant."
+    },
+    "/tenants/{tenantId}/clients/{clientId}": {
+      "schema": {
+        "$ref": "#/entities/Client"
+      },
+      "description": "Clients belonging to a specific tenant."
+    },
+    "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
+        "schema": { "$ref": "#/entities/SignedConsent" },
+        "description": "Stores instances of consent forms signed by a specific client."
+    },
+    "/tenants/{tenantId}/appointments/{appointmentId}": {
+      "schema": {
+        "$ref": "#/entities/Appointment"
+      },
+      "description": "Appointments for a specific tenant."
+    },
+    "/tenants/{tenantId}/walkIns/{walkInId}": {
+      "schema": {
+        "$ref": "#/entities/WalkIn"
+      },
+      "description": "The smart queue for walk-in customers."
+    },
+    "/tenants/{tenantId}/events/{eventId}": {
+      "schema": {
+        "$ref": "#/entities/Event"
+      },
+      "description": "Calendar events for a tenant, including booked quotes."
+    },
+    "/tenants/{tenantId}/orders/{orderId}": {
+        "schema": { "$ref": "#/entities/Order" },
+        "description": "Purchase orders for inventory supplies."
+    },
+    "/tenants/{tenantId}/quotes/{quoteId}": {
+      "schema": {
+        "$ref": "#/entities/Quote"
+      },
+      "description": "Quotes or proposals for a specific tenant."
+    },
+    "/tenants/{tenantId}/bills/{billId}": {
+      "schema": {
+        "$ref": "#/entities/Bill"
+      },
+      "description": "Recurring bills and expenses for a specific tenant."
+    },
+     "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/LifestyleProfile"
+      },
+      "description": "Personal financial profiles for the user owning the tenant."
+    },
+    "/tenants/{tenantId}/businessProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/BusinessProfile"
+      },
+      "description": "Business cost profiles for a specific tenant."
+    },
+    "/tenants/{tenantId}/scheduleProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/ScheduleProfile"
+      },
+      "description": "Work schedule profiles for a specific tenant."
+    },
+    "/tenants/{tenantId}/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Financial transaction log for a specific tenant."
+    },
+    "/tenants/{tenantId}/stockCorrections/{correctionId}": {
+      "schema": {
+        "$ref": "#/entities/StockCorrection"
+      },
+      "description": "An audit log of all inventory stock changes."
+    },
+    "/tenants/{tenantId}/consentForms/{formId}": {
+      "schema": {
+        "$ref": "#/entities/ConsentForm"
+      },
+      "description": "Stores consent form templates created by the tenant."
+    },
+    "/tenants/{tenantId}/discounts/{discountId}": {
+      "schema": {
+        "$ref": "#/entities/Discount"
+      },
+      "description": "Stores discount codes for a specific tenant."
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}": {
+      "schema": {
+        "$ref": "#/entities/Campaign"
+      },
+      "description": "Stores marketing campaigns for a tenant."
+    },
+    "/tenants/{tenantId}/reviews/{reviewId}": {
+      "schema": {
+        "$ref": "#/entities/Review"
+      },
+      "description": "Client reviews for the tenant."
     }
   }
 }

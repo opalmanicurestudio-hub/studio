@@ -608,7 +608,7 @@ export type Tenant = {
   name: string;
   userId: string;
   subscriptionStatus: 'active' | 'inactive' | 'trialing' | 'past_due' | 'canceled';
-  subscriptionTier: 'none' | 'pro';
+  subscriptionTier: 'none' | 'solo' | 'studio' | 'enterprise';
   queueSkipTimeMinutes?: number;
   lateArrivalGracePeriod?: number;
   lateArrivalFee?: number;
@@ -644,6 +644,9 @@ export type Resource = {
   type: 'room' | 'equipment';
   capacity?: number;
   inventoryItemId?: string;
+  isOutOfService?: boolean;
+  amenities?: string[];
+  maintenanceNotes?: string;
 };
 
 export type Bill = BillDefinition;

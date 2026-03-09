@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -26,11 +27,15 @@ import {
   Package,
   ArrowRight,
   ChevronRight,
-  MoreHorizontal
+  MoreHorizontal,
+  Activity,
+  Zap,
+  Tag,
+  AlertCircle
 } from 'lucide-react';
 import Image from 'next/image';
 import { useInventory } from '@/context/InventoryContext';
-import type { Resource, InventoryItem } from '@/lib/data';
+import type { Resource, InventoryItem, Appointment } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
 import { EditResourceDialog } from '@/components/resources/EditResourceDialog';
 import { useFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
@@ -42,15 +47,18 @@ import { useTenant } from '@/context/TenantContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
 
 const ResourceCard = ({ 
     resource, 
     inventory, 
+    appointments,
     onDelete, 
     onEdit 
 }: { 
     resource: Resource, 
     inventory: InventoryItem[], 
+    appointments: Appointment[],
     onDelete: (id: string) => void, 
     onEdit: (resource: Resource) => void 
 }) => {
@@ -58,17 +66,37 @@ const ResourceCard = ({
     const Icon = resource.type === 'room' ? Building : HardHat;
     const imageUrl = linkedItem?.imageUrl;
 
+    const isOccupied = useMemo(() => {
+        return appointments.some(a => 
+            a.status === 'servicing' && 
+            a.requiredResourceIds?.includes(resource.id)
+        );
+    }, [appointments, resource.id]);
+
     return (
-        <Card className="transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 shadow-sm">
+        <Card className={cn(
+            "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 shadow-sm",
+            resource.isOutOfService && "opacity-60 grayscale-[0.5] border-dashed"
+        )}>
             <CardHeader className="p-6 pb-2 bg-muted/5 border-b">
                 <div className="flex justify-between items-start">
                     <div className="flex items-center gap-4 min-w-0 text-left">
-                        <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 shadow-inner group-hover:bg-primary transition-all duration-500 shrink-0">
-                            <Icon className="w-6 h-6 text-primary group-hover:text-white transition-colors" />
+                        <div className={cn(
+                            "p-4 rounded-2xl border-2 shadow-inner group-hover:bg-primary transition-all duration-500 shrink-0",
+                            isOccupied ? "bg-amber-500/10 border-amber-500/20" : "bg-primary/5 border-primary/10"
+                        )}>
+                            <Icon className={cn(
+                                "w-6 h-6 group-hover:text-white transition-colors",
+                                isOccupied ? "text-amber-600" : "text-primary"
+                            )} />
                         </div>
                         <div className="min-w-0">
                             <CardTitle className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-none mb-1.5 truncate">{resource.name}</CardTitle>
-                            <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{resource.type}</p>
+                            <div className="flex items-center gap-2">
+                                <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{resource.type}</p>
+                                {isOccupied && <Badge className="bg-amber-500 text-white border-none h-4 px-1.5 font-black text-[7px] uppercase animate-pulse">Occupied</Badge>}
+                                {resource.isOutOfService && <Badge variant="destructive" className="h-4 px-1.5 font-black text-[7px] uppercase">Service Required</Badge>}
+                            </div>
                         </div>
                     </div>
                     <DropdownMenu>
@@ -104,12 +132,22 @@ const ResourceCard = ({
                         </div>
                     </div>
                 )}
+
+                {resource.amenities && resource.amenities.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                        {resource.amenities.map(a => (
+                            <Badge key={a} variant="secondary" className="h-5 px-2 bg-muted/50 border-none font-black text-[7px] uppercase tracking-widest opacity-60">
+                                <Tag className="w-2 h-2 mr-1" /> {a}
+                            </Badge>
+                        ))}
+                    </div>
+                )}
                 
                 <div className="grid grid-cols-1 gap-4 mt-auto">
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center text-left">
                         <div className="space-y-0.5">
-                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Occupancy Load</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Active Capacity</p>
+                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Simultaneous Capacity</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Active Load</p>
                         </div>
                         <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">{resource.capacity || 1}</p>
                     </div>
@@ -117,7 +155,7 @@ const ResourceCard = ({
             </CardContent>
              <CardFooter className="p-3 border-t bg-muted/5 mt-auto">
                 <Button variant="ghost" asChild className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary group/btn">
-                    <Link href="/planner?view=resources">
+                    <Link href={`/planner?view=resources&resourceId=${resource.id}`}>
                         Analyze Agenda <ChevronRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
                     </Link>
                 </Button>
@@ -130,7 +168,7 @@ export default function ResourcesPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { inventory, resources, isLoading: resourcesLoading } = useInventory();
+    const { inventory, resources, appointments, isLoading: resourcesLoading } = useInventory();
     const { toast } = useToast();
 
     const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
@@ -216,7 +254,7 @@ export default function ResourcesPage() {
                     {roomsAndStations.length > 0 ? (
                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 animate-in fade-in duration-500">
                             {roomsAndStations.map(resource => (
-                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
+                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} appointments={appointments} onDelete={handleDeleteResource} onEdit={handleEditResource} />
                             ))}
                         </div>
                     ) : (
@@ -235,7 +273,7 @@ export default function ResourcesPage() {
                     {equipment.length > 0 ? (
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 animate-in fade-in duration-500">
                             {equipment.map(resource => (
-                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
+                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} appointments={appointments} onDelete={handleDeleteResource} onEdit={handleEditResource} />
                             ))}
                         </div>
                     ) : (

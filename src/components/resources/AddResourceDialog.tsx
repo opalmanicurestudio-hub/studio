@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -33,15 +34,22 @@ import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { Resource, InventoryItem } from '@/lib/data';
-import { Building, HardHat, Sparkles, Check, ArrowRight, MapPin, Users, Hammer } from 'lucide-react';
+import { Building, HardHat, Sparkles, Check, ArrowRight, MapPin, Users, Hammer, ListChecks, ShieldAlert, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
+import { Badge } from '../ui/badge';
+import { Separator } from '../ui/separator';
+import { Switch } from '../ui/switch';
+import { Textarea } from '../ui/textarea';
 
 const resourceSchema = z.object({
   name: z.string().min(1, 'Resource name is required'),
   type: z.enum(['room', 'equipment']),
   capacity: z.coerce.number().min(1, 'Capacity must be at least 1').default(1),
   inventoryItemId: z.string().optional(),
+  amenities: z.string().optional(),
+  isOutOfService: z.boolean().default(false),
+  maintenanceNotes: z.string().optional(),
 }).refine(data => data.type !== 'equipment' || !!data.inventoryItemId, {
     message: "Please select an inventory item for equipment.",
     path: ["inventoryItemId"],
@@ -80,6 +88,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
     defaultValues: {
       type: 'room',
       capacity: 1,
+      isOutOfService: false,
     },
   });
 
@@ -102,6 +111,9 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
       name: data.name,
       type: data.type,
       capacity: data.capacity,
+      isOutOfService: data.isOutOfService,
+      maintenanceNotes: data.maintenanceNotes,
+      amenities: data.amenities ? data.amenities.split(',').map(s => s.trim()).filter(Boolean) : [],
     };
 
     if (data.type === 'equipment' && data.inventoryItemId) {
@@ -114,12 +126,12 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   
   useEffect(() => {
     if (open) {
-      reset({ type: 'room', name: '', capacity: 1, inventoryItemId: undefined });
+      reset({ type: 'room', name: '', capacity: 1, inventoryItemId: undefined, isOutOfService: false, amenities: '', maintenanceNotes: '' });
     }
   }, [open, reset]);
 
   const formBody = (
-    <div className="space-y-10 text-left">
+    <div className="space-y-12 text-left">
         <div className="space-y-8">
             <SectionHeader icon={MapPin} title="Operational Logic" step={1} />
             <Controller
@@ -132,7 +144,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                             <label htmlFor="room-mode" className="cursor-pointer">
                                 <div className={cn(
                                     "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full",
-                                    field.value === 'room' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
+                                    field.value === 'room' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
                                 )}>
                                     <Building className={cn("mb-2 h-8 w-8", field.value === 'room' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                     <span className="text-[10px] font-black uppercase tracking-widest">Environment</span>
@@ -142,7 +154,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                             <label htmlFor="equipment-mode" className="cursor-pointer">
                                 <div className={cn(
                                     "flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all h-full",
-                                    field.value === 'equipment' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
+                                    field.value === 'equipment' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:border-primary/20"
                                 )}>
                                     <HardHat className={cn("mb-2 h-8 w-8", field.value === 'equipment' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                     <span className="text-[10px] font-black uppercase tracking-widest">Hardware</span>
@@ -192,8 +204,35 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                     <Users className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                     <Input id="capacity" type="number" {...register('capacity')} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
                 </div>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase text-center opacity-60">Maximum number of guests accommodated in this unit at once.</p>
                 {errors.capacity && <p className="text-[10px] font-black text-destructive uppercase ml-1 text-center">{errors.capacity.message}</p>}
+            </div>
+        </div>
+
+        <div className="space-y-8 pt-10 border-t border-dashed">
+            <SectionHeader icon={ListChecks} title="Amenities & Status" step={3} />
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <Label htmlFor="amenities" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Zone Features (Amenities)</Label>
+                    <Input id="amenities" {...register('amenities')} placeholder="e.g., Natural Light, Sink, Power" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 ml-1">Comma separated list</p>
+                </div>
+
+                <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-destructive/10 bg-destructive/5 shadow-inner transition-all">
+                    <div className="space-y-1">
+                        <Label htmlFor="out-of-service" className="text-base font-black uppercase tracking-tight text-destructive flex items-center gap-2">
+                            <ShieldAlert className="w-4 h-4" /> Out of Service
+                        </Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Halt all scheduling for this unit</p>
+                    </div>
+                    <Controller name="isOutOfService" control={control} render={({ field }) => (
+                        <Switch id="out-of-service" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-destructive" />
+                    )}/>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="maint-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Maintenance Log</Label>
+                    <Textarea id="maint-notes" {...register('maintenanceNotes')} placeholder="Internal notes regarding unit condition..." className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                </div>
             </div>
         </div>
     </div>
@@ -204,7 +243,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[85dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
         <FormProvider {...methods}>
             <form onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                 <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>

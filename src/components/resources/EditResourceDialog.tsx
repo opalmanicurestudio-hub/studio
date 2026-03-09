@@ -1,6 +1,8 @@
+
 'use client';
 
 import React, { useEffect } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -28,20 +30,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { Resource, InventoryItem } from '@/lib/data';
-import { Building, HardHat, Edit, Check, ArrowRight, MapPin, Users, Sparkles } from 'lucide-react';
+import { Building, HardHat, Edit, Check, ArrowRight, MapPin, Users, Sparkles, ShieldAlert, ListChecks, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { Badge } from '../ui/badge';
+import { Separator } from '../ui/separator';
+import { Switch } from '../ui/switch';
+import { Textarea } from '../ui/textarea';
 
 const resourceSchema = z.object({
   name: z.string().min(1, 'Resource name is required'),
   type: z.enum(['room', 'equipment']),
-  capacity: z.coerce.number().min(1, 'Capacity must be at least 1').optional(),
+  capacity: z.coerce.number().min(1, 'Capacity must be at least 1').default(1),
   inventoryItemId: z.string().optional(),
+  amenities: z.string().optional(),
+  isOutOfService: z.boolean().default(false),
+  maintenanceNotes: z.string().optional(),
 }).refine(data => data.type !== 'equipment' || !!data.inventoryItemId, {
     message: "Please select an inventory item for equipment.",
     path: ["inventoryItemId"],
@@ -93,6 +101,9 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
         type: resource.type,
         capacity: resource.capacity || 1,
         inventoryItemId: resource.inventoryItemId,
+        isOutOfService: !!resource.isOutOfService,
+        amenities: resource.amenities?.join(', ') || '',
+        maintenanceNotes: resource.maintenanceNotes || '',
       });
     }
   }, [resource, open, reset]);
@@ -112,13 +123,16 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
       name: data.name,
       type: data.type,
       capacity: data.capacity,
+      isOutOfService: data.isOutOfService,
+      maintenanceNotes: data.maintenanceNotes,
+      amenities: data.amenities ? data.amenities.split(',').map(s => s.trim()).filter(Boolean) : [],
       inventoryItemId: data.type === 'equipment' ? data.inventoryItemId : undefined,
     });
     onOpenChange(false);
   };
 
   const formBody = (
-    <div className="space-y-10 text-left">
+    <div className="space-y-12 text-left">
         <div className="space-y-8">
             <SectionHeader icon={MapPin} title="Identity Refinement" />
             <Controller
@@ -194,6 +208,34 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
                 {errors.capacity && <p className="text-[10px] font-black text-destructive uppercase ml-1 text-center">{errors.capacity.message}</p>}
             </div>
         </div>
+
+        <div className="space-y-8 pt-10 border-t border-dashed">
+            <SectionHeader icon={ListChecks} title="Amenities & Status" />
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <Label htmlFor="amenities-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Zone Features (Amenities)</Label>
+                    <Input id="amenities-edit" {...register('amenities')} placeholder="e.g., Natural Light, Sink, Power" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
+                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 ml-1">Comma separated list</p>
+                </div>
+
+                <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-destructive/10 bg-destructive/5 shadow-inner transition-all">
+                    <div className="space-y-1">
+                        <Label htmlFor="out-of-service-edit" className="text-base font-black uppercase tracking-tight text-destructive flex items-center gap-2">
+                            <ShieldAlert className="w-4 h-4" /> Out of Service
+                        </Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Halt all scheduling for this unit</p>
+                    </div>
+                    <Controller name="isOutOfService" control={control} render={({ field }) => (
+                        <Switch id="out-of-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-destructive" />
+                    )}/>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="maint-notes-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Maintenance Log</Label>
+                    <Textarea id="maint-notes-edit" {...register('maintenanceNotes')} placeholder="Internal notes regarding unit condition..." className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20" />
+                </div>
+            </div>
+        </div>
     </div>
   );
 
@@ -202,7 +244,7 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[85dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
         <FormProvider {...methods}>
             <form onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full overflow-hidden">
                 <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
