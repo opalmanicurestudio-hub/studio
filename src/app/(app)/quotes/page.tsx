@@ -24,10 +24,10 @@ import {
     Loader,
     Sparkles,
     CheckCircle2,
+    CheckCircle,
     Activity,
     ChevronRight,
-    Search,
-    CheckCircle
+    Search
 } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -290,7 +290,7 @@ export default function QuotesPage() {
                 <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><FileText className="h-16 w-16 text-muted-foreground" /></div>
                 <div className="space-y-2">
                     <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Ledger Empty</h3>
-                    <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto">
+                    <p className="text-sm font-bold uppercase tracking-tight max-sm mx-auto">
                         No active project proposals. Create a strategic quote to secure high-value events.
                     </p>
                 </div>
