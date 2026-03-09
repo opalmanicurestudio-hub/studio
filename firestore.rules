@@ -2,58 +2,66 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Core Helper Functions ---
+    // --- Core Identity Helpers ---
 
     function isSignedIn() {
       return request.auth != null;
     }
 
     /**
-     * @description Checks if the user is the master owner of the tenant.
-     * Prioritizes direct userId check on the tenant document for immediate authority.
+     * @description Master Authority check. 
+     * Prioritizes technical ownership (the UID that created the studio).
      */
     function isOwner(tenantId) {
       let tenantDoc = get(/databases/$(database)/documents/tenants/$(tenantId));
-      return isSignedIn() && (
-        tenantDoc.data.userId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'owner')
-      );
+      return isSignedIn() && tenantDoc.data.userId == request.auth.uid;
     }
 
+    /**
+     * @description Role-based management check.
+     * Inherits from ownership or checks the explicitly assigned role.
+     */
     function isAdmin(tenantId) {
       return isSignedIn() && (
         isOwner(tenantId) ||
-        (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
-         (get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin' || 
-          get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'owner'))
+        (exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin'])
       );
     }
 
-    // --- UNIVERSAL OWNER OVERRIDE ---
-    match /tenants/{tenantId}/{allSubcollections=**} {
-      allow read, write: if isOwner(tenantId);
+    function isStaff(tenantId) {
+      return isSignedIn() && (
+        isAdmin(tenantId) ||
+        exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid))
+      );
     }
 
-    // --- Special Rules for Shared Access ---
+    // --- UNIVERSAL DATA PROTOCOL ---
 
+    match /tenants/{tenantId}/{allSubcollections=**} {
+      allow read, write: if isAdmin(tenantId);
+      allow read: if isStaff(tenantId);
+    }
+
+    // Special case for public assets
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn();
     }
 
-    // Public Quote Portal Access (Allows guests to view their proposal)
+    // Public Quote Access (For guest review and acceptance)
     match /tenants/{tenantId}/quotes/{quoteId} {
       allow get: if true;
       allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']);
     }
 
+    // Identity & Directory
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
     match /staffDirectory/{staffId} {
-      allow get: if isSignedIn();
+      allow read: if isSignedIn();
       allow write: if isSignedIn(); 
     }
 

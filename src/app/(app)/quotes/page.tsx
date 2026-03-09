@@ -6,58 +6,49 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { 
     PlusCircle, 
-    FileCheck, 
-    Percent, 
+    Megaphone, 
+    Mail, 
+    MessageSquare, 
+    Users, 
+    Star, 
+    UserPlus, 
     Clock, 
-    FileText, 
-    Printer, 
-    FileStack, 
+    MoreHorizontal, 
+    Send, 
     Trash2, 
-    BarChart, 
-    Loader, 
+    Eye, 
+    TrendingUp, 
     DollarSign, 
-    Target, 
-    Activity, 
-    ArrowRight, 
-    Hash, 
+    FlaskConical, 
+    Gift, 
+    Loader,
     Sparkles,
-    MoreHorizontal,
-    TrendingUp,
+    CheckCircle2,
+    Activity,
+    ChevronRight,
+    Search,
+    FileCheck,
+    Percent,
+    FileText,
+    FileStack,
+    Hash,
     CheckCircle
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuPortal,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { type Quote as QuoteType, type Client } from '@/lib/data';
-import { format, parseISO } from 'date-fns';
-import { cn } from '@/lib/utils';
-import Link from 'next/link';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
-import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { motion, AnimatePresence } from 'framer-motion';
+import { type Quote as QuoteType, type Client } from '@/lib/data';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { format, parseISO } from 'date-fns';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuPortal, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 const statusConfig: {
   [key in QuoteType['status']]: {
@@ -244,7 +235,6 @@ export default function QuotesPage() {
     const router = useRouter();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
-    const isMobile = useIsMobile();
     
     const [quoteToDelete, setQuoteToDelete] = useState<QuoteType | null>(null);
 
