@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
@@ -59,6 +59,14 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(1);
 
+  const methods = useForm<SignupFormData>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: {
+        category: 'hair',
+        teamSize: 'solo',
+    }
+  });
+
   const {
     register,
     handleSubmit,
@@ -66,13 +74,7 @@ export default function SignupPage() {
     trigger,
     formState: { errors },
     watch
-  } = useForm<SignupFormData>({
-    resolver: zodResolver(signupSchema),
-    defaultValues: {
-        category: 'hair',
-        teamSize: 'solo',
-    }
-  });
+  } = methods;
 
   const handleNext = async () => {
     let fieldsToValidate: (keyof SignupFormData)[] = [];
@@ -216,7 +218,7 @@ export default function SignupPage() {
             </CardHeader>
 
             <CardContent className="p-8 md:p-10">
-                <FormProvider {...control as any}>
+                <FormProvider {...methods}>
                     <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
                         <AnimatePresence mode="wait">
                             {step === 1 && (
