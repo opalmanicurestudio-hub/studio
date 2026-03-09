@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -29,13 +28,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, FileSignature, Sparkles, ShieldCheck, ArrowRight, Activity, Tag, ListChecks } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { FieldEditor } from './FieldEditor';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { nanoid } from 'nanoid';
 import { ConsentForm, FormField } from '@/lib/data';
+import { cn } from '@/lib/utils';
+import { Separator } from '../ui/separator';
 
 interface AddConsentFormDialogProps {
   open: boolean;
@@ -43,6 +44,18 @@ interface AddConsentFormDialogProps {
   onSave: (form: Partial<ConsentForm>) => void;
   formToEdit: ConsentForm | null;
 }
+
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 mb-6">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Entry</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
 
 export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   open,
@@ -65,9 +78,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
       setFields(formToEdit.fields || []);
       setIsPasswordProtected(formToEdit.isPasswordProtected);
       setNotifyOnEdit(formToEdit.notifyOnEdit);
-      // setClientAccess would be set here if the property existed
     } else {
-      // Reset to default for new form
       setTitle('');
       setCategory('General');
       setFields([]);
@@ -97,10 +108,8 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   const handleMoveField = (id: string, direction: 'up' | 'down') => {
     const index = fields.findIndex(f => f.id === id);
     if (index === -1) return;
-
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= fields.length) return;
-
     const newFields = [...fields];
     const [movedField] = newFields.splice(index, 1);
     newFields.splice(newIndex, 0, movedField);
@@ -108,123 +117,147 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   }
 
   const handleSave = () => {
-    const formData = {
-        title,
-        category,
-        fields,
-        isPasswordProtected,
-        notifyOnEdit,
-    }
+    if (!title.trim()) return;
+    const formData = { title, category, fields, isPasswordProtected, notifyOnEdit };
     onSave(formData);
     onOpenChange(false);
   }
 
   const FormContent = (
-    <div className="space-y-6">
-        <div className="space-y-2">
-            <Label htmlFor="form-title">Form Title</Label>
-            <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., New Client Intake Form" />
-        </div>
-         <div className="space-y-2">
-            <Label htmlFor="form-category">Category</Label>
-            <Select value={category} onValueChange={(v: any) => setCategory(v)}>
-                <SelectTrigger id="form-category">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="General">General</SelectItem>
-                    <SelectItem value="Intake">Intake</SelectItem>
-                    <SelectItem value="Waiver">Waiver</SelectItem>
-                    <SelectItem value="Release">Release</SelectItem>
-                </SelectContent>
-            </Select>
-        </div>
-        
-        <div className="space-y-4">
-            {fields.map((field, index) => (
-                <FieldEditor 
-                    key={field.id}
-                    field={field}
-                    onUpdate={handleUpdateField}
-                    onDelete={handleRemoveField}
-                    onMove={handleMoveField}
-                    isFirst={index === 0}
-                    isLast={index === fields.length - 1}
-                />
-            ))}
-            <Button variant="outline" className="w-full border-dashed" onClick={handleAddField}>
-                <PlusCircle className="mr-2" /> Add Question
-            </Button>
-        </div>
-        
-         <div className="space-y-4 pt-6">
-            <h3 className="font-semibold text-lg">Form Rules & Security</h3>
-            <div className="space-y-4 rounded-lg border p-4">
-                <div className="flex items-center justify-between">
-                    <Label htmlFor="password-protect">Password Protect</Label>
-                    <Switch id="password-protect" checked={isPasswordProtected} onCheckedChange={setIsPasswordProtected} />
+    <div className="space-y-12 py-4">
+        <div className="space-y-8">
+            <SectionHeader icon={Tag} title="Protocol Identity" />
+            <div className="space-y-6 text-left">
+                <div className="space-y-2">
+                    <Label htmlFor="form-title" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Document Label</Label>
+                    <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., NEW CLIENT INTAKE" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner" />
                 </div>
-                 <div className="space-y-2">
-                    <Label>Client Access Level</Label>
-                     <RadioGroup defaultValue="view" value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-2">
-                        <div>
-                            <RadioGroupItem value="view" id="view" className="peer sr-only" />
-                            <Label htmlFor="view" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">View Only</Label>
-                        </div>
-                        <div>
-                            <RadioGroupItem value="edit" id="edit" className="peer sr-only" />
-                            <Label htmlFor="edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Allowed to Edit</Label>
-                        </div>
+                <div className="space-y-2">
+                    <Label htmlFor="form-category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Classification</Label>
+                    <Select value={category} onValueChange={(v: any) => setCategory(v)}>
+                        <SelectTrigger id="form-category" className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl border-2 shadow-2xl">
+                            <SelectItem value="General" className="font-bold uppercase text-[10px] tracking-widest">GENERAL AGREEMENT</SelectItem>
+                            <SelectItem value="Intake" className="font-bold uppercase text-[10px] tracking-widest">GUEST INTAKE</SelectItem>
+                            <SelectItem value="Waiver" className="font-bold uppercase text-[10px] tracking-widest">LIABILITY WAIVER</SelectItem>
+                            <SelectItem value="Release" className="font-bold uppercase text-[10px] tracking-widest">MEDIA RELEASE</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+        </div>
+
+        <Separator className="border-dashed" />
+        
+        <div className="space-y-8">
+            <SectionHeader icon={ListChecks} title="Input Architecture" />
+            <div className="space-y-4">
+                {fields.length > 0 ? (
+                    <div className="grid gap-4">
+                        {fields.map((field, index) => (
+                            <FieldEditor 
+                                key={field.id}
+                                field={field}
+                                onUpdate={handleUpdateField}
+                                onDelete={handleRemoveField}
+                                onMove={handleMoveField}
+                                isFirst={index === 0}
+                                isLast={index === fields.length - 1}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                        <Activity className="w-12 h-12" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Awaiting Question Sequence</p>
+                    </div>
+                )}
+                <Button variant="outline" className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-[0.2em] shadow-inner bg-muted/5 mt-4" onClick={handleAddField}>
+                    <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> Add Protocol Question
+                </Button>
+            </div>
+        </div>
+
+        <Separator className="border-dashed" />
+        
+         <div className="space-y-8">
+            <SectionHeader icon={ShieldCheck} title="Governance & Security" />
+            <div className="space-y-4 text-left">
+                <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                    <div className="space-y-1">
+                        <Label htmlFor="password-protect" className="text-base font-black uppercase tracking-tight">Access Control</Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Require verification before viewing</p>
+                    </div>
+                    <Switch id="password-protect" checked={isPasswordProtected} onCheckedChange={setIsPasswordProtected} className="scale-125" />
+                </div>
+
+                <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                    <div className="space-y-1">
+                        <Label htmlFor="notify-on-edit" className="text-base font-black uppercase tracking-tight">Audit Notifications</Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Alert me upon guest modification</p>
+                    </div>
+                    <Switch id="notify-on-edit" checked={notifyOnEdit} onCheckedChange={setNotifyOnEdit} className="scale-125" />
+                </div>
+
+                 <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Authority</Label>
+                     <RadioGroup value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-3 mt-2">
+                        <label htmlFor="view-acc" className="cursor-pointer">
+                            <div className={cn(
+                                "flex items-center justify-center p-4 rounded-xl border-2 transition-all",
+                                clientAccess === 'view' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
+                            )}>
+                                <span className="text-[10px] font-black uppercase tracking-widest">View Only</span>
+                                <RadioGroupItem value="view" id="view-acc" className="sr-only" />
+                            </div>
+                        </label>
+                        <label htmlFor="edit-acc" className="cursor-pointer">
+                            <div className={cn(
+                                "flex items-center justify-center p-4 rounded-xl border-2 transition-all",
+                                clientAccess === 'edit' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
+                            )}>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Edit Permitted</span>
+                                <RadioGroupItem value="edit" id="edit-acc" className="sr-only" />
+                            </div>
+                        </label>
                     </RadioGroup>
-                </div>
-                <div className="flex items-center justify-between">
-                    <Label htmlFor="notify-on-edit">Notify me on edit</Label>
-                    <Switch id="notify-on-edit" checked={notifyOnEdit} onCheckedChange={setNotifyOnEdit} />
                 </div>
             </div>
         </div>
     </div>
   );
 
-  const dialogTitle = formToEdit ? `Edit: ${formToEdit.title}` : 'Create New Consent Form';
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="p-6 pb-4 text-left">
-            <SheetTitle>{dialogTitle}</SheetTitle>
-            <SheetDescription>Build your form by adding and configuring fields.</SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-6">
-            {FormContent}
-          </div>
-          <SheetFooter className="p-4 border-t bg-background grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">Cancel</Button>
-            <Button onClick={handleSave} className="w-full">Save Form</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const dialogTitle = formToEdit ? 'Refine Protocol' : 'Initialize Agreement';
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl flex flex-col p-0">
-        <DialogHeader className="p-6 pb-4">
-          <DialogTitle>{dialogTitle}</DialogTitle>
-          <DialogDescription>Build your form by adding and configuring fields.</DialogDescription>
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+        <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+            </div>
+            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Build and configure your digital signature protocol.</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh] flex-1">
-            <div className="p-6 pt-0">
+        
+        <ScrollArea className="flex-1">
+            <div className="p-8 pb-32">
                 {FormContent}
             </div>
         </ScrollArea>
-        <DialogFooter className="p-6 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave}>Save Form</Button>
+
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-8 pt-4")}>
+            <div className="grid grid-cols-2 gap-3 w-full">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+            </div>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </ContentComponent>
+    </DialogContainer>
   );
 };
