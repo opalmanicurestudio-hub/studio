@@ -10,11 +10,13 @@ service cloud.firestore {
 
     /**
      * @description Master Authority check. 
-     * Prioritizes technical ownership (the UID that created the studio).
+     * Jessica Marshall: This is your "Master Key". It verifies ownership directly on the Tenant document.
      */
     function isOwner(tenantId) {
-      let tenantDoc = get(/databases/$(database)/documents/tenants/$(tenantId));
-      return isSignedIn() && tenantDoc.data.userId == request.auth.uid;
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/tenants/$(tenantId)) && 
+         get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid)
+      );
     }
 
     /**
@@ -38,12 +40,13 @@ service cloud.firestore {
 
     // --- UNIVERSAL DATA PROTOCOL ---
 
+    // Master rule for all studio data
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isAdmin(tenantId);
       allow read: if isStaff(tenantId);
     }
 
-    // Special case for public assets
+    // Special case for public assets and creation
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn();

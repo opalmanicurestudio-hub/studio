@@ -23,9 +23,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '../ui/scroll-area';
 import { type Order } from '@/lib/data';
-import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight } from 'lucide-react';
+import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Badge } from '../ui/badge';
 
 export type ReceivedItem = {
   productId: string;
@@ -95,7 +96,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   const innerContent = (
     <div className="space-y-8">
         {receivedItems.map(item => (
-            <div key={item.productId} className="p-6 rounded-[2.5rem] border-2 bg-white shadow-xl space-y-6">
+            <div key={item.productId} className="p-6 rounded-[2.5rem] border-2 bg-white shadow-xl space-y-6 text-left">
                 <div className="space-y-1">
                     <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.productName}</p>
                     <div className="flex items-center gap-2">
@@ -106,22 +107,31 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label htmlFor={`qty-ok-${item.productId}`} className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Verified OK</Label>
-                        <Input id={`qty-ok-${item.productId}`} type="number" value={item.quantityReceived} onChange={(e) => handleItemChange(item.productId, 'quantityReceived', parseInt(e.target.value) || 0)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-primary/5 border-primary/20 text-primary text-center" />
+                        <div className="relative">
+                            <Check className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                            <Input id={`qty-ok-${item.productId}`} type="number" value={item.quantityReceived} onChange={(e) => handleItemChange(item.productId, 'quantityReceived', parseInt(e.target.value) || 0)} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-primary/5 border-primary/20 text-primary text-center" />
+                        </div>
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor={`qty-dmg-${item.productId}`} className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Damaged</Label>
-                        <Input id={`qty-dmg-${item.productId}`} type="number" value={item.quantityDamaged} onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-destructive/5 border-destructive/20 text-destructive text-center" />
+                        <div className="relative">
+                            <XCircle className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-destructive opacity-40" />
+                            <Input id={`qty-dmg-${item.productId}`} type="number" value={item.quantityDamaged} onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-destructive/5 border-destructive/20 text-destructive text-center" />
+                        </div>
                     </div>
                 </div>
 
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Shelf Expiry (If Applicable)</Label>
-                    <Input
-                        type="date"
-                        value={item.expirationDate ? format(item.expirationDate, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => handleItemChange(item.productId, 'expirationDate', e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                        className="h-12 rounded-xl border-2 font-bold"
-                    />
+                    <div className="relative">
+                        <CalendarIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
+                        <Input
+                            type="date"
+                            value={item.expirationDate ? format(item.expirationDate, 'yyyy-MM-dd') : ''}
+                            onChange={(e) => handleItemChange(item.productId, 'expirationDate', e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                            className="h-14 pl-12 rounded-2xl border-2 font-bold bg-muted/5 shadow-inner"
+                        />
+                    </div>
                 </div>
             </div>
         ))}
@@ -134,22 +144,22 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
       <DialogContentContainer side="right" className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[95dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[95dvh]")}>
-        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+        <SheetHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
           <div className="flex items-center gap-3 mb-2">
             <PackageOpen className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Logistics intake</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics intake</span>
           </div>
           <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Receive Manifest</SheetTitle>
           <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verifying shipment from: {order.supplier}</SheetDescription>
         </SheetHeader>
         
         <ScrollArea className="flex-1">
-            <div className="p-8">
+            <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {innerContent}
             </div>
         </ScrollArea>
 
-        <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+        <SheetFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
           <div className="flex flex-col gap-3 w-full">
             <Button onClick={handleConfirmClick} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit to Inventory <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" /></Button>
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Intake</Button>
