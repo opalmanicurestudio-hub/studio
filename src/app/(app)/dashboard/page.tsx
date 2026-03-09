@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -234,7 +233,7 @@ const OwnerDashboard = ({
                     cursor={false}
                     content={<ChartTooltipContent hideLabel className="rounded-xl border-2" />}
                   />
-                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={55} md:innerRadius={65} strokeWidth={4}>
+                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={55} strokeWidth={4}>
                     {revenueBreakdown.map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
@@ -281,7 +280,7 @@ const OwnerDashboard = ({
                         </AvatarFallback>
                         </Avatar>
                         <div className="grid gap-0.5 min-w-0 flex-1 text-left">
-                        <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                        <p className="text-xs md:sm font-black uppercase tracking-tight text-slate-900 truncate">
                             {client.name}
                         </p>
                         <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">
@@ -500,7 +499,7 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                         <div className="flex items-center gap-4 md:gap-6 text-left">
                             <Avatar className="h-14 w-14 md:h-16 md:w-16 border-4 border-background shadow-xl rounded-2xl shrink-0">
                                 <AvatarImage src={nextAppointment.client?.avatarUrl || undefined} className="object-cover" />
-                                <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{getInitials(nextAppointment.client?.name)}</AvatarFallback>
+                                <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{nextAppointment.client?.name?.substring(0, 2).toUpperCase()}</AvatarFallback>
                             </Avatar>
                             <div className="min-w-0 flex-1">
                                 <p className="font-black text-xl md:text-2xl uppercase tracking-tighter leading-none mb-1 truncate">{nextAppointment.client?.name}</p>
@@ -523,11 +522,11 @@ const StaffDashboardView = ({ staffMember, upcomingAppointments, todayKpis, onVi
                             <div key={apt.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all group text-left">
                                 <Avatar className="h-10 w-10 md:h-12 md:w-12 border-2 rounded-2xl shadow-sm shrink-0">
                                     <AvatarImage src={apt.client?.avatarUrl || undefined} alt={apt.client?.name || ''} className="object-cover" />
-                                    <AvatarFallback className="font-black text-[10px] bg-muted text-muted-foreground">{getInitials(apt.client?.name)}</AvatarFallback>
+                                    <AvatarFallback className="font-black text-[10px] bg-muted text-muted-foreground">{apt.client?.name?.substring(0, 2).toUpperCase()}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1.5">
-                                        <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{apt.client?.name}</p>
+                                        <p className="font-black uppercase tracking-tight text-xs md:sm text-slate-900 truncate">{apt.client?.name}</p>
                                         {apt.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" title="Arrived" />}
                                         {apt.checkInStatus === 'running_late' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shadow-sm" title={`Late (+${apt.lateTimeMinutes}m)`} />}
                                     </div>
