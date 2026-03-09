@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark, Sparkles } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark, Sparkles, ListChecks, Check, ArrowRight } from 'lucide-react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -126,7 +126,7 @@ const ProfitabilityAnalysis = ({
                                         <div key={tier.id} className="text-xs space-y-2 p-3 bg-background rounded-xl border shadow-sm">
                                             <div className="flex justify-between items-center">
                                                 <p className="font-black uppercase text-[10px] text-muted-foreground tracking-tight">{tier.name}</p>
-                                                {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[9px] font-black uppercase border-none">Loss Warning</Badge>}
+                                                {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[8px] font-black uppercase border-none">Loss Warning</Badge>}
                                             </div>
                                             <div className="flex justify-between items-baseline">
                                                 <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Retail: <span className="font-black text-slate-900">${originalPrice.toFixed(2)}</span></span>
@@ -324,6 +324,7 @@ export const AddDiscountDialog: React.FC<{
     const formContent = (
       <div className="grid gap-8 py-4">
         <div className="space-y-3">
+            <SectionHeader icon={Tag} title="Protocol Identification" />
             <Label htmlFor="code" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Discount Code</Label>
             <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} className="font-black h-14 rounded-2xl border-2 text-3xl tracking-tighter shadow-inner bg-muted/5 focus-visible:ring-primary/20" />
             {errors.code && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.code.message}</p>}
@@ -342,7 +343,7 @@ export const AddDiscountDialog: React.FC<{
                     <label htmlFor="percentage-edit" className="cursor-pointer">
                         <div className={cn(
                             "flex flex-col items-center justify-center p-5 rounded-[2rem] border-2 transition-all h-full",
-                            field.value === 'percentage' ? "border-primary bg-primary/5 shadow-md" : "border-border/50 bg-white hover:border-primary/20"
+                            field.value === 'percentage' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
                         )}>
                             <Percent className={cn("mb-2 h-6 w-6", field.value === 'percentage' ? "text-primary" : "text-muted-foreground opacity-40")} />
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">% Percentage</span>
@@ -352,7 +353,7 @@ export const AddDiscountDialog: React.FC<{
                     <label htmlFor="fixed-edit" className="cursor-pointer">
                         <div className={cn(
                             "flex flex-col items-center justify-center p-5 rounded-[2rem] border-2 transition-all h-full",
-                            field.value === 'fixed' ? "border-primary bg-primary/5 shadow-md" : "border-border/50 bg-white hover:border-primary/20"
+                            field.value === 'fixed' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
                         )}>
                             <DollarSign className={cn("mb-2 h-6 w-6", field.value === 'fixed' ? "text-primary" : "text-muted-foreground opacity-40")} />
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">$ Fixed Amount</span>
@@ -437,7 +438,7 @@ export const AddDiscountDialog: React.FC<{
                             <Label htmlFor="limit-per-customer" className="text-base font-black uppercase tracking-tight">Cap Usage per Guest</Label>
                             <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight opacity-60">Prevents repeated protocol exploitation</p>
                         </div>
-                        <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
+                        <Controller name="limitOnePerCustomer" control={control} render={({ field }) => ( <Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} className="scale-125" /> )}/>
                     </div>
                     <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-primary/5 shadow-inner border-primary/10">
                         <Label htmlFor="is-active" className="text-base font-black uppercase tracking-tight text-primary">Protocol Status: Active</Label>
@@ -525,7 +526,7 @@ export const AddDiscountDialog: React.FC<{
             <DialogComponent open={open} onOpenChange={onOpenChange}>
                 <ContentComponent
                     className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[90dvh]")}
-                    side={isMobile ? "bottom" : undefined}
+                    side={isMobile ? "bottom" : "right"}
                 >
                     <form id="add-discount-wizard-form" onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
                         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
