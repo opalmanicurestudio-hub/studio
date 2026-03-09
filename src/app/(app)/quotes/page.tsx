@@ -22,7 +22,8 @@ import {
     Hash, 
     Sparkles,
     MoreHorizontal,
-    TrendingUp
+    TrendingUp,
+    CheckCircle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -49,7 +50,7 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -88,13 +89,13 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
     </Card>
 );
 
-const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
+const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent, onDelete }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void, onDelete: (q: QuoteType) => void }) => {
   const client = clients.find((c) => c.id === quote.clientId);
   const statusInfo = statusConfig[quote.status];
   const quoteDate = quote.eventDate ? parseISO(quote.eventDate) : parseISO(quote.createdAt);
 
   const total = useMemo(() => {
-    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + (item.price || 0), 0);
+    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
     const fee = servicesTotal * (quote.projectFee / 100);
     return servicesTotal + quote.travelExpenses + fee;
   }, [quote]);
@@ -144,9 +145,11 @@ const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent }: { quote:
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-            <DropdownMenuItem className="font-bold text-[10px] uppercase tracking-widest">
-              <FileText className="mr-2 h-3.5 w-3.5 opacity-40"/>
-              <span>View/Edit</span>
+            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest cursor-pointer">
+              <Link href={`/quotes/${quote.id}`}>
+                <FileText className="mr-2 h-3.5 w-3.5 opacity-40"/>
+                <span>View/Edit</span>
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuItem className="font-bold text-[10px] uppercase tracking-widest">
               <Printer className="mr-2 h-3.5 w-3.5 opacity-40"/>
@@ -169,7 +172,7 @@ const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent }: { quote:
               <span>Finalize & Book</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest">
+            <DropdownMenuItem onClick={() => onDelete(quote)} className="text-destructive font-bold text-[10px] uppercase tracking-widest">
               <Trash2 className="mr-2 h-3.5 w-3.5"/>
               <span>Terminate</span>
             </DropdownMenuItem>
@@ -180,12 +183,12 @@ const QuoteTableRow = ({ quote, clients, onStatusChange, onBookEvent }: { quote:
   );
 };
 
-const QuoteCard = ({ quote, clients, onStatusChange, onBookEvent }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
+const QuoteCard = ({ quote, clients, onStatusChange, onBookEvent, onDelete }: { quote: QuoteType, clients: Client[], onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void, onDelete: (q: QuoteType) => void }) => {
     const client = clients.find((c) => c.id === quote.clientId);
     const statusInfo = statusConfig[quote.status];
 
     const total = useMemo(() => {
-        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + (item.price || 0), 0);
+        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
         const fee = servicesTotal * (quote.projectFee / 100);
         return servicesTotal + quote.travelExpenses + fee;
     }, [quote]);
@@ -207,9 +210,14 @@ const QuoteCard = ({ quote, clients, onStatusChange, onBookEvent }: { quote: Quo
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-                            <DropdownMenuItem className="font-bold text-[10px] uppercase">View/Edit</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">Finalize & Book</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase">Terminate</DropdownMenuItem>
+                            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase cursor-pointer">
+                                <Link href={`/quotes/${quote.id}`}>View/Edit</Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'} className="font-bold text-[10px] uppercase text-primary">
+                                <CheckCircle className="mr-2 h-3.5 w-3.5 opacity-40"/>
+                                <span>Finalize & Book</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onDelete(quote)} className="text-destructive font-bold text-[10px] uppercase">Terminate</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -238,6 +246,8 @@ export default function QuotesPage() {
     const tenantId = selectedTenant?.id;
     const isMobile = useIsMobile();
     
+    const [quoteToDelete, setQuoteToDelete] = useState<QuoteType | null>(null);
+
     const quotesQuery = useMemoFirebase(() => {
         if (!user || !firestore || !tenantId) return null;
         return collection(firestore, 'tenants', tenantId, 'quotes');
@@ -257,13 +267,13 @@ export default function QuotesPage() {
         const accepted = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
         
         const acceptedValue = accepted.reduce((acc, q) => {
-            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + (item.price || 0), 0);
+            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + ((item.price || 0) * (item.quantity || 1)), 0);
             const fee = servicesTotal * (q.projectFee / 100);
             return acc + servicesTotal + q.travelExpenses + fee;
         }, 0);
         
         const totalValue = sentOrBeyond.reduce((acc, q) => {
-             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + (item.price || 0), 0);
+             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + ((item.price || 0) * (item.quantity || 1)), 0);
             const fee = servicesTotal * (q.projectFee / 100);
             return acc + servicesTotal + q.travelExpenses + fee;
         }, 0);
@@ -284,6 +294,14 @@ export default function QuotesPage() {
         toast({ title: "Status Synchronized", description: `Quote status updated to ${status.toUpperCase()}.` });
     };
     
+    const handleDeleteQuote = () => {
+        if (!quoteToDelete || !firestore || !tenantId) return;
+        const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', quoteToDelete.id);
+        deleteDocumentNonBlocking(quoteRef);
+        toast({ title: "Proposal Purged", variant: "destructive" });
+        setQuoteToDelete(null);
+    }
+
     const handleBookEvent = async (quote: QuoteType) => {
         if (!firestore || !tenantId) return;
 
@@ -294,7 +312,7 @@ export default function QuotesPage() {
             type: 'business',
             startTime: quote.eventDate || new Date().toISOString(),
             endTime: quote.eventDate || new Date().toISOString(),
-            location: typeof quote.eventLocation === 'string' ? quote.eventLocation : (quote.eventLocation?.street ? `${quote.eventLocation.street}, ${quote.eventLocation.city}` : 'Client Site'),
+            location: typeof quote.eventLocation === 'string' ? quote.eventLocation : 'Client Site',
             notes: `Booked from Quote #${quote.id.slice(-6).toUpperCase()}. \n\n${quote.notes || ''}`,
             quoteId: quote.id
         }
@@ -330,7 +348,7 @@ export default function QuotesPage() {
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiCard title="Secured Pipeline" value={`$${kpiData.acceptedValue.toFixed(0)}`} icon={FileCheck} description="Yield from accepted quotes" colorClass="text-green-600" />
+                <KpiCard title="Secured Pipeline" value={`$${kpiData.acceptedValue.toFixed(0)}`} icon={CheckCircle} description="Yield from accepted quotes" colorClass="text-green-600" />
                 <KpiCard title="Engagement Delta" value={`${kpiData.conversionRate.toFixed(0)}%`} icon={Percent} description="Acceptance velocity" />
                 <KpiCard title="Average Ticket" value={`$${kpiData.avgQuoteValue.toFixed(0)}`} icon={TrendingUp} description="Mean proposal value" colorClass="text-primary" />
                 <KpiCard title="Awaiting Response" value={kpiData.awaitingResponse.toString()} icon={Clock} description="Pending client review" />
@@ -371,14 +389,14 @@ export default function QuotesPage() {
                             </TableHeader>
                             <TableBody>
                                 {sortedQuotes.map((quote) => (
-                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
+                                    <QuoteTableRow key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} onDelete={setQuoteToDelete} />
                                 ))}
                             </TableBody>
                             </Table>
                         </div>
                         <div className="grid gap-4 md:hidden p-5">
                             {sortedQuotes.map((quote) => (
-                                <QuoteCard key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
+                                <QuoteCard key={quote.id} quote={quote} clients={clients || []} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} onDelete={setQuoteToDelete} />
                             ))}
                         </div>
                     </>
@@ -399,6 +417,21 @@ export default function QuotesPage() {
             </CardContent>
         </Card>
       </main>
+
+      <AlertDialog open={!!quoteToDelete} onOpenChange={() => setQuoteToDelete(null)}>
+        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+            <AlertDialogHeader className="p-6 pb-0">
+                <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Proposal</AlertDialogTitle>
+                <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                    You are about to permanently delete the protocol for <strong>"{quoteToDelete?.eventName}"</strong>. This will purge all associated financial projections. <strong>This action is non-reversible.</strong>
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                <Button onClick={handleDeleteQuote} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
+                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

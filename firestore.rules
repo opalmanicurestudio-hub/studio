@@ -9,34 +9,41 @@ service cloud.firestore {
     }
 
     /**
-     * @description Checks if the user is the legal owner of the tenant.
-     * Uses a direct lookup on the tenant document.
+     * @description Checks if the user is the technical owner of the tenant.
+     * Checks the userId field on the tenant document directly for Jessica Marshall's UID parity.
      */
-    function isTenantOwner(tenantId) {
-      return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
+    function isOwner(tenantId) {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'owner')
+      );
     }
 
-    /**
-     * @description Checks if the user is the creator of the specific document.
-     */
-    function isCreator() {
-      return isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+    function isAdmin(tenantId) {
+      return isSignedIn() && (
+        isOwner(tenantId) ||
+        (exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)).data.role == 'admin')
+      );
     }
 
     // --- UNIVERSAL OWNER OVERRIDE ---
-    // If you own the tenant, you have master authority over all its nested data.
-    // This recursive wildcard rule eliminates logic gaps and evaluation limits for owners.
     match /tenants/{tenantId}/{allSubcollections=**} {
-      allow read, write: if isTenantOwner(tenantId);
+      allow read, write: if isOwner(tenantId);
     }
 
-    // --- Specific Rule Adjustments for Performance & Access ---
+    // --- Special Rules for Shared Access ---
 
     // Top-level tenant document access
     match /tenants/{tenantId} {
       allow get: if true;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
+      allow create: if isSignedIn();
+    }
+
+    // Public Quote Portal Access
+    match /tenants/{tenantId}/quotes/{quoteId} {
+      allow get: if true; // Allows guests to view their proposal
     }
 
     // User profiles
@@ -44,9 +51,9 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
-    // Staff Directory (Lookup for roles)
+    // Staff Directory (Safe Lookup)
     match /staffDirectory/{staffId} {
-      allow get: if isSignedIn() && (request.auth.uid == staffId || isTenantOwner(resource.data.tenantId));
+      allow get: if isSignedIn();
       allow write: if isSignedIn(); 
     }
 

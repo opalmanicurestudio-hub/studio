@@ -1,4 +1,3 @@
-
 {
   "entities": {
     "User": {
@@ -222,7 +221,7 @@
             },
             "role": {
                 "type": "string",
-                "enum": ["admin", "staff"],
+                "enum": ["owner", "admin", "staff"],
                 "description": "The role of the staff member."
             }
         },
@@ -256,7 +255,7 @@
             "type": "string",
             "description": "The ID of the pricing tier this staff member belongs to."
         },
-        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "role": { "type": "string", "enum": ["owner", "admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "payoutFrequency": { "type": "string", "enum": ["weekly", "bi-weekly"], "description": "The frequency of payouts for commission-based staff." },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -878,7 +877,8 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Required consent forms attached to the quote."
-        }
+        },
+        "clientSecret": { "type": "string" }
       },
       "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
     },
@@ -1046,6 +1046,7 @@
         "rating": { "type": "number" },
         "text": { "type": "string" },
         "isPublic": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
@@ -1074,6 +1075,12 @@
             "$ref": "#/entities/Appointment"
         },
         "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
+    },
+    "/staffDirectory/{staffId}": {
+        "schema": {
+            "$ref": "#/entities/StaffDirectoryEntry"
+        },
+        "description": "Maps staff UIDs to their tenant and role."
     },
     "/tenants/{tenantId}/staff/{staffId}": {
       "schema": {
