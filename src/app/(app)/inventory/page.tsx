@@ -141,6 +141,7 @@ import {
 import { Transaction } from '@/lib/financial-data';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
@@ -316,7 +317,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                                 <div key={item.productId} className="flex items-center gap-3 p-3 rounded-xl border-2 bg-muted/10">
                                                     <span className="flex-1 text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{item.productName}</span>
                                                     <div className="flex items-center gap-2">
-                                                        <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-bold" />
+                                                        <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-9 rounded-lg border-2 text-center font-black" />
                                                         <div className="relative">
                                                             <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                                                             <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-9 pl-6 rounded-lg border-2 font-mono text-center" />
@@ -423,7 +424,7 @@ const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) 
         </div>
         <div className="space-y-2">
             <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Procurement Clear</h3>
-            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
                 No supply orders in the ledger. Track supplier shipments and landed costs to protect your margins.
             </p>
         </div>
