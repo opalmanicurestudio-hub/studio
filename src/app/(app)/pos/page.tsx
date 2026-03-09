@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -99,7 +100,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 </DialogHeader>
                 <div className="p-8 space-y-8">
                     <div className="p-6 rounded-[2rem] bg-amber-500/5 border-2 border-amber-500/10 text-center space-y-4 shadow-inner">
-                        <p className="text-[9px] font-black uppercase text-amber-600/60 tracking-widest">Calculated Late Fee</p>
+                        <p className="text-[9px] font-black uppercase text-amber-600/60 tracking-widest">Calculated Delay Fee</p>
                         <p className="text-5xl font-black text-amber-600 tracking-tighter font-mono">${finalFee.toFixed(2)}</p>
                         <div className="pt-4 border-t border-amber-500/10 space-y-1">
                             <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m Delay</p>
@@ -127,7 +128,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                         />
                     </div>
                 </div>
-                <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
+                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
                     <Button onClick={() => handleAction('charge')} className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:bg-primary/90">Charge Late Fee & Accommodate</Button>
                     <Button variant="outline" onClick={() => handleAction('waive')} className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest border-2">Waive Fee & Accommodate</Button>
                     <Button variant="ghost" onClick={() => handleAction('cancel')} className="w-full font-bold uppercase text-[10px] tracking-widest text-destructive">Decline Entry & Cancel Session</Button>
@@ -537,6 +538,7 @@ function POSPage() {
             batch.update(docRef, { 
                 checkInStatus: 'running_late', 
                 lateTimeMinutes: minutes,
+                status: 'confirmed'
             });
             if (fee > 0 && apt.clientId) {
                 batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { 
@@ -555,6 +557,7 @@ function POSPage() {
             batch.update(docRef, { 
                 checkInStatus: 'running_late', 
                 lateTimeMinutes: minutes,
+                status: 'confirmed',
                 cancellationFeeWaived: true
             });
             toast({ title: "Protocol Waived", description: "Guest restored to active schedule without penalty." });
@@ -565,8 +568,36 @@ function POSPage() {
     };
 
     const handleResolve = (item: any) => {
-        setSelectedAppointment(item);
-        setIsDetailsOpen(true);
+        if (item.checkInStatus === 'auto_cancelled') {
+            const tmhrValue = selectedTenant?.tmhr || 50;
+            const premiumValue = selectedTenant?.lateInconveniencePremium || 0;
+            const serviceObj = services?.find(s => s.id === item.serviceId);
+            const addOns = (item.addOnIds || []).map(aid => services?.find(s => s.id === aid)).filter(Boolean) as Service[];
+            
+            const totalDur = (serviceObj?.duration || 0) + addOns.reduce((sum, a) => sum + a.duration, 0);
+            const totalPadding = (serviceObj?.padBefore || 0) + (serviceObj?.padAfter || 0);
+            const fullSessionBlock = totalDur + totalPadding;
+            
+            // Calculate potential fee based on total blocked time plus inconvenience premium
+            const fee = Number(((fullSessionBlock / 60) * tmhrValue + premiumValue).toFixed(2));
+
+            setPolicyEnforcementData({
+                id: item.id,
+                isWalkIn: !!item.isWalkIn,
+                fee,
+                reason: 'late',
+                minutes: item.lateTimeMinutes || 0,
+                appointment: item,
+                service: serviceObj,
+                fullSessionBlock
+            });
+        } else if (item.isPotentialAlias) {
+            setSelectedClientId(item.matchedClientId || null);
+            setIsPayerDialogOpen(true);
+        } else {
+            setSelectedAppointment(item);
+            setIsDetailsOpen(true);
+        }
     };
 
     const handlePrintTicket = (walkInId: string) => {
