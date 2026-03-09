@@ -928,6 +928,10 @@ export default function InventoryPage() {
     });
   }, []);
 
+  const handleBulkDeleteClick = () => {
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  
   const handleBulkDeleteConfirm = useCallback(() => {
     if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;

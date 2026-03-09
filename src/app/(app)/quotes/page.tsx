@@ -189,7 +189,7 @@ export default function QuotesPage() {
       <AppHeader title="Project Invoicing" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1">
+          <div className="space-y-1 text-left">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Proposal Ledger</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Contract management & quote engine
@@ -211,8 +211,8 @@ export default function QuotesPage() {
         
         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
           <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
-            <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Active Matrix</CardTitle>
-            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Audit trail of all studio proposals.</CardDescription>
+            <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-left">Active Matrix</CardTitle>
+            <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Audit trail of all studio proposals.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
@@ -289,9 +289,9 @@ export default function QuotesPage() {
             ) : (
               <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
                 <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><FileText className="h-16 w-16 text-muted-foreground" /></div>
-                <div className="space-y-2">
+                <div className="space-y-2 text-center">
                     <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Ledger Empty</h3>
-                    <p className="text-sm font-bold uppercase tracking-tight max-sm mx-auto">
+                    <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto text-muted-foreground">
                         No active project proposals. Create a strategic quote to secure high-value events.
                     </p>
                 </div>
@@ -314,7 +314,7 @@ export default function QuotesPage() {
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3 text-left">
                 <Button onClick={confirmDelete} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Record</Button>
-                <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
+                <AlertDialogCancel onClick={() => setQuoteToDeleteId(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

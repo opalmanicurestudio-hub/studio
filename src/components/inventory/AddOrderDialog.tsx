@@ -181,7 +181,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         {items.length > 0 ? (
                             <div className="grid gap-3">
                                 {items.map(item => (
-                                    <div key={item.productId} className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                                    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 bg-white shadow-sm group" key={item.productId}>
                                         <div className="min-w-0 flex-1 text-left w-full">
                                             <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
                                             <p className="text-[9px] font-bold text-primary uppercase tracking-widest opacity-60">SKU Ref: {item.productId.slice(-6).toUpperCase()}</p>
@@ -221,8 +221,8 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                     </div>
                 </div>
                 <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Verified Supplier</Label>
-                    <Input placeholder="e.g., SALONCENTRIC / ULINE" value={supplier} onChange={e => setSupplier(e.target.value)} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                    <Label htmlFor="supplier-order" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Verified Supplier</Label>
+                    <Input id="supplier-order" placeholder="e.g., SALONCENTRIC / ULINE" value={supplier} onChange={e => setSupplier(e.target.value)} className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                 </div>
             </div>
         </div>
@@ -233,7 +233,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
             <SectionHeader icon={Calculator} title="Landed Cost Calculation" step={2} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                 <Card className="border-2 rounded-[2.5rem] overflow-hidden shadow-sm">
-                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Expense Variables</CardTitle></CardHeader>
+                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Expense Variables</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6 text-left">
                         <div className="space-y-4">
                             <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Logistics / Shipping</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-40"/><Input type="number" value={shippingCost || ''} onChange={e => setShippingCost(parseFloat(e.target.value) || 0)} className="h-11 pl-8 rounded-xl border-2 font-bold font-mono" /></div></div>
@@ -242,7 +242,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         </div>
                     </CardContent>
                 </Card>
-                <div className="space-y-6">
+                <div className="space-y-6 text-left">
                     <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
                         <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.2em]">Total Project Value</p>
                         <p className="text-5xl font-black text-primary tracking-tighter font-mono">${totalLandedCost.toFixed(2)}</p>

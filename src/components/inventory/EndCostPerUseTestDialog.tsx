@@ -10,8 +10,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { FlaskConical, TrendingUp, TrendingDown, Percent, DollarSign, Sparkles, CheckCircle2, History, List, X } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FlaskConical, TrendingUp, TrendingDown, Percent, DollarSign, Sparkles, CheckCircle2, History, List, X, ArrowRight } from 'lucide-react';
 import { type Appointment, type InventoryItem, type Service, type LifespanTestResult } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { differenceInMonths, parseISO } from 'date-fns';
