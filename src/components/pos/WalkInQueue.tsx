@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -162,7 +161,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                     <ScrollArea className="flex-1">
                         <div className="p-4 md:p-6 space-y-4">
                             {inServiceQueue.length > 0 ? inServiceQueue.map(apt => (
-                                <InServiceAppointmentCard key={apt.id} appointment={apt} services={services} staff={staff} onSendToCheckout={() => onFinishService(apt)} onRevertToReady={() => onRevertToReady(apt.id)} onViewDetails={() => onResolve(apt)} />
+                                <InServiceAppointmentCard key={apt.id} appointment={apt} services={services} staff={staff} onSendToCheckout={() => onFinishService(apt)} onViewDetails={() => onResolve(apt)} />
                             )) : (
                                 <div className="text-center py-16 md:py-20 border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
                                     <Play className="w-8 h-8 md:w-10 md:h-10" />

@@ -22,7 +22,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onRevertToReady, onViewDetails }) => {
+export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onViewDetails }) => {
     const { clients } = useInventory();
     const mainService = services?.find((s:any) => s.id === appointment.serviceId);
     const addOnServices = (appointment.addOnIds || []).map((id:any) => services?.find((s:any) => s.id === id)).filter((s:any): s is Service => !!s);
@@ -155,7 +155,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                     Finish & Checkout
                 </Button>
                 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1">
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -164,15 +164,6 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent className="font-black uppercase text-[10px]">Add Part / Tech</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-10 rounded-lg border-2 text-muted-foreground hover:bg-muted/50" onClick={onRevertToReady}>
-                                    <Undo2 className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="font-black uppercase text-[10px]">Revert to Waiting</TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
