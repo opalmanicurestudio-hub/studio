@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { type Order, type InventoryItem } from '@/lib/data';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, Sparkles, Truck, PackageOpen, Calculator, Landmark, ShieldCheck, ArrowRight, Check } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, Sparkles, Truck, PackageOpen, Calculator, Landmark, ShieldCheck, ArrowRight, Check, Search, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';

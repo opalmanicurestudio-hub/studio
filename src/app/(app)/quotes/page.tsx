@@ -49,6 +49,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from '@/hooks/use-toast';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const statusConfig: {
   [key in QuoteType['status']]: {
@@ -353,7 +354,7 @@ export default function QuotesPage() {
                 </div>
                 <div className="hidden sm:flex items-center gap-2 p-2 bg-primary/5 rounded-full border border-primary/10">
                     <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-[10px] font-black uppercase text-primary tracking-widest px-2">Secure Ledger</span>
+                    <span className="text-[10px] font-black uppercase text-primary tracking-widest px-2">Live Insights</span>
                 </div>
             </CardHeader>
             <CardContent className="p-0">

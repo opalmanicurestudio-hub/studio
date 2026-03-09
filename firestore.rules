@@ -10,24 +10,21 @@ service cloud.firestore {
 
     /**
      * @description Master Authority check. 
-     * Jessica Marshall: This is your "Master Key". It verifies ownership directly on the Tenant document.
+     * Verifies ownership directly on the Tenant document via the userId field.
      */
     function isOwner(tenantId) {
-      return isSignedIn() && (
-        (exists(/databases/$(database)/documents/tenants/$(tenantId)) && 
-         get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid)
-      );
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
     /**
      * @description Role-based management check.
-     * Inherits from ownership or checks the explicitly assigned role.
+     * Inherits from ownership or checks the explicitly assigned role in the staff subcollection.
      */
     function isAdmin(tenantId) {
       return isSignedIn() && (
         isOwner(tenantId) ||
-        (exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin'])
+        get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role in ['owner', 'admin']
       );
     }
 
@@ -40,7 +37,7 @@ service cloud.firestore {
 
     // --- UNIVERSAL DATA PROTOCOL ---
 
-    // Master rule for all studio data
+    // Master rule for all studio data - Owners and Admins have full control
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isAdmin(tenantId);
       allow read: if isStaff(tenantId);
@@ -50,6 +47,7 @@ service cloud.firestore {
     match /tenants/{tenantId} {
       allow get: if true;
       allow create: if isSignedIn();
+      allow update: if isAdmin(tenantId);
     }
 
     // Public Quote Access (For guest review and acceptance)

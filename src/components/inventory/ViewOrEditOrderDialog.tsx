@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -9,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { type Order, type InventoryItem } from '@/lib/data';
-import { CalendarIcon, Truck, FileImage } from 'lucide-react';
+import { CalendarIcon, Truck, FileImage, DollarSign } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -184,3 +182,5 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         </Dialog>
     )
 }
+
+export default ViewOrEditOrderDialog;

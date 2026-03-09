@@ -54,7 +54,9 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Filter
+  Filter,
+  XCircle,
+  PackageOpen
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -417,7 +419,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
                     {isEditing ? (
                         <div className="grid grid-cols-2 gap-3 w-full">
-                            <Button variant="ghost" onClick={() => setIsEditing(false)} className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                            <Button variant="ghost" onClick={() => setIsEditing(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] tracking-widest text-slate-400">Cancel</Button>
                             <Button onClick={handleSave} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Commit Changes</Button>
                         </div>
                     ) : (
