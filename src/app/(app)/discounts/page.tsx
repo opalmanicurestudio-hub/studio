@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,8 @@ import {
     Wand2,
     Activity,
     SlidersHorizontal,
-    Target
+    Target,
+    Filter
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
@@ -43,6 +44,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
@@ -150,7 +152,7 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
     );
 }
 
-export default function DiscountsPage() {
+function DiscountsContent() {
     const { discounts, isLoading, transactions, appointments } = useInventory();
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
@@ -328,7 +330,7 @@ export default function DiscountsPage() {
     return (
         <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
             <AppHeader title="Incentive Hub" />
-            <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-10">
+            <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
                     <div className="space-y-1">
                         <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Incentives</h1>
@@ -349,11 +351,14 @@ export default function DiscountsPage() {
                 </div>
                 
                 <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                    <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-fit mx-auto sm:mx-0">
-                        <TabsTrigger value="codes" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
-                        <TabsTrigger value="automations" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
-                        <TabsTrigger value="referrals" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
-                    </TabsList>
+                    <ScrollArea className="w-full">
+                        <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max mx-auto sm:mx-0">
+                            <TabsTrigger value="codes" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
+                            <TabsTrigger value="automations" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
+                            <TabsTrigger value="referrals" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
+                        </TabsList>
+                        <ScrollBar orientation="horizontal" className="hidden" />
+                    </ScrollArea>
                     
                     <TabsContent value="codes" className="mt-0">
                         <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
@@ -379,7 +384,7 @@ export default function DiscountsPage() {
                                         <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archives...</p>
                                     </div>
                                 ) : filteredDiscounts.length > 0 ? (
-                                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {filteredDiscounts.map(discount => (
                                             <DiscountCard 
                                                 key={discount.id} 
@@ -401,7 +406,7 @@ export default function DiscountsPage() {
                     </TabsContent>
 
                     <TabsContent value="automations" className="mt-0">
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {loyaltyAutomation ? (
                                 <ActiveAutomationCard discount={loyaltyAutomation} onEdit={handleEdit} onDelete={handleDelete} />
                             ) : (
@@ -496,4 +501,12 @@ export default function DiscountsPage() {
             </main>
         </div>
     )
+}
+
+export default function DiscountsPage() {
+    return (
+        <Suspense fallback={<div className="flex min-h-screen w-full flex-col bg-slate-50/50 justify-center items-center"><Loader className="animate-spin text-primary h-8 w-8" /></div>}>
+            <DiscountsContent />
+        </Suspense>
+    );
 }
