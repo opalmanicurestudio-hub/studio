@@ -27,7 +27,9 @@ import {
   Repeat,
   AlertTriangle,
   ShieldAlert,
-  Info
+  Info,
+  Ban,
+  ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
