@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -132,6 +131,5 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
   );
 };
 
-// Internal sub-components for cleaner imports
 const DropdownMenu = ({ children }: any) => <div>{children}</div>;
 import { DropdownMenu as DM, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';
