@@ -145,6 +145,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
@@ -703,9 +710,9 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-col md:flex-row items-center gap-4">
                     <div className="relative flex-1 w-full">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                        <Input
+                        <input
                             placeholder="SEARCH BY SUPPLIER OR SKU..."
-                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                            className="pl-12 h-14 w-full rounded-2xl border-2 border-border bg-white font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 outline-none"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -776,7 +783,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                             This will void Order <strong>#{orderToCancel?.id.slice(-6).toUpperCase()}</strong> and create a reversal entry in your financial ledger. <strong>This action is non-reversible.</strong>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="p-6 space-y-3">
+                    <div className="p-6 space-y-3 text-left">
                         <Label htmlFor="cancel-reason" className="text-[10px] font-black uppercase tracking-widest ml-1 opacity-60">Audit Note</Label>
                         <Textarea
                             id="cancel-reason"
@@ -795,6 +802,24 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         </div>
     );
 };
+
+const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
+    <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
+        <div className='w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner'>
+            <Package className='w-12 h-12 text-muted-foreground' />
+        </div>
+        <div className="space-y-2">
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Inventory is Empty</h3>
+            <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
+                Start building your asset manifest to unlock automated costing and yield tracking.
+            </p>
+        </div>
+        <Button size="lg" onClick={onAddFirstItem} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+            <PlusCircle className="mr-2 h-5 w-5" />
+            Add First Asset
+        </Button>
+    </div>
+);
 
 export default function InventoryPage() {
   const { 
@@ -1425,7 +1450,7 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
             <div className="space-y-1">
                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Asset Base</h1>
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Supply, retail & equipment pulse</p>
@@ -1487,7 +1512,7 @@ export default function InventoryPage() {
                 </div>
 
                 <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8">
+                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="relative flex-1 w-full">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />

@@ -27,7 +27,8 @@ import {
     CheckCircle,
     Activity,
     ChevronRight,
-    Search
+    Search,
+    Percent
 } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';

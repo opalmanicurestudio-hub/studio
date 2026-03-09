@@ -318,7 +318,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
 
                 <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
                     <div className='flex w-full gap-4'>
-                        {step > 1 && <Button variant="ghost" onClick={() => setStep(step - 1)} className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
+                        {step > 1 && <Button variant="ghost" onClick={() => setStep(step - 1)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
                         <div className={cn("flex gap-3", step === 1 ? "w-full" : "flex-[2.5]")}>
                             <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">Cancel</Button>
                             {step < totalSteps ? (

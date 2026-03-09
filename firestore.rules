@@ -9,19 +9,15 @@ service cloud.firestore {
     }
 
     /**
-     * @description Universal Owner Override.
-     * Verifies business ownership via technical UID or directory role.
+     * @description Simplified Ownership Check.
+     * Prioritizes technical ownership (the UID on the Tenant document) to prevent directory lookup loops.
      */
     function isOwner(tenantId) {
-      return isSignedIn() && (
-        request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId ||
-        (exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role == 'owner')
-      );
+      return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId;
     }
 
     /**
-     * @description Master Admin Protocol.
+     * @description Admin Protocol.
      * Inherits from ownership or verifies admin role in directory.
      */
     function isAdmin(tenantId) {
