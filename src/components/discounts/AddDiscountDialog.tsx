@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark, Sparkles, ListChecks, Check, ArrowRight } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand, Landmark, Sparkles, ListChecks, Check, ArrowRight, Tag } from 'lucide-react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
