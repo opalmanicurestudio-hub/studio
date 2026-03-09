@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { Loader, Sparkles, Building, User, Target, ArrowRight, ArrowLeft, ShieldCheck, Users, DollarSign } from 'lucide-react';
+import { Loader, Sparkles, Building, User, ArrowRight, ArrowLeft, Users } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
@@ -38,8 +38,6 @@ const signupSchema = z.object({
   businessName: z.string().min(2, 'Business name is required.'),
   category: z.enum(['hair', 'skin', 'nails', 'fitness', 'tattoo', 'other']),
   teamSize: z.enum(['solo', 'team']),
-  // Step 3: Goals
-  targetHourlyRate: z.coerce.number().min(1, 'Target rate is required for TMHR initialization.').default(50),
 }).superRefine(({ confirmPassword, password }, ctx) => {
     if (confirmPassword !== password) {
         ctx.addIssue({
@@ -70,14 +68,12 @@ export default function SignupPage() {
     defaultValues: {
         category: 'hair',
         teamSize: 'solo',
-        targetHourlyRate: 50
     }
   });
 
   const handleNext = async () => {
     let fieldsToValidate: (keyof SignupFormData)[] = [];
     if (step === 1) fieldsToValidate = ['name', 'email', 'password', 'confirmPassword'];
-    if (step === 2) fieldsToValidate = ['businessName', 'category', 'teamSize'];
     
     const isValid = await trigger(fieldsToValidate);
     if (isValid) setStep(step + 1);
@@ -109,7 +105,7 @@ export default function SignupPage() {
         category: data.category,
         subscriptionStatus: "inactive",
         subscriptionTier: "none",
-        tmhr: data.targetHourlyRate,
+        tmhr: 50, // Silently initialize with a baseline for calculations
         createdAt: new Date().toISOString(),
         onboardingComplete: false,
         bookingPageSettings: {
@@ -161,10 +157,10 @@ export default function SignupPage() {
 
       toast({
         title: 'Account Initialized',
-        description: 'Welcome to ClarityFlow. Let\'s set your foundation.',
+        description: 'Welcome to ClarityFlow. Let\'s get started.',
       });
 
-      router.push('/financials');
+      router.push('/dashboard');
     } catch (error: any) {
       console.error(error);
       let description = 'An unexpected error occurred. Please try again.';
@@ -194,10 +190,10 @@ export default function SignupPage() {
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Strategic Onboarding</span>
                 </div>
                 <CardTitle className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                    {step === 1 ? 'Creator Identity' : step === 2 ? 'Studio Matrix' : 'Yield Strategy'}
+                    {step === 1 ? 'Creator Identity' : 'Studio Matrix'}
                 </CardTitle>
                 <div className="mt-6 flex justify-center gap-2">
-                    {[1, 2, 3].map((i) => (
+                    {[1, 2].map((i) => (
                         <div key={i} className={cn("h-1.5 rounded-full transition-all duration-500", i === step ? "w-8 bg-primary" : "w-4 bg-muted")} />
                     ))}
                 </div>
@@ -252,7 +248,7 @@ export default function SignupPage() {
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Business Label</Label>
                                     <div className="relative">
                                         <Building className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                        <Input placeholder="e.g., STUDIO NOIR" {...register('businessName')} className="h-14 pl-12 rounded-2xl border-2 font-black uppercase text-lg shadow-inner focus-visible:ring-primary/20" />
+                                        <Input placeholder="e.g., STUDIO NOIR" {...register('businessName')} className="h-14 pl-12 rounded-2xl border-2 font-black uppercase text-lg tracking-tight shadow-inner focus-visible:ring-primary/20" />
                                     </div>
                                     {errors.businessName && <p className="text-[10px] font-bold text-destructive uppercase ml-1">{errors.businessName.message}</p>}
                                 </div>
@@ -313,41 +309,6 @@ export default function SignupPage() {
                                 </div>
                             </motion.div>
                         )}
-
-                        {step === 3 && (
-                            <motion.div 
-                                initial={{ opacity: 0, x: 20 }} 
-                                animate={{ opacity: 1, x: 0 }} 
-                                exit={{ opacity: 0, x: -20 }}
-                                key="step3"
-                                className="space-y-10"
-                            >
-                                <div className="space-y-4 text-left">
-                                    <div className="flex items-center gap-3">
-                                        <Target className="w-6 h-6 text-primary" />
-                                        <h3 className="text-xl font-black uppercase tracking-tight text-slate-900">Yield Objective</h3>
-                                    </div>
-                                    <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight">Set a preliminary target hourly rate. We will refine this using your actual expenses later.</p>
-                                </div>
-
-                                <div className="space-y-2 text-left">
-                                    <Label htmlFor="rate" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Initial Target (TMHR)</Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary" />
-                                        <Input id="rate" type="number" {...register('targetHourlyRate')} className="h-20 pl-14 rounded-3xl border-4 font-black text-5xl tracking-tighter text-primary shadow-inner bg-muted/5 focus-visible:ring-primary/20 text-center" />
-                                        <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs font-black uppercase text-muted-foreground opacity-40">/ hr</span>
-                                    </div>
-                                    {errors.targetHourlyRate && <p className="text-[10px] font-bold text-destructive uppercase ml-1 text-center">{errors.targetHourlyRate.message}</p>}
-                                </div>
-
-                                <div className="p-6 rounded-[2rem] border-2 border-dashed bg-primary/[0.02] flex items-start gap-4 text-left">
-                                    <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5 opacity-40" />
-                                    <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
-                                        This rate acts as your "Breakeven Baseline." All service pricing will be mathematically verified against this value to protect your studio profit.
-                                    </p>
-                                </div>
-                            </motion.div>
-                        )}
                     </AnimatePresence>
                 </form>
             </CardContent>
@@ -359,7 +320,7 @@ export default function SignupPage() {
                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                         </Button>
                     )}
-                    {step < 3 ? (
+                    {step < 2 ? (
                         <Button onClick={handleNext} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group transition-all">
                             Continue <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                         </Button>
