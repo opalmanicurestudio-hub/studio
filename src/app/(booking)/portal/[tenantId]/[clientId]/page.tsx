@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -10,8 +11,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO, subMonths, isAfter } from 'date-fns';
-import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent } from 'lucide-react';
-import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant } from '@/lib/data';
+import { Award, Repeat, Calendar, DollarSign, Gift, Loader, Clock, User, Heart, Star, CheckCircle, Percent, TicketIcon, History } from 'lucide-react';
+import { type Client, type Appointment, type Service, type Membership, type Package, type Tenant, type Redemption } from '@/lib/data';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -29,6 +30,9 @@ export default function ClientPortalPage() {
 
     const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
     const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+    const redemptionsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`), [firestore, tenantId, clientId]);
+    const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(redemptionsQuery);
 
     const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
     const { data: services } = useCollection<Service>(servicesQuery);
@@ -77,7 +81,7 @@ export default function ClientPortalPage() {
         return usageCount >= (perkDef?.quantity || 1);
     };
 
-    if (clientLoading || appointmentsLoading) {
+    if (clientLoading || appointmentsLoading || redemptionsLoading) {
         return (
             <div className="flex h-screen w-full items-center justify-center">
                 <Loader className="animate-spin" />
@@ -176,6 +180,7 @@ export default function ClientPortalPage() {
             <Tabs defaultValue="appointments">
                 <TabsList className="w-full justify-start border-b rounded-none bg-transparent h-auto p-0 mb-6">
                     <TabsTrigger value="appointments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Appointments</TabsTrigger>
+                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Redemption Log</TabsTrigger>
                     <TabsTrigger value="benefits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">Benefits & Perks</TabsTrigger>
                     <TabsTrigger value="profile" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-3 h-auto">My Information</TabsTrigger>
                 </TabsList>
@@ -193,7 +198,7 @@ export default function ClientPortalPage() {
                                                 <div className="bg-primary/10 p-3 rounded-lg text-primary">
                                                     <Calendar className="w-6 h-6" />
                                                 </div>
-                                                <div>
+                                                <div className="text-left">
                                                     <p className="font-bold">{service?.name || 'Service'}</p>
                                                     <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'EEEE, MMM d @ h:mm a')}</p>
                                                 </div>
@@ -214,7 +219,7 @@ export default function ClientPortalPage() {
                                 const service = services?.find(s => s.id === apt.serviceId);
                                 return (
                                     <div key={apt.id} className="flex justify-between items-center p-3 border rounded-lg bg-muted/30">
-                                        <div>
+                                        <div className="text-left">
                                             <p className="font-semibold text-sm">{service?.name}</p>
                                             <p className="text-xs text-muted-foreground">{format(new Date(apt.startTime), 'MMM d, yyyy')}</p>
                                         </div>
@@ -223,6 +228,39 @@ export default function ClientPortalPage() {
                                 );
                             })}
                         </div>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="history" className="space-y-6">
+                    <div>
+                        <h3 className="text-lg font-bold mb-4">Perk & Session Usage</h3>
+                        <p className="text-sm text-muted-foreground mb-6">A complete history of your non-monetary redemptions.</p>
+                        {redemptions && redemptions.length > 0 ? (
+                            <div className="grid gap-3">
+                                {redemptions.sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(r => (
+                                    <div key={r.id} className="flex items-center justify-between p-4 border rounded-xl bg-card shadow-sm hover:border-primary/20 transition-all text-left">
+                                        <div className="flex items-center gap-4">
+                                            <div className={cn("p-2 rounded-lg", r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                                {r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-sm">{r.serviceName}</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Redeemed from {r.offeringName}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-mono font-bold text-xs">{format(parseISO(r.date), 'MMM d, yyyy')}</p>
+                                            <Badge variant="outline" className="text-[10px] mt-1">Verified</Badge>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 border-2 border-dashed rounded-2xl opacity-40">
+                                <History className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                                <p className="text-sm font-bold uppercase tracking-widest">No usage history found</p>
+                            </div>
+                        )}
                     </div>
                 </TabsContent>
 
@@ -242,7 +280,7 @@ export default function ClientPortalPage() {
                                             </CardHeader>
                                             <CardContent>
                                                 <div className="flex justify-between items-end">
-                                                    <div>
+                                                    <div className="text-left">
                                                         <p className="text-3xl font-bold">{pack.sessionsRemaining}</p>
                                                         <p className="text-xs text-muted-foreground">Left of {details?.sessions}</p>
                                                     </div>
@@ -270,7 +308,7 @@ export default function ClientPortalPage() {
                                                     <div className={cn("p-2 rounded-full", isRedeemed ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
                                                         {isRedeemed ? <CheckCircle className="w-5 h-5" /> : <Star className="w-5 h-5" />}
                                                     </div>
-                                                    <div>
+                                                    <div className="text-left">
                                                         <p className="font-bold text-sm">{s.quantity}x {s.name}</p>
                                                         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Per Month &middot; {used} used</p>
                                                     </div>
@@ -292,7 +330,7 @@ export default function ClientPortalPage() {
                                             <div className="p-2 rounded-full bg-indigo-500/10 text-indigo-600">
                                                 <Percent className="w-5 h-5" />
                                             </div>
-                                            <div>
+                                            <div className="text-left">
                                                 <p className="font-bold text-sm">{activeMembership.retailDiscount}% Off All Retail</p>
                                                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Always Active</p>
                                             </div>
@@ -308,14 +346,14 @@ export default function ClientPortalPage() {
                     <Card>
                         <CardHeader><CardTitle>Your Profile</CardTitle></CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-4 text-left">
                                 <div className="space-y-1"><Label className="text-xs text-muted-foreground">Name</Label><p className="font-medium">{client.name}</p></div>
                                 <div className="space-y-1"><Label className="text-xs text-muted-foreground">Email</Label><p className="font-medium">{client.email}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Phone</Label><p className="font-medium">{client.phone}</p></div>
-                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Member Since</Label><p className="font-medium">{pastAppointments.length > 0 ? format(new Date(pastAppointments[pastAppointments.length-1].startTime), 'MMMM yyyy') : 'New Guest'}</p></div>
+                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Phone</Label><p className="font-medium">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p></div>
+                                <div className="space-y-1"><Label className="text-xs text-muted-foreground">Member Since</Label><p className="font-medium">{pastAppointments.length > 0 ? format(safeDate(pastAppointments[pastAppointments.length-1].startTime), 'MMMM yyyy') : 'New Guest'}</p></div>
                             </div>
                             <Separator />
-                            <div className="space-y-2 text-sm text-muted-foreground">
+                            <div className="space-y-2 text-sm text-muted-foreground text-left">
                                 <p>To update your contact information or health notes, please let us know during your next visit.</p>
                             </div>
                         </CardContent>
@@ -324,4 +362,13 @@ export default function ClientPortalPage() {
             </Tabs>
         </div>
     );
+}
+
+function formatPhoneNumber(phoneNumberString: string) {
+  var cleaned = ('' + phoneNumberString).replace(/\D/g, '');
+  var match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
+  if (match) {
+    return '(' + match[1] + ') ' + match[2] + '-' + match[3];
+  }
+  return phoneNumberString;
 }

@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "User": {
@@ -838,6 +839,23 @@
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
     },
+    "Redemption": {
+        "title": "Redemption",
+        "type": "object",
+        "description": "An audit trail record for a membership perk or package session usage.",
+        "properties": {
+            "id": { "type": "string" },
+            "clientId": { "type": "string" },
+            "type": { "type": "string", "enum": ["membership", "package"] },
+            "offeringId": { "type": "string" },
+            "offeringName": { "type": "string" },
+            "serviceId": { "type": "string" },
+            "serviceName": { "type": "string" },
+            "date": { "type": "string", "format": "date-time" },
+            "staffId": { "type": "string" }
+        },
+        "required": ["id", "clientId", "type", "offeringId", "offeringName", "serviceId", "serviceName", "date"]
+    },
     "StockCorrection": {
       "title": "Stock Correction",
       "type": "object",
@@ -1121,6 +1139,10 @@
     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
         "schema": { "$ref": "#/entities/SignedConsent" },
         "description": "Stores instances of consent forms signed by a specific client."
+    },
+    "/tenants/{tenantId}/clients/{clientId}/redemptions/{redemptionId}": {
+        "schema": { "$ref": "#/entities/Redemption" },
+        "description": "Audit trail for membership perks or package sessions used by a specific client."
     },
     "/tenants/{tenantId}/appointments/{appointmentId}": {
       "schema": {

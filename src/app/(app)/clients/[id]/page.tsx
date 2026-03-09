@@ -52,7 +52,9 @@ import {
     ShieldCheck, 
     Send, 
     CheckCircle2,
-    TrendingUp
+    TrendingUp,
+    Activity,
+    TicketIcon
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -81,7 +83,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
-import type { Client, Appointment, Service, Staff, Discount, Membership } from '@/lib/data';
+import type { Client, Appointment, Service, Staff, Discount, Membership, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 
@@ -278,6 +280,12 @@ export default function ClientDetailPage() {
     return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
+
+  const redemptionsQuery = useMemoFirebase(() => {
+    if (!firestore || !clientId || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/clients/${clientId}/redemptions`);
+  }, [firestore, tenantId, clientId]);
+  const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(redemptionsQuery);
   
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
@@ -314,7 +322,7 @@ export default function ClientDetailPage() {
     return usageCount >= (perkDef?.quantity || 1);
   };
 
-  if (isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading) {
+  if (isUserLoading || isTenantLoading || clientLoading || signedConsentsLoading || redemptionsLoading) {
       return (
           <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
             <AppHeader title="Profile" />
@@ -338,7 +346,7 @@ export default function ClientDetailPage() {
                     <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Identity & performance profile</p>
                 </div>
                 <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto">
-                    <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
+                    <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
                     {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)} className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm"><Edit className="h-4 w-4 mr-2" />Modify</Button>}
                 </div>
             </div>
@@ -392,7 +400,7 @@ export default function ClientDetailPage() {
                         <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex overflow-x-auto scrollbar-hide gap-1.5 mb-6 md:mb-8">
                             <TabsTrigger value="overview" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                             <TabsTrigger value="history" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
-                            <TabsTrigger value="photos" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Assets</TabsTrigger>
+                            <TabsTrigger value="usage" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Usage Log</TabsTrigger>
                             <TabsTrigger value="consents" className="flex-1 min-w-[90px] h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Legal</TabsTrigger>
                         </TabsList>
                         
@@ -485,6 +493,43 @@ export default function ClientDetailPage() {
                                     {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={setAppointmentToRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">Empty history</p></div>}
                                 </div>
                             </div>
+                        </TabsContent>
+
+                        <TabsContent value="usage" className="m-0 animate-in fade-in duration-500">
+                            <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white">
+                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8 text-left">
+                                    <CardTitle className="text-[10px] md:text-sm font-black uppercase tracking-widest text-muted-foreground">Redemption Audit Trail</CardTitle>
+                                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Verified history of perk and package usage.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="p-6 md:p-8">
+                                    {redemptions && redemptions.length > 0 ? (
+                                        <div className="grid gap-4">
+                                            {redemptions.sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(r => (
+                                                <div key={r.id} className="flex items-center justify-between p-5 rounded-2xl bg-white border-2 border-border/50 hover:border-primary/20 transition-all text-left">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={cn("p-3 rounded-2xl shadow-inner", r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
+                                                            {r.type === 'membership' ? <Award className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{r.serviceName}</p>
+                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Via {r.offeringName}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-black font-mono text-xs text-slate-900">{format(parseISO(r.date), 'MMM d, yyyy')}</p>
+                                                        <p className="text-[8px] font-black uppercase text-primary/60 mt-1">Status: Redeemed</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="py-16 md:py-20 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-4">
+                                            <TicketIcon className="w-12 h-12 md:w-16 md:h-16" />
+                                            <p className="text-[10px] md:text-sm font-black uppercase tracking-widest">No redemptions logged</p>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
                         </TabsContent>
 
                         <TabsContent value="consents" className="m-0 animate-in fade-in duration-500">

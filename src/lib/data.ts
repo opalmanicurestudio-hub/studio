@@ -123,6 +123,18 @@ export type WaivedFee = {
     waivedAt: string; // ISO timestamp
 };
 
+export type Redemption = {
+    id: string;
+    clientId: string;
+    type: 'membership' | 'package';
+    offeringId: string;
+    offeringName: string;
+    serviceId: string;
+    serviceName: string;
+    date: string; // ISO timestamp
+    staffId?: string;
+};
+
 export type Client = {
   id: string;
   name: string;

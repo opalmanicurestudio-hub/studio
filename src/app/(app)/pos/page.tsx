@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection, type InventoryItem, type Resource } from '@/lib/data';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type Discount, type Membership, type Package, type AppointmentCheckoutState, type StockCorrection, type InventoryItem, type Resource, type Redemption } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
@@ -198,7 +199,7 @@ function POSPageContent() {
         return retailSub * (membership.retailDiscount / 100);
     }, [selectedClientId, clients, memberships, retailItems]);
 
-    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount]);
+    const tax = useMemo(() => (subtotal - discount - membershipDiscount) * 0.07, [subtotal, discount, membershipDiscount, tax, tipAmount]);
     const total = useMemo(() => Math.max(0, subtotal - discount - membershipDiscount + tax + tipAmount), [subtotal, discount, membershipDiscount, tax, tipAmount]);
 
     const handleSkip = (walkInId: string) => {
@@ -720,10 +721,48 @@ function POSPageContent() {
 
         if (selectedClient) {
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
-            batch.update(clientDocRef, {
+            const updates: any = {
                 lifetimeValue: increment(totalLtvIncrease),
                 lastAppointment: now
-            });
+            };
+
+            // LOG REDEMPTIONS
+            if (redeemedOffer) {
+                const redemptionId = nanoid();
+                const redemptionRef = doc(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`, redemptionId);
+                const redemption: Redemption = {
+                    id: redemptionId,
+                    clientId: selectedClientId,
+                    type: redeemedOffer.type,
+                    offeringId: redeemedOffer.id,
+                    offeringName: redeemedOffer.type === 'membership' 
+                        ? memberships.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
+                        : packages.find(p => p.id === redeemedOffer.id)?.name || 'Package',
+                    serviceId: appointmentsData[0].service.id,
+                    serviceName: appointmentsData[0].service.name,
+                    date: now,
+                    staffId: currentUser?.uid
+                };
+                batch.set(redemptionRef, redemption);
+
+                if (redeemedOffer.type === 'package') {
+                    const nextPackages = (selectedClient.activePackages || []).map(p => {
+                        if (p.packageId === redeemedOffer.id) {
+                            return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                        }
+                        return p;
+                    }).filter(p => p.sessionsRemaining > 0);
+                    updates.activePackages = nextPackages;
+                } else if (redeemedOffer.type === 'membership') {
+                    const currentUsage = selectedClient.subscription?.perkUsage || {};
+                    const svcId = appointmentsData[0].service.id;
+                    const nextUsage = { ...currentUsage, [svcId]: (currentUsage[svcId] || 0) + 1 };
+                    updates['subscription.perkUsage'] = nextUsage;
+                    updates['subscription.perkLastUsed'] = now;
+                }
+            }
+
+            batch.update(clientDocRef, updates);
         }
 
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
@@ -768,6 +807,7 @@ function POSPageContent() {
             setSelectedAppointmentIds(new Set());
             setTipAmount(0);
             setIsCartSheetOpen(false);
+            setRedeemedOffer(null);
         } catch (e) {
             console.error(e);
             toast({ variant: 'destructive', title: 'Checkout Failed' });
@@ -1072,7 +1112,7 @@ function POSPageContent() {
                 <DialogHeader className="p-8 pb-0"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Scan Terminal</DialogTitle></DialogHeader>
                 <div className="p-10 relative">
                   <div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
-                  <div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-2/3 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
+                  <div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
                 </div>
                 <DialogFooter className="p-6 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter>
               </DialogContent>
