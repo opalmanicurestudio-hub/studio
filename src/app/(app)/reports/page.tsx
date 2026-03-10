@@ -24,7 +24,8 @@ import {
   Zap,
   ArrowRight,
   Info,
-  Landmark
+  Landmark,
+  Activity
 } from 'lucide-react';
 import {
   Select,
@@ -424,7 +425,7 @@ export default function ReportsPage() {
                     <div className="text-3xl md:text-4xl font-black tracking-tighter text-indigo-700">${periodOverhead.toFixed(0)}</div>
                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-1 opacity-40">Rent & Recurring load</p>
                 </CardContent>
-            </Card>
+            </div>
         </div>
 
         <section className="space-y-6">
