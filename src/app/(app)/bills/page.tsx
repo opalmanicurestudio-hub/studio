@@ -25,7 +25,11 @@ import {
   TrendingDown,
   Sparkles,
   Activity,
-  DollarSign
+  DollarSign,
+  Loader,
+  ExternalLink,
+  FileText,
+  Pencil
 } from 'lucide-react';
 import {
   Table,
@@ -67,6 +71,7 @@ import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking,
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import Link from 'next/link';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -133,6 +138,8 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
         overdue: { text: 'Overdue', className: 'bg-destructive text-white border-none animate-pulse' },
     }
 
+    const hasLatePenalty = instance.status === 'overdue' && (instance.definition.lateFee || 0) > 0;
+
     return (
     <TableRow className="group hover:bg-primary/[0.02]">
         <TableCell className="py-5">
@@ -140,10 +147,22 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
                 <div className={cn("p-2 rounded-xl border shadow-inner", instance.status === 'overdue' ? 'bg-destructive/5 text-destructive' : 'bg-muted/30 text-slate-400')}>
                     <Landmark className="w-4 h-4" />
                 </div>
-                <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900">{instance.definition.name}</p>
+                <div className="min-w-0">
+                    <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{instance.definition.name}</p>
+                    {hasLatePenalty && (
+                        <p className="text-[8px] font-black text-destructive uppercase tracking-widest mt-0.5 animate-pulse">
+                            +{instance.definition.lateFee?.toFixed(2)} Late Penalty
+                        </p>
+                    )}
+                </div>
             </div>
         </TableCell>
-        <TableCell className="font-black font-mono text-sm tracking-tighter text-slate-900">${instance.amountDue.toFixed(2)}</TableCell>
+        <TableCell>
+            <div className="flex flex-col">
+                <span className="font-black font-mono text-sm tracking-tighter text-slate-900">${instance.amountDue.toFixed(2)}</span>
+                {instance.amountPaid > 0 && <span className="text-[8px] font-bold text-green-600 uppercase">Paid: ${instance.amountPaid.toFixed(2)}</span>}
+            </div>
+        </TableCell>
         <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-60">
             {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}
         </TableCell>
@@ -162,15 +181,38 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
             </Badge>
         </TableCell>
         <TableCell className="text-right">
-             <Button 
-                variant="ghost" 
-                size="sm" 
-                disabled={instance.status === 'paid'} 
-                onClick={() => onLogPaymentClick(instance)}
-                className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 border border-transparent hover:border-primary/20"
-            >
-                Log Payment
-            </Button>
+             <div className="flex items-center justify-end gap-2">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                            <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                        <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest py-2.5">
+                            <Link href="/financials">
+                                <Pencil className="mr-2 h-3.5 w-3.5 opacity-40" /> Edit Definition
+                            </Link>
+                        </DropdownMenuItem>
+                        {instance.definition.paymentUrl && (
+                            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest py-2.5">
+                                <a href={instance.definition.paymentUrl} target="_blank" rel="noopener noreferrer">
+                                    <ExternalLink className="mr-2 h-3.5 w-3.5 opacity-40" /> Visit Portal
+                                </a>
+                            </DropdownMenuItem>
+                        )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    disabled={instance.status === 'paid'} 
+                    onClick={() => onLogPaymentClick(instance)}
+                    className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 border border-transparent hover:border-primary/20"
+                >
+                    Log Payment
+                </Button>
+             </div>
         </TableCell>
     </TableRow>
     )
@@ -184,6 +226,8 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
         overdue: { text: 'Overdue', className: 'bg-destructive text-white animate-pulse' },
     }
 
+    const hasLatePenalty = instance.status === 'overdue' && (instance.definition.lateFee || 0) > 0;
+
     return (
     <Card className={cn("overflow-hidden border-2 rounded-3xl shadow-sm transition-all", instance.status === 'overdue' ? 'border-destructive/20 bg-destructive/[0.02]' : 'bg-white')}>
         <CardContent className="p-5 space-y-5 text-left">
@@ -194,6 +238,12 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
                         <Clock className="w-3 h-3" />
                         Due: {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}
                     </p>
+                    {hasLatePenalty && (
+                        <p className="text-[9px] font-black text-destructive uppercase tracking-widest mt-2 animate-pulse flex items-center gap-1.5">
+                            <AlertTriangle className="w-3 h-3" />
+                            +${instance.definition.lateFee?.toFixed(2)} Arrears Penalty
+                        </p>
+                    )}
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -202,8 +252,18 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                        <DropdownMenuItem className="font-bold text-[10px] uppercase tracking-widest py-2.5">Edit Definition</DropdownMenuItem>
-                         <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5">Terminate Instance</DropdownMenuItem>
+                        <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest py-2.5">
+                            <Link href="/financials">
+                                <Pencil className="mr-2 h-3.5 w-3.5 opacity-40" /> Edit Definition
+                            </Link>
+                        </DropdownMenuItem>
+                        {instance.definition.paymentUrl && (
+                            <DropdownMenuItem asChild className="font-bold text-[10px] uppercase tracking-widest py-2.5">
+                                <a href={instance.definition.paymentUrl} target="_blank" rel="noopener noreferrer">
+                                    <ExternalLink className="mr-2 h-3.5 w-3.5 opacity-40" /> Visit Portal
+                                </a>
+                            </DropdownMenuItem>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
@@ -353,8 +413,8 @@ export default function BillsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Command Ledger" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
+      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10 text-left">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Obligations</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
