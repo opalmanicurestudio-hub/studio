@@ -176,7 +176,7 @@ function POSPage() {
 
     const [appliedDiscountCodes, setAppliedDiscountCodes] = useState<string[]>([]);
     const [appliedAdjustments, setAppliedAdjustments] = useState<Set<string>>(new Set());
-    const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package' | 'retail_discount'; id: string } | null>(null);
+    const [redeemedOffer, setRedeemedOffer] = useState<{ type: 'membership' | 'package'; id: string } | null>(null);
     const [waivedAppointmentFees, setWaivedAppointmentFees] = useState<Map<string, { authorizerId: string; reason: string }>>(new Map());
 
     const [policyEnforcementData, setPolicyEnforcementData] = useState<any | null>(null);
@@ -228,11 +228,14 @@ function POSPage() {
 
     const subtotal = useMemo(() => {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
-            const mainPrice = getServicePrice(data.service, data.staff);
+            const isServiceRedeemed = redeemedOffer?.id === data.service.id;
+            const mainPrice = isServiceRedeemed ? 0 : getServicePrice(data.service, data.staff);
+            
             const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => {
+                const isAddonRedeemed = redeemedOffer?.id === s.id;
                 const addonStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[s.id] || data.appointment.staffId;
                 const addonStaff = staff.find(st => st.id === addonStaffId);
-                return sum + getServicePrice(s, addonStaff);
+                return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff));
             }, 0);
             
             const additional = (data.appointment.checkoutState?.additionalCharge || 0);
@@ -251,7 +254,7 @@ function POSPage() {
         }, 0);
 
         return servicesSub + retailSub + adjustmentSub;
-    }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff]);
+    }, [selectedAptsData, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 
     const discount = useMemo(() => {
         return appliedDiscountCodes.reduce((acc, code) => {
@@ -882,14 +885,15 @@ function POSPage() {
 
             const mainStaffId = overrides[service.id] || apt.staffId;
             const mainStaffMember = (staff || []).find(s => s.id === mainStaffId);
-            const mainPrice = getServicePrice(service, mainStaffMember);
+            const isMainRedeemed = redeemedOffer?.id === service.id;
+            const mainPrice = isMainRedeemed ? 0 : getServicePrice(service, mainStaffMember);
             const mainPartRevenue = mainPrice + additional; 
             totalLtvIncrease += mainPartRevenue;
 
             const mainTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
             batch.set(mainTxnRef, {
                 date: now,
-                description: `Service: ${service.name}`,
+                description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`,
                 clientOrVendor: selectedClient?.name || 'Client',
                 clientId: selectedClientId,
                 type: 'income',
@@ -905,13 +909,14 @@ function POSPage() {
             addOnServices.forEach(addon => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = (staff || []).find(s => s.id === addonStaffId);
-                const addonPrice = getServicePrice(addon, addonStaffMember);
+                const isAddonRedeemed = redeemedOffer?.id === addon.id;
+                const addonPrice = isAddonRedeemed ? 0 : getServicePrice(addon, addonStaffMember);
                 totalLtvIncrease += addonPrice;
 
                 const addonTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(addonTxnRef, {
                     date: now,
-                    description: `Add-on: ${addon.name}`,
+                    description: isAddonRedeemed ? `Redemption: ${addon.name}` : `Add-on: ${addon.name}`,
                     clientOrVendor: selectedClient?.name || 'Client',
                     clientId: selectedClientId,
                     type: 'income',
@@ -927,7 +932,7 @@ function POSPage() {
 
             batch.update(appointmentRef, { 
                 status: 'completed', 
-                revenue: mainPartRevenue + addOnServices.reduce((sum, a) => sum + getServicePrice(a, (staff || []).find(s => s.id === (overrides[a.id] || apt.staffId))), 0),
+                revenue: totalLtvIncrease, // Total for this specific appointment
                 actualEndTime: now
             });
 
@@ -985,16 +990,20 @@ function POSPage() {
             if (redeemedOffer) {
                 const redemptionId = nanoid();
                 const redemptionRef = doc(firestore, `tenants/${tenantId}/clients/${selectedClientId}/redemptions`, redemptionId);
+                const offeringName = redeemedOffer.type === 'membership' 
+                    ? memberships?.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
+                    : packages?.find(p => p.id === redeemedOffer.id)?.name || 'Package';
+                
+                const redeemedSvc = services?.find(s => s.id === redeemedOffer.id);
+
                 const redemption: Redemption = {
                     id: redemptionId,
                     clientId: selectedClientId,
                     type: redeemedOffer.type,
                     offeringId: redeemedOffer.id,
-                    offeringName: redeemedOffer.type === 'membership' 
-                        ? memberships?.find(m => m.id === redeemedOffer.id)?.name || 'Membership'
-                        : packages?.find(p => p.id === redeemedOffer.id)?.name || 'Package',
-                    serviceId: selectedAptsData[0].service.id,
-                    serviceName: selectedAptsData[0].service.name,
+                    offeringName: offeringName,
+                    serviceId: redeemedOffer.id, // The ID of the item being redeemed
+                    serviceName: redeemedSvc?.name || 'Service',
                     date: now,
                     staffId: currentUser?.uid
                 };
@@ -1010,7 +1019,7 @@ function POSPage() {
                     updates.activePackages = nextPackages;
                 } else if (redeemedOffer.type === 'membership') {
                     const currentUsage = selectedClient.subscription?.perkUsage || {};
-                    const svcId = selectedAptsData[0].service.id;
+                    const svcId = redeemedOffer.id;
                     const nextUsage = { ...currentUsage, [svcId]: (currentUsage[svcId] || 0) + 1 };
                     updates['subscription.perkUsage'] = nextUsage;
                     updates['subscription.perkLastUsed'] = now;
@@ -1063,6 +1072,8 @@ function POSPage() {
             setTipAmount(0);
             setIsCartSheetOpen(false);
             setRedeemedOffer(null);
+            setAppliedDiscountCodes([]);
+            setAppliedAdjustments(new Set());
         } catch (e) {
             console.error(e);
             toast({ variant: 'destructive', title: 'Checkout Failed' });

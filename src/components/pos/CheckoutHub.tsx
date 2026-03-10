@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -9,7 +8,6 @@ import { Separator } from '@/components/ui/separator';
 import { 
     Banknote, 
     CreditCard, 
-    Scan, 
     Trash2, 
     DollarSign, 
     Award, 
@@ -24,7 +22,6 @@ import {
     QrCode, 
     ShieldCheck, 
     Users,
-    MessageSquare,
     Repeat,
     Wallet,
     UserPlus,
@@ -32,20 +29,20 @@ import {
     ChevronDown,
     Zap,
     Search,
-    ChevronRight,
     User,
     Plus,
     Minus,
-    Check,
     TicketIcon,
     XCircle,
     Fingerprint,
-    Scan as ScanIcon
+    Scan as ScanIcon,
+    ArrowRight,
+    Star,
+    Check
 } from 'lucide-react';
-import { type Appointment, type Service, type Client, type Discount, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
-import { ScrollArea, ScrollBar } from '../ui/scroll-area';
+import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
+import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -55,10 +52,9 @@ import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, isToday, format } from 'date-fns';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { subMonths, parseISO, isAfter, isSameMonth } from 'date-fns';
 import { 
     Dialog, 
     DialogContent, 
@@ -71,9 +67,6 @@ import {
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
-import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { doc, increment } from 'firebase/firestore';
-import { useIsMobile } from '@/hooks/use-mobile';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -84,19 +77,15 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: any) => {
+const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm }: any) => {
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('');
     const { toast } = useToast();
 
     const handleConfirm = () => {
-        const authorizedStaff = staff.find((s: any) => s.pin === pin && s.role === 'admin');
+        const authorizedStaff = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
         if (!authorizedStaff) {
-            toast({ 
-                variant: 'destructive', 
-                title: 'Unauthorized', 
-                description: 'Admin authorization required.' 
-            });
+            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager authorization required.' });
             return;
         }
         if (!reason.trim()) {
@@ -111,16 +100,16 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: any
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
-                <DialogHeader className="p-6 pb-0">
+                <DialogHeader className="p-6 pb-0 text-left">
                     <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900">
                         <ShieldCheck className="w-6 h-6 text-primary" />
                         Admin Override
                     </DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 text-slate-500">Authorize fee waiver with manager PIN.</DialogDescription>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize fee waiver with manager PIN.</DialogDescription>
                 </DialogHeader>
-                <div className="space-y-10 py-10 flex flex-col items-center">
-                    <div className="space-y-3 w-48">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground text-center block">Manager PIN</Label>
+                <div className="space-y-8 py-8 flex flex-col items-center">
+                    <div className="space-y-2 w-48 text-center">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Manager PIN</Label>
                         <Input 
                             type="password" 
                             placeholder="••••"
@@ -131,9 +120,9 @@ const WaiveFeeDialog = ({ open, onOpenChange, feeAmount, staff, onConfirm }: any
                             autoFocus
                         />
                     </div>
-                    <div className="space-y-2 w-full px-6">
+                    <div className="space-y-2 w-full px-6 text-left">
                         <Label htmlFor="waive-reason-pos" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waiver Reason</Label>
-                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
+                        <Textarea id="waive-reason-pos" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
                     </div>
                 </div>
                 <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
@@ -151,7 +140,6 @@ export const CheckoutHub = ({
     appointmentsData,
     onSelectAppointment,
     clients,
-    isGroupCheckout,
     payerOptions,
     selectedClientId,
     setSelectedClientId,
@@ -167,7 +155,6 @@ export const CheckoutHub = ({
     setAppliedDiscountCodes,
     discount,
     membershipDiscount,
-    showTitle = true,
     isSubmitting,
     paymentTab,
     setPaymentTab,
@@ -191,9 +178,8 @@ export const CheckoutHub = ({
     const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
     const { appointments: allAppointments, staff, services, inventory } = useInventory();
-    const { role, selectedTenant } = useTenant();
+    const { role } = useTenant();
     const { toast } = useToast();
-    const isMobile = useIsMobile();
 
     const [isWaiveAuthOpen, setIsWaiveAuthOpen] = useState(false);
     const [pendingWaiveAptId, setPendingWaiveAptId] = useState<string | null>(null);
@@ -296,6 +282,59 @@ export const CheckoutHub = ({
         } else toast({ variant: 'destructive', title: 'Invalid Code' });
     };
 
+    const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
+        if (!client.subscription?.nextBillingDate) return false;
+        const lastUsedStr = client.subscription.perkLastUsed;
+        if (!lastUsedStr) return false;
+        
+        const lastUsed = parseISO(lastUsedStr);
+        const nextBilling = parseISO(client.subscription.nextBillingDate);
+        const cycleStart = subMonths(nextBilling, 1);
+        if (!isAfter(lastUsed, cycleStart)) return false;
+
+        const usageCount = client.subscription.perkUsage?.[perkId] || 0;
+        const perkDef = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
+        return usageCount >= (perkDef?.quantity || 1);
+    };
+
+    const availableEntitlements = useMemo(() => {
+        if (!selectedClient) return [];
+        const items = [];
+
+        if (selectedClient.activeMembershipId && memberships) {
+            const membership = memberships.find(m => m.id === selectedClient.activeMembershipId);
+            if (membership) {
+                membership.includedServices?.forEach(perk => {
+                    if (cartServiceIds.includes(perk.id)) {
+                        const exhausted = isPerkExhausted(selectedClient, perk.id, membership);
+                        items.push({
+                            type: 'membership', id: membership.id, itemId: perk.id, label: perk.name, subLabel: 'Membership Perk', exhausted, 
+                            usage: `${selectedClient.subscription?.perkUsage?.[perk.id] || 0}/${perk.quantity}`
+                        });
+                    }
+                });
+            }
+        }
+
+        selectedClient.activePackages?.forEach(p => {
+            const pkgDef = packages?.find(pkg => pkg.id === p.packageId);
+            if (pkgDef && cartServiceIds.includes(pkgDef.serviceId)) {
+                items.push({
+                    type: 'package', id: pkgDef.id, label: pkgDef.name, subLabel: 'Prepaid Bundle', exhausted: p.sessionsRemaining <= 0,
+                    usage: `${p.sessionsRemaining} left`
+                });
+            }
+        });
+
+        return items;
+    }, [selectedClient, memberships, packages, cartServiceIds]);
+
+    const handleRedeem = (entitlement: any) => {
+        if (entitlement.exhausted) return toast({ variant: 'destructive', title: 'Perk Exhausted', description: 'Limit reached for this billing cycle.' });
+        setRedeemedOffer({ type: entitlement.type, id: entitlement.id });
+        toast({ title: 'Entitlement Applied', description: `${entitlement.label} redeemed.` });
+    };
+
     const suggestedDiscounts = useMemo(() => {
         if (!selectedClient || !discounts) return [];
         const completedCount = allAppointments.filter(a => a.clientId === selectedClient.id && a.status === 'completed').length;
@@ -331,7 +370,7 @@ export const CheckoutHub = ({
 
     return (
         <div className="flex flex-col space-y-6 md:space-y-10">
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 text-left">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] ml-1">Payer Account</Label>
                 <div className="flex gap-2 mt-2">
                     <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
@@ -364,9 +403,9 @@ export const CheckoutHub = ({
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl">
-                            <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
-                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Client Lookup</DialogTitle>
-                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Attribute this sale to a guest account.</DialogDescription>
+                            <DialogHeader className="p-6 pb-4 border-b bg-muted/5 text-left">
+                                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Guest Search</DialogTitle>
+                                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Attribute this sale to a guest dossier.</DialogDescription>
                             </DialogHeader>
                             <div className="p-6 space-y-6">
                                 <div className="relative">
@@ -429,34 +468,57 @@ export const CheckoutHub = ({
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
-                    <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0" onClick={onScanClick}><QrCode className="w-6 h-6" /></Button>
+                    <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
                 </div>
             </div>
 
-            {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 md:p-5 rounded-[2rem] border-4 border-destructive bg-destructive/5 text-destructive shadow-2xl shadow-destructive/5 space-y-4">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Wallet className="h-5 w-5 text-white" /></div>
-                        <div className="space-y-0.5 text-left">
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Accounting Alert</p>
-                            <p className="text-sm font-black uppercase tracking-tight leading-none">Arrears Detected</p>
-                        </div>
+            {selectedClient && availableEntitlements.length > 0 && (
+                <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1">
+                        <Award className="w-3 h-3" />
+                        Available Benefits
+                    </p>
+                    <div className="grid gap-2">
+                        {availableEntitlements.map((ent, idx) => (
+                            <Button 
+                                key={idx} 
+                                variant="outline" 
+                                disabled={ent.exhausted || redeemedOffer?.id === ent.id}
+                                onClick={() => handleRedeem(ent)}
+                                className={cn(
+                                    "h-auto py-3 px-4 rounded-2xl border-2 flex justify-between items-center transition-all",
+                                    redeemedOffer?.id === ent.id ? "bg-green-500/10 border-green-500/20 text-green-700" : "bg-white border-indigo-500/10 hover:border-primary/30"
+                                )}
+                            >
+                                <div className="text-left min-w-0 flex-1">
+                                    <p className="text-[11px] font-black uppercase tracking-tight truncate">{ent.label}</p>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
+                                </div>
+                                <div className="text-right ml-4 shrink-0">
+                                    {redeemedOffer?.id === ent.id ? (
+                                        <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
+                                    ) : (
+                                        <div className="space-y-0.5">
+                                            <Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase border-2", ent.exhausted ? "text-destructive border-destructive/20" : "text-indigo-600 border-indigo-500/20")}>{ent.usage}</Badge>
+                                        </div>
+                                    )}
+                                </div>
+                            </Button>
+                        ))}
                     </div>
-                    <p className="text-xs font-bold leading-relaxed opacity-80 uppercase tracking-tight text-left">Client owes <strong className="text-lg tracking-tighter">${selectedClient.outstandingBalance!.toFixed(2)}</strong> from past sessions.</p>
-                    <Button variant="destructive" size="sm" className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-destructive/20" onClick={() => selectedClient.unpaidFees?.forEach((fee: any) => onApplyAdjustmentToggle(fee.feeId, true))}>Collect Debt Now</Button>
-                </motion.div>
+                </div>
             )}
 
             <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
                         <ShoppingCart className="w-4 h-4 text-primary" />
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized List</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
                     </div>
                 </div>
                 
                 {isCartEmpty ? (
-                    <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[2.5rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
+                    <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] md:rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
                         <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
                         <div className="space-y-1">
                             <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
@@ -481,7 +543,7 @@ export const CheckoutHub = ({
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{data.service.name}</p>
-                                                    {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 font-black uppercase">Perk</Badge>}
+                                                    {isRedeemed && <Badge className="bg-primary text-white border-none text-[8px] h-4 px-1.5 font-black uppercase tracking-widest">Entitlement</Badge>}
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">{mainStaffMember?.name?.split(' ')[0] || 'Tech'} &middot; {data.service.duration}m</p>
@@ -516,10 +578,10 @@ export const CheckoutHub = ({
 
                                         {data.appointment.checkoutState?.additionalCharge > 0 && (
                                             <div className="pt-3 border-t border-dashed flex justify-between items-center">
-                                                <span className="text-[10px] font-black uppercase text-muted-foreground">Overage Fee</span>
+                                                <span className="text-[10px] font-black uppercase text-muted-foreground">Audit Overage</span>
                                                 <div className="flex items-center gap-3">
                                                     <span className={cn("font-black font-mono text-xs", isWaived ? "line-through text-muted-foreground opacity-40" : "text-amber-600")}>+${data.appointment.checkoutState.additionalCharge.toFixed(2)}</span>
-                                                    {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Undo</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
+                                                    {isOwnerOrAdmin && (isWaived ? <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button> : <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb</Button>)}
                                                 </div>
                                             </div>
                                         )}
@@ -553,7 +615,7 @@ export const CheckoutHub = ({
                                     <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
                                     <div className="flex-1 min-w-0 text-left">
                                         <p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p>
-                                        <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Historical Balance</p>
+                                        <p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p>
                                     </div>
                                     <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${fee?.feeAmount.toFixed(2)}</p>
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id as string, false)}><XCircle className="h-4 w-4"/></Button>
@@ -565,14 +627,14 @@ export const CheckoutHub = ({
             </div>
 
             <div className="space-y-4">
-                <div className="flex items-center gap-2 px-1">
+                <div className="flex items-center gap-2 px-1 text-left">
                     <Tag className="w-4 h-4 text-primary" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discounts & Growth</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Incentive Architecture</h3>
                 </div>
                 <div className="flex gap-3">
                     <div className="relative flex-1">
                         <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                        <Input placeholder="ENTER PROMO..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
+                        <Input placeholder="MANUAL CODE..." value={promoCodeInput} onChange={e => setPromoCodeInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApplyDiscount(promoCodeInput)} className="pl-10 h-11 md:h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner" />
                     </div>
                     <Button variant="outline" size="icon" className="h-11 w-11 md:h-12 md:w-12 rounded-2xl border-2 shadow-sm shrink-0" onClick={() => setIsDiscountBrowserOpen(true)}><Users className="w-5 h-5" /></Button>
                 </div>
@@ -592,7 +654,7 @@ export const CheckoutHub = ({
                 )}
 
                 {suggestedDiscounts.length > 0 && (
-                    <div className="space-y-3 pt-2">
+                    <div className="space-y-3 pt-2 text-left">
                         <p className="text-[9px] font-black uppercase text-amber-600 tracking-[0.2em] flex items-center gap-2 px-1"><Wand2 className="h-3 w-3" /> System Recommendation</p>
                         {suggestedDiscounts.map(d => (
                             <Button key={d.id} variant="outline" className="w-full justify-between h-auto py-3 md:py-4 px-4 md:px-5 border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/10 border-2 rounded-2xl md:rounded-[1.5rem] group transition-all" onClick={() => handleApplyDiscount(d.code)}>
@@ -609,14 +671,14 @@ export const CheckoutHub = ({
                 )}
             </div>
 
-            <div className="space-y-4 pt-6 border-t border-dashed">
+            <div className="space-y-4 pt-6 border-t border-dashed text-left">
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
                     <p>Subtotal</p>
                     <p className="font-mono text-[11px] md:text-xs">${subtotal.toFixed(2)}</p>
                 </div>
                 {(discount + membershipDiscount) > 0 && (
                     <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-                        <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Savings Applied</span>
+                        <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
                         <span className="font-mono text-[11px] md:text-xs">-${(discount + membershipDiscount).toFixed(2)}</span>
                     </div>
                 )}
@@ -627,6 +689,12 @@ export const CheckoutHub = ({
                             const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                             return sum + (fee?.feeAmount || 0);
                         }, 0).toFixed(2)}</span>
+                    </div>
+                )}
+                {redeemedOffer && (
+                    <div className="flex justify-between items-center text-[10px] text-indigo-600 font-black uppercase tracking-tighter">
+                        <span className="flex items-center gap-2"><Award className="w-3.5 h-3.5" /> Entitlement Active</span>
+                        <span className="font-black">REDEEMED</span>
                     </div>
                 )}
                 <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
@@ -676,8 +744,8 @@ export const CheckoutHub = ({
 
                 <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4">
                     <div className="space-y-0.5 text-left">
-                        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Grand Total</p>
-                        <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON FINALIZE</p>
+                        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
+                        <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
                     </div>
                     <p className="font-mono text-2xl md:text-4xl">${total.toFixed(2)}</p>
                 </div>
@@ -723,13 +791,13 @@ export const CheckoutHub = ({
                             onClick={() => onCheckout({paymentMethod: paymentTab, amountTendered})} 
                             disabled={isSubmitting || (paymentTab === 'cash' && amountTendered < total) || isCartEmpty}
                         >
-                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `COLLECT $${total.toFixed(2)}`)}
+                            {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (total <= 0 ? 'FINALIZE FREE SESSION' : `AUTHORIZE $${total.toFixed(2)}`)}
                         </Button>
                     </div>
                 </div>
             </div>
             <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} feeAmount={appointmentsData.find((a:any) => a.appointment.id === pendingWaiveAptId)?.appointment.checkoutState?.additionalCharge || 0} staff={staff} onConfirm={handleConfirmWaive} />
+            <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} />
         </div>
     );
 };
