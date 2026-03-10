@@ -54,7 +54,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth } from 'date-fns';
+import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays } from 'date-fns';
 import { 
     Dialog, 
     DialogContent, 
