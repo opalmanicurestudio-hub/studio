@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -66,7 +65,8 @@ import {
   ArrowRight,
   TrendingUp,
   Activity,
-  Target
+  Target,
+  ListChecks
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
