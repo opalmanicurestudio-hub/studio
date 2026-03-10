@@ -27,7 +27,8 @@ import {
   ArrowRight,
   Filter,
   Loader,
-  CheckCircle2
+  CheckCircle2,
+  Tag
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -42,6 +43,7 @@ import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; onDelete: (formId: string) => void; }) => {
   const signedCount = form.clientsSigned || 0;
@@ -121,13 +123,13 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
 const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
     <button onClick={onClick} className="w-full h-full text-left transition-all duration-500 group">
         <Card className="border-4 border-dashed rounded-[2rem] h-full flex items-center justify-center bg-white/50 backdrop-blur-sm opacity-40 hover:opacity-100 hover:border-primary hover:bg-primary/[0.02] transition-all">
-            <CardContent className="p-10 flex flex-col items-center gap-4">
+            <CardContent className="p-6 sm:p-10 flex flex-col items-center gap-4">
                 <div className="p-6 bg-muted rounded-full group-hover:bg-primary group-hover:text-white transition-all duration-500 shadow-inner">
-                    <PlusCircle className="w-12 h-12" />
+                    <PlusCircle className="w-10 h-10 sm:w-12 sm:h-12" />
                 </div>
                 <div className="space-y-1 text-center">
-                    <p className="text-sm font-black uppercase tracking-widest text-slate-900">Establish Protocol</p>
-                    <p className="text-[10px] font-bold uppercase tracking-tight text-muted-foreground">Register New Agreement</p>
+                    <p className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900">Establish Protocol</p>
+                    <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-tight text-muted-foreground">Register New Agreement</p>
                 </div>
             </CardContent>
         </Card>
@@ -225,42 +227,42 @@ export default function ConsentsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
       <AppHeader title="Agreement Library" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-10">
+      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-6 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Form Library</h1>
-            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Form Library</h1>
+            <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Create, manage, and track all your client-facing forms.
             </p>
           </div>
-          <Button onClick={handleAddNewForm} className="h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
+          <Button onClick={handleAddNewForm} className="h-12 md:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full md:w-auto">
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Form
           </Button>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="flex flex-col space-y-8">
+            <div className="flex flex-col space-y-6 md:space-y-8">
                 <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
                     <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-2">
-                        <TabsTrigger value="all" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">All Protocols</TabsTrigger>
-                        <TabsTrigger value="intake" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Intake</TabsTrigger>
-                        <TabsTrigger value="waiver" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Waivers</TabsTrigger>
-                        <TabsTrigger value="release" className="px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Releases</TabsTrigger>
+                        <TabsTrigger value="all" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">All Protocols</TabsTrigger>
+                        <TabsTrigger value="intake" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Intake</TabsTrigger>
+                        <TabsTrigger value="waiver" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Waivers</TabsTrigger>
+                        <TabsTrigger value="release" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Releases</TabsTrigger>
                     </TabsList>
                 </div>
 
                 <div className="relative w-full max-w-lg">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                     <Input 
                         placeholder="SEARCH PROTOCOLS & SCRIPTS..." 
-                        className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
+                        className="pl-12 h-12 sm:h-14 rounded-2xl border-2 font-black uppercase text-[10px] sm:text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
             </div>
             
-            <div className="mt-10">
+            <div className="mt-8 md:mt-10">
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                     {isLoading ? (
                         Array.from({length: 3}).map((_, i) => <div key={i} className="h-64 rounded-[2rem] bg-muted/20 animate-pulse" />)
@@ -298,6 +300,3 @@ export default function ConsentsPage() {
     </div>
   );
 }
-
-const DropdownMenu = ({ children }: any) => <div>{children}</div>;
-import { DropdownMenu as DM, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
