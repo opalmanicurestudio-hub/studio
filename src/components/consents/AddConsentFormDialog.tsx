@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -28,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, FileSignature, Sparkles, ShieldCheck, ArrowRight, Activity, Tag, ListChecks } from 'lucide-react';
+import { PlusCircle, FileSignature, Sparkles, ShieldCheck, ArrowRight, Activity, Tag, ListChecks, Check } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { FieldEditor } from './FieldEditor';
 import { Switch } from '../ui/switch';
@@ -43,6 +44,7 @@ interface AddConsentFormDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (form: Partial<ConsentForm>) => void;
   formToEdit: ConsentForm | null;
+  existingCategories: string[];
 }
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
@@ -62,14 +64,17 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   onOpenChange,
   onSave,
   formToEdit,
+  existingCategories
 }) => {
   const isMobile = useIsMobile();
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<'Intake' | 'Waiver' | 'Release' | 'General'>('General');
+  const [category, setCategory] = useState<string>('General');
   const [fields, setFields] = useState<FormField[]>([]);
   const [isPasswordProtected, setIsPasswordProtected] = useState(false);
   const [clientAccess, setClientAccess] = useState('view');
   const [notifyOnEdit, setNotifyOnEdit] = useState(false);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   useEffect(() => {
     if (formToEdit) {
@@ -116,9 +121,17 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
     setFields(newFields);
   }
 
+  const handleAddNewCategory = () => {
+    if (newCategoryName.trim()) {
+        setCategory(newCategoryName.trim());
+        setNewCategoryName('');
+        setIsAddingCategory(false);
+    }
+  }
+
   const handleSave = () => {
     if (!title.trim()) return;
-    const formData = { title, category, fields, isPasswordProtected, notifyOnEdit };
+    const formData = { title, category: category as any, fields, isPasswordProtected, notifyOnEdit };
     onSave(formData);
     onOpenChange(false);
   }
@@ -134,17 +147,29 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="form-category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Classification</Label>
-                    <Select value={category} onValueChange={(v: any) => setCategory(v)}>
-                        <SelectTrigger id="form-category" className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                            <SelectItem value="General" className="font-bold uppercase text-[10px] tracking-widest">GENERAL AGREEMENT</SelectItem>
-                            <SelectItem value="Intake" className="font-bold uppercase text-[10px] tracking-widest">GUEST INTAKE</SelectItem>
-                            <SelectItem value="Waiver" className="font-bold uppercase text-[10px] tracking-widest">LIABILITY WAIVER</SelectItem>
-                            <SelectItem value="Release" className="font-bold uppercase text-[10px] tracking-widest">MEDIA RELEASE</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    {isAddingCategory ? (
+                        <div className="flex gap-2 animate-in slide-in-from-top-2">
+                            <Input placeholder="NEW CLASSIFICATION..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} className="h-12 rounded-xl border-2 font-black uppercase text-xs" />
+                            <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
+                        </div>
+                    ) : (
+                        <div className="flex gap-3">
+                            <Select value={category} onValueChange={(v: any) => setCategory(v)}>
+                                <SelectTrigger id="form-category" className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 flex-1">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    {existingCategories.map(cat => (
+                                        <SelectItem key={cat} value={cat} className="font-bold uppercase text-[10px] tracking-widest">{cat.toUpperCase()}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50 shadow-sm">
+                                <PlusCircle className="h-6 w-6 opacity-40" />
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

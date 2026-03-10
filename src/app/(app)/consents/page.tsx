@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -28,7 +29,8 @@ import {
   Filter,
   Loader,
   CheckCircle2,
-  Tag
+  Tag,
+  Layers
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -76,7 +78,7 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
           </DropdownMenu>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-4 mt-auto">
             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center">
                 <div className="space-y-0.5">
                     <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Execution Load</p>
@@ -151,17 +153,17 @@ export default function ConsentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
-  const [editingForm, setEditingForm] = useState<ConsentForm | null>(null);
+  const [editingForm, setEditingStaff] = useState<ConsentForm | null>(null);
   const [previewingForm, setPreviewingForm] = useState<ConsentForm | null>(null);
   const { toast } = useToast();
 
   const handleEditForm = (form: ConsentForm) => {
-    setEditingForm(form);
+    setEditingStaff(form);
     setIsFormBuilderOpen(true);
   };
   
   const handleAddNewForm = () => {
-    setEditingForm(null);
+    setEditingStaff(null);
     setIsFormBuilderOpen(true);
   }
 
@@ -217,6 +219,12 @@ export default function ConsentsPage() {
     });
   };
 
+  const categories = useMemo(() => {
+    const base = ['Intake', 'Waiver', 'Release', 'General'];
+    const current = forms?.map(f => f.category) || [];
+    return Array.from(new Set([...base, ...current])).sort();
+  }, [forms]);
+
   const filteredForms = useMemo(() => {
     if (!forms) return [];
     return forms
@@ -245,9 +253,9 @@ export default function ConsentsPage() {
                 <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
                     <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-2">
                         <TabsTrigger value="all" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">All Protocols</TabsTrigger>
-                        <TabsTrigger value="intake" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Intake</TabsTrigger>
-                        <TabsTrigger value="waiver" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Waivers</TabsTrigger>
-                        <TabsTrigger value="release" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Releases</TabsTrigger>
+                        {categories.map(cat => (
+                            <TabsTrigger key={cat} value={cat.toLowerCase()} className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">{cat}</TabsTrigger>
+                        ))}
                     </TabsList>
                 </div>
 
@@ -288,6 +296,7 @@ export default function ConsentsPage() {
         onOpenChange={setIsFormBuilderOpen}
         onSave={handleSaveForm}
         formToEdit={editingForm}
+        existingCategories={categories}
        />
 
        {previewingForm && (
