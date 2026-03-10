@@ -42,15 +42,7 @@ import {
   Wifi,
   MoreHorizontal,
   PiggyBank,
-  Gift,
-  Dog,
-  Baby,
-  Landmark,
   Trash2,
-  Phone,
-  Film,
-  Megaphone,
-  CreditCard,
   Receipt,
   Package,
   Edit,
@@ -67,7 +59,9 @@ import {
   Activity,
   Target,
   ListChecks,
-  Clock
+  Clock,
+  Film,
+  Landmark
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -87,16 +81,22 @@ const BillItemRow = ({
   bill,
   isEditing = false,
   onBillChange,
+  onDelete,
 }: {
-  bill: { title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; };
+  bill: { id: string; title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; };
   isEditing?: boolean;
-  onBillChange: (billTitle: string, field: string, value: any) => void;
+  onBillChange: (billId: string, field: string, value: any) => void;
+  onDelete: (billId: string) => void;
 }) => (
     <div className="flex flex-col p-4 rounded-2xl border-2 bg-background hover:border-primary/20 transition-all group">
       <div className="flex items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
               {bill.isCustom && isEditing ? (
-                  <Input defaultValue={bill.title} className="font-bold h-10 border-2 rounded-xl uppercase text-xs" disabled={!isEditing} />
+                  <Input 
+                    value={bill.title} 
+                    onChange={(e) => onBillChange(bill.id, 'title', e.target.value)}
+                    className="font-bold h-10 border-2 rounded-xl uppercase text-xs" 
+                  />
               ) : (
                   <div className="flex flex-col">
                     <Label className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{bill.title}</Label>
@@ -118,7 +118,7 @@ const BillItemRow = ({
                     className="pl-8 h-10 rounded-xl border-2 font-black font-mono text-sm text-right bg-muted/5 shadow-inner"
                     disabled={!isEditing}
                     value={bill.amount || ''}
-                    onChange={(e) => onBillChange(bill.title, 'amount', parseFloat(e.target.value) || 0)}
+                    onChange={(e) => onBillChange(bill.id, 'amount', parseFloat(e.target.value) || 0)}
                 />
               </div>
           </div>
@@ -130,36 +130,43 @@ const BillItemRow = ({
                 <AccordionContent className="pt-4 space-y-4">
                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5 text-left">
-                            <Label htmlFor={`dueDay-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day</Label>
-                            <Input id={`dueDay-${bill.title}`} type="number" placeholder="1" value={bill.dueDay || ''} onChange={(e) => onBillChange(bill.title, 'dueDay', parseInt(e.target.value) || undefined)} className="h-9 rounded-lg border-2 font-black text-center" />
+                            <Label htmlFor={`dueDay-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day</Label>
+                            <Input id={`dueDay-${bill.id}`} type="number" placeholder="1" value={bill.dueDay || ''} onChange={(e) => onBillChange(bill.id, 'dueDay', parseInt(e.target.value) || undefined)} className="h-9 rounded-lg border-2 font-black text-center" />
                         </div>
                         <div className="space-y-1.5 text-left">
-                            <Label htmlFor={`paymentUrl-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
+                            <Label htmlFor={`paymentUrl-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
                              <div className="relative">
                                 <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                                <Input id={`paymentUrl-${bill.title}`} placeholder="https://..." value={bill.paymentUrl || ''} onChange={(e) => onBillChange(bill.title, 'paymentUrl', e.target.value)} className="pl-7 h-9 rounded-lg border-2 font-medium text-[10px]" />
+                                <Input id={`paymentUrl-${bill.id}`} placeholder="https://..." value={bill.paymentUrl || ''} onChange={(e) => onBillChange(bill.id, 'paymentUrl', e.target.value)} className="pl-7 h-9 rounded-lg border-2 font-medium text-[10px]" />
                             </div>
                         </div>
                      </div>
                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5 text-left">
-                            <Label htmlFor={`lateFee-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
+                            <Label htmlFor={`lateFee-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
                             <div className="relative">
                                 <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                                <Input id={`lateFee-${bill.title}`} type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.title, 'lateFee', parseFloat(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white" />
+                                <Input id={`lateFee-${bill.id}`} type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.id, 'lateFee', parseFloat(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white" />
                             </div>
                         </div>
                         <div className="space-y-1.5 text-left">
-                            <Label htmlFor={`lateByDay-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
+                            <Label htmlFor={`lateByDay-${bill.id}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
                             <div className="relative">
                                 <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                                <Input id={`lateByDay-${bill.title}`} type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.title, 'lateByDay', parseInt(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
+                                <Input id={`lateByDay-${bill.id}`} type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
                             </div>
                         </div>
                      </div>
-                      {bill.isCustom && (
-                        <Button variant="ghost" size="sm" className="text-destructive font-black uppercase text-[9px] tracking-widest w-full hover:bg-destructive/5"><Trash2 className="w-3 h-3 mr-2"/>Terminate Record</Button>
-                      )}
+                      <div className="pt-2">
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-destructive font-black uppercase text-[9px] tracking-widest w-full hover:bg-destructive/5"
+                            onClick={() => onDelete(bill.id)}
+                        >
+                            <Trash2 className="w-3 h-3 mr-2"/>Terminate Record
+                        </Button>
+                      </div>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
@@ -188,7 +195,7 @@ const businessCategoriesTemplate = [
 const deepCopyTemplate = (template: any[]) => {
   return template.map(({ icon, ...category }) => ({
     ...category,
-    bills: category.bills.map((bill: any) => ({ ...bill }))
+    bills: category.bills.map((bill: any) => ({ ...bill, id: nanoid() }))
   }));
 };
 
@@ -196,14 +203,18 @@ const BillEditor = ({
   categories,
   isEditing,
   onBillChange,
+  onAddBillItem,
+  onDeleteBillItem,
 }: {
   categories: {
     name: string;
     icon: React.ReactNode;
-    bills: { title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; }[];
+    bills: { id: string; title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; }[];
   }[];
   isEditing: boolean;
-  onBillChange: (categoryName: string, billTitle: string, field: string, value: any) => void;
+  onBillChange: (categoryName: string, billId: string, field: string, value: any) => void;
+  onAddBillItem: (categoryName: string) => void;
+  onDeleteBillItem: (categoryName: string, billId: string) => void;
 }) => {
   const total = useMemo(() => {
     return categories.reduce((acc, category) => {
@@ -232,12 +243,23 @@ const BillEditor = ({
               <AccordionContent className="p-4 space-y-3">
                   {category.bills.map((bill) => (
                     <BillItemRow
-                      key={bill.title}
+                      key={bill.id}
                       bill={bill}
                       isEditing={isEditing}
-                      onBillChange={(billTitle, field, value) => onBillChange(category.name, billTitle, field, value)}
+                      onBillChange={(billId, field, value) => onBillChange(category.name, billId, field, value)}
+                      onDelete={(billId) => onDeleteBillItem(category.name, billId)}
                     />
                   ))}
+                  {isEditing && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full h-10 rounded-xl border-dashed border-2 font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-muted/10 transition-all mt-2"
+                        onClick={() => onAddBillItem(category.name)}
+                    >
+                        <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Append Custom Item
+                    </Button>
+                  )}
               </AccordionContent>
             </AccordionItem>
           ))}
@@ -249,7 +271,7 @@ const BillEditor = ({
           <p className="text-3xl font-black font-mono tracking-tighter text-primary">${total.toFixed(2)}</p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Annual Run-Rate</p>
+          <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Annual Run-Rate</p>
           <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${(total * 12).toFixed(0)}</p>
         </div>
       </CardFooter>
@@ -413,7 +435,7 @@ export default function FinancialFoundationPage() {
     const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find((p: any) => p.isActive), [profiles.businessProfiles]);
     const activeScheduleProfile = useMemo(() => profiles.scheduleProfiles.find((p: any) => p.isActive), [profiles.scheduleProfiles]);
 
-    const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, field: string, value: any) => {
+    const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billId: string, field: string, value: any) => {
         const key = `${profileType}Profiles`;
         setProfiles((prev: any) => ({
             ...prev,
@@ -421,7 +443,35 @@ export default function FinancialFoundationPage() {
                 ...p,
                 categories: p.categories.map((cat: any) => cat.name === categoryName ? {
                     ...cat,
-                    bills: cat.bills.map((bill: any) => bill.title === billTitle ? { ...bill, [field]: value } : bill)
+                    bills: cat.bills.map((bill: any) => bill.id === billId ? { ...bill, [field]: value } : bill)
+                } : cat)
+            } : p)
+        }));
+    }, []);
+
+    const handleAddBillItem = useCallback((profileType: 'lifestyle' | 'business', categoryName: string) => {
+        const key = `${profileType}Profiles`;
+        setProfiles((prev: any) => ({
+            ...prev,
+            [key]: prev[key].map((p: any) => p.isActive ? {
+                ...p,
+                categories: p.categories.map((cat: any) => cat.name === categoryName ? {
+                    ...cat,
+                    bills: [...cat.bills, { id: nanoid(), title: 'NEW ITEM', amount: 0, isCustom: true, dueDay: 1 }]
+                } : cat)
+            } : p)
+        }));
+    }, []);
+
+    const handleDeleteBillItem = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billId: string) => {
+        const key = `${profileType}Profiles`;
+        setProfiles((prev: any) => ({
+            ...prev,
+            [key]: prev[key].map((p: any) => p.isActive ? {
+                ...p,
+                categories: p.categories.map((cat: any) => cat.name === categoryName ? {
+                    ...cat,
+                    bills: cat.bills.filter((b: any) => b.id !== billId)
                 } : cat)
             } : p)
         }));
@@ -520,14 +570,18 @@ export default function FinancialFoundationPage() {
                             <BillEditor
                                 categories={activeLifestyleProfile?.categories || []}
                                 isEditing={isEditing}
-                                onBillChange={(cat, bill, field, val) => handleBillChange('lifestyle', cat, bill, field, val)}
+                                onBillChange={(cat, bid, field, val) => handleBillChange('lifestyle', cat, bid, field, val)}
+                                onAddBillItem={(cat) => handleAddBillItem('lifestyle', cat)}
+                                onDeleteBillItem={(cat, bid) => handleDeleteBillItem('lifestyle', cat, bid)}
                             />
                         </TabsContent>
                         <TabsContent value="business" className="m-0 animate-in fade-in duration-500">
                             <BillEditor
                                 categories={activeBusinessProfile?.categories || []}
                                 isEditing={isEditing}
-                                onBillChange={(cat, bill, field, val) => handleBillChange('business', cat, bill, field, val)}
+                                onBillChange={(cat, bid, field, val) => handleBillChange('business', cat, bid, field, val)}
+                                onAddBillItem={(cat) => handleAddBillItem('business', cat)}
+                                onDeleteBillItem={(cat, bid) => handleDeleteBillItem('business', cat, bid)}
                             />
                         </TabsContent>
                     </div>
