@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -503,12 +502,12 @@ const EditAppointmentForm = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={() => { handleSubmit(); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
+                        <Button onClick={() => { handleLocalSubmit({} as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
                         <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </form>
     )
 }
 
@@ -547,11 +546,11 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
             <Button onClick={() => {
                 const form = document.getElementById('edit-appointment-form') as HTMLFormElement;
-                if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));
             }} className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Commit Refinements</Button>
           </div>
         </DialogFooter>
-      </SheetContent>
+      </ContentComponent>
     </DialogContainer>
   );
 };
