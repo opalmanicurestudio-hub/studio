@@ -242,9 +242,9 @@ const BillEditor = ({
                 </div>
               </AccordionTrigger>
               <AccordionContent className="p-4 space-y-3">
-                  {category.bills.map((bill) => (
+                  {category.bills.map((bill, billIndex) => (
                     <BillItemRow
-                      key={`bill-${bill.id}`}
+                      key={`bill-${bill.id || `virtual-${billIndex}`}`}
                       bill={bill}
                       isEditing={isEditing}
                       onBillChange={(billId, field, value) => onBillChange(category.name, billId, field, value)}
@@ -425,9 +425,23 @@ export default function FinancialFoundationPage() {
     }, [businessProfilesLoading, businessProfilesData, firestore, user, tenantId]);
 
     useEffect(() => {
+        // Map over data to ensure all nested bills have IDs for robust rendering
+        const ensureBillIds = (profilesList: any[]) => {
+            return (profilesList || []).map(p => ({
+                ...p,
+                categories: (p.categories || []).map((cat: any) => ({
+                    ...cat,
+                    bills: (cat.bills || []).map((bill: any) => ({
+                        ...bill,
+                        id: bill.id || nanoid()
+                    }))
+                }))
+            }));
+        };
+
         setProfiles({
-            lifestyleProfiles: lifestyleProfilesData || [],
-            businessProfiles: businessProfilesData || [],
+            lifestyleProfiles: ensureBillIds(lifestyleProfilesData || []),
+            businessProfiles: ensureBillIds(businessProfilesData || []),
             scheduleProfiles: scheduleProfilesData || [],
         });
     }, [lifestyleProfilesData, businessProfilesData, scheduleProfilesData]);
