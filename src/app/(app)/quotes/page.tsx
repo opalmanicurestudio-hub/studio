@@ -28,7 +28,9 @@ import {
     Activity,
     ChevronRight,
     Search,
-    Percent
+    Percent,
+    FileText,
+    ShieldCheck
 } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
