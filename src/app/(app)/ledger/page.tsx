@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -36,6 +35,7 @@ import {
   ShoppingCart,
   CalendarCheck,
   User as UserIcon,
+  FileX
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -157,8 +157,15 @@ const ReceiptPreviewDialog = ({ url, open, onOpenChange, description }: { url: s
                 <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 truncate">{description}</DialogTitle>
             </DialogHeader>
             <div className="p-8 flex items-center justify-center bg-muted/20">
-                <div className="relative w-full aspect-[3/4] max-h-[60vh] rounded-2xl overflow-hidden border-2 shadow-2xl bg-white">
-                    <Image src={url} alt="Receipt" fill className="object-contain" />
+                <div className="relative w-full aspect-[3/4] max-h-[60vh] rounded-2xl overflow-hidden border-2 shadow-2xl bg-white flex items-center justify-center">
+                    {url ? (
+                        <Image src={url} alt="Receipt Attachment" fill className="object-contain" unoptimized />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center gap-4 opacity-20">
+                            <FileX className="w-16 h-16 text-muted-foreground" />
+                            <p className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">Attachment Missing</p>
+                        </div>
+                    )}
                 </div>
             </div>
             <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
