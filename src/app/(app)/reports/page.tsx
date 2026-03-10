@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Printer, 
@@ -25,7 +26,13 @@ import {
   ArrowRight,
   Info,
   Landmark,
-  Activity
+  Activity,
+  ShoppingBag,
+  UserPlus,
+  ShieldAlert,
+  ArrowUpRight,
+  ChevronRight,
+  Scale
 } from 'lucide-react';
 import {
   Select,
@@ -46,6 +53,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Label } from '@/components/ui/label';
 import { motion, AnimatePresence } from 'framer-motion';
 import { type Transaction } from '@/lib/financial-data';
+import { Separator } from '@/components/ui/separator';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -63,6 +71,29 @@ const safeDate = (val: any): Date => {
     }
     return new Date(val);
 };
+
+const KpiStat = ({ label, value, subLabel, icon: Icon, colorClass, trend }: any) => (
+    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm group hover:border-primary/20 transition-all">
+        <CardContent className="p-5 space-y-4">
+            <div className="flex justify-between items-start">
+                <div className={cn("p-2 rounded-xl bg-muted/50 group-hover:bg-primary transition-all duration-500", colorClass)}>
+                    <Icon className="w-4 h-4 group-hover:text-white transition-colors" />
+                </div>
+                {trend && (
+                    <div className={cn("flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full border-2", trend > 0 ? "text-green-600 bg-green-50 border-green-100" : "text-destructive bg-destructive/5 border-destructive/10")}>
+                        {trend > 0 ? <ArrowUpRight className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                        {Math.abs(trend)}%
+                    </div>
+                )}
+            </div>
+            <div className="space-y-1 text-left">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none">{label}</p>
+                <p className="text-2xl font-black tracking-tighter text-slate-900 font-mono leading-none">{value}</p>
+                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 truncate">{subLabel}</p>
+            </div>
+        </CardContent>
+    </Card>
+);
 
 export default function ReportsPage() {
   const isMobile = useIsMobile();
@@ -108,12 +139,6 @@ export default function ReportsPage() {
     }
   }, [periodPreset]);
 
-  const dateRangeString = useMemo(() => {
-    if (!dateRange?.from) return 'All Time';
-    if (!dateRange.to) return format(dateRange.from, 'MMM d, yyyy');
-    return `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`;
-  }, [dateRange]);
-
   const periodOverhead = useMemo(() => {
     if (!billInstances) return 0;
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
@@ -127,20 +152,20 @@ export default function ReportsPage() {
         .reduce((sum, bi) => sum + (bi.amountDue || 0), 0);
   }, [billInstances, dateRange]);
 
-  const performanceAndPayrollData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs) return [];
+  const analyticsData = useMemo(() => {
+    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    return staff.map(staffMember => {
-        const filterByDate = (date: any) => {
-            const d = safeDate(date);
-            if (fromDate && d < fromDate) return false;
-            if (toDate && d > toDate) return false;
-            return true;
-        }
+    const filterByDate = (date: any) => {
+        const d = safeDate(date);
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+        return true;
+    }
 
+    const performance = staff.map(staffMember => {
         const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
         const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
         const completedCount = completedAppointments.length;
@@ -159,17 +184,10 @@ export default function ReportsPage() {
         });
       
         const avgVariance = completedCount > 0 ? totalMinutesVariance / completedCount : 0;
-      
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
-        
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-        const totalGrossRevenue = serviceRevenue + retailSales;
-        
-        const tips = staffTransactions.reduce((acc, t) => {
-            if (t.category === 'Tips') return acc + t.amount;
-            return acc + (t.tipAmount || 0);
-        }, 0);
+        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || (t.category === 'Tips' ? t.amount : 0)), 0);
         
         const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
         const retailAttachmentRate = completedCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedCount) * 100 : 0;
@@ -187,9 +205,7 @@ export default function ReportsPage() {
                 clockInTime = logTime;
                 totalBreakMinutes = 0;
             } else if (log.type === 'clock_out' && clockInTime) {
-                let sessionEnd = logTime;
-                if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+                totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
                 clockInTime = null;
             } else if (log.type === 'break_end' && log.durationMinutes) {
                 totalBreakMinutes += log.durationMinutes;
@@ -202,7 +218,7 @@ export default function ReportsPage() {
 
         const totalHoursWorked = totalMinutesWorked / 60;
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
-        const yieldPerHour = totalHoursWorked > 0 ? totalGrossRevenue / totalHoursWorked : 0;
+        const yieldPerHour = totalHoursWorked > 0 ? (serviceRevenue + retailSales) / totalHoursWorked : 0;
         
         let wages = 0;
         if (staffMember.payStructure === 'commission') {
@@ -210,7 +226,6 @@ export default function ReportsPage() {
         } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
             wages = totalHoursWorked * staffMember.hourlyRate;
         }
-
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         const totalPay = wages + tips + retailCommission;
         
@@ -240,98 +255,71 @@ export default function ReportsPage() {
                 retailAttachmentRate,
                 serviceRevenue,
                 retailSales,
-                retailCommission,
-                tips,
-                wages,
                 totalPay,
-                totalHours: totalHoursWorked,
+                tips,
                 costOfGoodsSold,
-                rebookingRate
+                rebookingRate,
+                totalHours: totalHoursWorked
             }
         };
     });
+
+    // --- OVERALL METRICS ---
+    const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
+    const cancelledApts = periodAppointments.filter(a => a.status === 'cancelled');
+    
+    const potentialRevenueLost = cancelledApts.reduce((acc, a) => {
+        const svc = services.find(s => s.id === a.serviceId);
+        return acc + (svc?.price || 0);
+    }, 0);
+
+    const recoveredFees = transactions
+        .filter(t => t.category === 'Cancellation Fee' && filterByDate(t.date))
+        .reduce((acc, t) => acc + t.amount, 0);
+
+    const totalRevenue = performance.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
+    const totalCOGS = performance.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
+    
+    const avgTicket = periodAppointments.filter(a => a.status === 'completed').length > 0
+        ? totalRevenue / periodAppointments.filter(a => a.status === 'completed').length
+        : 0;
+
+    return { 
+        performance, 
+        overall: { 
+            totalRevenue, 
+            totalCOGS, 
+            avgTicket,
+            potentialRevenueLost,
+            recoveredFees,
+            recoveryEfficiency: potentialRevenueLost > 0 ? (recoveredFees / potentialRevenueLost) * 100 : 0,
+            utilization: performance.length > 0 ? performance.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performance.length : 0
+        } 
+    };
   }, [staff, appointments, services, transactions, activityLogs, dateRange]);
 
-  const financials = useMemo(() => {
-    if (!performanceAndPayrollData || !clients) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0, totalAbsorbedCosts: 0, totalWaivedFees: 0, totalOutstandingDebt: 0, recoveryRate: 0, payrollExpense: 0 };
-    
-    const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
-    const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
-    const payrollExpense = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalPay - d.stats.tips), 0);
-    
-    const outstandingDebt = clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
-
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    const filterByDate = (date: any) => {
-        const d = safeDate(date);
-        return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
-    };
-
-    const waivedTotal = clients.flatMap(c => c.waivedFees || []).filter(w => filterByDate(w.waivedAt)).reduce((acc, w) => acc + w.feeAmount, 0);
-    
-    const discountsValue = transactions
-        .filter(t => t.type === 'expense' && t.category === 'Discounts' && filterByDate(t.date))
-        .reduce((acc, t) => acc + t.amount, 0);
-
-    const collectedFees = transactions
-        .filter(t => t.type === 'income' && t.category === 'Cancellation Fee' && filterByDate(t.date))
-        .reduce((acc, t) => acc + t.amount, 0);
-    
-    const pendingFeesInRange = clients.flatMap(c => c.unpaidFees || []).filter(f => filterByDate(f.appointmentDate)).reduce((acc, f) => acc + f.feeAmount, 0);
-
-    const totalFeesCharged = collectedFees + pendingFeesInRange;
-    const rate = totalFeesCharged > 0 ? (collectedFees / totalFeesCharged) * 100 : 0;
-
-    return {
-      totalGrossRevenue: revenue,
-      totalCOGS: cogs,
-      payrollExpense,
-      grossProfit: revenue - cogs,
-      totalAbsorbedCosts: waivedTotal + discountsValue,
-      totalWaivedFees: waivedTotal,
-      totalOutstandingDebt: outstandingDebt,
-      recoveryRate: rate
-    };
-  }, [performanceAndPayrollData, transactions, dateRange, clients]);
+  const { performance, overall } = analyticsData;
 
   const contributionData = useMemo(() => {
-      if (performanceAndPayrollData.length === 0) return [];
-      const overheadPerStaff = periodOverhead / performanceAndPayrollData.length;
-      
-      return performanceAndPayrollData.map(d => {
+      if (performance.length === 0) return [];
+      const overheadPerStaff = periodOverhead / performance.length;
+      return performance.map(d => {
           const grossYield = d.stats.serviceRevenue + d.stats.retailSales;
           const totalStaffExpense = (d.stats.totalPay - d.stats.tips) + d.stats.costOfGoodsSold + overheadPerStaff;
           const contribution = grossYield - totalStaffExpense;
-          const contribMargin = grossYield > 0 ? (contribution / grossYield) * 100 : 0;
-          
-          return {
-              ...d,
-              overheadShare: overheadPerStaff,
-              contribution,
-              contribMargin
-          };
+          return { ...d, overheadShare: overheadPerStaff, contribution };
       });
-  }, [performanceAndPayrollData, periodOverhead]);
+  }, [performance, periodOverhead]);
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen w-full flex-col">
-        <AppHeader title="Reports" />
-        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-            <Loader className="h-8 w-8 animate-spin text-primary" />
-        </main>
-      </div>
-    );
-  }
+  if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
       <AppHeader title="Intelligence Dossier" />
-      <main className="relative z-10 flex-1 p-4 md:p-10 space-y-8 md:space-y-12 w-full max-w-7xl mx-auto min-w-0 overflow-y-auto">
+      <main className="relative z-10 flex-1 p-4 md:p-10 space-y-10 w-full max-w-7xl mx-auto min-w-0">
+        
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1">
+          <div className="space-y-1 text-left">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Pulse</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic Performance Audit</p>
           </div>
@@ -358,80 +346,115 @@ export default function ReportsPage() {
                         </SelectContent>
                     </Select>
                 </div>
-                
-                <AnimatePresence>
-                    {periodPreset === 'custom' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
-                                <input 
-                                    type="date" 
-                                    value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''}
-                                    onChange={(e) => {
-                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                                        setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
-                                    }}
-                                    className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none"
-                                />
-                            </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
-                                <input 
-                                    type="date" 
-                                    value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''}
-                                    onChange={(e) => {
-                                        const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                                        setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
-                                    }}
-                                    className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none"
-                                />
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                {periodPreset === 'custom' && (
+                    <div className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
+                            <input type="date" value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: d || prev?.from, to: prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none" />
+                        </div>
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
+                            <input type="date" value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: prev?.from, to: d || prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none" />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full">
-            <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden group">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
-                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary">Gross Yield</CardTitle>
-                    <TrendingUp className="h-4 w-4 text-primary opacity-40" />
-                </CardHeader>
-                <CardContent className="p-6 pt-0 text-left">
-                    <div className="text-3xl md:text-4xl font-black tracking-tighter font-mono text-primary">${financials.totalGrossRevenue.toFixed(0)}</div>
-                    <p className="text-[9px] font-bold text-primary/60 uppercase mt-1">Direct Sales Period</p>
-                </CardContent>
-            </Card>
-            <Card className="border-2 shadow-sm rounded-[2.5rem] bg-white overflow-hidden text-left">
-                <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Target className="w-3 h-3"/>Overall Util.</CardTitle></CardHeader>
-                <CardContent className="p-6 pt-0">
-                    <div className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900">{financials.totalGrossRevenue > 0 ? (performanceAndPayrollData.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performanceAndPayrollData.length).toFixed(1) : '0'}%</div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-1 opacity-40">Team productivity mean</p>
-                </CardContent>
-            </Card>
-            <Card className="border-2 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] shadow-xl shadow-destructive/5 overflow-hidden text-left">
-                <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-destructive/70 flex items-center gap-2 opacity-60"><TrendingDown className="w-3 h-3"/>Absorbed Ops</CardTitle></CardHeader>
-                <CardContent className="p-6 pt-0">
-                    <div className="text-3xl md:text-4xl font-black tracking-tighter text-destructive">${financials.totalAbsorbedCosts.toFixed(0)}</div>
-                    <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tight mt-1 opacity-40">Discounts & Waivers</p>
-                </CardContent>
-            </Card>
-            <Card className="border-2 border-indigo-500/20 bg-indigo-500/[0.02] rounded-[2.5rem] shadow-xl shadow-indigo-500/5 overflow-hidden text-left">
-                <CardHeader className="p-6 pb-2"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-indigo-700 flex items-center gap-2 opacity-60"><Landmark className="w-3 h-3"/>Fixed Overhead</CardTitle></CardHeader>
-                <CardContent className="p-6 pt-0">
-                    <div className="text-3xl md:text-4xl font-black tracking-tighter text-indigo-700">${periodOverhead.toFixed(0)}</div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-1 opacity-40">Rent & Recurring load</p>
-                </CardContent>
-            </Card>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full">
+            <KpiStat label="Gross Yield" value={`$${overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
+            <KpiStat label="Overall Util." value={`${overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
+            <KpiStat label="Avg. Ticket" value={`$${overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
+            <KpiStat label="Fixed Overhead" value={`$${periodOverhead.toFixed(0)}`} subLabel="Rent & Recurring load" icon={Landmark} />
         </div>
 
+        <section className="grid lg:grid-cols-3 gap-10">
+            <div className="lg:col-span-2 space-y-6">
+                <div className="flex items-center gap-2 px-1 text-left">
+                    <ShieldAlert className="w-4 h-4 text-destructive" />
+                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Risk & Opportunity Matrix</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <Card className="border-4 border-destructive/10 bg-destructive/[0.02] rounded-[2rem] overflow-hidden">
+                        <CardContent className="p-6 space-y-6">
+                            <div className="flex justify-between items-start">
+                                <div className="space-y-1 text-left">
+                                    <p className="text-[10px] font-black uppercase text-destructive tracking-widest opacity-60">Lost Opportunity</p>
+                                    <p className="text-3xl font-black font-mono tracking-tighter text-destructive">${overall.potentialRevenueLost.toFixed(2)}</p>
+                                </div>
+                                <div className="p-3 bg-destructive/10 rounded-2xl shadow-inner"><BanIcon className="w-6 h-6 text-destructive" /></div>
+                            </div>
+                            <Separator className="border-destructive/10 border-dashed" />
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                <span className="text-muted-foreground">Recovery Yield</span>
+                                <span className="text-destructive font-mono">+${overall.recoveredFees.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-black uppercase text-muted-foreground">Recovery Efficiency</span>
+                                <Badge variant="outline" className="h-5 border-destructive/20 text-destructive font-black text-[10px] font-mono">{overall.recoveryEfficiency.toFixed(1)}%</Badge>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                        <CardHeader className="p-6 pb-2 border-b bg-muted/5 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Efficiency Leakage</CardTitle></CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Time Variance</p>
+                                    <span className={cn("font-black font-mono text-sm", overall.utilization > 0 ? "text-destructive" : "text-primary")}>
+                                        {(performance.reduce((acc,d) => acc + d.stats.avgVariance, 0) / (performance.length || 1)).toFixed(1)}m
+                                    </span>
+                                </div>
+                                <Separator className="border-dashed" />
+                                <div className="flex justify-between items-center">
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Period COGS Load</p>
+                                    <span className="font-black font-mono text-sm text-slate-900">${overall.totalCOGS.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Material % of Revenue</p>
+                                    <span className="font-black font-mono text-sm text-slate-900">{overall.totalRevenue > 0 ? ((overall.totalCOGS / overall.totalRevenue) * 100).toFixed(1) : '0'}%</span>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+
+            <div className="space-y-6">
+                <div className="flex items-center gap-2 px-1 text-left">
+                    <UserPlus className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Engagement Pulse</h3>
+                </div>
+                <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden h-fit bg-white">
+                    <CardContent className="p-6 space-y-6">
+                        <div className="flex items-center gap-4 text-left">
+                            <div className="p-3 bg-primary/10 rounded-2xl text-primary"><Repeat className="w-6 h-6" /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Retention Velocity</p>
+                                <p className="text-2xl font-black tracking-tighter text-slate-900">{(performance.reduce((acc, d) => acc + d.stats.rebookingRate, 0) / (performance.length || 1)).toFixed(1)}%</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-left">
+                            <div className="p-3 bg-teal-500/10 rounded-2xl text-teal-600"><ShoppingBag className="w-6 h-6" /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1">Retail Attachment</p>
+                                <p className="text-2xl font-black tracking-tighter text-slate-900">{(performance.reduce((acc, d) => acc + d.stats.retailAttachmentRate, 0) / (performance.length || 1)).toFixed(1)}%</p>
+                            </div>
+                        </div>
+                        <div className="p-4 rounded-xl border-2 border-dashed bg-muted/5 flex items-start gap-3 text-left">
+                            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5 opacity-40" />
+                            <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed">Velocity tracks clients who rebooked within the same analysis window.</p>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        </section>
+
         <section className="space-y-6">
-            <div className="flex items-center justify-between px-1">
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
-                    <Users className="w-4 h-4 text-primary" />
-                    Technician Yield & Payroll
-                </h3>
+            <div className="flex items-center gap-2 px-1 text-left">
+                <Users className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Team Yield Ledger</h3>
             </div>
             <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
                 <CardContent className="p-0">
@@ -440,16 +463,15 @@ export default function ReportsPage() {
                             <thead className="bg-muted/10 border-b-2">
                                 <tr>
                                     <th className="p-6 font-black text-[10px] uppercase tracking-widest text-slate-900">Provider</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900">Load (hrs)</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900">Density ($/hr)</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900">Base Wage</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900">Ret. Comm.</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900">Gratuity</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-primary text-right pr-10">Net Payout</th>
+                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-center">Util %</th>
+                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Yield/Hr</th>
+                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Gross Sales</th>
+                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Payroll Load</th>
+                                    <th className="font-black text-[10px] uppercase tracking-widest text-primary text-right pr-10">Net Contrib.</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y-2 divide-dashed divide-border/50">
-                                {performanceAndPayrollData.map(data => (
+                                {contributionData.map(data => (
                                     <tr key={data.id} className="group hover:bg-primary/[0.02] transition-colors">
                                         <td className="p-6">
                                             <div className="flex items-center gap-3">
@@ -463,98 +485,12 @@ export default function ReportsPage() {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="font-bold text-xs font-mono text-slate-600">{data.stats.totalHours.toFixed(1)}h</td>
-                                        <td className="font-black text-xs font-mono text-primary">${data.stats.yieldPerHour.toFixed(2)}</td>
-                                        <td className="font-bold text-xs font-mono text-slate-600">${data.stats.wages.toFixed(2)}</td>
-                                        <td className="font-bold text-xs font-mono text-slate-600">${data.stats.retailCommission.toFixed(2)}</td>
-                                        <td className="font-bold text-xs font-mono text-green-600">+${data.stats.tips.toFixed(2)}</td>
+                                        <td className="text-center font-bold text-xs font-mono text-slate-600">{data.stats.utilizationRate.toFixed(1)}%</td>
+                                        <td className="text-right font-black text-xs font-mono text-primary">${data.stats.yieldPerHour.toFixed(2)}</td>
+                                        <td className="text-right font-bold text-xs font-mono text-slate-600">${(data.stats.serviceRevenue + data.stats.retailSales).toFixed(0)}</td>
+                                        <td className="text-right font-bold text-xs font-mono text-destructive">-${(data.stats.totalPay - data.stats.tips).toFixed(0)}</td>
                                         <td className="text-right pr-10">
-                                            <span className="font-black font-mono text-base tracking-tighter text-primary">${data.stats.totalPay.toFixed(2)}</span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="bg-primary/5 border-t-2">
-                                <tr>
-                                    <td className="p-6 text-[10px] font-black uppercase text-primary">Cumulative Load</td>
-                                    <td className="font-black font-mono text-xs text-primary">{performanceAndPayrollData.reduce((acc, d) => acc + d.stats.totalHours, 0).toFixed(1)}h</td>
-                                    <td colSpan={4}></td>
-                                    <td className="text-right pr-10">
-                                        <div className="flex flex-col">
-                                            <span className="text-[8px] font-black uppercase text-primary opacity-60">Total Payroll</span>
-                                            <span className="font-black text-2xl tracking-tighter font-mono text-primary">${performanceAndPayrollData.reduce((acc, d) => acc + d.stats.totalPay, 0).toFixed(2)}</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </CardContent>
-            </Card>
-        </section>
-
-        <section className="grid gap-10 grid-cols-1 lg:grid-cols-2 w-full">
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 px-1 text-left">
-                    <TrendingUp className="w-4 h-4 text-primary" />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Growth Metrics</h3>
-                </div>
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-muted/10 border-b-2">
-                                <tr>
-                                    <th className="p-5 font-black text-[9px] uppercase tracking-widest text-slate-900">Provider</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-center">Retention</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-center">Rebooking</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-center">Retail Atch.</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-dashed divide-border/50">
-                                {performanceAndPayrollData.map(data => (
-                                    <tr key={data.id} className="hover:bg-primary/[0.01]">
-                                        <td className="p-5 font-black uppercase tracking-tight text-[11px] text-slate-700">{data.name.split(' ')[0]}</td>
-                                        <td className="text-center">
-                                            <Badge variant="outline" className="h-6 px-2.5 rounded-lg border-2 font-black text-[10px] bg-white">{(Math.random() * 20 + 70).toFixed(0)}%</Badge>
-                                        </td>
-                                        <td className="text-center">
-                                            <Badge variant="outline" className="h-6 px-2.5 rounded-lg border-2 font-black text-[10px] bg-white">{data.stats.rebookingRate.toFixed(0)}%</Badge>
-                                        </td>
-                                        <td className="text-center">
-                                            <Badge variant="outline" className="h-6 px-2.5 rounded-lg border-2 font-black text-[10px] bg-white">{data.stats.retailAttachmentRate.toFixed(0)}%</Badge>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 px-1 text-left">
-                    <Activity className="w-4 h-4 text-primary" />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">True Studio Contribution</h3>
-                </div>
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-muted/10 border-b-2">
-                                <tr>
-                                    <th className="p-5 font-black text-[9px] uppercase tracking-widest text-slate-900">Provider</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-right">Revenue</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-right">OpEx Share</th>
-                                    <th className="font-black text-[9px] uppercase tracking-widest text-slate-900 text-right pr-8">Net Contrib.</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-dashed divide-border/50">
-                                {contributionData.map(data => (
-                                    <tr key={data.id} className="hover:bg-primary/[0.01]">
-                                        <td className="p-5 font-black uppercase tracking-tight text-[11px] text-slate-700">{data.name.split(' ')[0]}</td>
-                                        <td className="text-right font-mono font-bold text-[11px]">${(data.stats.serviceRevenue + data.stats.retailSales).toFixed(0)}</td>
-                                        <td className="text-right font-mono font-bold text-destructive/60 text-[11px]">-${data.overheadShare.toFixed(0)}</td>
-                                        <td className="text-right pr-8">
-                                            <span className={cn("font-black font-mono text-[11px] tracking-tighter", data.contribution >= 0 ? "text-primary" : "text-destructive")}>
+                                            <span className={cn("font-black font-mono text-base tracking-tighter", data.contribution >= 0 ? "text-primary" : "text-destructive")}>
                                                 ${data.contribution.toFixed(2)}
                                             </span>
                                         </td>
@@ -562,23 +498,23 @@ export default function ReportsPage() {
                                 ))}
                             </tbody>
                         </table>
-                    </CardContent>
-                </Card>
-            </div>
+                    </div>
+                </CardContent>
+            </Card>
         </section>
 
-        <div className="p-8 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-3xl text-left relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10"><DollarSign className="w-32 h-32" /></div>
-            <div className="space-y-2 relative z-10">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Consolidated Performance</p>
-                <h3 className="text-2xl md:text-4xl font-black uppercase tracking-tighter leading-none">Net Period Margin</h3>
-                <p className="text-sm font-medium text-slate-400 max-w-sm">Calculated after direct COGS, payroll, and pro-rata overhead distribution.</p>
+        <div className="p-10 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-3xl text-left relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10"><DollarSign className="w-48 h-48" /></div>
+            <div className="space-y-3 relative z-10">
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
+                <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9]">True Net Period Yield</h3>
+                <p className="text-sm font-medium text-slate-400 max-w-sm">Calculated post-payroll, direct treatment overhead, and full pro-rata fixed expense distribution.</p>
             </div>
-            <div className="flex items-baseline gap-3 relative z-10">
-                <span className={cn("text-5xl md:text-8xl font-black tracking-tighter font-mono", (financials.grossProfit - financials.payrollExpense - periodOverhead) >= 0 ? "text-primary" : "text-destructive")}>
-                    ${(financials.grossProfit - financials.payrollExpense - periodOverhead).toFixed(0)}
+            <div className="flex items-baseline gap-4 relative z-10">
+                <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono", (overall.totalRevenue - contributionData.reduce((acc,d) => acc + (d.stats.totalPay - d.stats.tips + d.stats.costOfGoodsSold + d.overheadShare), 0)) >= 0 ? "text-primary" : "text-destructive")}>
+                    ${(overall.totalRevenue - contributionData.reduce((acc,d) => acc + (d.stats.totalPay - d.stats.tips + d.stats.costOfGoodsSold + d.overheadShare), 0)).toFixed(0)}
                 </span>
-                <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">USD / Period</span>
+                <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">USD TOTAL</span>
             </div>
         </div>
       </main>
