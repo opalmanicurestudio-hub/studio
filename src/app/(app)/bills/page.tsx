@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -29,7 +28,9 @@ import {
   Loader,
   ExternalLink,
   FileText,
-  Pencil
+  Pencil,
+  ChevronRight,
+  CalendarClock
 } from 'lucide-react';
 import {
   Table,
@@ -64,7 +65,7 @@ import {
 } from '@/components/ui/accordion';
 import { type BillDefinition, type BillInstance, type Transaction } from '@/lib/financial-data';
 import { format as formatTZ, toZonedTime } from 'date-fns-tz';
-import { isPast, isFuture, parseISO } from 'date-fns';
+import { isPast, isFuture, parseISO, addDays, isBefore, startOfDay, endOfDay } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
@@ -88,7 +89,7 @@ const BillFilters = ({
   context: ContextFilter;
 }) => {
   return (
-    <Card className="h-fit sticky top-24 border-2 shadow-sm rounded-3xl overflow-hidden">
+    <Card className="h-fit sticky top-24 border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
       <CardHeader className="bg-muted/5 border-b p-6">
         <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-900">Logic Filters</CardTitle>
       </CardHeader>
@@ -151,7 +152,7 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
                     <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate">{instance.definition.name}</p>
                     {hasLatePenalty && (
                         <p className="text-[8px] font-black text-destructive uppercase tracking-widest mt-0.5 animate-pulse">
-                            +{instance.definition.lateFee?.toFixed(2)} Late Penalty
+                            +${instance.definition.lateFee?.toFixed(2)} Late Penalty
                         </p>
                     )}
                 </div>
@@ -345,6 +346,27 @@ export default function BillsPage() {
     }).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
   }, [contextFilter, statusFilter, instancesWithDefinitions]);
 
+  const { arrears, upcomingSevenDays, futureUnpaid } = useMemo(() => {
+    if (statusFilter !== 'all') return { arrears: [], upcomingSevenDays: [], futureUnpaid: [] };
+    
+    const today = startOfDay(new Date());
+    const sevenDaysFromNow = endOfDay(addDays(today, 7));
+
+    return {
+        arrears: filteredBills.filter(b => b.status === 'overdue'),
+        upcomingSevenDays: filteredBills.filter(b => 
+            b.status !== 'paid' && 
+            b.status !== 'overdue' && 
+            isBefore(parseISO(b.dueDate), sevenDaysFromNow)
+        ),
+        futureUnpaid: filteredBills.filter(b => 
+            b.status !== 'paid' && 
+            b.status !== 'overdue' && 
+            !isBefore(parseISO(b.dueDate), sevenDaysFromNow)
+        )
+    };
+  }, [filteredBills, statusFilter]);
+
   const handleLogPaymentClick = (instance: BillInstance & { definition: BillDefinition }) => {
     setSelectedBill(instance);
   };
@@ -408,6 +430,45 @@ export default function BillsPage() {
 
     setSelectedBill(null);
   };
+
+  const BillSection = ({ title, icon: Icon, items, colorClass }: { title: string, icon: any, items: any[], colorClass?: string }) => {
+    if (items.length === 0) return null;
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center gap-3 px-1">
+                <div className={cn("p-2 rounded-xl", colorClass || "bg-muted/50")}>
+                    <Icon className={cn("w-4 h-4", colorClass ? "text-white" : "text-muted-foreground")} />
+                </div>
+                <h2 className="text-sm font-black uppercase tracking-widest text-slate-900">{title}</h2>
+                <Badge variant="secondary" className="h-5 px-1.5 font-black text-[10px] border-none bg-muted-foreground/10 text-muted-foreground">{items.length}</Badge>
+            </div>
+            <div className="hidden md:block border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                <Table>
+                    <TableHeader className="bg-muted/10 border-b-2">
+                        <TableRow>
+                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Description</TableHead>
+                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Load</TableHead>
+                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
+                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Logic State</TableHead>
+                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Portfolio</TableHead>
+                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {items.map((instance) => (
+                            <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
+            <div className="space-y-4 md:hidden">
+                {items.map((instance) => (
+                    <BillCard key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
+                ))}
+            </div>
+        </div>
+    )
+  }
 
 
   return (
@@ -486,57 +547,81 @@ export default function BillsPage() {
                     context={contextFilter}
                 />
             </div>
-             <div className="md:col-span-2 lg:col-span-3 space-y-6">
-                <Card className="hidden md:block border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                    <CardHeader className="bg-muted/5 border-b p-8">
-                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-left">Fulfillment Archive</CardTitle>
-                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Individual settlement instances for recurring definitions.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <Table>
-                        <TableHeader className="bg-muted/10 border-b-2">
-                            <TableRow>
-                                <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Description</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Load</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Logic State</TableHead>
-                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Portfolio</TableHead>
-                                <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {isLoading ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-64 text-center">
-                                        <div className="flex flex-col items-center gap-4">
-                                            <Loader className="animate-spin h-8 w-8 text-primary" />
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archives...</p>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ) : filteredBills.length > 0 ? (
-                                filteredBills.map((instance) => (
-                                    <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
-                                ))
-                            ) : (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-64 text-center">
-                                        <div className="space-y-2 opacity-30">
-                                            <TrendingDown className="w-12 h-12 mx-auto" />
-                                            <p className="uppercase font-black tracking-widest text-xs">No instances found in this filter window</p>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-                <div className="space-y-4 md:hidden">
-                     {filteredBills.map((instance) => (
-                        <BillCard key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
-                    ))}
-                </div>
+             <div className="md:col-span-2 lg:col-span-3 space-y-12">
+                {isLoading ? (
+                    <div className="flex flex-col items-center justify-center p-24 gap-4">
+                        <Loader className="animate-spin h-8 w-8 text-primary" />
+                        <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archives...</p>
+                    </div>
+                ) : statusFilter === 'all' ? (
+                    <>
+                        <BillSection 
+                            title="Urgent: Arrears (Past Due)" 
+                            icon={AlertTriangle} 
+                            items={arrears} 
+                            colorClass="bg-destructive shadow-lg shadow-destructive/20"
+                        />
+                        <BillSection 
+                            title="Pending: Next 7 Days" 
+                            icon={CalendarClock} 
+                            items={upcomingSevenDays} 
+                            colorClass="bg-primary shadow-lg shadow-primary/20"
+                        />
+                        <BillSection 
+                            title="Strategic Forecast: Future" 
+                            icon={ChevronRight} 
+                            items={futureUnpaid} 
+                        />
+                        {filteredBills.length === 0 && (
+                            <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                                <TrendingDown className="w-16 h-16" />
+                                <p className="font-black uppercase tracking-widest text-sm">Manifest Clear</p>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3 px-1">
+                            <div className="p-2 rounded-xl bg-muted/50">
+                                <Filter className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                            <h2 className="text-sm font-black uppercase tracking-widest text-slate-900">Filtered Archive</h2>
+                        </div>
+                        <div className="hidden md:block border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                            <Table>
+                                <TableHeader className="bg-muted/10 border-b-2">
+                                    <TableRow>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Description</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Load</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Logic State</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Portfolio</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredBills.length > 0 ? filteredBills.map((instance) => (
+                                        <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
+                                    )) : (
+                                        <TableRow>
+                                            <TableCell colSpan={6} className="h-64 text-center">
+                                                <div className="space-y-2 opacity-30">
+                                                    <TrendingDown className="w-12 h-12 mx-auto" />
+                                                    <p className="uppercase font-black tracking-widest text-xs">No matching entries found</p>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                        <div className="space-y-4 md:hidden">
+                            {filteredBills.map((instance) => (
+                                <BillCard key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
 
