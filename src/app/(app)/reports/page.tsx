@@ -35,7 +35,11 @@ import {
   Scale,
   Receipt,
   FileX,
-  Star
+  Star,
+  Calculator,
+  Gavel,
+  History,
+  Box
 } from 'lucide-react';
 import {
   Select,
@@ -156,7 +160,7 @@ export default function ReportsPage() {
   }, [billInstances, dateRange]);
 
   const analyticsData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any, absorbedLedger: [] };
+    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -167,6 +171,10 @@ export default function ReportsPage() {
         if (toDate && d > toDate) return false;
         return true;
     }
+
+    let totalCOGS = 0;
+    let totalSpoilage = 0;
+    let totalHardwareDepreciation = 0;
 
     const performance = staff.map(staffMember => {
         const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
@@ -237,6 +245,7 @@ export default function ReportsPage() {
             const service = services.find(s => s.id === apt.serviceId);
             return acc + (service?.cost || 0);
         }, 0);
+        totalCOGS += costOfGoodsSold;
 
         const clientsServed = new Set(completedAppointments.map(a => a.clientId));
         let rebookedCount = 0;
@@ -301,11 +310,27 @@ export default function ReportsPage() {
         .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
 
     const totalRevenue = performance.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
-    const totalCOGS = performance.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
     
     const avgTicket = periodAppointments.filter(a => a.status === 'completed').length > 0
         ? totalRevenue / periodAppointments.filter(a => a.status === 'completed').length
         : 0;
+
+    // Tax Strategy Metrics
+    const spoilageTransactions = transactions.filter(t => t.category === 'Spoilage' && filterByDate(t.date));
+    totalSpoilage = spoilageTransactions.reduce((acc, t) => acc + t.amount, 0);
+
+    const equipmentItems = inventory.filter(i => i.type === 'equipment');
+    totalHardwareDepreciation = equipmentItems.reduce((acc, item) => {
+        if (!item.lifespanYears || item.lifespanYears === 0) return acc;
+        const annualDepreciation = (item.costPerUnit || 0) / item.lifespanYears;
+        const dailyDepreciation = annualDepreciation / 365;
+        const daysInPeriod = fromDate && toDate ? Math.max(1, differenceInDays(toDate, fromDate)) : 30;
+        return acc + (dailyDepreciation * daysInPeriod);
+    }, 0);
+
+    const suppliesInvestment = transactions
+        .filter(t => t.category === 'Supplies' && filterByDate(t.date))
+        .reduce((acc, t) => acc + t.amount, 0);
 
     return { 
         performance, 
@@ -318,11 +343,18 @@ export default function ReportsPage() {
             recoveryEfficiency: potentialRevenueLost > 0 ? (recoveredFees / potentialRevenueLost) * 100 : 0,
             utilization: performance.length > 0 ? performance.reduce((acc,d) => acc + d.stats.utilizationRate, 0) / performance.length : 0
         },
-        absorbedLedger
+        absorbedLedger,
+        taxSummary: {
+            deductibleCOGS: totalCOGS,
+            spoilageLoss: totalSpoilage,
+            hardwareDepreciation: totalHardwareDepreciation,
+            suppliesInvestment,
+            totalTaxImpact: totalCOGS + totalSpoilage + totalHardwareDepreciation + suppliesInvestment
+        }
     };
-  }, [staff, appointments, services, transactions, activityLogs, dateRange, clients]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange, clients, inventory]);
 
-  const { performance, overall, absorbedLedger } = analyticsData;
+  const { performance, overall, absorbedLedger, taxSummary } = analyticsData;
 
   const contributionData = useMemo(() => {
       if (performance.length === 0) return [];
@@ -389,8 +421,62 @@ export default function ReportsPage() {
             <KpiStat label="Gross Yield" value={`$${overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
             <KpiStat label="Overall Util." value={`${overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
             <KpiStat label="Avg. Ticket" value={`$${overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
-            <KpiStat label="Fixed Overhead" value={`$${periodOverhead.toFixed(0)}`} subLabel="Rent & Recurring load" icon={Landmark} />
+            <KpiStat label="Fixed Overhead" value={`$${periodOverhead.toFixed(0)}`} subLabel="Rent & Recurring load" icon={Landmark} colorClass="text-indigo-600" />
         </div>
+
+        <section className="space-y-6">
+            <div className="flex items-center gap-2 px-1 text-left">
+                <ShieldCheck className="w-4 h-4 text-green-600" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy & COGS Audit</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2 text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inventory Consumption (COGS)</p>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 text-left">
+                        <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.deductibleCOGS.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Direct treatment materials</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2 text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Asset Depreciation</p>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 text-left">
+                        <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.hardwareDepreciation.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Hardware life loss (period)</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2 text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inventory Shrinkage</p>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 text-left">
+                        <p className="text-3xl font-black font-mono tracking-tighter text-destructive">${taxSummary.spoilageLoss.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-destructive/60 uppercase mt-1">Deductible spoilage loss</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5">
+                    <CardHeader className="p-6 pb-2 text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Total Deductible Basis</p>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 text-left">
+                        <p className="text-3xl font-black font-mono tracking-tighter text-green-600">${taxSummary.totalTaxImpact.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-green-700/60 uppercase mt-1">Ready for Schedule C</p>
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="p-6 rounded-3xl border-2 border-dashed bg-muted/10 flex items-start gap-4">
+                <Gavel className="w-6 h-6 text-primary shrink-0 mt-1 opacity-40" />
+                <div className="space-y-1 text-left">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-900">Tax Protocol Guidance</p>
+                    <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                        Tracking supply usage via service formulas creates a precise audit trail for Cost of Goods Sold. Ensure all shipments are logged in "Purchase Orders" to capture shipping and taxes, which further increases your deductible basis. Spoilage write-offs should be certified monthly to capture inventory shrinkage.
+                    </p>
+                </div>
+            </div>
+        </section>
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
