@@ -66,7 +66,8 @@ import {
   TrendingUp,
   Activity,
   Target,
-  ListChecks
+  ListChecks,
+  Clock
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -102,7 +103,7 @@ const BillItemRow = ({
                      {!isEditing && (
                         <div className="flex items-center gap-2 text-muted-foreground mt-1 opacity-40">
                             {bill.dueDay && <div className="flex items-center gap-1 text-[8px] font-black uppercase"><Calendar className="w-2.5 h-2.5" /> Day {bill.dueDay}</div>}
-                            {bill.paymentUrl && <div className="flex items-center gap-1 text-[8px] font-black uppercase"><LinkIcon className="w-2.5 h-2.5" /> Link</div>}
+                            {bill.lateFee && <div className="flex items-center gap-1 text-[8px] font-black uppercase text-destructive"><AlertTriangle className="w-2.5 h-2.5" /> ${bill.lateFee} Penalty</div>}
                         </div>
                     )}
                   </div>
@@ -128,15 +129,31 @@ const BillItemRow = ({
                 <AccordionTrigger className="text-[9px] font-black uppercase tracking-widest justify-start gap-2 p-0 hover:no-underline text-primary/60">Configure Logic & Alerts</AccordionTrigger>
                 <AccordionContent className="pt-4 space-y-4">
                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label htmlFor={`dueDay-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day</Label>
                             <Input id={`dueDay-${bill.title}`} type="number" placeholder="1" value={bill.dueDay || ''} onChange={(e) => onBillChange(bill.title, 'dueDay', parseInt(e.target.value) || undefined)} className="h-9 rounded-lg border-2 font-black text-center" />
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label htmlFor={`paymentUrl-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
                              <div className="relative">
                                 <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
                                 <Input id={`paymentUrl-${bill.title}`} placeholder="https://..." value={bill.paymentUrl || ''} onChange={(e) => onBillChange(bill.title, 'paymentUrl', e.target.value)} className="pl-7 h-9 rounded-lg border-2 font-medium text-[10px]" />
+                            </div>
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5 text-left">
+                            <Label htmlFor={`lateFee-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
+                                <Input id={`lateFee-${bill.title}`} type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.title, 'lateFee', parseFloat(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white" />
+                            </div>
+                        </div>
+                        <div className="space-y-1.5 text-left">
+                            <Label htmlFor={`lateByDay-${bill.title}`} className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
+                            <div className="relative">
+                                <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
+                                <Input id={`lateByDay-${bill.title}`} type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.title, 'lateByDay', parseInt(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
                             </div>
                         </div>
                      </div>
@@ -459,7 +476,7 @@ export default function FinancialFoundationPage() {
                 {isEditing ? (
                     <>
                         <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-14 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                        <Button onClick={handleEditToggle} className="flex-1 sm:w-auto h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Architecture</Button>
+                        <Button onClick={handleEditToggle} className="flex-1 sm:w-auto h-14 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Architecture</Button>
                     </>
                 ) : (
                     <Button onClick={handleEditToggle} className="w-full sm:w-auto h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><Edit className="mr-2 h-4 w-4" />Modify Profiles</Button>
