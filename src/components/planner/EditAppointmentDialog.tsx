@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -40,13 +40,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
+import { 
+  CalendarIcon, 
+  PlusCircle, 
+  Trash2, 
+  AlertTriangle, 
+  ChevronLeft, 
+  ChevronRight, 
+  Briefcase, 
+  User, 
+  Lock, 
+  Users, 
+  Sparkles, 
+  Clock, 
+  Activity, 
+  ArrowRight, 
+  Check, 
+  Tag, 
+  List,
+  ShoppingCart,
+  MapPin,
+  FlaskConical
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, InventoryItem, Event } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
+import { Client, Service, Appointment, InventoryItem, Event, Staff } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -54,120 +73,64 @@ import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { Separator } from '../ui/separator';
+import { motion, AnimatePresence } from 'framer-motion';
 
-const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
-    const isMobile = useIsMobile();
-    const [isOpen, setIsOpen] = useState(false);
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    if (!timeStr) return d;
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+    d.setHours(hours, minutes);
+    return d;
+}
 
-    const handleSelect = (selectedDate: Date | undefined) => {
-        if (selectedDate) {
-            onDateChange(selectedDate);
-            setIsOpen(false);
-        }
-    }
-    
-    const TriggerContent = (
-        <span className="flex items-center">
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {date ? format(date, 'PPP') : "Pick a date"}
-        </span>
-    );
-    
-    const CalendarComponent = (
-        <Calendar
-            mode="single"
-            selected={date}
-            onSelect={handleSelect}
-            initialFocus
-            classNames={{
-                caption_label: "text-base font-medium",
-                day: "h-10 w-10",
-                day_selected: "rounded-md",
-                day_today: "rounded-md",
-            }}
-        />
-    );
-
-    if (isMobile) {
-        return (
-            <>
-                <Button
-                    variant="outline"
-                    className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
-                    onClick={() => setIsOpen(true)}
-                >
-                    {TriggerContent}
-                </Button>
-                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                    <SheetContent side="bottom">
-                         <SheetHeader className="text-left">
-                            <SheetTitle>Select Date</SheetTitle>
-                        </SheetHeader>
-                        <div className="flex justify-center py-4">
-                            {CalendarComponent}
-                        </div>
-                    </SheetContent>
-                </Sheet>
-            </>
-        )
-    }
-
-    return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger
-                asChild
-            >
-                <Button
-                    variant="outline"
-                    className={cn(
-                        "w-full justify-start text-left font-normal h-12",
-                        !date && "text-muted-foreground"
-                    )}
-                >
-                    {TriggerContent}
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-                {CalendarComponent}
-            </PopoverContent>
-        </Popover>
-    );
-};
+const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
+    <div className="flex items-center gap-4 py-2">
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
+            <Icon className="w-5 h-5" />
+        </div>
+        <div className="space-y-0.5 text-left">
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+        </div>
+    </div>
+);
 
 type EditableFormulaItem = {
     id: string; // productId
     name: string;
     quantity: number;
     unit: string;
+    costPerUnit: number;
 };
-
 
 const EditAppointmentForm = ({ 
     appointment,
     client, 
-    service,
-    appointments,
-    events,
     services,
     onConfirm
 }: { 
     appointment: Appointment;
     client: Client;
-    service: Service;
-    appointments: Appointment[];
-    events: Event[];
     services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
-    const { inventory } = useInventory();
+    const { inventory, staff, appointments, events, scheduleProfiles } = useInventory();
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const { toast } = useToast();
 
-    const [selectedClientId, setSelectedClientId] = useState<string>(appointment.clientId);
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
-    const [date, setDate] = useState<Date>(appointment.startTime);
-    const [startTime, setStartTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
+    const [selectedStaffId, setSelectedStaffId] = useState<string>(appointment.staffId || '');
+    const [date, setDate] = useState<Date>(safeDate(appointment.startTime));
+    const [startTime, setStartTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    const [notes, setNotes] = useState(appointment.notes || '');
     
     const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -175,89 +138,82 @@ const EditAppointmentForm = ({
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
+    const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
     useEffect(() => {
-        setSelectedClientId(appointment.clientId);
-        setSelectedServiceId(appointment.serviceId);
-        setDate(appointment.startTime);
-        setStartTime(format(appointment.startTime, 'HH:mm'));
-
         const initialAddons = (appointment.addOnIds || [])
             .map(id => services.find(s => s.id === id))
             .filter((s): s is Service => !!s);
         setSelectedAddOns(initialAddons);
 
-        const currentService = services.find(s => s.id === appointment.serviceId);
-        const formula = currentService?.products?.map(p => ({
+        const initialFormula = appointment.checkoutState?.formula || selectedService?.products?.map(p => ({
             id: p.id,
             name: p.name,
             quantity: p.quantityUsed,
             unit: p.unit || 'uses',
+            costPerUnit: p.costPerUnit || 0,
         })) || [];
-        setEditableFormula(formula);
+        setEditableFormula(initialFormula);
+    }, [appointment, services, selectedService]);
 
-    }, [appointment, services]);
+    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
-    const timeOptions = useMemo(() => {
-        const options = [];
-        if (!selectedService || !date) return [];
-
-        const dayStart = setHours(startOfDay(date), 0);
-        const dayEnd = setHours(startOfDay(date), 24);
+    const timeSlots = useMemo(() => {
+        if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
+        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
+        const dayName = format(date, 'eeee').toLowerCase();
         
-        const existingAppointmentsOnDate = appointments.filter(
-            apt => apt.id !== appointment.id && format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-        ).map(apt => {
-            const service = services.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
-            return {
-                start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter),
-                staffId: apt.staffId
-            }
+        let workingHours;
+        const staffDaySchedule = selectedStaff?.availability?.week?.[dayName as keyof typeof selectedStaff.availability.week];
+        if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
+        else workingHours = publicScheduleProfile?.week?.[dayName];
+        
+        if (!workingHours || !workingHours.enabled) return [];
+        const openT = timeStringToDate(workingHours.start, date);
+        const closeT = timeStringToDate(workingHours.end, date);
+        const busyIntervals: { start: Date, end: Date }[] = [];
+
+        (appointments || []).filter(apt => {
+            if (!isSameDay(safeDate(apt.startTime), date) || apt.id === appointment.id) return false;
+            if (selectedStaffId && apt.staffId !== selectedStaffId) return false;
+            return true;
+        }).forEach(apt => {
+            const svc = services.find(s => s.id === apt.serviceId);
+            busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(svc?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (svc?.padAfter || 0)) });
         });
 
-        const blockedEventsOnDate = events.filter(
-            evt => evt.type === 'blocked' && 
-            format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd') &&
-            (!evt.staffId || evt.staffId === 'all' || evt.staffId === appointment.staffId)
-        ).map(evt => ({
-            start: evt.startTime,
-            end: evt.endTime
-        }));
+        (events || []).filter(evt => {
+            if (!isSameDay(safeDate(evt.startTime), date) || evt.type !== 'blocked') return false;
+            return !evt.staffId || evt.staffId === 'all' || (selectedStaffId && evt.staffId === selectedStaffId);
+        }).forEach(evt => { busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) }); });
 
-        const combinedBusyIntervals = [...existingAppointmentsOnDate, ...blockedEventsOnDate];
-
-        for (let i = dayStart.getTime(); i < dayEnd.getTime(); i += 15 * 60000) {
-            const potentialStartTime = new Date(i);
-            
-            const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-
-            const isOverlapping = combinedBusyIntervals.some(interval => {
-                if ('staffId' in interval && interval.staffId !== appointment.staffId) return false;
-                
-                return areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    { start: interval.start, end: interval.end },
-                    { inclusive: false }
-                );
-            });
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
+        const options: string[] = [];
+        let currentTime = openT;
+        const now = new Date();
+        if (isToday(date) && now > openT) {
+            const minSinceStart = (now.getHours() * 60) + now.getMinutes();
+            const busStartMin = (openT.getHours() * 60) + openT.getMinutes();
+            const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
+            if (skip > 0) currentTime = addMinutes(openT, skip * bookingInterval);
         }
         
-        const originalTimeFormatted = format(appointment.startTime, 'HH:mm');
-        if (!options.includes(originalTimeFormatted) && format(appointment.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')) {
-            options.push(originalTimeFormatted);
+        while (currentTime < closeT) {
+            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
+            if (potentialEnd > closeT) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
+            currentTime = addMinutes(currentTime, bookingInterval);
+        }
+        
+        const originalTime = format(safeDate(appointment.startTime), 'HH:mm');
+        if (isSameDay(date, safeDate(appointment.startTime)) && !options.includes(originalTime)) {
+            options.push(originalTime);
             options.sort();
         }
 
         return options;
-    }, [date, selectedService, appointments, events, services, appointment.id, appointment.startTime, appointment.staffId]);
+    }, [date, selectedStaffId, selectedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services, appointment]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
@@ -265,78 +221,61 @@ const EditAppointmentForm = ({
             setClashingItem(null);
             return;
         }
-
         const [hours, minutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-        
         const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
         const endDateTime = addMinutes(startDateTime, totalDuration);
-
         const newInterval = { start: startDateTime, end: endDateTime };
 
         const clashApt = appointments.find(apt => {
             if (apt.id === appointment.id) return false;
-            if (appointment.staffId && apt.staffId !== appointment.staffId) return false;
-            
-            return areIntervalsOverlapping(newInterval, { 
-                start: apt.startTime, 
-                end: apt.endTime 
-            }, { inclusive: false });
+            if (selectedStaffId && apt.staffId !== selectedStaffId) return false;
+            return areIntervalsOverlapping(newInterval, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false });
         });
 
         if (clashApt) {
             setIsOverlapping(true);
             const svc = services.find(s => s.id === clashApt.serviceId);
-            setClashingItem({ type: 'appointment', details: `'${svc?.name || 'Service'}' for ${clashApt.clientName || 'Client'}`, time: `${format(clashApt.startTime, 'h:mm a')} - ${format(clashApt.endTime, 'h:mm a')}` });
+            setClashingItem({ type: 'appointment', details: `'${svc?.name || 'Service'}' for ${clashApt.clientName || 'Client'}`, time: `${format(safeDate(clashApt.startTime), 'h:mm a')} - ${format(safeDate(clashApt.endTime), 'h:mm a')}` });
             return;
         }
 
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
-            if (evt.staffId && evt.staffId !== 'all' && appointment.staffId && evt.staffId !== appointment.staffId) return false;
-            
-            return areIntervalsOverlapping(newInterval, { 
-                start: evt.startTime, 
-                end: evt.endTime 
-            }, { inclusive: false });
+            if (evt.staffId && evt.staffId !== 'all' && selectedStaffId && evt.staffId !== selectedStaffId) return false;
+            return areIntervalsOverlapping(newInterval, { start: safeDate(evt.startTime), end: safeDate(evt.endTime) }, { inclusive: false });
         });
 
         if (clashEvt) {
             setIsOverlapping(true);
-            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(clashEvt.startTime, 'h:mm a')} - ${format(clashEvt.endTime, 'h:mm a')}` });
+            setClashingItem({ type: 'event', details: `'${clashingItem?.title}' event`, time: `${format(safeDate(clashEvt.startTime), 'h:mm a')} - ${format(safeDate(clashEvt.endTime), 'h:mm a')}` });
             return;
         }
-
         setIsOverlapping(false);
         setClashingItem(null);
-    }, [date, startTime, selectedService, appointments, services, appointment, events]);
+    }, [date, startTime, selectedService, appointments, services, appointment, events, selectedStaffId]);
 
     const handleSubmit = () => {
-        if (!selectedClientId || !selectedService || !date || !startTime) return;
-
+        if (!selectedService || !date || !startTime) return;
         const [hours, minutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-
-        const endDateTime = new Date(startDateTime.getTime() + (selectedService.duration * 60000));
+        const endDateTime = addMinutes(startDateTime, selectedService.duration);
 
         const allServicesInApt = [selectedService, ...selectedAddOns];
         const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
 
         const updatedAppointment: Appointment = {
             ...appointment,
-            clientId: selectedClientId,
             serviceId: selectedServiceId,
-            startTime: startDateTime,
-            endTime: endDateTime,
+            staffId: selectedStaffId,
+            startTime: startDateTime.toISOString(),
+            endTime: endDateTime.toISOString(),
             addOnIds: selectedAddOns.map(s => s.id),
             requiredResourceIds: allRequiredResourceIds,
+            notes,
         };
         
-        if (isOverlapping) {
-            setShowConfirmation(true);
-        } else {
-            onConfirm(updatedAppointment);
-        }
+        onConfirm(updatedAppointment);
     }
     
     const handleAddProduct = (products: InventoryItem[]) => {
@@ -344,189 +283,191 @@ const EditAppointmentForm = ({
         id: p.id,
         name: p.name,
         quantity: 1, 
-        unit: p.unit || 'unit',
+        unit: p.costingMethod === 'uses' ? (p.useUnit || 'uses') : (p.unit || 'unit'),
+        costPerUnit: p.costPerUnit || 0
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
       setIsProductBrowserOpen(false);
     };
 
-    const removeProduct = (productId: string) => {
-        setEditableFormula(prev => prev.filter(item => item.id !== productId));
-    };
-
-    const handleApplyClientFormula = (formulaName: string) => {
-        if (!client) return;
-        const formula = client.customFormulas?.find(f => f.name === formulaName);
-        if (!formula) return;
-        const newFormula: EditableFormulaItem[] = formula.items.map(item => ({
-            id: item.productId,
-            name: item.productName,
-            quantity: item.quantityUsed,
-            unit: item.unit,
-        }));
-        setEditableFormula(newFormula);
-    };
-
-
-    const removeAddOn = (addOnId: string) => {
-        setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
-    };
-    
     return (
-        <>
-            <form id="edit-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-                <ScrollArea className="h-[70vh] pr-6">
-                    <div className="space-y-6">
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Client & Service</h3>
-                            <div className="space-y-2">
-                                <Label htmlFor="client-edit">Client</Label>
-                                <div className="flex gap-2">
-                                    <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-                                        <SelectTrigger id="client-edit">
-                                        <SelectValue placeholder="Select an existing client" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                        {[client].map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="service-edit">Service</Label>
-                                <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
-                                    <SelectTrigger id="service-edit">
-                                    <SelectValue placeholder="Select a service" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                    {services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+        <div className="space-y-10 py-4">
+            <div className="space-y-6">
+                <SectionHeader icon={User} title="Engagement" />
+                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
+                    <CardContent className="p-6 flex items-center gap-6 text-left">
+                        <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-3xl shrink-0">
+                            <AvatarImage src={client.avatarUrl} className="object-cover" />
+                            <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                            <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5 opacity-60 truncate">{client.email || 'No email on record'}</p>
                         </div>
+                    </CardContent>
+                </Card>
 
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-medium">Product Formula</h3>
-                                {client?.customFormulas && client.customFormulas.length > 0 && (
-                                    <div className="w-full sm:w-auto sm:min-w-[200px]">
-                                        <Select onValueChange={handleApplyClientFormula}>
-                                            <SelectTrigger className="h-8 text-xs">
-                                                <SelectValue placeholder="Load client formula..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {client.customFormulas.map(f => (
-                                                    <SelectItem key={f.name} value={f.name}>{f.name}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="service-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Menu</Label>
+                        <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
+                            <SelectTrigger id="service-edit" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold uppercase text-xs tracking-tight">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                {services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="staff-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Professional</Label>
+                        <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
+                            <SelectTrigger id="staff-edit" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                {selectedStaff ? (
+                                    <div className="flex items-center gap-3">
+                                        <Avatar className="h-7 w-7 border shadow-sm rounded-xl">
+                                            <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black text-[9px]">{(selectedStaff.name || 'S').charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="font-bold uppercase tracking-tight text-xs">{selectedStaff.name}</span>
                                     </div>
-                                )}
-                            </div>
-                            <Card>
-                                <CardContent className="p-2 space-y-2">
-                                {editableFormula.length > 0 ? (
-                                    editableFormula.map(item => (
-                                    <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                        <span className="text-sm font-medium">{item.name}</span>
+                                ) : <SelectValue placeholder="Select Pro" />}
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                {staff.map(s => (
+                                    <SelectItem key={s.id} value={s.id} className="rounded-xl">
+                                        <div className="flex items-center gap-3 py-1">
+                                            <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                                <AvatarImage src={s.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="font-black text-[9px] bg-primary/10 text-primary">{(s.name || 'S').charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span className="font-bold uppercase tracking-tight text-xs">{s.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+            </div>
+
+            <Separator className="border-dashed" />
+
+            <div className="space-y-8">
+                <div className="flex items-center justify-between px-1">
+                    <SectionHeader icon={FlaskConical} title="Product Formula" />
+                    <Button variant="ghost" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button" className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                        <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                    </Button>
+                </div>
+                <div className="space-y-3">
+                    {editableFormula.length > 0 ? (
+                        <div className="grid gap-2">
+                            {editableFormula.map(item => (
+                                <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
+                                    <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{item.name}</span>
+                                    <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-2">
-                                            <Input
-                                                type="number"
-                                                value={item.quantity}
+                                            <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
+                                            <Input 
+                                                type="number" 
+                                                value={item.quantity} 
                                                 onChange={(e) => {
                                                     const newQty = parseFloat(e.target.value) || 0;
                                                     setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
                                                 }}
-                                                className="w-16 h-8 text-center"
-                                                step="0.1"
+                                                className="w-16 h-9 rounded-lg border-2 text-center font-black font-mono" 
+                                                step="0.1" 
                                             />
-                                            <span className="text-xs text-muted-foreground">{item.unit}</span>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeProduct(item.id)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            <span className="text-[9px] font-black uppercase text-muted-foreground w-8 opacity-60 truncate">{item.unit}</span>
                                         </div>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setEditableFormula(prev => prev.filter(p => p.id !== item.id))}><Trash2 className="w-4 h-4" /></Button>
                                     </div>
-                                    ))
-                                ) : (
-                                    <p className="text-center text-sm text-muted-foreground p-3">No products in formula.</p>
-                                )}
-                                </CardContent>
-                            </Card>
-                            <div className='flex gap-2'>
-                                <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Add-on Services</h3>
-                                {selectedAddOns.length > 0 ? (
-                                <Card>
-                                    <CardContent className="p-2 space-y-2">
-                                        {selectedAddOns.map(item => (
-                                            <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                                <span className="text-sm font-medium">{item.name}</span>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        ))}
-                                    </CardContent>
-                                </Card>
-                            ) : (
-                                <Card>
-                                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                                        No add-ons selected.
-                                    </CardContent>
-                                </Card>
-                            )}
-                            <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Date & Time</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="date-edit">Date</Label>
-                                    <DatePicker date={date} onDateChange={setDate} />
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="start-time-edit">Start Time</Label>
-                                    <Select onValueChange={setStartTime} value={startTime}>
-                                        <SelectTrigger id="start-time-edit" disabled={!selectedService}>
-                                            <SelectValue placeholder="Select a time" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeOptions.map(time => (
-                                                <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                            {isOverlapping && (
-                                <Alert variant="destructive" className="mt-2">
-                                    <AlertTriangle className="h-4 w-4" />
-                                    <AlertTitle>Potential Double Booking</AlertTitle>
-                                    <AlertDescription className="space-y-1">
-                                        <p>This new time slot overlaps with an existing item.</p>
-                                        {clashingItem && (
-                                            <div className="pt-1 mt-1 border-t border-destructive/20">
-                                                <p className="font-bold">Clashes with: {clashingItem.details}</p>
-                                                <p className="text-xs opacity-80">{clashingItem.time}</p>
-                                            </div>
-                                        )}
-                                    </AlertDescription>
-                                </Alert>
-                            )}
+                            ))}
                         </div>
+                    ) : (
+                        <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-4">
+                            <Activity className="w-12 h-12" />
+                            <p className="text-[10px] font-black uppercase tracking-widest">No Products in Formula</p>
+                        </div>
+                    )}
+                </div>
+            </div>
 
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Notes</h3>
-                            <Textarea rows={4} placeholder="Add any appointment-specific notes..."/>
+            <Separator className="border-dashed" />
+
+            <div className="space-y-8">
+                <SectionHeader icon={CalendarCheck} title="Timing" />
+                <div className="space-y-3 text-left">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
+                    <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
+                        <div className="flex justify-between items-center px-2">
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
+                            <span className="font-black uppercase tracking-widest text-sm">{format(date, 'MMMM yyyy')}</span>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                        </div>
+                        <div className="grid grid-cols-7 gap-3">
+                            {weekDays.map(day => (
+                                <button 
+                                    key={day.toISOString()} 
+                                    onClick={() => setDate(day)} 
+                                    disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                    className={cn(
+                                        "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", 
+                                        isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
+                                        (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                    )} 
+                                    type="button"
+                                >
+                                    <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
+                                    <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-8 border-t-2 border-dashed border-white/50">
+                            {timeSlots.map(time => (
+                                <Button 
+                                    key={time} 
+                                    variant={startTime === time ? 'default' : 'outline'} 
+                                    onClick={() => setStartTime(time)} 
+                                    type="button"
+                                    className={cn(
+                                        "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", 
+                                        startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                    )}
+                                >
+                                    {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                </Button>
+                            ))}
+                            {timeSlots.length === 0 && (<div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
                         </div>
                     </div>
-                </ScrollArea>
-            </form>
+                </div>
+                {isOverlapping && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                        <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl" style={{ '--primary': '0 84.2% 60.2%' } as any}>
+                            <AlertTriangle className="h-6 w-6" />
+                            <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Clash Warning</AlertTitle>
+                            <AlertDescription className="space-y-3 pt-1">
+                                <p className="text-xs font-bold leading-relaxed opacity-80 uppercase">This modification overlaps with an existing agenda item.</p>
+                                {clashingItem && (
+                                    <div className="pt-3 border-t border-destructive/20">
+                                        <p className="font-black text-xs uppercase tracking-tight">{clashingItem.details}</p>
+                                        <p className="text-[10px] font-black opacity-60 mt-1 uppercase tracking-widest">{clashingItem.time}</p>
+                                    </div>
+                                )}
+                            </AlertDescription>
+                        </Alert>
+                    </motion.div>
+                )}
+            </div>
+
+            <div className="space-y-4 pt-6 border-t border-dashed text-left">
+                <Label htmlFor="notes-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Protocol Notes</Label>
+                <Textarea id="notes-edit" value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="Specific strategic notes for this session..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
+            </div>
+
             <BrowseProductsDialog
                 open={isProductBrowserOpen}
                 onOpenChange={setIsProductBrowserOpen}
@@ -542,76 +483,63 @@ const EditAppointmentForm = ({
                 initialSelected={selectedAddOns}
             />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This new time slot overlaps with {clashingItem?.details || 'an existing item'}. Are you sure you want to proceed?
+                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                    <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
+                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Logic Violation</AlertDialogTitle>
+                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+                            This modification results in a conflict with {clashingItem?.details || 'an existing item'}. Force this record update?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onConfirm({
-                            ...appointment,
-                            clientId: selectedClientId,
-                            serviceId: selectedServiceId,
-                            startTime: setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])),
-                            endTime: addMinutes(setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])), selectedService?.duration || 0),
-                            addOnIds: selectedAddOns.map(s => s.id),
-                        })}>Save Anyway</AlertDialogAction>
+                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                        <Button onClick={() => { onConfirm({ ...appointment, serviceId: selectedServiceId, staffId: selectedStaffId, startTime: setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])).toISOString(), addOnIds: selectedAddOns.map(s => s.id), notes }); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </>
+        </div>
     )
 }
 
-export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
+export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients, services, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
   const isMobile = useIsMobile();
-  const { events } = useInventory();
   const client = clients.find(c => c.id === appointment.clientId);
-  const service = services.find(s => s.id === appointment.serviceId);
 
-  if (!client || !service) return null;
+  if (!client) return null;
 
-  const title = "Edit Appointment";
-  const description = "Modify the details for this appointment.";
+  const dialogTitle = "Edit Record";
+  const dialogDescription = "Modify the detail and logic for this session.";
   
-  const FormContent = <EditAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} events={events || []} services={services} onConfirm={onConfirm} />;
+  const FormContent = <EditAppointmentForm appointment={appointment} client={client} services={services} onConfirm={(apt) => { onConfirm(apt); onOpenChange(false); }} />;
 
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="text-left p-4 border-b">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
-          </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4 border-t">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form="edit-appointment-form" className="w-full">Save Changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
-         <DialogHeader className="p-6 pb-4">
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Refinement</span>
+            </div>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto px-6">
-            {FormContent}
-        </div>
-        <DialogFooter className="p-6 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form="edit-appointment-form">Save Changes</Button>
+        <ScrollArea className="flex-1">
+            <div className="px-8 pb-32">
+                {FormContent}
+            </div>
+        </ScrollArea>
+        <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+          <div className="flex w-full gap-4">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+            <Button onClick={() => {
+                const form = document.getElementById('edit-appointment-form') as HTMLFormElement;
+                if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }} className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Commit Refinements</Button>
+          </div>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </ContentComponent>
+    </DialogContainer>
   );
 };
