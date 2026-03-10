@@ -18,6 +18,14 @@ import {
   AlertTriangle,
   MoreHorizontal,
   CheckCircle,
+  Filter,
+  ArrowRight,
+  Clock,
+  Landmark,
+  TrendingDown,
+  Sparkles,
+  Activity,
+  DollarSign
 } from 'lucide-react';
 import {
   Table,
@@ -75,39 +83,39 @@ const BillFilters = ({
   context: ContextFilter;
 }) => {
   return (
-    <Card className="h-fit sticky top-24">
-      <CardHeader>
-        <CardTitle>Filter Bills</CardTitle>
+    <Card className="h-fit sticky top-24 border-2 shadow-sm rounded-3xl overflow-hidden">
+      <CardHeader className="bg-muted/5 border-b p-6">
+        <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-900">Logic Filters</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>Status</Label>
+      <CardContent className="p-6 space-y-6">
+        <div className="space-y-3">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Archive Status</Label>
           <Select value={status} onValueChange={(value) => onStatusChange(value as StatusFilter)}>
-            <SelectTrigger>
+            <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="unpaid">Unpaid</SelectItem>
-              <SelectItem value="overdue">Overdue</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
+            <SelectContent className="rounded-xl border-2 shadow-2xl">
+              <SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem>
+              <SelectItem value="unpaid" className="font-bold">PENDING SETTLEMENT</SelectItem>
+              <SelectItem value="overdue" className="font-bold text-destructive">OVERDUE ARREARS</SelectItem>
+              <SelectItem value="paid" className="font-bold text-green-600">CERTIFIED PAID</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
-          <Label>Context</Label>
+        <div className="space-y-3">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Entity Context</Label>
           <RadioGroup value={context} onValueChange={(value) => onContextChange(value as ContextFilter)} className="grid grid-cols-3 gap-2">
             <div>
               <RadioGroupItem value="all" id="all" className="peer sr-only" />
-              <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">All</Label>
+              <Label htmlFor="all" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[9px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">All</Label>
             </div>
             <div>
               <RadioGroupItem value="Business" id="business" className="peer sr-only" />
-              <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Business</Label>
+              <Label htmlFor="business" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[9px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Business</Label>
             </div>
             <div>
               <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
-              <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary transition-all cursor-pointer">Personal</Label>
+              <Label htmlFor="personal" className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[9px] font-black uppercase hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer">Personal</Label>
             </div>
           </RadioGroup>
         </div>
@@ -119,33 +127,50 @@ const BillFilters = ({
 
 const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
     const statusConfig = {
-        paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
-        unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
-        'partially-paid': { text: 'Partially Paid', className: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800' },
-        overdue: { text: 'Overdue', className: 'bg-red-100 dark:bg-red-900/50 text-red-700' },
+        paid: { text: 'Paid', className: 'bg-green-500 text-white border-none' },
+        unpaid: { text: 'Unpaid', className: 'bg-muted text-muted-foreground border-none' },
+        'partially-paid': { text: 'Partial', className: 'bg-amber-500 text-white border-none' },
+        overdue: { text: 'Overdue', className: 'bg-destructive text-white border-none animate-pulse' },
     }
 
     return (
-    <TableRow>
-        <TableCell className="font-medium">{instance.definition.name}</TableCell>
-        <TableCell>${instance.amountDue.toFixed(2)}</TableCell>
-        <TableCell>{formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</TableCell>
+    <TableRow className="group hover:bg-primary/[0.02]">
+        <TableCell className="py-5">
+            <div className="flex items-center gap-3">
+                <div className={cn("p-2 rounded-xl border shadow-inner", instance.status === 'overdue' ? 'bg-destructive/5 text-destructive' : 'bg-muted/30 text-slate-400')}>
+                    <Landmark className="w-4 h-4" />
+                </div>
+                <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900">{instance.definition.name}</p>
+            </div>
+        </TableCell>
+        <TableCell className="font-black font-mono text-sm tracking-tighter text-slate-900">${instance.amountDue.toFixed(2)}</TableCell>
+        <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-60">
+            {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}
+        </TableCell>
         <TableCell>
-            <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
+            <Badge variant="secondary" className={cn("h-5 px-2 font-black text-[8px] uppercase tracking-widest shadow-sm", statusConfig[instance.status].className)}>{statusConfig[instance.status].text}</Badge>
         </TableCell>
         <TableCell>
             <Badge
                 variant={instance.definition.context === 'Business' ? 'secondary' : 'outline'}
-                className={cn({
-                    'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': instance.definition.context === 'Business',
-                    'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': instance.definition.context === 'Personal'
+                className={cn("h-5 px-2 rounded-lg font-black text-[8px] uppercase tracking-widest border-2", {
+                    'bg-indigo-50 border-indigo-100 text-indigo-700': instance.definition.context === 'Business',
+                    'bg-purple-50 border-purple-100 text-purple-700': instance.definition.context === 'Personal'
                 })}
                 >
                 {instance.definition.context}
             </Badge>
         </TableCell>
         <TableCell className="text-right">
-             <Button variant="outline" size="sm" disabled={instance.status === 'paid'} onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
+             <Button 
+                variant="ghost" 
+                size="sm" 
+                disabled={instance.status === 'paid'} 
+                onClick={() => onLogPaymentClick(instance)}
+                className="h-8 rounded-xl font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 border border-transparent hover:border-primary/20"
+            >
+                Log Payment
+            </Button>
         </TableCell>
     </TableRow>
     )
@@ -153,51 +178,61 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
 
 const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
      const statusConfig = {
-        paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
-        unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
-        'partially-paid': { text: 'Partially Paid', className: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800' },
-        overdue: { text: 'Overdue', className: 'bg-red-100 dark:bg-red-900/50 text-red-700' },
+        paid: { text: 'Paid', className: 'bg-green-500 text-white' },
+        unpaid: { text: 'Unpaid', className: 'bg-muted text-muted-foreground' },
+        'partially-paid': { text: 'Partial', className: 'bg-amber-500 text-white' },
+        overdue: { text: 'Overdue', className: 'bg-destructive text-white animate-pulse' },
     }
 
     return (
-    <Card>
-        <CardContent className="p-4 space-y-3">
+    <Card className={cn("overflow-hidden border-2 rounded-3xl shadow-sm transition-all", instance.status === 'overdue' ? 'border-destructive/20 bg-destructive/[0.02]' : 'bg-white')}>
+        <CardContent className="p-5 space-y-5 text-left">
             <div className="flex items-start justify-between gap-4">
-                <div>
-                    <p className="font-semibold">{instance.definition.name}</p>
-                    <p className="text-sm text-muted-foreground">Due: {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</p>
+                <div className="min-w-0">
+                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.definition.name}</p>
+                    <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40 mt-1 flex items-center gap-1.5">
+                        <Clock className="w-3 h-3" />
+                        Due: {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}
+                    </p>
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="-mt-1 h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1 rounded-xl">
                             <MoreHorizontal className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Edit Bill</DropdownMenuItem>
-                         <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                    <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                        <DropdownMenuItem className="font-bold text-[10px] uppercase tracking-widest py-2.5">Edit Definition</DropdownMenuItem>
+                         <DropdownMenuItem className="text-destructive font-bold text-[10px] uppercase tracking-widest py-2.5">Terminate Instance</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between gap-4 pt-2 border-t border-dashed">
                 <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
+                    <Badge className={cn("h-5 px-2 font-black text-[8px] uppercase tracking-widest border-none shadow-sm", statusConfig[instance.status].className)}>{statusConfig[instance.status].text}</Badge>
                     <Badge
-                        variant={instance.definition.context === 'Business' ? 'secondary' : 'outline'}
-                        className={cn({
-                            'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': instance.definition.context === 'Business',
-                            'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': instance.definition.context === 'Personal'
+                        variant="outline"
+                        className={cn("h-5 px-2 rounded-lg font-black text-[8px] uppercase tracking-widest border-2", {
+                            'bg-indigo-50 border-indigo-100 text-indigo-700': instance.definition.context === 'Business',
+                            'bg-purple-50 border-purple-100 text-purple-700': instance.definition.context === 'Personal'
                         })}
                     >
                         {instance.definition.context}
                     </Badge>
                 </div>
-                <span className="font-semibold text-lg">${instance.amountDue.toFixed(2)}</span>
+                <span className="font-black text-xl tracking-tighter font-mono text-slate-900">${instance.amountDue.toFixed(2)}</span>
             </div>
         </CardContent>
-        <CardFooter className="p-2 border-t">
-            <Button variant="secondary" className="w-full" disabled={instance.status === 'paid'} onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
-        </CardFooter>
+        <div className="p-3 border-t bg-muted/5">
+            <Button 
+                variant={instance.status === 'overdue' ? 'destructive' : 'outline'} 
+                className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-sm" 
+                disabled={instance.status === 'paid'} 
+                onClick={() => onLogPaymentClick(instance)}
+            >
+                Log Distribution
+            </Button>
+        </div>
     </Card>
     )
 };
@@ -257,7 +292,6 @@ export default function BillsPage() {
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string; receiptUrl?: string }) => {
     if (!selectedBill || !firestore || !user || !tenantId) return;
     
-    // 1. Determine the BillInstance Reference (Handle virtual vs. real IDs)
     const isVirtual = selectedBill.id.startsWith('virtual-');
     const billInstanceRef = isVirtual 
         ? doc(collection(firestore, 'tenants', tenantId, 'billInstances'))
@@ -288,7 +322,6 @@ export default function BillsPage() {
         });
     }
 
-    // 2. Create a new Transaction in Firestore
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
         description: `Payment for ${selectedBill.definition.name}`,
@@ -308,8 +341,8 @@ export default function BillsPage() {
     
     batch.commit().then(() => {
         toast({
-            title: "Payment Logged",
-            description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+            title: "Distribution Logged",
+            description: `Payment of $${paymentData.amount.toFixed(2)} recorded for ${selectedBill.definition.name}.`
         });
     });
 
@@ -318,56 +351,61 @@ export default function BillsPage() {
 
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Bills" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Bills & Recurring Expenses</h1>
-            <p className="text-muted-foreground">
-              A dashboard for all your recurring business and personal expenses.
+    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+      <AppHeader title="Command Ledger" />
+      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
+          <div className="space-y-1">
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Obligations</h1>
+            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+              Recurring expense manifest & settlement hub
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Est. Total Monthly</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+          <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden group">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+              <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary">Manifest Total</CardTitle>
+              <CreditCard className="h-4 w-4 text-primary opacity-40" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${monthlyTotal.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Sum of all monthly bill definitions</p>
+            <CardContent className="p-6 pt-0 text-left">
+              <div className="text-3xl md:text-4xl font-black tracking-tighter font-mono text-primary">${monthlyTotal.toFixed(2)}</div>
+              <p className="text-[9px] font-bold text-primary/60 uppercase mt-1">Sum of monthly definitions</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Upcoming in 30 Days</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <Card className="border-2 shadow-sm rounded-[2.5rem] bg-white overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+              <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">7-Day Deployment</CardTitle>
+              <CalendarDays className="h-4 w-4 text-muted-foreground opacity-40" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${upcomingTotal.toFixed(2)}</div>
-               <p className="text-xs text-muted-foreground">Total amount due soon</p>
+            <CardContent className="p-6 pt-0 text-left">
+              <div className="text-3xl md:text-4xl font-black tracking-tighter font-mono text-slate-900">${upcomingTotal.toFixed(2)}</div>
+               <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-60">Pending immediate settlement</p>
             </CardContent>
           </Card>
-           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Past Due</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-destructive" />
+           <Card className="border-2 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] shadow-xl shadow-destructive/5 overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+              <CardTitle className="text-[10px] font-black uppercase tracking-widest text-destructive">Arrears Alert</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-destructive opacity-40" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive">${pastDueTotal.toFixed(2)}</div>
-               <p className="text-xs text-muted-foreground">Total amount overdue</p>
+            <CardContent className="p-6 pt-0 text-left">
+              <div className="text-3xl md:text-4xl font-black tracking-tighter font-mono text-destructive">${pastDueTotal.toFixed(2)}</div>
+               <p className="text-[9px] font-bold text-destructive/60 uppercase mt-1">Unpaid past due windows</p>
             </CardContent>
           </Card>
         </div>
         
         <div className="md:hidden">
-            <Accordion type="single" collapsible>
-                <AccordionItem value="filters">
-                    <AccordionTrigger>Filter Bills</AccordionTrigger>
-                    <AccordionContent>
+            <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="filters" className="border-none">
+                    <AccordionTrigger className="p-5 bg-white rounded-3xl border-2 shadow-sm hover:no-underline">
+                        <div className="flex items-center gap-3">
+                            <Filter className="w-5 h-5 text-primary" />
+                            <span className="font-black uppercase text-xs tracking-widest text-slate-900">Configure Logic Filters</span>
+                        </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-6">
                         <BillFilters 
                             onStatusChange={setStatusFilter} 
                             onContextChange={setContextFilter} 
@@ -379,7 +417,7 @@ export default function BillsPage() {
             </Accordion>
         </div>
 
-        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
+        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-10 items-start">
             <div className="hidden md:block md:col-span-1 lg:col-span-1">
                 <BillFilters 
                     onStatusChange={setStatusFilter} 
@@ -388,28 +426,48 @@ export default function BillsPage() {
                     context={contextFilter}
                 />
             </div>
-             <div className="md:col-span-2 lg:col-span-3">
-                <Card className="hidden md:block">
-                    <CardHeader>
-                        <CardTitle>Bill Instances</CardTitle>
-                        <CardDescription>A list of all your concrete bill instances, past and present.</CardDescription>
+             <div className="md:col-span-2 lg:col-span-3 space-y-6">
+                <Card className="hidden md:block border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
+                    <CardHeader className="bg-muted/5 border-b p-8">
+                        <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight text-left">Fulfillment Archive</CardTitle>
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Individual settlement instances for recurring definitions.</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-0">
                         <Table>
-                        <TableHeader>
+                        <TableHeader className="bg-muted/10 border-b-2">
                             <TableRow>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Amount</TableHead>
-                                <TableHead>Due Date</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Context</TableHead>
-                                <TableHead className='text-right'>Actions</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Description</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Load</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Logic State</TableHead>
+                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Portfolio</TableHead>
+                                <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filteredBills.map((instance) => (
-                               <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
-                            ))}
+                            {isLoading ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="h-64 text-center">
+                                        <div className="flex flex-col items-center gap-4">
+                                            <Loader className="animate-spin h-8 w-8 text-primary" />
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Archives...</p>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            ) : filteredBills.length > 0 ? (
+                                filteredBills.map((instance) => (
+                                    <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="h-64 text-center">
+                                        <div className="space-y-2 opacity-30">
+                                            <TrendingDown className="w-12 h-12 mx-auto" />
+                                            <p className="uppercase font-black tracking-widest text-xs">No instances found in this filter window</p>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            )}
                         </TableBody>
                         </Table>
                     </CardContent>
