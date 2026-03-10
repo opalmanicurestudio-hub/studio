@@ -23,7 +23,8 @@ import {
   Repeat,
   Zap,
   ArrowRight,
-  Info
+  Info,
+  Landmark
 } from 'lucide-react';
 import {
   Select,
