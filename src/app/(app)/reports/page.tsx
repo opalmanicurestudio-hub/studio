@@ -119,7 +119,6 @@ export default function ReportsPage() {
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
-    // Sum up all bill instances that fall within the period
     return billInstances
         .filter(bi => {
             const d = safeDate(bi.dueDate);
@@ -220,7 +219,6 @@ export default function ReportsPage() {
             return acc + (service?.cost || 0);
         }, 0);
 
-        // Retention & Rebooking logic
         const clientsServed = new Set(completedAppointments.map(a => a.clientId));
         let rebookedCount = 0;
         if (toDate) {
@@ -259,7 +257,7 @@ export default function ReportsPage() {
     
     const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
     const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
-    const payrollExpense = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalPay - d.stats.tips), 0); // Wages + Retail Comm
+    const payrollExpense = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalPay - d.stats.tips), 0);
     
     const outstandingDebt = clients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
 
@@ -425,7 +423,7 @@ export default function ReportsPage() {
                     <div className="text-3xl md:text-4xl font-black tracking-tighter text-indigo-700">${periodOverhead.toFixed(0)}</div>
                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-1 opacity-40">Rent & Recurring load</p>
                 </CardContent>
-            </div>
+            </Card>
         </div>
 
         <section className="space-y-6">
