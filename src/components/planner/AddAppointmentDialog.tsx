@@ -232,8 +232,8 @@ const AddAppointmentForm = ({
     const selectedAddOns = useMemo(() => (services || []).filter(s => (addOnIds || []).includes(s.id)), [services, addOnIds]);
     
     const activeMembership = useMemo(() => {
-        if (!selectedClient || !selectedClient.activeMembershipId || !memberships) return null;
-        return memberships.find(m => m.id === selectedClient.activeMembershipId);
+        if (!selectedClient || (!selectedClient.activeMembershipId && !selectedClient.subscription?.membershipId) || !memberships) return null;
+        return memberships.find(m => m.id === (selectedClient.activeMembershipId || selectedClient.subscription?.membershipId));
     }, [selectedClient, memberships]);
 
     const handleAddOnsChange = (newAddOns: Service[]) => {
@@ -377,7 +377,7 @@ const AddAppointmentForm = ({
                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                             <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl shadow-destructive/5" style={{ '--primary': '0 84.2% 60.2%' } as any}>
                                 <Wallet className="h-6 w-6" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
+                                <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Balance Detected</AlertTitle>
                                 <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
                                     Account balance of <strong>${selectedClient.outstandingBalance!.toFixed(2)}</strong> found. Settle at POS to clear.
                                 </AlertDescription>
@@ -385,7 +385,14 @@ const AddAppointmentForm = ({
                         </motion.div>
                     )}
                     <div className="space-y-3">
-                        <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Rolodex</Label>
+                        <div className="flex items-center justify-between px-1">
+                            <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client Rolodex</Label>
+                            {activeMembership && (
+                                <Badge className="bg-indigo-600 text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
+                                    <Award className="mr-1 h-3 w-3" /> {activeMembership.name}
+                                </Badge>
+                            )}
+                        </div>
                         <div className="flex gap-2">
                             <Controller
                                 name="clientId"
@@ -395,28 +402,53 @@ const AddAppointmentForm = ({
                                         <SelectTrigger id="client" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
                                             {selectedClient ? (
                                                 <div className="flex items-center gap-3">
-                                                    <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
-                                                        <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                                                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span className="uppercase tracking-tight text-xs md:text-sm">{selectedClient.name}</span>
+                                                    <div className="relative shrink-0">
+                                                        <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
+                                                            <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
+                                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        {(selectedClient.activeMembershipId || selectedClient.subscription?.membershipId) && (
+                                                            <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
+                                                                <Award className="w-2 h-2" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="uppercase tracking-tight text-xs md:text-sm truncate">{selectedClient.name}</span>
+                                                        {(selectedClient.activeMembershipId || selectedClient.subscription?.membershipId) && (
+                                                            <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[7px] font-black uppercase tracking-widest shrink-0">MEM</Badge>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ) : (
                                                 <SelectValue placeholder="Select a client" />
                                             )}
                                         </SelectTrigger>
                                         <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                            {(clients || []).map(c => (
-                                                <SelectItem key={c.id} value={c.id} className="rounded-xl">
-                                                    <div className="flex items-center gap-3 py-1">
-                                                        <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
-                                                            <AvatarImage src={c.avatarUrl} className="object-cover" />
-                                                            <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                        </Avatar>
-                                                        <span className="font-bold uppercase tracking-tight">{c.name}</span>
-                                                    </div>
-                                                </SelectItem>
-                                            ))}
+                                            {(clients || []).map(c => {
+                                                const isMem = !!(c.activeMembershipId || c.subscription?.membershipId);
+                                                return (
+                                                    <SelectItem key={c.id} value={c.id} className="rounded-xl">
+                                                        <div className="flex items-center w-full gap-3 py-1">
+                                                            <div className="relative shrink-0">
+                                                                <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                                                    <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                                                    <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                                </Avatar>
+                                                                {isMem && (
+                                                                    <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
+                                                                        <Award className="w-2 h-2" />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <span className="flex-1 font-bold uppercase tracking-tight">{c.name}</span>
+                                                            {isMem && (
+                                                                <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[7px] font-black uppercase tracking-widest shrink-0">Member</Badge>
+                                                            )}
+                                                        </div>
+                                                    </SelectItem>
+                                                )
+                                            })}
                                         </SelectContent>
                                     </Select>
                                 )}
@@ -445,7 +477,7 @@ const AddAppointmentForm = ({
                                                 <SelectValue placeholder="Professional" />
                                             )}
                                         </SelectTrigger>
-                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
                                                 <SelectItem key={s.id} value={s.id} className="rounded-xl">
                                                     <div className="flex items-center gap-3 py-1">
@@ -472,7 +504,7 @@ const AddAppointmentForm = ({
                                         <SelectTrigger id="service" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
                                             <SelectValue placeholder="Select service" />
                                         </SelectTrigger>
-                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {(services || []).filter(s => s.type === 'service').map(s => {
                                                 const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
                                                 return (
@@ -604,7 +636,7 @@ const AddAppointmentForm = ({
                     <AnimatePresence>
                         {watch('isRecurring') && (
                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                                <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner">
+                                <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
                                     <CardContent className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                                         <Controller
                                             name="recurrence.frequency"
