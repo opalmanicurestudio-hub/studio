@@ -28,6 +28,14 @@ import {
   X,
   Loader,
   Search,
+  ArrowRight,
+  ShieldCheck,
+  Tag,
+  Link as LinkIcon,
+  Landmark,
+  ShoppingCart,
+  CalendarCheck,
+  User as UserIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -45,6 +53,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -86,6 +110,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { collection, doc } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
+import Link from 'next/link';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -118,6 +144,150 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
     default:
       return null;
   }
+};
+
+const ReceiptPreviewDialog = ({ url, open, onOpenChange, description }: { url: string, open: boolean, onOpenChange: (open: boolean) => void, description: string }) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-2xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+            <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                <div className="flex items-center gap-3 mb-2">
+                    <Paperclip className="w-5 h-5 text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Digital Proof</span>
+                </div>
+                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 truncate">{description}</DialogTitle>
+            </DialogHeader>
+            <div className="p-8 flex items-center justify-center bg-muted/20">
+                <div className="relative w-full aspect-[3/4] max-h-[60vh] rounded-2xl overflow-hidden border-2 shadow-2xl bg-white">
+                    <Image src={url} alt="Receipt" fill className="object-contain" />
+                </div>
+            </div>
+            <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
+                <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => onOpenChange(false)}>Close Archive</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+);
+
+const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert }: { transaction: Transaction | null, staff: Staff[], open: boolean, onOpenChange: (open: boolean) => void, onRevert: (t: Transaction) => void }) => {
+    if (!transaction) return null;
+    const staffMember = staff.find(s => s.id === transaction.staffId);
+    
+    return (
+        <Sheet open={open} onOpenChange={onOpenChange}>
+            <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col border-l-0 sm:border-l bg-background overflow-hidden">
+                <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
+                    <div className="flex items-center gap-3 mb-2">
+                        <ShieldCheck className="w-5 h-5 text-primary" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Audit Intelligence</span>
+                    </div>
+                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Dossier</SheetTitle>
+                    <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Registry ID: {transaction.id.slice(-8).toUpperCase()}</SheetDescription>
+                </SheetHeader>
+
+                <ScrollArea className="flex-1">
+                    <div className="p-8 space-y-10">
+                        <div className="p-8 rounded-[2.5rem] bg-muted/10 border-4 border-border/50 text-center space-y-4 shadow-inner relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-6 opacity-5"><DollarSign className="w-20 h-20 text-slate-900" /></div>
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Accounting Entry</p>
+                                <p className={cn("text-5xl font-black font-mono tracking-tighter", transaction.type === 'income' ? 'text-green-600' : 'text-destructive')}>
+                                    {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                                </p>
+                            </div>
+                            <div className="flex justify-center gap-2">
+                                <Badge variant="outline" className="font-black uppercase text-[9px] h-6 px-3 border-2">{transaction.type}</Badge>
+                                <Badge className="bg-primary text-white border-none font-black text-[9px] h-6 px-3 uppercase">{transaction.category}</Badge>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 text-left">
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Entity Reference</Label>
+                                <p className="text-xl font-black uppercase tracking-tight text-slate-900">{transaction.description}</p>
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-tight">{transaction.clientOrVendor}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6 pt-4 border-t border-dashed">
+                                <div className="space-y-1">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Timestamp</p>
+                                    <p className="font-black text-sm uppercase tracking-tight">{format(safeDate(transaction.date), 'MMMM d, yyyy')}</p>
+                                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest">{format(safeDate(transaction.date), 'h:mm a')}</p>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Settlement</p>
+                                    <p className="font-black text-sm uppercase tracking-tight">{transaction.paymentMethod}</p>
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{transaction.context} Account</p>
+                                </div>
+                            </div>
+
+                            {staffMember && (
+                                <div className="pt-6 border-t border-dashed space-y-3">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Authorized By</p>
+                                    <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white shadow-sm">
+                                        <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
+                                            <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="font-black">{(staffMember.name || 'S')[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="font-black text-sm uppercase tracking-tight truncate">{staffMember.name}</p>
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{staffMember.role}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(transaction.relatedOrderId || transaction.relatedBillInstanceId || transaction.appointmentId) && (
+                                <div className="pt-6 border-t border-dashed space-y-4">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Protocol Linkages</p>
+                                    <div className="grid gap-2">
+                                        {transaction.relatedOrderId && (
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                                <Link href="/inventory">
+                                                    <ShoppingCart className="mr-3 h-4 w-4 text-primary opacity-40" />
+                                                    View Purchase Order
+                                                </Link>
+                                            </Button>
+                                        )}
+                                        {transaction.appointmentId && (
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                                <Link href="/planner">
+                                                    <CalendarCheck className="mr-3 h-4 w-4 text-primary opacity-40" />
+                                                    Examine Session
+                                                </Link>
+                                            </Button>
+                                        )}
+                                        {transaction.relatedBillInstanceId && (
+                                            <Button variant="outline" asChild className="h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px] tracking-widest bg-white">
+                                                <Link href="/bills">
+                                                    <Landmark className="mr-3 h-4 w-4 text-primary opacity-40" />
+                                                    View Bill Context
+                                                </Link>
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </ScrollArea>
+
+                <SheetFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
+                    <div className="flex flex-col gap-3 w-full">
+                        <Button 
+                            variant="destructive" 
+                            className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-destructive/20"
+                            disabled={transaction.type === 'reversal'}
+                            onClick={() => onRevert(transaction)}
+                        >
+                            <RefreshCw className="mr-2 h-4 w-4" /> 
+                            {transaction.type === 'reversal' ? 'Already Reverted' : 'Revert Protocol Entry'}
+                        </Button>
+                        <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Close Archive</Button>
+                    </div>
+                </SheetFooter>
+            </SheetContent>
+        </Sheet>
+    );
 };
 
 const TransactionFilters = ({ 
@@ -271,9 +441,9 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void }) => {
   return (
-    <TableRow className="group hover:bg-primary/[0.02]">
+    <TableRow className="group hover:bg-primary/[0.02] cursor-pointer" onClick={() => onViewDetails(transaction)}>
       <TableCell>
         <div className="flex items-center gap-4 py-1">
           <div className={cn("p-2 rounded-full", transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
@@ -285,7 +455,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
           </div>
         </div>
       </TableCell>
-      <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">{format(new Date(transaction.date), 'MMM d, p')}</TableCell>
+      <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">{format(safeDate(transaction.date), 'MMM d, p')}</TableCell>
       <TableCell>
         {staffMember ? (
             <div className="flex items-center gap-2">
@@ -317,7 +487,16 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
       <TableCell className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{transaction.category}</TableCell>
       <TableCell className="text-right">
         <div className='flex items-center justify-end gap-3'>
-            {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-primary/40" />}
+            {transaction.hasReceipt && (
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 rounded-full hover:bg-primary/10 group/proof" 
+                    onClick={(e) => { e.stopPropagation(); onPreviewReceipt(transaction); }}
+                >
+                    <Paperclip className="h-4 w-4 text-primary/40 group-hover/proof:text-primary transition-colors" />
+                </Button>
+            )}
             <span className={cn('font-mono text-sm md:text-base font-black tracking-tighter', {
                 'text-green-600': transaction.type === 'income',
                 'text-destructive': transaction.type === 'expense' || transaction.type === 'payment',
@@ -330,13 +509,13 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
       <TableCell>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
               <MoreHorizontal className="h-4 w-4" />
               <span className="sr-only">Actions</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
-            <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRevertClick(transaction); }} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -344,9 +523,9 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick }: { transacti
   );
 };
 
-const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails }: { transaction: Transaction, staffMember?: Staff, onRevertClick: (transaction: Transaction) => void, onPreviewReceipt: (t: Transaction) => void, onViewDetails: (t: Transaction) => void }) => {
     return (
-        <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group">
+        <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group cursor-pointer" onClick={() => onViewDetails(transaction)}>
             <CardContent className="p-5 space-y-4">
                 <div className="flex items-start gap-4">
                     <div className={cn("p-2.5 rounded-2xl shadow-inner", {
@@ -377,7 +556,16 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         })}>
                            {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : transaction.type === 'reversal' ? '' : '+'}${transaction.amount.toFixed(2)}
                         </p>
-                        {transaction.hasReceipt && <Paperclip className="h-3.5 w-3.5 text-primary opacity-40 inline-block mt-1" />}
+                        {transaction.hasReceipt && (
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 rounded-full hover:bg-primary/10 mt-1" 
+                                onClick={(e) => { e.stopPropagation(); onPreviewReceipt(transaction); }}
+                            >
+                                <Paperclip className="h-4 w-4 text-primary opacity-40" />
+                            </Button>
+                        )}
                     </div>
                 </div>
                  <div className="flex items-center justify-between pt-4 border-t border-dashed mt-2">
@@ -399,12 +587,12 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick }: { transact
                         </div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button aria-haspopup="true" size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full group-hover:bg-primary/10">
+                                <Button aria-haspopup="true" size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full group-hover:bg-primary/10" onClick={e => e.stopPropagation()}>
                                     <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2">
-                                <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRevertClick(transaction); }} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest">Revert Entry</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -432,6 +620,8 @@ export default function LedgerPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
   const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
+  const [previewTransaction, setPreviewTransaction] = useState<Transaction | null>(null);
+  const [selectedTransactionForDossier, setSelectedTransactionForDossier] = useState<Transaction | null>(null);
 
   useEffect(() => {
     const now = new Date();
@@ -510,25 +700,27 @@ export default function LedgerPage() {
     setIsAddTxnOpen(false);
   }
   
-  const handleRevertTransaction = () => {
-    if (!transactionToRevert || !firestore || !tenantId) return;
+  const handleRevertTransaction = (target?: Transaction) => {
+    const tToRevert = target || transactionToRevert;
+    if (!tToRevert || !firestore || !tenantId) return;
     
-    if (transactionToRevert.type === 'reversal' || transactionToRevert.reversalOf) {
+    if (tToRevert.type === 'reversal' || tToRevert.reversalOf) {
         toast({ variant: 'destructive', title: "Cannot revert a reversal."});
         setTransactionToRevert(null);
         return;
     }
 
     const reversalTransaction: Omit<Transaction, 'id'> = {
-      ...transactionToRevert,
+      ...tToRevert,
       date: new Date().toISOString(),
-      description: `Reversal of: ${transactionToRevert.description}`,
+      description: `Reversal of: ${tToRevert.description}`,
       type: 'reversal',
-      reversalOf: transactionToRevert.id,
+      reversalOf: tToRevert.id,
     };
     handleAddTransaction(reversalTransaction);
     toast({ title: 'Transaction Reverted', description: 'A reversal transaction has been created.' });
     setTransactionToRevert(null);
+    setSelectedTransactionForDossier(null);
   }
   
   const handlePrint = () => {
@@ -635,6 +827,8 @@ export default function LedgerPage() {
                         transaction={transaction} 
                         staffMember={staff.find(s => s.id === transaction.staffId)}
                         onRevertClick={() => setTransactionToRevert(transaction)} 
+                        onPreviewReceipt={(t) => setPreviewTransaction(t)}
+                        onViewDetails={(t) => setSelectedTransactionForDossier(t)}
                       />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
@@ -666,6 +860,8 @@ export default function LedgerPage() {
                                 transaction={transaction} 
                                 staffMember={staff.find(s => s.id === transaction.staffId)}
                                 onRevertClick={() => setTransactionToRevert(transaction)} 
+                                onPreviewReceipt={(t) => setPreviewTransaction(t)}
+                                onViewDetails={(t) => setSelectedTransactionForDossier(t)}
                             />
                         ))}
                     </div>
@@ -716,16 +912,33 @@ export default function LedgerPage() {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Reversal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left">
+            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left uppercase tracking-tight">
                 You are about to create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;. This will permanently record an opposite entry to zero-out this balance.
             </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3 text-left">
-                <Button onClick={handleRevertTransaction} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, Revert Entry</Button>
-                <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
+                <Button onClick={() => handleRevertTransaction()} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, Revert Entry</Button>
+                <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
+
+    {previewTransaction && (
+        <ReceiptPreviewDialog 
+            open={!!previewTransaction} 
+            onOpenChange={() => setPreviewTransaction(null)} 
+            url={previewTransaction.receiptUrl || ''} 
+            description={previewTransaction.description} 
+        />
+    )}
+
+    <TransactionDossierSheet 
+        open={!!selectedTransactionForDossier} 
+        onOpenChange={() => setSelectedTransactionForDossier(null)} 
+        transaction={selectedTransactionForDossier} 
+        staff={staff}
+        onRevert={handleRevertTransaction}
+    />
     </>
   );
 }
