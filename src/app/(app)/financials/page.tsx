@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -98,7 +99,7 @@ const BillItemRow = ({
                     className="font-bold h-10 border-2 rounded-xl uppercase text-xs" 
                   />
               ) : (
-                  <div className="flex flex-col">
+                  <div className="flex flex-col text-left">
                     <Label className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{bill.title}</Label>
                      {!isEditing && (
                         <div className="flex items-center gap-2 text-muted-foreground mt-1 opacity-40">
@@ -231,7 +232,7 @@ const BillEditor = ({
       <CardContent className="p-4 sm:p-8">
         <Accordion type="multiple" defaultValue={['category-0']} className="w-full space-y-4">
           {categories.map((category, index) => (
-            <AccordionItem key={category.name} value={`category-${index}`} className="border-2 rounded-2xl overflow-hidden bg-white">
+            <AccordionItem key={`category-${category.name}-${index}`} value={`category-${index}`} className="border-2 rounded-2xl overflow-hidden bg-white">
               <AccordionTrigger className="p-4 bg-muted/30 hover:no-underline font-black uppercase text-[10px] tracking-widest text-slate-900 group">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-white rounded-xl shadow-inner border border-border/50 group-data-[state=open]:bg-primary group-data-[state=open]:text-white transition-all duration-500">
@@ -243,7 +244,7 @@ const BillEditor = ({
               <AccordionContent className="p-4 space-y-3">
                   {category.bills.map((bill) => (
                     <BillItemRow
-                      key={bill.id}
+                      key={`bill-${bill.id}`}
                       bill={bill}
                       isEditing={isEditing}
                       onBillChange={(billId, field, value) => onBillChange(category.name, billId, field, value)}
@@ -321,7 +322,7 @@ const FinancialProfileManager = ({
       </CardHeader>
       <CardContent className="p-4 space-y-2">
           {currentProfiles.map((profile: any) => (
-            <div key={profile.id} className={cn("relative group transition-all rounded-2xl border-2 p-3 flex items-center justify-between", profile.isActive ? "border-primary bg-primary/5 shadow-sm" : "border-transparent bg-background hover:bg-muted/30")}>
+            <div key={`profile-mgr-${profile.id}`} className={cn("relative group transition-all rounded-2xl border-2 p-3 flex items-center justify-between", profile.isActive ? "border-primary bg-primary/5 shadow-sm" : "border-transparent bg-background hover:bg-muted/30")}>
               {renamingProfileId === profile.id ? (
                  <div className="flex-1 flex items-center gap-2">
                     <Input value={tempName} autoFocus onChange={(e) => setTempName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setRenamingProfileId(null)} className="h-9 rounded-xl border-2 font-bold uppercase text-xs" />
@@ -370,12 +371,12 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
             <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2"><Target className="w-3 h-3" />Alpha Metric</CardTitle>
             <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Strategic Studio Foundation</CardDescription>
         </CardHeader>
-        <CardContent className="p-8 pt-0 space-y-8">
+        <CardContent className="p-8 pt-0 space-y-8 text-left">
             <div className="text-center space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">Minimum Yield / Hour</p>
                 <p className="text-6xl sm:text-8xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
             </div>
-            <div className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10 text-left">
+            <div className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10">
                 <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Personal Draw / Hr</span> <span className="font-mono text-slate-900">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span></div>
                 <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>OpEx Load / Hr</span> <span className="font-mono text-slate-900">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span></div>
                 <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-primary"><span>Billable Load</span> <span className="font-mono text-xs">{totalHours.toFixed(1)}h/mo</span></div>

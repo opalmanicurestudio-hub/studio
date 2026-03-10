@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -542,7 +543,7 @@ export default function LedgerPage() {
       <AppHeader title="Studio Ledger" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
-            <div className="space-y-1">
+            <div className="space-y-1 text-left">
                 <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Ledger</h1>
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
                     Official financial audit trail
@@ -613,7 +614,7 @@ export default function LedgerPage() {
                       <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Context</TableHead>
                       <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Account</TableHead>
                       <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Category</TableHead>
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] pr-10 text-primary">Amount</TableHead>
+                      <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary pr-10">Amount</TableHead>
                       <TableHead><span className='sr-only'>Actions</span></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -715,7 +716,7 @@ export default function LedgerPage() {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
             <AlertDialogHeader className="p-6 pb-0">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Reversal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed">
+            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed text-left">
                 You are about to create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;. This will permanently record an opposite entry to zero-out this balance.
             </AlertDialogDescription>
             </AlertDialogHeader>
