@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -119,12 +120,12 @@ const QuoteCard = ({ quote, onBookEvent, onDelete }: { quote: QuoteType, onBookE
             
             <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 rounded-xl bg-muted/20 border shadow-inner">
-                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-0.5">Value</p>
+                    <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Value</p>
                     <p className="font-black font-mono text-sm">${(quote.lineItems.reduce((acc, i) => acc + (i.price * i.quantity), 0) + quote.travelExpenses).toFixed(0)}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-primary/[0.03] border border-primary/5 shadow-inner">
                     <p className="text-[8px] font-black uppercase text-primary/40 mb-0.5">Retainer</p>
-                    <p className="font-black font-mono text-sm text-primary">${(quote as any).depositAmount?.toFixed(0) || '0'}</p>
+                    <p className="font-black font-mono text-sm text-primary">${quote.depositAmount?.toFixed(0) || '0'}</p>
                 </div>
             </div>
         </CardContent>

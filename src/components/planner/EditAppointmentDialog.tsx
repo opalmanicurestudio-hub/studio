@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -61,11 +62,12 @@ import {
   List,
   ShoppingCart,
   MapPin,
-  FlaskConical
+  FlaskConical,
+  CalendarCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, InventoryItem, Event, Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
+import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -75,6 +77,15 @@ import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '../ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') return parseISO(val);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    return new Date(val);
+};
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -120,7 +131,7 @@ const EditAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { inventory, staff, appointments, events, scheduleProfiles } = useInventory();
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const { toast } = useToast();
 
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
@@ -185,7 +196,7 @@ const EditAppointmentForm = ({
 
         (events || []).filter(evt => {
             if (!isSameDay(safeDate(evt.startTime), date) || evt.type !== 'blocked') return false;
-            return !evt.staffId || evt.staffId === 'all' || (selectedStaffId && evt.staffId === selectedStaffId);
+            return !evt.staffIds || evt.staffIds.includes('all') || (selectedStaffId && evt.staffIds.includes(selectedStaffId));
         }).forEach(evt => { busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) }); });
 
         const options: string[] = [];
@@ -242,20 +253,21 @@ const EditAppointmentForm = ({
 
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
-            if (evt.staffId && evt.staffId !== 'all' && selectedStaffId && evt.staffId !== selectedStaffId) return false;
+            if (evt.staffIds && !evt.staffIds.includes('all') && selectedStaffId && !evt.staffIds.includes(selectedStaffId)) return false;
             return areIntervalsOverlapping(newInterval, { start: safeDate(evt.startTime), end: safeDate(evt.endTime) }, { inclusive: false });
         });
 
         if (clashEvt) {
             setIsOverlapping(true);
-            setClashingItem({ type: 'event', details: `'${clashingItem?.title}' event`, time: `${format(safeDate(clashEvt.startTime), 'h:mm a')} - ${format(safeDate(clashEvt.endTime), 'h:mm a')}` });
+            setClashingItem({ type: 'event', details: `'${clashEvt.title}' event`, time: `${format(safeDate(clashEvt.startTime), 'h:mm a')} - ${format(safeDate(clashEvt.endTime), 'h:mm a')}` });
             return;
         }
         setIsOverlapping(false);
         setClashingItem(null);
     }, [date, startTime, selectedService, appointments, services, appointment, events, selectedStaffId]);
 
-    const handleSubmit = () => {
+    const handleLocalSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
         if (!selectedService || !date || !startTime) return;
         const [hours, minutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
@@ -291,7 +303,7 @@ const EditAppointmentForm = ({
     };
 
     return (
-        <div className="space-y-10 py-4">
+        <form id="edit-appointment-form" onSubmit={handleLocalSubmit} className="space-y-10 py-4">
             <div className="space-y-6">
                 <SectionHeader icon={User} title="Engagement" />
                 <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
@@ -491,7 +503,7 @@ const EditAppointmentForm = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={() => { onConfirm({ ...appointment, serviceId: selectedServiceId, staffId: selectedStaffId, startTime: setMinutes(setHours(startOfDay(date), parseInt(startTime.split(':')[0])), parseInt(startTime.split(':')[1])).toISOString(), addOnIds: selectedAddOns.map(s => s.id), notes }); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
+                        <Button onClick={() => { handleSubmit(); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
                         <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -539,7 +551,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
             }} className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Commit Refinements</Button>
           </div>
         </DialogFooter>
-      </ContentComponent>
+      </SheetContent>
     </DialogContainer>
   );
 };

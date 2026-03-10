@@ -12,7 +12,6 @@ import {
   TrendingUp, 
   AlertTriangle, 
   Target, 
-  Ban as BanIcon, 
   Users, 
   Wallet, 
   Clock,
@@ -40,7 +39,14 @@ import {
   Gavel,
   History,
   Box,
-  Coins
+  Coins,
+  Building,
+  Monitor,
+  Plane,
+  PlusCircle,
+  FileText,
+  ListChecks,
+  Sparkles
 } from 'lucide-react';
 import {
   Select,
@@ -49,6 +55,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableFooter,
+} from '@/components/ui/table';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, startOfMonth, endOfMonth, subMonths, isSameMonth } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -115,11 +136,11 @@ export default function ReportsPage() {
     appointments,
     services,
     staff,
-    walkIns,
     activityLogs,
     transactions,
     clients,
     billInstances,
+    businessProfiles,
     isLoading
   } = useInventory();
 
@@ -147,29 +168,16 @@ export default function ReportsPage() {
     }
   }, [periodPreset]);
 
-  const periodOverhead = useMemo(() => {
-    if (!billInstances) return 0;
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    return billInstances
-        .filter(bi => {
-            const d = safeDate(bi.dueDate);
-            return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
-        })
-        .reduce((sum, bi) => sum + (bi.amountDue || 0), 0);
-  }, [billInstances, dateRange]);
+  const effectiveFrom = useMemo(() => dateRange?.from ? startOfDay(dateRange.from) : startOfMonth(new Date()), [dateRange]);
+  const effectiveTo = useMemo(() => dateRange?.to ? endOfDay(dateRange.to) : endOfMonth(new Date()), [dateRange]);
 
   const analyticsData = useMemo(() => {
-    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any };
+    if (!staff || !appointments || !services || !transactions || !activityLogs) return { performance: [], overall: {} as any, absorbedLedger: [], taxSummary: {} as any, reconciliation: [] };
     
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
     const filterByDate = (date: any) => {
         const d = safeDate(date);
-        if (fromDate && d < fromDate) return false;
-        if (toDate && d > toDate) return false;
+        if (effectiveFrom && d < effectiveFrom) return false;
+        if (effectiveTo && d > effectiveTo) return false;
         return true;
     }
 
@@ -224,8 +232,8 @@ export default function ReportsPage() {
                 totalBreakMinutes += log.durationMinutes;
             }
         }
-        if(clockInTime && (!toDate || clockInTime < toDate)) {
-            const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
+        if(clockInTime) {
+            const endOfRange = effectiveTo && effectiveTo < new Date() ? effectiveTo : new Date();
             totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
         }
 
@@ -250,9 +258,9 @@ export default function ReportsPage() {
 
         const clientsServed = new Set(completedAppointments.map(a => a.clientId));
         let rebookedCount = 0;
-        if (toDate) {
+        if (effectiveTo) {
             clientsServed.forEach(cId => {
-                const future = appointments.some(a => a.clientId === cId && safeDate(a.startTime) > toDate && a.status !== 'cancelled');
+                const future = appointments.some(a => a.clientId === cId && safeDate(a.startTime) > effectiveTo && a.status !== 'cancelled');
                 if (future) rebookedCount++;
             });
         }
@@ -280,22 +288,50 @@ export default function ReportsPage() {
                 costOfGoodsSold,
                 rebookingRate,
                 totalHours: totalHoursWorked,
-                absorbedRevenue
+                absorbedRevenue,
+                totalSales: serviceRevenue + retailSales
             }
         };
     });
 
+    // --- SMART RECONCILIATION LOGIC ---
+    const activeBusinessProfile = (businessProfiles || []).find((p: any) => p.isActive);
+    const reconciliationCategories = [
+        { label: 'Facility & Rent', icon: Building, color: 'text-blue-600', match: ['rent', 'facility', 'lease', 'mortgage', 'housing'] },
+        { label: 'Utilities', icon: Receipt, color: 'text-amber-600', match: ['electric', 'water', 'gas', 'waste', 'internet', 'phone'] },
+        { label: 'Systems & Software', icon: Monitor, color: 'text-purple-600', match: ['software', 'subscription', 'booking', 'marketing', 'domain'] },
+        { label: 'Travel & Per Diem', icon: Plane, color: 'text-teal-600', match: ['travel', 'flight', 'lodging', 'mileage', 'hotel', 'taxi'] },
+    ];
+
+    const daysInPeriod = differenceInDays(effectiveTo, effectiveFrom) + 1;
+    const proRataFactor = daysInPeriod / 30.44;
+
+    const reconciliation = reconciliationCategories.map(cat => {
+        const foundationItems = (activeBusinessProfile?.categories || [])
+            .find((c: any) => cat.match.some(m => c.name.toLowerCase().includes(m)))?.bills || [];
+        
+        const targetAmount = foundationItems.reduce((acc: number, b: any) => acc + (b.amount * proRataFactor), 0);
+        
+        const settledAmount = transactions
+            .filter(t => t.type === 'payment' && t.context === 'Business' && cat.match.some(m => t.category.toLowerCase().includes(m)) && filterByDate(t.date))
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        return {
+            ...cat,
+            targetAmount,
+            settledAmount,
+            gap: Math.max(0, targetAmount - settledAmount),
+            reconciledAmount: Math.max(targetAmount, settledAmount),
+            foundationItems
+        };
+    });
+
+    const totalReconciledOpEx = reconciliation.reduce((acc, r) => acc + r.reconciledAmount, 0);
+
     const periodAppointments = appointments.filter(a => filterByDate(a.startTime));
     const cancelledApts = periodAppointments.filter(a => a.status === 'cancelled');
-    
-    const potentialRevenueLost = cancelledApts.reduce((acc, a) => {
-        const svc = services.find(s => s.id === a.serviceId);
-        return acc + (svc?.price || 0);
-    }, 0);
-
-    const recoveredFees = transactions
-        .filter(t => t.category === 'Cancellation Fee' && filterByDate(t.date))
-        .reduce((acc, t) => acc + t.amount, 0);
+    const potentialRevenueLost = cancelledApts.reduce((acc, a) => acc + (services.find(s => s.id === a.serviceId)?.price || 0), 0);
+    const recoveredFees = transactions.filter(t => t.category === 'Cancellation Fee' && filterByDate(t.date)).reduce((acc, t) => acc + t.amount, 0);
 
     const absorbedLedger = periodAppointments
         .filter(a => a.cancellationFeeWaived === true)
@@ -311,33 +347,26 @@ export default function ReportsPage() {
         .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
 
     const totalRevenue = performance.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
-    
-    const avgTicket = periodAppointments.filter(a => a.status === 'completed').length > 0
-        ? totalRevenue / periodAppointments.filter(a => a.status === 'completed').length
-        : 0;
+    const avgTicket = periodAppointments.filter(a => a.status === 'completed').length > 0 ? totalRevenue / periodAppointments.filter(a => a.status === 'completed').length : 0;
 
-    // Tax Strategy Metrics
     const spoilageTransactions = transactions.filter(t => t.category === 'Spoilage' && filterByDate(t.date));
     totalSpoilage = spoilageTransactions.reduce((acc, t) => acc + t.amount, 0);
 
     const equipmentItems = inventory.filter(i => i.type === 'equipment');
     totalHardwareDepreciation = equipmentItems.reduce((acc, item) => {
-        if (!item.lifespanYears || item.lifespanYears === 0) return acc;
-        const annualDepreciation = (item.costPerUnit || 0) / item.lifespanYears;
-        const dailyDepreciation = annualDepreciation / 365;
-        const daysInPeriod = fromDate && toDate ? Math.max(1, differenceInDays(toDate, fromDate)) : 30;
-        return acc + (dailyDepreciation * daysInPeriod);
+        if (!item.lifespanYears) return acc;
+        return acc + (((item.costPerUnit || 0) / item.lifespanYears / 365) * daysInPeriod);
     }, 0);
 
-    const suppliesInvestment = transactions
-        .filter(t => t.category === 'Supplies' && filterByDate(t.date))
-        .reduce((acc, t) => acc + t.amount, 0);
+    const suppliesInvestment = transactions.filter(t => t.category === 'Supplies' && filterByDate(t.date)).reduce((acc, t) => acc + t.amount, 0);
 
     return { 
         performance, 
         overall: { 
             totalRevenue, 
             totalCOGS, 
+            totalReconciledOpEx,
+            netIncome: totalRevenue - totalCOGS - totalReconciledOpEx,
             avgTicket,
             potentialRevenueLost,
             recoveredFees,
@@ -351,22 +380,10 @@ export default function ReportsPage() {
             hardwareDepreciation: totalHardwareDepreciation,
             suppliesInvestment,
             totalTaxImpact: totalCOGS + totalSpoilage + totalHardwareDepreciation + suppliesInvestment
-        }
+        },
+        reconciliation
     };
-  }, [staff, appointments, services, transactions, activityLogs, dateRange, clients, inventory]);
-
-  const { performance, overall, absorbedLedger, taxSummary } = analyticsData;
-
-  const contributionData = useMemo(() => {
-      if (performance.length === 0) return [];
-      const overheadPerStaff = periodOverhead / performance.length;
-      return performance.map(d => {
-          const grossYield = d.stats.serviceRevenue + d.stats.retailSales;
-          const totalStaffExpense = (d.stats.totalPay - d.stats.tips) + d.stats.costOfGoodsSold + overheadPerStaff;
-          const contribution = grossYield - totalStaffExpense;
-          return { ...d, overheadShare: overheadPerStaff, contribution };
-      });
-  }, [performance, periodOverhead]);
+  }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo]);
 
   if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 
@@ -419,72 +436,135 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full">
-            <KpiStat label="Gross Yield" value={`$${overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
-            <KpiStat label="Overall Util." value={`${overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
-            <KpiStat label="Avg. Ticket" value={`$${overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
-            <KpiStat label="Fixed Overhead" value={`$${periodOverhead.toFixed(0)}`} subLabel="Rent & Recurring load" icon={Landmark} colorClass="text-indigo-600" />
+            <KpiStat label="Gross Yield" value={`$${analyticsData.overall.totalRevenue.toFixed(0)}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
+            <KpiStat label="Overall Util." value={`${analyticsData.overall.utilization.toFixed(1)}%`} subLabel="Team productivity mean" icon={Target} />
+            <KpiStat label="Avg. Ticket" value={`$${analyticsData.overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
+            <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx.toFixed(0)}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
+                <Scale className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Certified Profit & Loss Statement</h3>
+            </div>
+            <Card className="border-4 rounded-[3rem] shadow-3xl bg-white overflow-hidden">
+                <CardContent className="p-8 sm:p-12 space-y-10">
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-baseline border-b-2 border-slate-100 pb-2">
+                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Category</h4>
+                            <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Yield / (Load)</h4>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center group">
+                                <span className="text-sm font-bold uppercase text-slate-600">Gross Operating Revenue</span>
+                                <span className="font-black font-mono text-lg text-green-600">${analyticsData.overall.totalRevenue.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center group">
+                                <span className="text-sm font-bold uppercase text-slate-600">Cost of Goods Sold (COGS)</span>
+                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalCOGS.toFixed(2)}</span>
+                            </div>
+                            <Separator className="border-dashed" />
+                            <div className="flex justify-between items-center group py-2">
+                                <span className="text-base font-black uppercase text-slate-900">Gross Profit Margin</span>
+                                <span className="font-black font-mono text-xl text-slate-900">${(analyticsData.overall.totalRevenue - analyticsData.overall.totalCOGS).toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center group">
+                                <span className="text-sm font-bold uppercase text-slate-600">Reconciled OpEx (Overhead)</span>
+                                <span className="font-black font-mono text-lg text-destructive">-${analyticsData.overall.totalReconciledOpEx.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-10 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-3xl text-left relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10"><DollarSign className="w-48 h-48" /></div>
+                        <div className="space-y-3 relative z-10">
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
+                            <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9]">Net Period Yield</h3>
+                            <p className="text-xs font-medium text-slate-400 max-w-sm uppercase tracking-tight">Mathematically definitive take-home post pro-rata fixed overhead and direct formula costs.</p>
+                        </div>
+                        <div className="flex items-baseline gap-4 relative z-10">
+                            <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono", analyticsData.overall.netIncome >= 0 ? "text-primary" : "text-destructive")}>
+                                ${analyticsData.overall.netIncome.toFixed(0)}
+                            </span>
+                            <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">USD</span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </section>
+
+        <section className="space-y-6">
+            <div className="flex items-center gap-2 px-1 text-left">
+                <Landmark className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Reconciliation Manifest</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {analyticsData.reconciliation.map(cat => (
+                    <Card key={cat.label} className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm group hover:border-indigo-500/30 transition-all">
+                        <CardHeader className="p-6 pb-4 border-b bg-muted/5 flex flex-row items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className={cn("p-2 rounded-xl bg-background border shadow-inner", cat.color)}><cat.icon className="w-4 h-4" /></div>
+                                <CardTitle className="text-xs font-black uppercase tracking-widest">{cat.label}</CardTitle>
+                            </div>
+                            <p className="text-[10px] font-black font-mono text-indigo-600">${cat.reconciledAmount.toFixed(2)}</p>
+                        </CardHeader>
+                        <CardContent className="p-6 space-y-4">
+                            <div className="space-y-2">
+                                {cat.foundationItems.map((b: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between text-[10px] font-bold uppercase text-slate-600 px-2 py-1">
+                                        <span>{b.title}</span>
+                                        <span className="font-mono opacity-60">${((b.amount / 30.44) * (daysInPeriod)).toFixed(2)}</span>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between text-[10px] font-black uppercase bg-primary/5 p-2 rounded-lg mt-2 text-primary">
+                                    <span>Foundation Target (Accrual)</span>
+                                    <span className="font-mono">${cat.targetAmount.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <Separator className="border-dashed" />
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                <span className="text-muted-foreground">Ledger Settlements (Actual)</span>
+                                <span className="font-mono text-slate-900">${cat.settledAmount.toFixed(2)}</span>
+                            </div>
+                            {cat.gap > 0 && (
+                                <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 flex items-center gap-2">
+                                    <Info className="w-3 h-3 text-amber-600" />
+                                    <p className="text-[8px] font-bold text-amber-700 uppercase tracking-tight">Gap detected: ${cat.gap.toFixed(2)} added to OpEx to protect yield precision.</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        </section>
+
+        <section className="space-y-6">
+            <div className="flex items-center gap-2 px-1 text-left">
                 <ShieldCheck className="w-4 h-4 text-green-600" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy & Audit Basis</h3>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy Basis</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
-                    <CardHeader className="p-6 pb-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Formula (COGS)</p>
-                    </CardHeader>
-                    <CardContent className="p-6 pt-0">
-                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.deductibleCOGS.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Direct materials used</p>
-                    </CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 text-left">
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Formula (COGS)</p></CardHeader>
+                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.deductibleCOGS.toFixed(2)}</p></CardContent>
                 </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
-                    <CardHeader className="p-6 pb-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Purchases (Outlay)</p>
-                    </CardHeader>
-                    <CardContent className="p-6 pt-0">
-                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.suppliesInvestment.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Period supply spend</p>
-                    </CardContent>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Purchases (Outlay)</p></CardHeader>
+                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.suppliesInvestment.toFixed(2)}</p></CardContent>
                 </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
-                    <CardHeader className="p-6 pb-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Depreciation</p>
-                    </CardHeader>
-                    <CardContent className="p-6 pt-0">
-                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.hardwareDepreciation.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Asset life loss</p>
-                    </CardContent>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Depreciation</p></CardHeader>
+                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${analyticsData.taxSummary.hardwareDepreciation.toFixed(2)}</p></CardContent>
                 </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
-                    <CardHeader className="p-6 pb-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Shrinkage</p>
-                    </CardHeader>
-                    <CardContent className="p-6 pt-0 text-left">
-                        <p className="text-2xl font-black font-mono tracking-tighter text-destructive">${taxSummary.spoilageLoss.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-destructive/60 uppercase mt-1">Spoilage/Loss</p>
-                    </CardContent>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
+                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Shrinkage</p></CardHeader>
+                    <CardContent className="p-6 pt-0"><p className="text-2xl font-black font-mono tracking-tighter text-destructive">${analyticsData.taxSummary.spoilageLoss.toFixed(2)}</p></CardContent>
                 </Card>
-                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5 text-left">
-                    <CardHeader className="p-6 pb-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Schedule C Total</p>
-                    </CardHeader>
-                    <CardContent className="p-6 pt-0">
-                        <p className="text-3xl font-black font-mono tracking-tighter text-green-600">${taxSummary.totalTaxImpact.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-green-700/60 uppercase mt-1">Total Deductions</p>
-                    </CardContent>
+                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5">
+                    <CardHeader className="p-6 pb-2"><p className="text-[9px] font-black uppercase tracking-widest text-green-700">Audit Total</p></CardHeader>
+                    <CardContent className="p-6 pt-0"><p className="text-3xl font-black font-mono tracking-tighter text-green-600">${analyticsData.taxSummary.totalTaxImpact.toFixed(2)}</p></CardContent>
                 </Card>
-            </div>
-            <div className="p-6 rounded-3xl border-2 border-dashed bg-muted/10 flex items-start gap-4">
-                <Gavel className="w-6 h-6 text-primary shrink-0 mt-1 opacity-40" />
-                <div className="space-y-1 text-left">
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-900">Tax Protocol Guidance</p>
-                    <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                        Tracking supply usage via service formulas creates a precise audit trail for Cost of Goods Sold. Money spent on initial and recurring inventory is captured in "Purchases (Outlay)" based on your logged Purchase Orders. Spoilage write-offs and hardware depreciation further increase your deductible basis, reducing your taxable net yield.
-                    </p>
-                </div>
             </div>
         </section>
 
@@ -494,7 +574,7 @@ export default function ReportsPage() {
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Performance Scorecards</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {performance.map(data => (
+                {analyticsData.performance.map(data => (
                     <Card key={data.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -515,19 +595,19 @@ export default function ReportsPage() {
                         <CardContent className="p-6 grid grid-cols-2 gap-4">
                             <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Utilization</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.utilizationRate.toFixed(1)}%</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">{(data.stats.utilizationRate || 0).toFixed(1)}%</p>
                             </div>
                             <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Rebooking</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.rebookingRate.toFixed(0)}%</p>
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Revenue</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">${(data.stats.totalSales || 0).toFixed(0)}</p>
                             </div>
                             <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
                                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Retail Attach</p>
-                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.retailAttachmentRate.toFixed(0)}%</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">{(data.stats.retailAttachmentRate || 0).toFixed(0)}%</p>
                             </div>
                             <div className="space-y-1 text-left p-3 rounded-xl bg-primary/5 border-2 border-primary/10 transition-all">
                                 <p className="text-[8px] font-black uppercase text-primary tracking-widest">Protocol Abs.</p>
-                                <p className="text-lg font-black font-mono tracking-tighter text-primary">-${data.stats.absorbedRevenue.toFixed(0)}</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-primary">-${(data.stats.absorbedRevenue || 0).toFixed(0)}</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -537,153 +617,41 @@ export default function ReportsPage() {
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
-                <Users className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Comprehensive Payroll Ledger</h3>
+                <ShieldAlert className="w-4 h-4 text-destructive" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Absorption Audit (Fee Waivers)</h3>
             </div>
-            <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
+            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-muted/10 border-b-2">
-                                <tr>
-                                    <th className="p-6 font-black text-[10px] uppercase tracking-widest text-slate-900">Provider</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Base Wages</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Ret. Comm.</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Gratuity</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">B.B. Fees</th>
-                                    <th className="font-black text-[10px] uppercase tracking-widest text-primary text-right pr-10">Final Payout</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y-2 divide-dashed divide-border/50">
-                                {performance.map(data => (
-                                    <tr key={data.id} className="group hover:bg-primary/[0.02] transition-colors">
-                                        <td className="p-6">
-                                            <div className="flex items-center gap-3">
-                                                <Avatar className="h-10 w-10 border-2 border-background shadow-md rounded-xl shrink-0">
-                                                    <AvatarImage src={data.avatarUrl} className="object-cover" />
-                                                    <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary uppercase">{data.name.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                                <div className="min-w-0">
-                                                    <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{data.name}</p>
-                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Payout Basis: {data.payStructure}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="text-right font-bold text-xs font-mono text-slate-600">${data.stats.wages.toFixed(2)}</td>
-                                        <td className="text-right font-bold text-xs font-mono text-slate-600">${data.stats.retailCommission.toFixed(2)}</td>
-                                        <td className="text-right font-bold text-xs font-mono text-green-600">+${data.stats.tips.toFixed(2)}</td>
-                                        <td className="text-right font-bold text-xs font-mono text-destructive">-${data.stats.costOfGoodsSold.toFixed(2)}</td>
-                                        <td className="text-right pr-10">
-                                            <span className="font-black font-mono text-lg tracking-tighter text-primary">
-                                                ${data.stats.totalPay.toFixed(2)}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="bg-muted/5 border-t-2 font-black uppercase text-[10px]">
-                                <tr>
-                                    <td className="p-6">Registry Totals</td>
-                                    <td className="text-right font-mono">${performance.reduce((acc, d) => acc + d.stats.wages, 0).toFixed(2)}</td>
-                                    <td className="text-right font-mono">${performance.reduce((acc, d) => acc + d.stats.retailCommission, 0).toFixed(2)}</td>
-                                    <td className="text-right font-mono text-green-600">${performance.reduce((acc, d) => acc + d.stats.tips, 0).toFixed(2)}</td>
-                                    <td className="text-right font-mono text-destructive">-${performance.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0).toFixed(2)}</td>
-                                    <td className="text-right pr-10 font-mono text-xl text-primary">${performance.reduce((acc, d) => acc + d.stats.totalPay, 0).toFixed(2)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                        <Table>
+                            <TableHeader className="bg-muted/10 border-b-2">
+                                <TableRow>
+                                    <TableHead className="p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Authorized By</TableHead>
+                                    <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Reason</TableHead>
+                                    <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-destructive pr-10">Value Abs.</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {absorbedLedger.length > 0 ? absorbedLedger.map(entry => (
+                                    <TableRow key={entry.id} className="hover:bg-destructive/[0.01]">
+                                        <TableCell className="p-6 text-left">
+                                            <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
+                                            <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
+                                        </TableCell>
+                                        <TableCell className="text-[10px] font-black uppercase text-primary text-left">{entry.authorizer}</TableCell>
+                                        <TableCell className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px] text-left">{entry.reason}</TableCell>
+                                        <TableCell className="text-right pr-10 font-black font-mono text-destructive">-${entry.amount.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                )) : (
+                                    <TableRow><TableCell colSpan={4} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">No fees absorbed in this period</TableCell></TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
                     </div>
                 </CardContent>
             </Card>
         </section>
-
-        <section className="grid lg:grid-cols-2 gap-10">
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 px-1 text-left">
-                    <ShieldAlert className="w-4 h-4 text-destructive" />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Absorption Audit (Fee Waivers)</h3>
-                </div>
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-muted/10 border-b-2">
-                                    <tr>
-                                        <th className="p-4 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</th>
-                                        <th className="font-black text-[9px] uppercase tracking-widest text-slate-900">Authorized By</th>
-                                        <th className="font-black text-[9px] uppercase tracking-widest text-slate-900">Reason</th>
-                                        <th className="text-right font-black text-[9px] uppercase tracking-widest text-destructive pr-6">Value Abs.</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-dashed">
-                                    {absorbedLedger.length > 0 ? absorbedLedger.map(entry => (
-                                        <tr key={entry.id} className="hover:bg-destructive/[0.01]">
-                                            <td className="p-4 text-left">
-                                                <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
-                                                <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
-                                            </td>
-                                            <td className="text-[10px] font-black uppercase text-primary text-left">{entry.authorizer}</td>
-                                            <td className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px] text-left">{entry.reason}</td>
-                                            <td className="text-right pr-6 font-black font-mono text-destructive">-${entry.amount.toFixed(2)}</td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan={4} className="p-12 text-center text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">No fees absorbed in this period</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 px-1 text-left">
-                    <Activity className="w-4 h-4 text-primary" />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">True Studio Contribution</h3>
-                </div>
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
-                    <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-muted/10 border-b-2">
-                                    <tr>
-                                        <th className="p-4 font-black text-[9px] uppercase tracking-widest text-slate-900">Provider</th>
-                                        <th className="text-right font-black text-[9px] uppercase tracking-widest text-slate-900">Material Cost</th>
-                                        <th className="text-right font-black text-[9px] uppercase tracking-widest text-slate-900">Shared Fixed</th>
-                                        <th className="text-right font-black text-[9px] uppercase tracking-widest text-primary pr-6">Net Profit</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-dashed">
-                                    {contributionData.map(data => (
-                                        <tr key={data.id}>
-                                            <td className="p-4 font-black uppercase text-[10px] text-slate-900 text-left">{data.name.split(' ')[0]}</td>
-                                            <td className="text-right font-mono text-[10px] text-destructive">-${data.stats.costOfGoodsSold.toFixed(0)}</td>
-                                            <td className="text-right font-mono text-[10px] text-destructive">-${data.overheadShare.toFixed(0)}</td>
-                                            <td className="text-right pr-6 font-black font-mono text-primary">${data.contribution.toFixed(2)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </section>
-
-        <div className="p-10 rounded-[3rem] bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-3xl text-left relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-10 opacity-5 transition-opacity group-hover:opacity-10"><DollarSign className="w-48 h-48" /></div>
-            <div className="space-y-3 relative z-10">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
-                <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-[0.9]">True Net Period Yield</h3>
-                <p className="text-sm font-medium text-slate-400 max-w-sm">Calculated post-payroll, direct treatment overhead, and full pro-rata fixed expense distribution.</p>
-            </div>
-            <div className="flex items-baseline gap-4 relative z-10">
-                <span className={cn("text-6xl md:text-9xl font-black tracking-tighter font-mono", (overall.totalRevenue - contributionData.reduce((acc,d) => acc + (d.stats.totalPay - d.stats.tips + d.stats.costOfGoodsSold + d.overheadShare), 0)) >= 0 ? "text-primary" : "text-destructive")}>
-                    ${(overall.totalRevenue - contributionData.reduce((acc,d) => acc + (d.stats.totalPay - d.stats.tips + d.stats.costOfGoodsSold + d.overheadShare), 0)).toFixed(0)}
-                </span>
-                <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">USD TOTAL</span>
-            </div>
-        </div>
       </main>
     </div>
   );

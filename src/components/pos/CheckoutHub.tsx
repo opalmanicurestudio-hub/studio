@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -719,7 +720,7 @@ export const CheckoutHub = ({
 
                 {allInvolvedStaff.length > 1 && (
                     <div className="p-3 md:p-4 rounded-xl md:rounded-[1.5rem] border-2 bg-muted/10 space-y-2 md:space-y-3">
-                        <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 h-3" /> Distribution Matrix</p>
+                        <p className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2 opacity-60"><Users className="w-3 x-3" /> Distribution Matrix</p>
                         {allInvolvedStaff.map((member: any) => (
                             <div key={member.id} className="flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-2 min-w-0">
