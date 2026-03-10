@@ -39,7 +39,8 @@ import {
   Calculator,
   Gavel,
   History,
-  Box
+  Box,
+  Coins
 } from 'lucide-react';
 import {
   Select,
@@ -427,43 +428,52 @@ export default function ReportsPage() {
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
                 <ShieldCheck className="w-4 h-4 text-green-600" />
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy & COGS Audit</h3>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Tax Strategy & Audit Basis</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2 text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inventory Consumption (COGS)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
+                    <CardHeader className="p-6 pb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Formula (COGS)</p>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0 text-left">
-                        <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.deductibleCOGS.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Direct treatment materials</p>
+                    <CardContent className="p-6 pt-0">
+                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.deductibleCOGS.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Direct materials used</p>
                     </CardContent>
                 </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2 text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Asset Depreciation</p>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
+                    <CardHeader className="p-6 pb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Purchases (Outlay)</p>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0 text-left">
-                        <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.hardwareDepreciation.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Hardware life loss (period)</p>
+                    <CardContent className="p-6 pt-0">
+                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.suppliesInvestment.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Period supply spend</p>
                     </CardContent>
                 </Card>
-                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm">
-                    <CardHeader className="p-6 pb-2 text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inventory Shrinkage</p>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
+                    <CardHeader className="p-6 pb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Depreciation</p>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0 text-left">
-                        <p className="text-3xl font-black font-mono tracking-tighter text-destructive">${taxSummary.spoilageLoss.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-destructive/60 uppercase mt-1">Deductible spoilage loss</p>
+                    <CardContent className="p-6 pt-0">
+                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">${taxSummary.hardwareDepreciation.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1 opacity-40">Asset life loss</p>
                     </CardContent>
                 </Card>
-                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5">
-                    <CardHeader className="p-6 pb-2 text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Total Deductible Basis</p>
+                <Card className="border-2 rounded-[2rem] bg-white overflow-hidden shadow-sm text-left">
+                    <CardHeader className="p-6 pb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Shrinkage</p>
                     </CardHeader>
                     <CardContent className="p-6 pt-0 text-left">
+                        <p className="text-2xl font-black font-mono tracking-tighter text-destructive">${taxSummary.spoilageLoss.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-destructive/60 uppercase mt-1">Spoilage/Loss</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-4 border-green-500/20 bg-green-500/5 rounded-[2rem] overflow-hidden shadow-xl shadow-green-500/5 text-left">
+                    <CardHeader className="p-6 pb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Schedule C Total</p>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0">
                         <p className="text-3xl font-black font-mono tracking-tighter text-green-600">${taxSummary.totalTaxImpact.toFixed(2)}</p>
-                        <p className="text-[10px] font-bold text-green-700/60 uppercase mt-1">Ready for Schedule C</p>
+                        <p className="text-[10px] font-bold text-green-700/60 uppercase mt-1">Total Deductions</p>
                     </CardContent>
                 </Card>
             </div>
@@ -472,7 +482,7 @@ export default function ReportsPage() {
                 <div className="space-y-1 text-left">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-900">Tax Protocol Guidance</p>
                     <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
-                        Tracking supply usage via service formulas creates a precise audit trail for Cost of Goods Sold. Ensure all shipments are logged in "Purchase Orders" to capture shipping and taxes, which further increases your deductible basis. Spoilage write-offs should be certified monthly to capture inventory shrinkage.
+                        Tracking supply usage via service formulas creates a precise audit trail for Cost of Goods Sold. Money spent on initial and recurring inventory is captured in "Purchases (Outlay)" based on your logged Purchase Orders. Spoilage write-offs and hardware depreciation further increase your deductible basis, reducing your taxable net yield.
                     </p>
                 </div>
             </div>
@@ -608,12 +618,12 @@ export default function ReportsPage() {
                                 <tbody className="divide-y divide-dashed">
                                     {absorbedLedger.length > 0 ? absorbedLedger.map(entry => (
                                         <tr key={entry.id} className="hover:bg-destructive/[0.01]">
-                                            <td className="p-4">
+                                            <td className="p-4 text-left">
                                                 <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
                                                 <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
                                             </td>
-                                            <td className="text-[10px] font-black uppercase text-primary">{entry.authorizer}</td>
-                                            <td className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px]">{entry.reason}</td>
+                                            <td className="text-[10px] font-black uppercase text-primary text-left">{entry.authorizer}</td>
+                                            <td className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px] text-left">{entry.reason}</td>
                                             <td className="text-right pr-6 font-black font-mono text-destructive">-${entry.amount.toFixed(2)}</td>
                                         </tr>
                                     )) : (
@@ -646,7 +656,7 @@ export default function ReportsPage() {
                                 <tbody className="divide-y divide-dashed">
                                     {contributionData.map(data => (
                                         <tr key={data.id}>
-                                            <td className="p-4 font-black uppercase text-[10px] text-slate-900">{data.name.split(' ')[0]}</td>
+                                            <td className="p-4 font-black uppercase text-[10px] text-slate-900 text-left">{data.name.split(' ')[0]}</td>
                                             <td className="text-right font-mono text-[10px] text-destructive">-${data.stats.costOfGoodsSold.toFixed(0)}</td>
                                             <td className="text-right font-mono text-[10px] text-destructive">-${data.overheadShare.toFixed(0)}</td>
                                             <td className="text-right pr-6 font-black font-mono text-primary">${data.contribution.toFixed(2)}</td>
