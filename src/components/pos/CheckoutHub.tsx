@@ -172,6 +172,7 @@ export const CheckoutHub = ({
     onWaiveFeeToggle,
     tipAllocations,
     setTipAllocations,
+    isGroupCheckout,
 }: any) => {
     
     const [promoCodeInput, setPromoCodeInput] = useState('');
