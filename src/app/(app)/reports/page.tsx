@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -38,7 +37,7 @@ import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMi
 import { cn } from '@/lib/utils';
 import { type Staff, type Service, type Appointment, type Transaction as DBTransaction } from '@/lib/data';
 import { DateRange } from 'react-day-picker';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser, useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -330,7 +329,7 @@ export default function ReportsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
       <AppHeader title="Intelligence Dossier" />
-      <main className="flex-1 p-4 md:p-10 space-y-8 md:space-y-12 w-full max-w-7xl mx-auto min-w-0 overflow-y-auto">
+      <main className="relative z-10 flex-1 p-4 md:p-10 space-y-8 md:space-y-12 w-full max-w-7xl mx-auto min-w-0 overflow-y-auto">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Pulse</h1>
