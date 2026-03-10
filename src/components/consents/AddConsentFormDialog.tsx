@@ -251,10 +251,10 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
             </div>
         </ScrollArea>
 
-        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-8 pt-4")}>
-            <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-8")}>
+            <div className="flex w-full gap-4">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+                <Button onClick={handleSave} className="flex-[2] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
             </div>
         </DialogFooter>
       </ContentComponent>
