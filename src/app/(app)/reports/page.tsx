@@ -34,7 +34,8 @@ import {
   ChevronRight,
   Scale,
   Receipt,
-  FileX
+  FileX,
+  Star
 } from 'lucide-react';
 import {
   Select,
@@ -187,6 +188,7 @@ export default function ReportsPage() {
       
         const avgVariance = completedCount > 0 ? totalMinutesVariance / completedCount : 0;
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
+        
         const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || (t.category === 'Tips' ? t.amount : 0)), 0);
@@ -246,6 +248,10 @@ export default function ReportsPage() {
         }
         const rebookingRate = clientsServed.size > 0 ? (rebookedCount / clientsServed.size) * 100 : 0;
 
+        const absorbedRevenue = staffTransactions
+            .filter(t => t.category === 'Discounts')
+            .reduce((acc, t) => acc + t.amount, 0);
+
         return {
             ...staffMember,
             stats: {
@@ -263,7 +269,8 @@ export default function ReportsPage() {
                 tips,
                 costOfGoodsSold,
                 rebookingRate,
-                totalHours: totalHoursWorked
+                totalHours: totalHoursWorked,
+                absorbedRevenue
             }
         };
     });
@@ -384,6 +391,53 @@ export default function ReportsPage() {
             <KpiStat label="Avg. Ticket" value={`$${overall.avgTicket.toFixed(2)}`} subLabel="Mean spend per visit" icon={Wallet} />
             <KpiStat label="Fixed Overhead" value={`$${periodOverhead.toFixed(0)}`} subLabel="Rent & Recurring load" icon={Landmark} />
         </div>
+
+        <section className="space-y-6">
+            <div className="flex items-center gap-2 px-1 text-left">
+                <Zap className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Performance Scorecards</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {performance.map(data => (
+                    <Card key={data.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
+                        <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Avatar className="h-10 w-10 border-2 border-white shadow-md rounded-xl">
+                                    <AvatarImage src={data.avatarUrl} className="object-cover" />
+                                    <AvatarFallback className="font-black bg-primary/10 text-primary">{(data.name || 'S')[0]}</AvatarFallback>
+                                </Avatar>
+                                <div className="text-left">
+                                    <CardTitle className="text-sm font-black uppercase tracking-tight">{data.name}</CardTitle>
+                                    <CardDescription className="text-[8px] font-bold uppercase tracking-widest">{data.role}</CardDescription>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-black text-primary tracking-tighter">${data.stats.yieldPerHour.toFixed(0)}/hr</p>
+                                <p className="text-[7px] font-bold uppercase opacity-40">Yield Density</p>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-6 grid grid-cols-2 gap-4">
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Utilization</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.utilizationRate.toFixed(1)}%</p>
+                            </div>
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Rebooking</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.rebookingRate.toFixed(0)}%</p>
+                            </div>
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Retail Attach</p>
+                                <p className="text-lg font-black font-mono tracking-tighter">{data.stats.retailAttachmentRate.toFixed(0)}%</p>
+                            </div>
+                            <div className="space-y-1 text-left p-3 rounded-xl bg-primary/5 border-2 border-primary/10 transition-all">
+                                <p className="text-[8px] font-black uppercase text-primary tracking-widest">Protocol Abs.</p>
+                                <p className="text-lg font-black font-mono tracking-tighter text-primary">-${data.stats.absorbedRevenue.toFixed(0)}</p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        </section>
 
         <section className="space-y-6">
             <div className="flex items-center gap-2 px-1 text-left">
