@@ -43,7 +43,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader, Sparkles } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader, Sparkles, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Staff, type Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
@@ -53,7 +53,7 @@ import { Switch } from '../ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
-import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
 const safeDate = (val: any): Date => {
@@ -70,28 +70,6 @@ const safeDate = (val: any): Date => {
     if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
-
-const timeStringToDate = (timeStr: string, date: Date): Date => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-
-    if (!timeStr) {
-      return d;
-    }
-
-    const [time, period] = timeStr.split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
-
-    if (period === 'PM' && hours < 12) {
-        hours += 12;
-    }
-    if (period === 'AM' && hours === 12) {
-        hours = 0;
-    }
-
-    d.setHours(hours, minutes);
-    return d;
-}
 
 const AddEventForm = ({
     onConfirm,
@@ -386,7 +364,7 @@ const AddEventForm = ({
                          <div className="flex items-center justify-between p-6 border-2 rounded-[2rem] bg-muted/5 shadow-inner">
                             <div className="space-y-1 text-left">
                                 <Label htmlFor="all-day-event" className="text-base font-black uppercase tracking-tight">All Day Event</Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 tracking-widest">Block entire operating window</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 tracking-widest">Block entire operating window</p>
                             </div>
                             <Switch id="all-day-event" checked={allDay} onCheckedChange={setAllDay} className="scale-125" />
                         </div>
@@ -435,7 +413,7 @@ const AddEventForm = ({
                                 {checklist.map((item, index) => (
                                     <div key={index} className="flex items-center gap-3 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-primary/10 transition-all group shadow-sm">
                                         <p className="flex-1 text-sm font-bold uppercase tracking-tight text-slate-700 truncate">{item.text}</p>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeChecklistItem(index)}><Trash2 className="w-4 h-4"/></Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeChecklistItem(index)}><Trash2 className="w-4 h-4" /></Button>
                                     </div>
                                 ))}
                             </div>
@@ -516,8 +494,8 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4 shadow-3xl bg-background">
-         <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left">
+      <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4 shadow-3xl bg-background">
+         <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left flex-shrink-0">
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Planning Suite</span>
@@ -530,7 +508,7 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
                 <AddEventForm onConfirm={(data) => { onConfirm(data); onOpenChange(false); }} staff={staff} />
             </div>
         </ScrollArea>
-        <DialogFooter className="p-8 pt-4 border-t bg-background">
+        <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
           <Button type="submit" form="add-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 active:scale-95 transition-all group">Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>

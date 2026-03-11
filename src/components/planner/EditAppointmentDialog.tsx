@@ -369,7 +369,7 @@ const EditAppointmentForm = ({
                                 {staff.map(s => (
                                     <SelectItem key={s.id} value={s.id} className="rounded-xl">
                                         <div className="flex items-center gap-3 py-1">
-                                            <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                            <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
                                                 <AvatarImage src={s.avatarUrl} className="object-cover" />
                                                 <AvatarFallback className="font-black text-[9px] bg-primary/10 text-primary">{(s.name || 'S').charAt(0)}</AvatarFallback>
                                             </Avatar>
@@ -523,7 +523,7 @@ const EditAppointmentForm = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={() => { handleLocalSubmit({} as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
+                        <Button onClick={() => { handleLocalSubmit({} as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30">Acknowledge & Force</Button>
                         <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -564,7 +564,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
         </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="flex w-full gap-4">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
             <Button onClick={() => {
                 const form = document.getElementById('edit-appointment-form') as HTMLFormElement;
                 if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));

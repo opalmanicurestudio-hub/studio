@@ -114,7 +114,6 @@ const AddAppointmentForm = ({
     appointmentToRebook,
     memberships,
 }: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
-    const isMobile = useIsMobile();
     const { firestore, user } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -152,7 +151,7 @@ const AddAppointmentForm = ({
         }));
       }, [eventsFromDB]);
 
-    const { register, handleSubmit, control, watch, formState: { errors }, setValue, reset } = useForm({
+    const { register, handleSubmit, control, watch, reset, setValue } = useForm({
         defaultValues: {
             clientId: '',
             serviceId: '',
@@ -192,7 +191,6 @@ const AddAppointmentForm = ({
         }
     }, [staff, staffLoading, appointmentToRebook, initialClient, reset, role, user]);
 
-    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [clashingItem, setClashingItem] = useState<any | null>(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -207,7 +205,6 @@ const AddAppointmentForm = ({
     
     const selectedService = useMemo(() => services?.find(s => s.id === serviceId), [services, serviceId]);
     const selectedClient = useMemo(() => clients?.find(c => c.id === clientId) || initialClient, [clients, clientId, initialClient]);
-    const selectedStaff = useMemo(() => staff?.find(s => s.id === staffId), [staff, staffId]);
     const selectedAddOns = useMemo(() => (services || []).filter(s => (addOnIds || []).includes(s.id)), [services, addOnIds]);
     
     const activeMembership = useMemo(() => {
@@ -231,14 +228,6 @@ const AddAppointmentForm = ({
             }));
     }, [selectedService, qualifiedStaff, pricingTiers]);
 
-    const handleAddOnsChange = (newAddOns: Service[]) => {
-        setValue('addOnIds', newAddOns.map(s => s.id));
-    };
-
-    const removeAddOn = (addOnId: string) => {
-        setValue('addOnIds', addOnIds.filter(id => id !== addOnId));
-    };
-    
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -336,7 +325,7 @@ const AddAppointmentForm = ({
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
             if (evt.staffIds && !evt.staffIds.includes('all') && !evt.staffIds.includes(staffId)) return false;
-            return areIntervalsOverlapping(newInterval, { start: evt.startTime, end: evt.endTime }, { inclusive: false });
+            return areIntervalsOverlapping(newInterval, { start: safeDate(evt.startTime), end: safeDate(evt.endTime) }, { inclusive: false });
         });
 
         if (clashEvt) {
@@ -418,10 +407,6 @@ const AddAppointmentForm = ({
     }
     
     const handleSaveAttempt = (data: any) => {
-        if (!data.clientId || !data.serviceId || !data.startTime) {
-            toast({ variant: 'destructive', title: 'Incomplete Protocol', description: 'Ensure client, treatment, and timing are specified.' });
-            return;
-        }
         if (isOverlapping) setShowConfirmation(true);
         else confirmAndSubmit(data);
     };
@@ -478,7 +463,7 @@ const AddAppointmentForm = ({
                                                     <SelectItem key={c.id} value={c.id} className="rounded-xl">
                                                         <div className="flex items-center w-full gap-3 py-1">
                                                             <div className="relative shrink-0">
-                                                                <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
+                                                                <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
                                                                     <AvatarImage src={c.avatarUrl} className="object-cover" />
                                                                     <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
                                                                 </Avatar>
@@ -704,7 +689,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
           </ScrollArea>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                 <Button type="submit" form="add-appointment-form" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-primary/20">Complete Booking</Button>
             </div>
           </SheetFooter>
@@ -731,7 +716,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
         </ScrollArea>
         <DialogFooter className="p-10 pt-6 border-t bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
-          <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20">Book Appointment</Button>
+          <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Book Appointment <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
