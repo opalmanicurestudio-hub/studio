@@ -39,7 +39,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, AlertTriangle, Ear, Upload, UserPlus, Gift, Home, Trash2, X as XIcon, Sparkles, Check, User, Heart } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, UserPlus, Gift, Home, Trash2, X as XIcon, Sparkles, Check, User, Heart, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client } from '@/lib/data';
 import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
@@ -209,7 +209,6 @@ const IntelCategory = ({
 };
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
-    const isMobile = useIsMobile();
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const referralSource = watch('intel.referralSource');
     
@@ -338,7 +337,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 <SectionHeader icon={Heart} title="Emergency Data" step={3} />
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2rem] border-2 bg-muted/5">
                      <div className="space-y-1.5">
-                        <Label htmlFor="emergency-name" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Name</Label>
+                        <Label htmlFor="emergency-name" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Contact Name</Label>
                         <Input id="emergency-name" placeholder="CONTACT NAME" {...register('emergencyContact.name')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     </div>
                     <div className="space-y-1.5">
@@ -346,7 +345,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         <PhoneInput name="phone" label="" className="h-12 rounded-xl border-2" />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
-                        <Label htmlFor="emergency-relationship" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Relationship</Label>
+                        <Label htmlFor="emergency-relationship" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Relationship</Label>
                         <Controller
                             name="emergencyContact.relationship"
                             control={control}
@@ -371,7 +370,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 <SectionHeader icon={Gift} title="Growth Intel" step={4} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-1.5">
-                        <Label htmlFor="referral-source" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Discovery Source</Label>
+                        <Label htmlFor="referral-source" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Discovery Source</Label>
                         <Controller
                             name="intel.referralSource"
                             control={control}
@@ -396,7 +395,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                             control={control}
                             render={({ field }) => (
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="referring-client" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Referring Guest</Label>
+                                    <Label htmlFor="referring-client" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Referring Guest</Label>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <SelectTrigger id="referring-client" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
                                         <SelectValue placeholder="SELECT REFERRER..." />
@@ -469,44 +468,62 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
     onOpenChange(false);
   };
   
-  const DialogOrSheet = isMobile ? Sheet : Dialog;
-  const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
+  const title = "Register New Guest";
+  const description = "Populate the client dossier.";
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" className="h-[92dvh] flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden rounded-t-[2.5rem]">
+          <SheetHeader className="p-6 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
+            <div className="flex items-center gap-3 mb-2">
+              <UserPlus className="w-5 h-5 text-primary" />
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
+            </div>
+            <SheetTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
+            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
+          </SheetHeader>
+          <ScrollArea className="flex-1">
+            <div className="p-6">
+                <FormProvider {...methods}>
+                    <AddClientForm clients={clients} />
+                </FormProvider>
+            </div>
+          </ScrollArea>
+          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
+            <div className="flex w-full gap-3">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
+                <Button onClick={handleSubmit(handleSaveSubmit)} className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-primary/20">Create Record</Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
-    <DialogOrSheet open={open} onOpenChange={onOpenChange}>
-      <DialogOrSheetContent
-        side={isMobile ? 'bottom' : undefined}
-        className={cn(
-          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
-          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "max-w-3xl max-h-[90dvh]"
-        )}
-      >
-        <FormProvider {...methods}>
-          <form id="add-client-form" onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col h-full overflow-hidden">
-            <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6")}>
-              <div className="flex items-center gap-3 mb-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
+            <div className="flex items-center gap-3 mb-2">
                 <UserPlus className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
-              </div>
-              <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register New Guest</SheetTitle>
-              <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Populate the client dossier.</SheetDescription>
-            </SheetHeader>
-
-            <ScrollArea className="flex-1">
-              <div className={cn("p-8", isMobile && "p-6")}>
-                <AddClientForm clients={clients} />
-              </div>
-            </ScrollArea>
-                 
-            <SheetFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
-              <div className="flex w-full gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                <Button type="submit" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-[2rem] shadow-2xl shadow-primary/30">Create Record</Button>
-              </div>
-            </SheetFooter>
-          </form>
-        </FormProvider>
-      </DialogOrSheetContent>
-    </DialogOrSheet>
+            </div>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="flex-1">
+            <div className="p-10">
+                <FormProvider {...methods}>
+                    <AddClientForm clients={clients} />
+                </FormProvider>
+            </div>
+        </ScrollArea>
+        <DialogFooter className="p-10 pt-6 border-t bg-background flex-shrink-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
+          <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Create Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };

@@ -60,7 +60,8 @@ import {
   Sparkles, 
   Wallet, 
   Check,
-  ArrowRight
+  ArrowRight,
+  Loader
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice } from '@/lib/data';

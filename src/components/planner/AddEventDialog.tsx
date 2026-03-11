@@ -251,7 +251,7 @@ const AddEventForm = ({
     
     return (
         <div id="add-event-form-container">
-            <div className="space-y-6">
+            <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }} className="space-y-6">
                 <div className="space-y-4 text-left">
                     <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                         <Briefcase className="w-6 h-6 text-primary" />
@@ -432,7 +432,7 @@ const AddEventForm = ({
                         <Textarea id="notes-event" rows={4} placeholder="Operational objectives or personal reminders..." value={notes} onChange={(e) => setNotes(e.target.value)} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium p-6" />
                     </div>
                 </div>
-            </div>
+            </form>
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
@@ -509,8 +509,7 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
           <Button onClick={() => {
-              const container = document.getElementById('add-event-form-container');
-              const form = container?.querySelector('form');
+              const form = document.getElementById('add-event-form') as HTMLFormElement;
               if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));
           }} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 active:scale-95 transition-all group">Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>
