@@ -66,7 +66,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, startOfWeek } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, startOfWeek } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -152,6 +152,7 @@ const EditAppointmentForm = ({
     const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [clashingItem, setClashingItem] = useState<any | null>(null);
+    const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
     const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
@@ -229,7 +230,7 @@ const EditAppointmentForm = ({
         }
 
         return options;
-    }, [date, selectedStaffId, selectedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services, appointment]);
+    }, [date, selectedStaffId, selectedService, staff, appointments, events, publicScheduleProfile, services, appointment]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
@@ -420,9 +421,9 @@ const EditAppointmentForm = ({
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                     <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
                         <div className="flex justify-between items-center px-2">
-                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                             <span className="font-black uppercase tracking-widest text-sm">{format(date, 'MMMM yyyy')}</span>
-                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
                         </div>
                         <div className="grid grid-cols-7 gap-3">
                             {weekDays.map(day => (
