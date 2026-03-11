@@ -66,13 +66,13 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
             onClick={toggleOpen}
           />
         )}
       </AnimatePresence>
 
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4 lg:hidden">
+      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4">
         <AnimatePresence>
           {isOpen && (
             <motion.div
