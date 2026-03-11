@@ -62,7 +62,8 @@ import {
   ShoppingCart,
   MapPin,
   FlaskConical,
-  CalendarCheck
+  CalendarCheck,
+  Edit
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
@@ -76,6 +77,7 @@ import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '../ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -87,9 +89,8 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -273,7 +274,7 @@ const EditAppointmentForm = ({
     }, [date, startTime, selectedService, appointments, services, appointment, events, selectedStaffId]);
 
     const handleLocalSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+        if (e && e.preventDefault) e.preventDefault();
         if (!selectedService || !date || !startTime) return;
         const [hours, minutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
@@ -320,7 +321,10 @@ const EditAppointmentForm = ({
                         </Avatar>
                         <div className="min-w-0 flex-1">
                             <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5 opacity-60 truncate">{client.email || 'No email on record'}</p>
+                            <div className="flex flex-col gap-0.5 mt-1.5 opacity-60">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{client.email || 'No email on record'}</p>
+                                {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate">{formatPhoneNumber(client.phone)}</p>}
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
