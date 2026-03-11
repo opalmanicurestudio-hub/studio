@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -384,7 +385,7 @@ const AddEventForm = ({
                             <AlertTriangle className="h-6 w-6 text-destructive" />
                             <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Clash Detected</AlertTitle>
                             <AlertDescription className="space-y-2 pt-1 uppercase">
-                                <p className="text-[10px] font-bold leading-relaxed opacity-80">This block overlaps with an existing agenda item.</p>
+                                <p className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">This block overlaps with an existing agenda item.</p>
                                 {clashingItem && (
                                     <div className="pt-3 mt-3 border-t border-destructive/20 space-y-1">
                                         <p className="font-black text-xs tracking-tight text-destructive">{clashingItem.details}</p>

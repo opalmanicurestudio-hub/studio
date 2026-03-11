@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -5,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Tenant, type Staff } from '@/lib/data';
@@ -13,7 +14,7 @@ import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -105,30 +106,73 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
     </ViewContainer>
 );
 
-const CancelledView = ({ tenantId }: { tenantId?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Cancelled" subtitle="Appointment Void" icon={Ban} />
-        <CardContent className="p-10 text-center space-y-6">
-            <div className="w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5 rotate-12">
-                <XCircle className="w-12 h-12 text-destructive -rotate-12" />
-            </div>
-            <div className="space-y-2">
-                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Session Voided</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed">This appointment is no longer on our active schedule. Please contact us if this is an error.</p>
-            </div>
-        </CardContent>
-        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-            {tenantId && (
-                <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">
-                    <Link href={`/book/${tenantId}`}>Secure New Window</Link>
-                </Button>
-            )}
-            <Button asChild variant="ghost" className="w-full font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
-                <Link href="/">Return to Homepage</Link>
-            </Button>
-        </CardFooter>
-    </ViewContainer>
-);
+const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: number, onSettle?: () => void }) => {
+    const [step, setStep] = useState<'info' | 'payment'>(fee && fee > 0 ? 'info' : 'info');
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Cancelled" subtitle="Appointment Void" icon={Ban} />
+            <CardContent className="p-8 md:p-10 text-center space-y-8">
+                {step === 'info' ? (
+                    <>
+                        <div className="w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-destructive/5 rotate-12">
+                            <XCircle className="w-12 h-12 text-destructive -rotate-12" />
+                        </div>
+                        <div className="space-y-2">
+                            <p className="font-black text-xl uppercase tracking-tight text-slate-900">Session Voided</p>
+                            <p className="text-sm font-medium text-slate-500 leading-relaxed">This appointment has been cancelled due to policy violation (late notice or scheduling conflict).</p>
+                        </div>
+                        {fee && fee > 0 && (
+                            <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p>
+                                <div className="flex justify-between items-baseline">
+                                    <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${fee.toFixed(2)}</p>
+                                    <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive">OVERHEAD RECOVERY</Badge>
+                                </div>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">Settle this balance now to clear your dossier and rebook immediately.</p>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <div className="space-y-6 animate-in fade-in zoom-in-95">
+                        <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
+                        <div className="space-y-2">
+                            <h3 className="text-xl font-black uppercase tracking-tighter">Settle Balance</h3>
+                            <p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${fee?.toFixed(2)}</p>
+                        </div>
+                        <div className="space-y-4 text-left">
+                            <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
+                            <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+            <CardFooter className="p-8 pt-0 flex flex-col gap-3">
+                {fee && fee > 0 && step === 'info' ? (
+                    <Button onClick={() => setStep('payment')} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
+                        Settle & Rebook <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
+                    </Button>
+                ) : fee && fee > 0 && step === 'payment' ? (
+                    <Button onClick={onSettle} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30">Authorize Payment</Button>
+                ) : (
+                    tenantId && (
+                        <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">
+                            <Link href={`/book/${tenantId}`}>Secure New Window</Link>
+                        </Button>
+                    )
+                )}
+                {step === 'payment' && (
+                    <Button variant="ghost" onClick={() => setStep('info')} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Back</Button>
+                )}
+                {step === 'info' && (
+                    <Button asChild variant="ghost" className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
+                        <Link href="/">Return to Homepage</Link>
+                    </Button>
+                )}
+            </CardFooter>
+        </ViewContainer>
+    );
+};
 
 const ReviewFormView = ({ 
     onSubmit, 
@@ -249,6 +293,8 @@ export default function CheckInPage() {
     }, [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
+    const { data: allAppointments } = useCollection<Appointment>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]));
+
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
@@ -276,14 +322,44 @@ export default function CheckInPage() {
     }, [appointment]);
 
     const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
-        if (!appointment || !firestore || !tenantId) return;
+        if (!appointment || !firestore || !tenantId || !tenant) return;
+        
+        const tmhr = tenant.tmhr || 50;
+        const premium = tenant.lateInconveniencePremium || 0;
+        const grace = tenant.lateArrivalGracePeriod || 15;
+        const autoCancelEnabled = tenant.autoCancelLateArrivals !== false;
+
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
         if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
-        if (newStatus === 'auto_cancelled') {
-             (updateData as any).status = 'cancelled';
-             (updateData as any).cancellationReason = 'late';
-             (updateData as any).cancellationFeeApplied = tenant?.cancellationFee || 0;
+
+        // Conflict Detection Logic
+        if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
+            const primarySvc = service!;
+            // Simplified duration check for public portal
+            const totalDur = (primarySvc.duration || 60) + (primarySvc.padBefore || 0) + (primarySvc.padAfter || 0);
+            
+            let hasConflict = false;
+            if (appointment.staffId && allAppointments) {
+                const theoreticalEnd = addMinutes(safeDate(appointment.startTime), lateMinutes + totalDur);
+                const nextApt = allAppointments
+                    .filter(a => a.staffId === appointment.staffId && a.id !== appointment.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(appointment.startTime))
+                    .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
+
+                if (nextApt) {
+                    const nextStart = safeDate(nextApt.startTime);
+                    if (theoreticalEnd > nextStart) hasConflict = true;
+                }
+            }
+
+            if (autoCancelEnabled || hasConflict) {
+                const fee = Math.ceil((totalDur / 60) * tmhr + premium);
+                (updateData as any).status = 'cancelled';
+                (updateData as any).cancellationReason = hasConflict ? 'clash' : 'late';
+                (updateData as any).cancellationFeeApplied = fee;
+                (updateData as any).cancellationPaymentStatus = 'unpaid';
+            }
         }
+
         updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updateData);
 
         if (appointment.staffId) {
@@ -306,15 +382,33 @@ export default function CheckInPage() {
         setCurrentStatus(newStatus);
     };
 
-    const handleConfirmLate = () => {
-        const gracePeriod = tenant?.lateArrivalGracePeriod || 15;
-        const autoCancelEnabled = tenant?.autoCancelLateArrivals !== false;
-        if (autoCancelEnabled && lateTime > gracePeriod) {
-            handleUpdateStatus('auto_cancelled');
-        } else {
-            handleUpdateStatus('running_late', lateTime);
-        }
-        setShowLateOptions(false);
+    const handleSettleFee = async () => {
+        if (!appointment || !firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        
+        // Record payment transaction
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {
+            date: new Date().toISOString(),
+            description: `Late Protocol Fee: ${client?.name || appointment.clientName}`,
+            clientOrVendor: client?.name || appointment.clientName || 'Guest',
+            clientId: appointment.clientId,
+            type: 'income',
+            context: 'Business',
+            category: 'Cancellation Fee',
+            amount: appointment.cancellationFeeApplied || 0,
+            paymentMethod: 'Card (Mobile)',
+            hasReceipt: false,
+            appointmentId: appointment.id
+        });
+
+        // Update appointment status
+        const checkInRef = doc(firestore, 'appointmentCheckIns', token);
+        batch.update(checkInRef, { cancellationPaymentStatus: 'paid' });
+
+        await batch.commit();
+        toast({ title: "Account Reconciled", description: "Your dossier is clear. You can now rebook." });
+        router.push(`/book/${tenantId}`);
     };
 
     const handleSubmitReview = async (rating: number, text: string) => {
@@ -343,7 +437,7 @@ export default function CheckInPage() {
             setReviewSubmitted(true);
         } catch (e) {
             console.error("Review submission failed", e);
-            toast({ variant: 'destructive', title: 'Submission Error', description: 'Could not log your feedback. Please try again.' });
+            toast({ variant: 'destructive', title: 'Submission Error' });
         } finally {
             setIsSubmittingReview(false);
         }
@@ -364,7 +458,12 @@ export default function CheckInPage() {
         return <CheckoutView qrCodeUrl={qrCodeUrl} ticketId={appointment.id.slice(-6).toUpperCase()} />;
     }
     if (appointment.status === 'completed') return <ThankYouView tenantId={tenant.id} onLeaveReview={() => setIsReviewFlow(true)} />;
-    if (appointment.status === 'cancelled' && currentStatus !== 'auto_cancelled') return <CancelledView tenantId={tenant.id} />;
+    
+    // Auto-cancelled view with settlement flow
+    if (appointment.status === 'cancelled' || currentStatus === 'auto_cancelled') {
+        const fee = appointment.cancellationFeeApplied || 0;
+        return <CancelledView tenantId={tenant.id} fee={fee} onSettle={handleSettleFee} />;
+    }
 
     return (
         <ViewContainer>
@@ -430,15 +529,15 @@ export default function CheckInPage() {
                         {lateTime > (tenant.lateArrivalGracePeriod || 15) && (
                             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-6 rounded-[2rem] bg-destructive/10 border-4 border-destructive/20 text-destructive text-center space-y-3 shadow-xl shadow-destructive/5">
                                 <AlertTriangle className="w-8 h-8 mx-auto mb-1 animate-pulse"/>
-                                <p className="font-black uppercase tracking-tight text-base leading-none">Policy Warning</p>
-                                <p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a ${tenant.cancellationFee?.toFixed(2)} recovery fee.</p>
+                                <p className="font-black uppercase tracking-tight text-base leading-none">Protocol Warning</p>
+                                <p className="text-[10px] font-bold uppercase leading-relaxed tracking-tight opacity-80">Arrivals past {tenant.lateArrivalGracePeriod || 15}m may require a protocol recovery fee.</p>
                             </motion.div>
                         )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <Button variant="ghost" className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-muted-foreground" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</Button>
-                             <Button onClick={handleConfirmLate} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">
-                                {lateTime > (tenant.lateArrivalGracePeriod || 15) ? 'I Accept Terms' : 'Update Arrival'}
+                            <button className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Back</button>
+                             <Button onClick={() => handleUpdateStatus('running_late', lateTime)} disabled={lateTime === 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/20">
+                                Update Arrival
                              </Button>
                         </div>
                     </div>

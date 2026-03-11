@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -485,7 +486,7 @@ const EditAppointmentForm = ({
                                 <AlertDescription className="space-y-3 pt-1">
                                     <p className="text-xs font-bold leading-relaxed opacity-80 uppercase">This modification overlaps with an existing agenda item.</p>
                                     {clashingItem && (
-                                        <div className="pt-3 border-t border-destructive/20">
+                                        <div className="pt-3 mt-3 border-t border-destructive/20">
                                             <p className="font-black text-xs uppercase tracking-tight">{clashingItem.details}</p>
                                             <p className="text-[10px] font-black opacity-60 mt-1 uppercase tracking-widest">{clashingItem.time}</p>
                                         </div>

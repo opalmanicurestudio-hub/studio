@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -509,59 +510,34 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
   const title = "Modify Guest Dossier";
   const description = `Refining record ID: ${client.id.slice(-6).toUpperCase()}`;
 
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[92dvh] flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden rounded-t-[2.5rem]">
-          <SheetHeader className="p-6 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
-            <div className="flex items-center gap-3 mb-2">
-              <Edit className="w-5 h-5 text-primary" />
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
-            </div>
-            <SheetTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
-            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
-          </SheetHeader>
-          <ScrollArea className="flex-1">
-            <div className="p-6">
-                <FormProvider {...methods}>
-                    <EditClientFormInternal client={client} />
-                </FormProvider>
-            </div>
-          </ScrollArea>
-          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
-            <div className="flex w-full gap-3">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
-                <Button onClick={handleSubmit(handleSaveSubmit)} className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-primary/20">Commit Changes</Button>
-            </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
+    <DialogContainer open={open} onOpenChange={onOpenChange}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
+         <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-10 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Edit className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
             </div>
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+            <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
-            <div className="p-10">
+            <div className={cn(isMobile ? "p-6" : "p-10")}>
                 <FormProvider {...methods}>
                     <EditClientFormInternal client={client} />
                 </FormProvider>
             </div>
         </ScrollArea>
-        <DialogFooter className="p-10 pt-6 border-t bg-background flex-shrink-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
-          <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+        <DialogFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-6 pt-4" : "p-10 pt-6")}>
+          <div className="flex w-full gap-4">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight flex-1">Cancel</Button>
+            <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group flex-[2]">Commit Changes <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+          </div>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </ContentComponent>
+    </DialogContainer>
   );
 };

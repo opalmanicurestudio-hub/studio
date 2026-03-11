@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -542,7 +543,7 @@ const AddAppointmentForm = ({
                                     pricingTiers={pricingTiers || []} 
                                     isSelected={field.value === 'any'}
                                 />
-                                {(qualifiedStaff || []).map(s => (
+                                {(staff || []).map(s => (
                                     <StaffSelectionCard 
                                         key={s.id} 
                                         staff={s} 
@@ -690,7 +691,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
           </div>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
                 <Button type="submit" form="add-appointment-form" className="flex-[2.5] h-12 font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-primary/20">Complete Booking</Button>
             </div>
           </SheetFooter>

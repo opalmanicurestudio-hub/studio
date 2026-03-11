@@ -21,7 +21,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban } from 'lucide-react';
+import { Clock, TrendingUp, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -156,7 +156,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
 };
 
 function POSPage() {
-    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, discounts, memberships, packages, resources, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, activityLogs, memberships, packages, resources, isLoading: isInventoryLoading, discounts } = useInventory();
     const { firestore, user: currentUser } = useFirebase();
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -206,7 +206,7 @@ function POSPage() {
             .filter(apt => apt.status === 'ready_for_checkout')
             .map(apt => {
                 const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === id);
+                const service = services.find(s => s.id === apt.serviceId);
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
                 return { 
@@ -635,7 +635,7 @@ function POSPage() {
 
                 if (lateMinutes > grace || clash) {
                     const timeLostCost = (lateMinutes / 60) * tmhr;
-                    const fee = Number((timeLostCost + premium).toFixed(2));
+                    const fee = Math.ceil(timeLostCost + premium);
 
                     setPolicyEnforcementData({
                         id, 
@@ -743,7 +743,7 @@ function POSPage() {
             const totalPadding = (serviceObj?.padBefore || 0) + (serviceObj?.padAfter || 0);
             const fullSessionBlock = totalDur + totalPadding;
             
-            const fee = Number(((fullSessionBlock / 60) * tmhrValue + premiumValue).toFixed(2));
+            const fee = Math.ceil((fullSessionBlock / 60) * tmhrValue + premiumValue);
 
             setPolicyEnforcementData({
                 id: item.id,
