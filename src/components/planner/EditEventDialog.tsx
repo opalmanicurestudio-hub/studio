@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -33,7 +32,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, Users, Briefcase, User, Lock, Check } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, Users, Briefcase, User, Lock, Check, Sparkles, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, parse } from 'date-fns';
@@ -144,7 +143,7 @@ const EditEventForm = ({
     return (
         <form id="edit-event-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
             <div className="space-y-6">
-                <div className="space-y-4">
+                <div className="space-y-4 text-left">
                     <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                         <Briefcase className="w-6 h-6 text-primary" />
                         Event Details
@@ -214,7 +213,7 @@ const EditEventForm = ({
                     </div>
                 </div>
 
-                <div className="space-y-4 pt-6 border-t border-dashed">
+                <div className="space-y-4 pt-6 border-t border-dashed text-left">
                     <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                         <CalendarIcon className="w-6 h-6 text-primary" />
                         Timing
@@ -276,7 +275,7 @@ const EditEventForm = ({
                     </div>
                 </div>
 
-                    <div className="space-y-6 pt-6 border-t border-dashed">
+                    <div className="space-y-6 pt-6 border-t border-dashed text-left">
                     <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                         <PlusCircle className="w-6 h-6 text-primary" />
                         Engagement
@@ -325,23 +324,27 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
   const title = "Edit Event";
   const description = "Update the details for this event.";
   
-  const FormContent = <EditEventForm event={event} onConfirm={onConfirm} staff={staff || []} />;
-
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0 rounded-t-[3rem]">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0 rounded-t-[3rem] overflow-hidden bg-background">
           <SheetHeader className="text-left p-6 border-b bg-muted/5 flex-shrink-0">
-            <SheetTitle className="text-2xl font-black uppercase tracking-tighter">{title}</SheetTitle>
-            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">{description}</SheetDescription>
+            <div className="flex items-center gap-3 mb-1.5">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
+            </div>
+            <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
+            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-6">
-             <EditEventForm event={event} onConfirm={onConfirm} staff={staff || []} />
-          </div>
-          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
+          <ScrollArea className="flex-1">
+            <div className="p-6">
+                <EditEventForm event={event} onConfirm={(evt) => { onConfirm(evt); onOpenChange(false); }} staff={staff || []} />
+            </div>
+          </ScrollArea>
+          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
-                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 font-bold uppercase tracking-tight rounded-2xl flex-1">Cancel</Button>
-                <Button type="submit" form="edit-event-form" className="w-full h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Save Changes</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
+                <Button type="submit" form="edit-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Save Changes</Button>
             </div>
           </SheetFooter>
         </SheetContent>
@@ -351,19 +354,23 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4">
-         <DialogHeader className="p-8 pb-4 bg-muted/5 border-b">
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter">{title}</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4 shadow-3xl bg-background">
+         <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left flex-shrink-0">
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
+            </div>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
-            <div className="px-8 py-6">
-                {FormContent}
+            <div className="px-8 py-8">
+                <EditEventForm event={event} onConfirm={(evt) => { onConfirm(evt); onOpenChange(false); }} staff={staff || []} />
             </div>
         </ScrollArea>
-        <DialogFooter className="p-8 pt-4 border-t bg-background">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
-          <Button type="submit" form="edit-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20">Save Changes</Button>
+        <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
+          <Button type="submit" form="edit-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

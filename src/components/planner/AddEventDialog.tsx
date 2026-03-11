@@ -43,10 +43,10 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock, Users, Check, Loader, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Staff, type Appointment } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
@@ -56,6 +56,20 @@ import { useTenant } from '@/context/TenantContext';
 import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
+const safeDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    return new Date(val);
+};
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -97,8 +111,8 @@ const AddEventForm = ({
         if (!appointmentsFromDB) return [];
         return appointmentsFromDB.map(apt => ({
           ...apt,
-          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+          startTime: safeDate(apt.startTime),
+          endTime: safeDate(apt.endTime),
         }));
       }, [appointmentsFromDB]);
     
@@ -106,8 +120,8 @@ const AddEventForm = ({
         if (!eventsFromDB) return [];
         return eventsFromDB.map(evt => ({
             ...evt,
-            startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
-            endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+            startTime: safeDate(evt.startTime),
+            endTime: safeDate(evt.endTime),
         }));
       }, [eventsFromDB]);
 
@@ -261,14 +275,14 @@ const AddEventForm = ({
         <>
             <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
                 <div className="space-y-6">
-                    <div className="space-y-4">
+                    <div className="space-y-4 text-left">
                         <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                             <Briefcase className="w-6 h-6 text-primary" />
                             Event Details
                         </h3>
                         <div className="space-y-2">
                             <Label htmlFor="title" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Title</Label>
-                            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Team Lunch" className="h-14 rounded-2xl border-2 font-bold text-lg" />
+                            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Team Lunch" className="h-14 rounded-2xl border-2 font-bold text-lg shadow-inner bg-muted/5" />
                         </div>
                         <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Type</Label>
@@ -303,7 +317,7 @@ const AddEventForm = ({
                                     Assigned Team
                                 </Label>
                                 {(role === 'owner' || role === 'admin') && (
-                                    <Button variant="ghost" size="sm" onClick={toggleSelectAllStaff} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest text-primary underline">
+                                    <Button variant="ghost" size="sm" onClick={toggleSelectAllStaff} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest text-primary underline decoration-2 underline-offset-4">
                                         {selectedStaffIds.length === staff.length ? 'Clear All' : 'Select All Team'}
                                     </Button>
                                 )}
@@ -318,9 +332,9 @@ const AddEventForm = ({
                                             id={`staff-chk-${s.id}`} 
                                             checked={selectedStaffIds.includes(s.id)}
                                             onCheckedChange={() => toggleStaffSelection(s.id)}
-                                            className="h-5 w-5"
+                                            className="h-5 w-5 border-2 rounded-full"
                                         />
-                                        <Avatar className="h-8 w-8 border shadow-sm">
+                                        <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
                                             <AvatarImage src={s.avatarUrl} className="object-cover" />
                                             <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(s.name || 'S').charAt(0)}</AvatarFallback>
                                         </Avatar>
@@ -329,7 +343,7 @@ const AddEventForm = ({
                                 ))}
                             </div>
                             {selectedStaffIds.length === 0 && (
-                                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest italic text-center opacity-60">Global Event &middot; Visible in Business Column</p>
+                                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest italic text-center opacity-60 bg-muted/20 py-2 rounded-lg">Global Event &middot; Visible in Business Column</p>
                             )}
                         </div>
                     </div>
@@ -339,8 +353,8 @@ const AddEventForm = ({
                             <CalendarIcon className="w-6 h-6 text-primary" />
                             Timing
                         </h3>
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule</Label>
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner">
                                 <div className="flex justify-between items-center px-2">
                                     <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
@@ -369,35 +383,35 @@ const AddEventForm = ({
                                 </div>
                             </div>
                         </div>
-                         <div className="flex items-center justify-between p-4 border-2 rounded-2xl bg-muted/10">
-                            <div className="space-y-0.5">
-                                <Label htmlFor="all-day-event" className="text-sm font-black uppercase">All Day Event</Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Block entire operating window</p>
+                         <div className="flex items-center justify-between p-6 border-2 rounded-[2rem] bg-muted/5 shadow-inner">
+                            <div className="space-y-1 text-left">
+                                <Label htmlFor="all-day-event" className="text-base font-black uppercase tracking-tight">All Day Event</Label>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60 tracking-widest">Block entire operating window</p>
                             </div>
-                            <Switch id="all-day-event" checked={allDay} onCheckedChange={setAllDay} />
+                            <Switch id="all-day-event" checked={allDay} onCheckedChange={setAllDay} className="scale-125" />
                         </div>
                         {!allDay ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label htmlFor="start-time-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Start Time</Label>
-                                    <Input id="start-time-event" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-14 rounded-2xl border-2 font-black text-lg" />
+                                    <Input id="start-time-event" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner" />
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-left">
                                     <Label htmlFor="duration-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Duration (minutes)</Label>
-                                    <Input id="duration-event" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="e.g., 60" className="h-14 rounded-2xl border-2 font-black text-lg" />
+                                    <Input id="duration-event" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="e.g., 60" className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner text-center" />
                                 </div>
                             </div>
                         ) : null}
                         {isOverlapping && type === 'blocked' && (
-                            <Alert variant="destructive" className="mt-2 border-2 border-destructive bg-destructive/5 rounded-2xl p-4 shadow-xl shadow-destructive/10">
-                                <AlertTriangle className="h-5 w-5" />
-                                <AlertTitle className="text-xs font-black uppercase tracking-tight">Scheduling Clash Detected</AlertTitle>
-                                <AlertDescription className="space-y-2 pt-1">
-                                    <p className="text-xs font-medium">This block overlaps with an existing agenda item.</p>
+                            <Alert variant="destructive" className="mt-2 border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl shadow-destructive/10">
+                                <AlertTriangle className="h-6 w-6 text-destructive" />
+                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Clash Detected</AlertTitle>
+                                <AlertDescription className="space-y-2 pt-1 uppercase">
+                                    <p className="text-[10px] font-bold leading-relaxed opacity-80">This block overlaps with an existing agenda item.</p>
                                     {clashingItem && (
-                                        <div className="pt-2 mt-2 border-t border-destructive/20 space-y-1">
-                                            <p className="font-black text-[10px] uppercase tracking-widest">{clashingItem.details}</p>
-                                            <p className="text-[10px] font-bold opacity-80">{clashingItem.time}</p>
+                                        <div className="pt-3 mt-3 border-t border-destructive/20 space-y-1">
+                                            <p className="font-black text-xs tracking-tight text-destructive">{clashingItem.details}</p>
+                                            <p className="text-[10px] font-black opacity-60 tracking-widest">{clashingItem.time}</p>
                                         </div>
                                     )}
                                 </AlertDescription>
@@ -405,55 +419,55 @@ const AddEventForm = ({
                         )}
                     </div>
 
-                    <div className="space-y-6 pt-6 border-t border-dashed">
+                    <div className="space-y-6 pt-6 border-t border-dashed text-left">
                         <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
                             <PlusCircle className="w-6 h-6 text-primary" />
                             Engagement
                         </h3>
                         <div className="space-y-2">
-                            <Label htmlFor="location-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Location</Label>
-                            <Input id="location-event" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Main Studio or 'Zoom'" className="h-12 rounded-2xl border-2 font-bold" />
+                            <Label htmlFor="location-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Deployment Location</Label>
+                            <Input id="location-event" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Main Studio or 'Zoom'" className="h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight shadow-inner" />
                         </div>
                         
                         <div className="space-y-3">
                             <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Action Items Checklist</Label>
                             <div className='space-y-2'>
                                 {checklist.map((item, index) => (
-                                    <div key={index} className="flex items-center gap-3 p-3 bg-muted/20 rounded-2xl border-2 border-transparent hover:border-primary/10 transition-all group">
-                                        <p className="flex-1 text-sm font-bold uppercase tracking-tight text-slate-700">{item.text}</p>
+                                    <div key={index} className="flex items-center gap-3 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-primary/10 transition-all group shadow-sm">
+                                        <p className="flex-1 text-sm font-bold uppercase tracking-tight text-slate-700 truncate">{item.text}</p>
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeChecklistItem(index)}><Trash2 className="w-4 h-4"/></Button>
                                     </div>
                                 ))}
                             </div>
                             <div className="flex gap-2">
                                 <Input 
-                                    placeholder="Add sub-task..."
+                                    placeholder="APPEND SUB-TASK..."
                                     value={newChecklistItem}
                                     onChange={(e) => setNewChecklistItem(e.target.value)}
                                     onKeyDown={handleChecklistKeyDown}
-                                    className="h-12 rounded-2xl border-2 font-bold"
+                                    className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner"
                                 />
-                                <Button type="button" variant="outline" onClick={handleAddChecklistItem} className="h-12 w-12 rounded-2xl border-2"><PlusCircle className="h-5 w-5"/></Button>
+                                <Button type="button" variant="outline" onClick={handleAddChecklistItem} className="h-12 w-12 rounded-xl border-2 shrink-0"><PlusCircle className="h-5 w-5 text-primary opacity-40"/></Button>
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="notes-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Notes & Context</Label>
-                            <Textarea id="notes-event" rows={4} placeholder="Strategic objectives or personal reminders..." value={notes} onChange={(e) => setNotes(e.target.value)} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" />
+                            <Label htmlFor="notes-event" className="text-[10px] font-black uppercase text-muted-foreground ml-1">Strategic Context & Notes</Label>
+                            <Textarea id="notes-event" rows={4} placeholder="Operational objectives or personal reminders..." value={notes} onChange={(e) => setNotes(e.target.value)} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium p-6" />
                         </div>
                     </div>
                 </div>
             </form>
              <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                    <AlertDialogHeader className="p-6 pb-0">
+                    <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
                     <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Double Booking</AlertDialogTitle>
-                    <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed">
+                    <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
                         This event overlaps with {clashingItem?.details || 'an existing item'} on your calendar. Proceed with creating this clash?
                     </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={confirmAndSubmit} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
-                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Back</AlertDialogCancel>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Back</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
@@ -470,25 +484,29 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
   const isMobile = useIsMobile();
 
   const title = "New Event";
-  const description = "Business, Personal, or Blocked time.";
+  const description = "Initialize a business, personal, or blocked window.";
   
-  const FormContent = <AddEventForm onConfirm={onConfirm} staff={staff} />;
-
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0 rounded-t-[3rem]">
+        <SheetContent side="bottom" className="h-[95vh] p-0 border-none rounded-t-[3rem] overflow-hidden bg-background flex flex-col">
           <SheetHeader className="text-left p-6 border-b bg-muted/5 flex-shrink-0">
-            <SheetTitle className="text-2xl font-black uppercase tracking-tighter">{title}</SheetTitle>
-            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">{description}</SheetDescription>
+            <div className="flex items-center gap-3 mb-1.5">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Planning Suite</span>
+            </div>
+            <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
+            <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-6">
-             <AddEventForm onConfirm={onConfirm} staff={staff} />
-          </div>
-          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0">
+          <ScrollArea className="flex-1">
+            <div className="p-6">
+                <AddEventForm onConfirm={(data) => { onConfirm(data); onOpenChange(false); }} staff={staff} />
+            </div>
+          </ScrollArea>
+          <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
-                <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 font-bold uppercase tracking-tight rounded-2xl flex-1">Cancel</Button>
-                <Button type="submit" form="add-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Save Event</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
+                <Button type="submit" form="add-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Establish Event</Button>
             </div>
           </SheetFooter>
         </SheetContent>
@@ -498,19 +516,23 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4">
-         <DialogHeader className="p-8 pb-4 bg-muted/5 border-b">
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter">{title}</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{description}</DialogDescription>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4 shadow-3xl bg-background">
+         <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left">
+            <div className="flex items-center gap-3 mb-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Planning Suite</span>
+            </div>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
-            <div className="px-8 py-6">
-                {FormContent}
+            <div className="px-8 py-8">
+                <AddEventForm onConfirm={(data) => { onConfirm(data); onOpenChange(false); }} staff={staff} />
             </div>
         </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
-          <Button type="submit" form="add-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20">Save Event</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
+          <Button type="submit" form="add-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 active:scale-95 transition-all group">Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

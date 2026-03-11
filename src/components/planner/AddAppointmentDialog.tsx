@@ -471,7 +471,7 @@ const AddAppointmentForm = ({
                                                 <SelectValue placeholder="SEARCH ROSTER..." />
                                             )}
                                         </SelectTrigger>
-                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
                                             {(clients || []).map(c => {
                                                 const isMem = !!(c.activeMembershipId || c.subscription?.membershipId);
                                                 return (

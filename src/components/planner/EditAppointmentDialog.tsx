@@ -63,7 +63,9 @@ import {
   MapPin,
   FlaskConical,
   CalendarCheck,
-  Edit
+  Edit,
+  Mail,
+  Phone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
@@ -321,9 +323,17 @@ const EditAppointmentForm = ({
                         </Avatar>
                         <div className="min-w-0 flex-1">
                             <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
-                            <div className="flex flex-col gap-0.5 mt-1.5 opacity-60">
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{client.email || 'No email on record'}</p>
-                                {client.phone && <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate">{formatPhoneNumber(client.phone)}</p>}
+                            <div className="flex flex-col gap-1 mt-2">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
+                                    <Mail className="w-3 h-3 opacity-40" />
+                                    {client.email || 'No email on record'}
+                                </p>
+                                {client.phone && (
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
+                                        <Phone className="w-3 h-3 opacity-40" />
+                                        {formatPhoneNumber(client.phone)}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </CardContent>
@@ -423,31 +433,31 @@ const EditAppointmentForm = ({
                 <SectionHeader icon={CalendarCheck} title="Timing" />
                 <div className="space-y-3 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
-                    <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
+                    <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-8 shadow-inner">
                         <div className="flex justify-between items-center px-2">
-                            <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
-                            <span className="font-black uppercase tracking-widest text-sm">{format(date, 'MMMM yyyy')}</span>
-                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                            <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
                         </div>
-                        <div className="grid grid-cols-7 gap-3">
+                        <div className="grid grid-cols-7 gap-1.5 md:gap-3">
                             {weekDays.map(day => (
                                 <button 
                                     key={day.toISOString()} 
                                     onClick={() => setDate(day)} 
                                     disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
                                     className={cn(
-                                        "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", 
+                                        "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
                                         isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
                                         (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
                                     )} 
                                     type="button"
                                 >
-                                    <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
-                                    <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                                    <span className="text-[8px] md:text-[10px] uppercase font-black opacity-60 mb-0.5 md:mb-1">{format(day, 'EEE')}</span>
+                                    <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
                                 </button>
                             ))}
                         </div>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-8 border-t-2 border-dashed border-white/50">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 md:gap-3 pt-6 md:pt-8 border-t-2 border-dashed border-white/50">
                             {timeSlots.map(time => (
                                 <Button 
                                     key={time} 
@@ -455,20 +465,20 @@ const EditAppointmentForm = ({
                                     onClick={() => setStartTime(time)} 
                                     type="button"
                                     className={cn(
-                                        "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", 
+                                        "h-10 md:h-14 font-black uppercase text-[10px] md:text-xs tracking-widest rounded-xl md:rounded-2xl border-2 transition-all", 
                                         startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
                                     )}
                                 >
                                     {format(timeStringToDate(time, new Date()), 'h:mm a')}
                                 </Button>
                             ))}
-                            {timeSlots.length === 0 && (<div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
+                            {timeSlots.length === 0 && (<div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-10 md:py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
                         </div>
                     </div>
                 </div>
                 {isOverlapping && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                        <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl" style={{ '--primary': '0 84.2% 60.2%' } as any}>
+                        <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl">
                             <AlertTriangle className="h-6 w-6" />
                             <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Clash Warning</AlertTitle>
                             <AlertDescription className="space-y-3 pt-1">
@@ -544,7 +554,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Refinement</span>
             </div>
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
@@ -552,7 +562,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
                 {FormContent}
             </div>
         </ScrollArea>
-        <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
+        <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="flex w-full gap-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
             <Button onClick={() => {
