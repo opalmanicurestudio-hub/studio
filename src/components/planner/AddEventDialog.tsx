@@ -54,7 +54,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, query, where } from 'firebase/firestore';
-import { nanoid } from 'nanoid';
+import { Progress } from '../ui/progress';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -492,7 +492,7 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col p-0 rounded-[3rem] overflow-hidden border-4 shadow-3xl bg-background">
+      <DialogContent className="sm:max-w-xl p-0 rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90vh] flex flex-col">
          <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left flex-shrink-0">
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />

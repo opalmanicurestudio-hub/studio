@@ -436,9 +436,9 @@ const EditAppointmentForm = ({
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                         <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-8 shadow-inner">
                             <div className="flex justify-between items-center px-2">
-                                <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
                                 <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
-                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
                             </div>
                             <div className="grid grid-cols-7 gap-1.5 md:gap-3">
                                 {weekDays.map(day => (

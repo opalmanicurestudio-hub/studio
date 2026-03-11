@@ -516,7 +516,7 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
           <SheetHeader className="p-6 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
             <div className="flex items-center gap-3 mb-2">
               <Edit className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
             </div>
             <SheetTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
             <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>

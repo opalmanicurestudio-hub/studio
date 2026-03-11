@@ -19,7 +19,7 @@ import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBloc
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client, type PartyMember, WalkIn, type PricingTier, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2 } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2, PlusCircle, Check, Printer, DollarSign, Activity, FileSignature, ListChecks, XCircle, Ban, Wallet, AlertTriangle, ArrowDown, Fingerprint, CalendarCheck, CheckCircle2, Star, Zap } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -140,7 +140,8 @@ const StepDetails = ({
     isResolvingIdentity,
     matchedAppointment,
     onAppointmentCheckIn,
-    services
+    services,
+    staff
 }: { 
     member: PartyMember; 
     onUpdate: (updates: Partial<PartyMember>) => void; 
@@ -152,9 +153,15 @@ const StepDetails = ({
     matchedAppointment: Appointment | null;
     onAppointmentCheckIn: (apt: Appointment) => void;
     services: Service[];
+    staff: Staff[];
 }) => {
     const usePrimaryContact = () => { if (primaryMember) onUpdate({ phone: primaryMember.phone, email: primaryMember.email }); };
     
+    const assignedStaff = useMemo(() => {
+        if (!matchedAppointment || !staff) return null;
+        return staff.find(s => s.id === matchedAppointment.staffId);
+    }, [matchedAppointment, staff]);
+
     return (
         <div className="space-y-6">
             <div className="space-y-2">
@@ -202,22 +209,56 @@ const StepDetails = ({
                 )}
                 
                 {matchedAppointment && !bannedClient && !existingClientWithBalance && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-6 rounded-[2rem] border-2 border-primary bg-primary/5 shadow-2xl shadow-primary/10">
-                        <div className="flex items-start gap-4">
-                            <div className="p-3 bg-primary rounded-2xl mt-1 shadow-lg shadow-primary/20">
-                                <CalendarCheck className="w-6 h-6 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h4 className="font-black text-slate-900 uppercase tracking-tight text-base">Welcome back, {member.name.split(' ')[0]}!</h4>
-                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider opacity-70">We found your appointment today:</p>
-                                <div className="mt-3 p-4 bg-white/80 backdrop-blur-md rounded-2xl border border-primary/20 shadow-sm">
-                                    <p className="font-black text-primary text-sm uppercase truncate">{services.find(s => s.id === matchedAppointment.serviceId)?.name}</p>
-                                    <p className="text-[11px] text-muted-foreground font-black uppercase tracking-widest mt-1">{format(safeDate(matchedAppointment.startTime), 'h:mm a')}</p>
+                    <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="p-6 md:p-8 rounded-[3rem] border-4 border-primary/20 bg-white/80 backdrop-blur-xl shadow-2xl shadow-primary/10 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <Sparkles className="w-24 h-24 text-primary" />
+                        </div>
+                        
+                        <div className="flex flex-col items-center text-center space-y-6 relative z-10">
+                            <div className="space-y-2">
+                                <div className="inline-flex items-center gap-2 bg-primary/5 px-4 py-1.5 rounded-full border border-primary/10 mb-2">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
+                                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Identity Verified</span>
                                 </div>
-                                <Button className="w-full mt-6 h-14 text-lg font-black uppercase shadow-2xl shadow-primary/30 rounded-2xl" onClick={() => onAppointmentCheckIn(matchedAppointment)}>
-                                    Tap to Check In
-                                </Button>
+                                <h4 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                                    Welcome Back, {member.name.split(' ')[0]}!
+                                </h4>
+                                <p className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest opacity-60">We identified your session for today.</p>
                             </div>
+
+                            <Card className="w-full bg-muted/20 border-2 rounded-[2rem] shadow-inner overflow-hidden">
+                                <CardContent className="p-6 flex flex-col items-center gap-4">
+                                    <div className="flex items-center gap-4 w-full">
+                                        <div className="relative shrink-0">
+                                            <Avatar className="w-16 h-16 border-4 border-white shadow-xl rounded-2xl">
+                                                <AvatarImage src={assignedStaff?.avatarUrl} className="object-cover" />
+                                                <AvatarFallback className="font-black bg-primary/10 text-primary uppercase text-sm">{(assignedStaff?.name || 'S').charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="absolute -top-1 -right-1 bg-primary text-white p-1 rounded-full shadow-lg border-2 border-white">
+                                                <Star className="w-2.5 h-2.5 fill-current" />
+                                            </div>
+                                        </div>
+                                        <div className="text-left min-w-0">
+                                            <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest mb-0.5">With {assignedStaff?.name.split(' ')[0] || 'your pro'}</p>
+                                            <p className="font-black text-base md:text-lg uppercase tracking-tight text-slate-900 truncate">
+                                                {services.find(s => s.id === matchedAppointment.serviceId)?.name}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-1.5 text-[10px] font-black uppercase text-muted-foreground opacity-60">
+                                                <Clock className="w-3 h-3" />
+                                                {format(safeDate(matchedAppointment.startTime), 'h:mm a')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Button 
+                                className="w-full h-16 md:h-20 text-lg md:text-2xl font-black uppercase shadow-3xl shadow-primary/30 rounded-[2rem] active:scale-95 transition-all group" 
+                                onClick={() => onAppointmentCheckIn(matchedAppointment)}
+                            >
+                                Tap to Check In
+                                <ArrowRight className="ml-3 w-6 h-6 md:w-8 md:h-8 transition-transform group-hover:translate-x-2" />
+                            </Button>
                         </div>
                     </motion.div>
                 )}
@@ -444,6 +485,7 @@ const MemberSetup = ({
                                 matchedAppointment={matchedAppointment}
                                 onAppointmentCheckIn={onAppointmentCheckIn}
                                 services={services}
+                                staff={staff}
                             />
                         )}
                         {memberSubStep === 'services' && <StepServices key="step-services" member={member} onUpdate={onUpdate} services={services} staff={staff} pricingTiers={pricingTiers}/>}
@@ -526,22 +568,27 @@ const ConfirmationScreen = ({ confirmedParty, onPrint, onDone }: { confirmedPart
     </motion.div>
 );
 
-const ConfirmationView = ({ confirmedParty, onPrint, onDone }: { confirmedParty: WalkInTicketData[], onPrint: (t: WalkInTicketData) => void, onDone: () => void }) => (
-    <ViewContainer>
-        <ViewHeader title="Finalize" subtitle="Dossier Complete" icon={ShieldCheck} />
-        <CardContent className="p-10 text-center space-y-8">
-            <div className="w-24 h-24 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
-                <CheckCircle2 className="w-12 h-12 text-green-500 -rotate-6" />
-            </div>
-            <div className="space-y-2">
-                <p className="font-black text-xl uppercase tracking-tight text-slate-900">Registered</p>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed">Your data is secured. Watch for our mobile notification once your professional is ready.</p>
-            </div>
-        </CardContent>
-        <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-            <Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Acknowledge</Button>
-        </CardFooter>
-    </ViewContainer>
+const ViewContainer = ({ children }: { children: React.ReactNode }) => (
+    <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="w-full max-w-lg"
+    >
+        <Card className="border-4 rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
+            {children}
+        </Card>
+    </motion.div>
+);
+
+const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
+    <CardHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+        <div className="flex items-center gap-3 mb-2">
+            {Icon ? <Icon className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Portal</span>
+        </div>
+        <CardTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
+        <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{subtitle}</CardDescription>
+    </CardHeader>
 );
 
 export default function WalkInPage() {
