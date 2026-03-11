@@ -63,7 +63,7 @@ import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ImageUpload } from '../shared/ImageUpload';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
 import { useInventory } from '@/context/InventoryContext';
 
@@ -281,7 +281,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                                     <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
                                     <AvatarFallback className="bg-primary/10 text-primary font-black uppercase"><Upload className="h-8 w-8 opacity-40" /></AvatarFallback>
                                 </Avatar>
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer">
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-[2rem] cursor-pointer">
                                     <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
                                 </div>
                             </div>
@@ -370,7 +370,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                     </div>
                     <div className="space-y-1.5">
                         <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
-                        <PhoneInput name="emergencyContact.phone" label="" className="h-12 rounded-xl border-2" />
+                        <PhoneInput name="phone" label="" className="h-12 rounded-xl border-2" />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                         <Label htmlFor="emergency-relationship-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Relationship</Label>
@@ -457,7 +457,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         { id: 'goals', label: 'Client Strategic Goals', placeholder: 'What are we looking to achieve today and long-term?' },
                         { id: 'routine', label: 'Current Maintenance & Routine', placeholder: 'Daily care and products currently in use.' },
                         { id: 'history', label: 'Historical Service Context', placeholder: 'Past experiences and preferences.' },
-                        { id: 'general', label: 'Miscellaneous Intel', placeholder: 'Other relevant tactical details.' }
+                        { id: 'other', label: 'Miscellaneous Intel', placeholder: 'Other relevant tactical details.' }
                     ].map(section => (
                         <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm">
                             <AccordionTrigger className="px-6 py-4 text-xs font-black uppercase tracking-widest hover:no-underline bg-muted/10">{section.label}</AccordionTrigger>

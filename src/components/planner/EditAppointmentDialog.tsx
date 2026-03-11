@@ -550,7 +550,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
          <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
@@ -559,11 +559,11 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
             <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
             <div className="px-8 pb-32">
                 {FormContent}
             </div>
-        </div>
+        </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="flex w-full gap-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>

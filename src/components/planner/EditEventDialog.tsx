@@ -34,7 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, DollarSign, Users, Briefcase, User, Lock, Check, Sparkles, ArrowRight, ChevronLeft, ChevronRight, Edit } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event, type EventChecklistItem, type Staff } from '@/lib/data';
+import { type Event, type EventChecklistItem, type Staff, type Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, parse } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
@@ -363,11 +363,11 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
             <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
             <div className="px-8 py-8">
                 <EditEventForm event={event} onConfirm={(evt) => { onConfirm(evt); onOpenChange(false); }} staff={staff || []} />
             </div>
-        </div>
+        </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
           <Button onClick={() => {

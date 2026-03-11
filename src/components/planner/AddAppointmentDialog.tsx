@@ -649,7 +649,7 @@ const AddAppointmentForm = ({
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
-                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-10 md:h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-10 md:h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
@@ -701,7 +701,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left">
+         <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left flex-shrink-0">
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Planning Studio</span>
@@ -709,12 +709,12 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             <DialogTitle className="text-4xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
             <div className="px-10">
                 {FormContent}
             </div>
-        </div>
-        <DialogFooter className="p-10 pt-6 border-t bg-background">
+        </ScrollArea>
+        <DialogFooter className="p-10 pt-6 border-t bg-background flex-shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
           <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Book Appointment <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>

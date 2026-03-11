@@ -443,7 +443,7 @@ const AddEventForm = ({
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={confirmAndSubmit} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
-                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Back</AlertDialogCancel>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Back</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
@@ -501,14 +501,18 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: {
             <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
             <div className="px-8 py-8">
                 <AddEventForm onConfirm={(data) => { onConfirm(data); onOpenChange(false); }} staff={staff} />
             </div>
-        </div>
+        </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
-          <Button type="submit" form="add-event-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 active:scale-95 transition-all group">Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
+          <Button onClick={() => {
+              const container = document.getElementById('add-event-form-container');
+              const form = container?.querySelector('form');
+              if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));
+          }} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 active:scale-95 transition-all group">Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

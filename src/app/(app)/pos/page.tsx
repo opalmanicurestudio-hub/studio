@@ -89,7 +89,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
-                <DialogHeader className="p-6 md:p-8 pb-6 border-b bg-muted/5 text-left">
+                <DialogHeader className="p-6 pb-8 border-b bg-muted/5 text-left">
                     <div className="flex items-center gap-3 mb-2">
                         <AlertTriangle className="w-5 h-5 text-destructive" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Policy Intervention</span>
@@ -1293,12 +1293,14 @@ function POSPage() {
                                 View Cart (${total.toFixed(2)})
                             </Button>
                         </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem]">
+                        <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background">
                             <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
                                 <SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
                             </SheetHeader>
-                            <div className="flex-1 bg-background overflow-y-auto p-6 pb-24">
-                                <CheckoutHub {...checkoutHubProps} />
+                            <div className="flex-1 overflow-y-auto">
+                                <div className="p-6 pb-24">
+                                    <CheckoutHub {...checkoutHubProps} />
+                                </div>
                             </div>
                         </SheetContent>
                     </Sheet>
@@ -1370,12 +1372,17 @@ function POSPage() {
             
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
               <DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl">
-                <DialogHeader className="p-8 pb-0"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Scan Terminal</DialogTitle></DialogHeader>
+                <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Scan Terminal</DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authenticate asset codes or session tickets.</DialogDescription>
+                </DialogHeader>
                 <div className="p-10 relative">
                   <div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
                   <div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div>
                 </div>
-                <DialogFooter className="p-6 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter>
+                <DialogFooter className="p-6 pt-4 border-t bg-muted/5">
+                    <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
 
@@ -1390,4 +1397,4 @@ function POSPage() {
     );
 }
 
-export default function POSPageWrapper() { return <Suspense fallback={<div>Loading...</div>}><POSPage /></Suspense> }
+export default function POSPageWrapper() { return <Suspense fallback={<div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}><POSPage /></Suspense> }
