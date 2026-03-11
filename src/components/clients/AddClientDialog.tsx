@@ -499,7 +499,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
             <Button onClick={handleSubmit(handleSaveSubmit)} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group flex-[2]">Create Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
           </div>
         </DialogFooter>
-      </DialogContent>
+      </ContentComponent>
     </DialogContainer>
   );
 };

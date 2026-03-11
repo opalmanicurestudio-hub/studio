@@ -605,7 +605,7 @@ function POSPage() {
             const apt = (appointmentsFromInventory || []).find(a => a.id === id);
             if (apt) {
                 const grace = selectedTenant.lateArrivalGracePeriod || 15;
-                const autoCancel = selectedTenant.autoCancelLateArrivals === true;
+                const autoCancelEnabled = selectedTenant.autoCancelLateArrivals === true;
 
                 const primarySvc = (services || []).find(s => s.id === apt.serviceId);
                 const addOns = (apt.addOnIds || []).map(aid => (services || []).find(s => s.id === aid)).filter(Boolean) as Service[];

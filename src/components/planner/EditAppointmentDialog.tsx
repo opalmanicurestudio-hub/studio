@@ -220,9 +220,11 @@ const EditAppointmentForm = ({
         }
         
         while (currentTime < closeT) {
-            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
-            if (potentialEnd > closeT) break;
-            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+            const potentialStartTime = currentTime;
+            const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+            if (potentialEndTime > closeT) break;
+            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEndTime }, interval, { inclusive: false }));
             if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
             currentTime = addMinutes(currentTime, bookingInterval);
         }

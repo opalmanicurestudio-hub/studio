@@ -14,7 +14,7 @@ import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -129,7 +129,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                                     <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${fee.toFixed(2)}</p>
                                     <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive">OVERHEAD RECOVERY</Badge>
                                 </div>
-                                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">Settle this balance now to clear your dossier and rebook immediately.</p>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">This fee has been added to your dossier. Settle now to clear your account and rebook immediately.</p>
                             </div>
                         )}
                     </>
@@ -332,10 +332,11 @@ export default function CheckInPage() {
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
         if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
 
+        const batch = writeBatch(firestore);
+
         // Conflict Detection Logic
         if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
             const primarySvc = service!;
-            // Simplified duration check for public portal
             const totalDur = (primarySvc.duration || 60) + (primarySvc.padBefore || 0) + (primarySvc.padAfter || 0);
             
             let hasConflict = false;
@@ -357,10 +358,26 @@ export default function CheckInPage() {
                 (updateData as any).cancellationReason = hasConflict ? 'clash' : 'late';
                 (updateData as any).cancellationFeeApplied = fee;
                 (updateData as any).cancellationPaymentStatus = 'unpaid';
+
+                // UN-IGNORABLE FEE CAPTURE: Add to client balance immediately
+                if (appointment.clientId && fee > 0) {
+                    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId);
+                    batch.update(clientRef, {
+                        outstandingBalance: increment(fee),
+                        unpaidFees: arrayUnion({
+                            feeId: nanoid(),
+                            appointmentId: appointment.id,
+                            appointmentDate: safeDate(appointment.startTime).toISOString(),
+                            feeAmount: fee,
+                            reason: `Auto-Cancel: ${hasConflict ? 'Schedule Conflict' : 'Late Arrival'}`,
+                        })
+                    });
+                }
             }
         }
 
-        updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updateData);
+        const checkInRef = doc(firestore, 'appointmentCheckIns', token);
+        batch.update(checkInRef, updateData);
 
         if (appointment.staffId) {
             const statusLabels = {
@@ -370,7 +387,7 @@ export default function CheckInPage() {
                 auto_cancelled: 'appointment was auto-cancelled due to lateness'
             };
             const label = statusLabels[newStatus as keyof typeof statusLabels] || 'updated status';
-            addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/notifications`), {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), {
                 userId: appointment.staffId,
                 type: 'client_movement',
                 message: `${client?.name || appointment.clientName} ${label}.`,
@@ -379,14 +396,18 @@ export default function CheckInPage() {
                 read: false,
             });
         }
-        setCurrentStatus(newStatus);
+
+        batch.commit().then(() => {
+            setCurrentStatus(newStatus);
+        });
     };
 
     const handleSettleFee = async () => {
         if (!appointment || !firestore || !tenantId) return;
         const batch = writeBatch(firestore);
+        const fee = appointment.cancellationFeeApplied || 0;
         
-        // Record payment transaction
+        // 1. Record income transaction
         const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         batch.set(txnRef, {
             date: new Date().toISOString(),
@@ -396,13 +417,21 @@ export default function CheckInPage() {
             type: 'income',
             context: 'Business',
             category: 'Cancellation Fee',
-            amount: appointment.cancellationFeeApplied || 0,
+            amount: fee,
             paymentMethod: 'Card (Mobile)',
             hasReceipt: false,
             appointmentId: appointment.id
         });
 
-        // Update appointment status
+        // 2. Clear from dossier balance
+        if (appointment.clientId) {
+            const clientRef = doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId);
+            batch.update(clientRef, {
+                outstandingBalance: increment(-fee)
+            });
+        }
+
+        // 3. Update appointment payment status
         const checkInRef = doc(firestore, 'appointmentCheckIns', token);
         batch.update(checkInRef, { cancellationPaymentStatus: 'paid' });
 
