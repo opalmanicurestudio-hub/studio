@@ -32,7 +32,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, Users, Briefcase, User, Lock, Check, Sparkles, ArrowRight } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, Users, Briefcase, User, Lock, Check, Sparkles, ArrowRight, ChevronLeft, ChevronRight, Edit } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, parse } from 'date-fns';
@@ -336,11 +336,11 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
             <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
             <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="p-6">
                 <EditEventForm event={event} onConfirm={(evt) => { onConfirm(evt); onOpenChange(false); }} staff={staff || []} />
             </div>
-          </ScrollArea>
+          </div>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
@@ -363,11 +363,11 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
             <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
             <div className="px-8 py-8">
                 <EditEventForm event={event} onConfirm={(evt) => { onConfirm(evt); onOpenChange(false); }} staff={staff || []} />
             </div>
-        </ScrollArea>
+        </div>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
           <Button onClick={() => {

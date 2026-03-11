@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -648,7 +648,7 @@ const AddAppointmentForm = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-14 md:h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
+                        <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
                         <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-10 md:h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -684,9 +684,9 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             <SheetTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</SheetTitle>
             <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
               <div className="px-6">{FormContent}</div>
-          </ScrollArea>
+          </div>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
                 <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
@@ -709,11 +709,11 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
             <DialogTitle className="text-4xl font-black uppercase tracking-tighter text-slate-900">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
             <div className="px-10">
                 {FormContent}
             </div>
-        </ScrollArea>
+        </div>
         <DialogFooter className="p-10 pt-6 border-t bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-bold uppercase tracking-tight">Cancel</Button>
           <Button type="submit" form="add-appointment-form" className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all group">Book Appointment <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
