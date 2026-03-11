@@ -7,7 +7,7 @@ import { type Appointment, type Event, type Staff, type Resource, type Membershi
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -504,11 +504,11 @@ function PlannerPageContent() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader />
-      <div className="p-3 sm:p-4 md:py-4 md:px-8 border-b bg-white/50 backdrop-blur-xl">
-            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-4">
+      <div className="p-3 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
+            <div className="max-w-7xl mx-auto space-y-4 sm:space-y-4">
                 <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5 text-left">
-                        <h1 className="text-2xl sm:text-3xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
+                        <h1 className="text-xl sm:text-2xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
                         <p className="hidden sm:block text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3">
@@ -526,7 +526,7 @@ function PlannerPageContent() {
                 </div>
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
-                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:py-2 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
+                    <div className="flex items-center gap-2 sm:gap-3 p-1 sm:py-1 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
                         <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
                         <div className="px-2 sm:px-2 text-center min-w-[110px] sm:min-w-[140px]">
                             <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>

@@ -224,9 +224,9 @@ const EditAppointmentForm = ({
             currentTime = addMinutes(currentTime, bookingInterval);
         }
         
-        const originalTime = format(safeDate(appointment.startTime), 'HH:mm');
-        if (isSameDay(date, safeDate(appointment.startTime)) && !options.includes(originalTime)) {
-            options.push(originalTime);
+        const originalTimeFormatted = format(safeDate(appointment.startTime), 'HH:mm');
+        if (isSameDay(date, safeDate(appointment.startTime)) && !options.includes(originalTimeFormatted)) {
+            options.push(originalTimeFormatted);
             options.sort();
         }
 
@@ -507,14 +507,14 @@ const EditAppointmentForm = ({
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
-                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Logic Violation</AlertDialogTitle>
+                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
                         <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
                             This modification results in a conflict with {clashingItem?.details || 'an existing item'}. Force this record update?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={() => { handleLocalSubmit({} as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Acknowledge & Force</Button>
-                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
+                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

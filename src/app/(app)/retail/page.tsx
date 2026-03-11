@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData } from '@/lib/data';
@@ -57,7 +57,7 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 );
 
 
-export default function POSPage() {
+function POSPage() {
     const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, transactions, activityLogs, memberships, packages } = useInventory();
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
@@ -334,3 +334,5 @@ export default function POSPage() {
         </div>
     );
 }
+
+export default function POSPageWrapper() { return <Suspense fallback={<div>Loading...</div>}><POSPage /></Suspense> }
