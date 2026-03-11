@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -71,7 +70,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -153,7 +152,7 @@ const AddAppointmentForm = ({
         }));
       }, [eventsFromDB]);
 
-    const { register, handleSubmit, control, watch, reset, setValue } = useForm({
+    const methods = useForm({
         defaultValues: {
             clientId: '',
             serviceId: '',
@@ -169,6 +168,8 @@ const AddAppointmentForm = ({
             }
         }
     });
+
+    const { register, handleSubmit, control, watch, reset, setValue } = methods;
 
     useEffect(() => {
         if (staff && !staffLoading) {
@@ -414,70 +415,105 @@ const AddAppointmentForm = ({
     };
     
     return (
-        <form id="add-appointment-form" onSubmit={handleSubmit(handleSaveAttempt)}>
-            <div className={cn("space-y-6 md:space-y-10 py-4")}>
-                <div className="space-y-4 md:space-y-6">
-                    <h3 className="text-base md:text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                        <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                        Engagement
-                    </h3>
-                    <div className="space-y-3 text-left">
-                        <div className="flex items-center justify-between px-1">
-                            <Label htmlFor="client" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Dossier</Label>
-                            {activeMembership && (
-                                <Badge className="bg-indigo-600 text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
-                                    <Award className="mr-1 h-3 w-3" /> {activeMembership.name}
-                                </Badge>
-                            )}
+        <FormProvider {...methods}>
+            <form id="add-appointment-form" onSubmit={handleSubmit(handleSaveAttempt)}>
+                <div className={cn("space-y-6 md:space-y-10 py-4")}>
+                    <div className="space-y-4 md:space-y-6">
+                        <h3 className="text-base md:text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                            <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                            Engagement
+                        </h3>
+                        <div className="space-y-3 text-left">
+                            <div className="flex items-center justify-between px-1">
+                                <Label htmlFor="client" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Dossier</Label>
+                                {activeMembership && (
+                                    <Badge className="bg-indigo-600 text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
+                                        <Award className="mr-1 h-3 w-3" /> {activeMembership.name}
+                                    </Badge>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <Controller
+                                    name="clientId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <SelectTrigger id="client" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                                {selectedClient ? (
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="relative shrink-0">
+                                                            <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl">
+                                                                <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
+                                                                <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                            </Avatar>
+                                                            {(selectedClient.activeMembershipId || selectedClient.subscription?.membershipId) && (
+                                                                <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
+                                                                    <Award className="w-2 h-2" />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className="uppercase tracking-tight text-[11px] md:text-sm truncate">{selectedClient.name}</span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <SelectValue placeholder="SEARCH ROSTER..." />
+                                                )}
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                                {(clients || []).map(c => {
+                                                    const isMem = !!(c.activeMembershipId || c.subscription?.membershipId);
+                                                    return (
+                                                        <SelectItem key={c.id} value={c.id} className="rounded-xl">
+                                                            <div className="flex items-center w-full gap-3 py-1">
+                                                                <div className="relative shrink-0">
+                                                                    <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
+                                                                        <AvatarImage src={c.avatarUrl} className="object-cover" />
+                                                                        <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
+                                                                    </Avatar>
+                                                                    {isMem && (
+                                                                        <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
+                                                                            <Award className="w-2 h-2" />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <span className="flex-1 font-bold uppercase tracking-tight">{c.name}</span>
+                                                                {isMem && (
+                                                                    <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[7px] font-black uppercase tracking-widest shrink-0">Member</Badge>
+                                                                )}
+                                                            </div>
+                                                        </SelectItem>
+                                                    )
+                                                })}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                />
+                                <Button variant="outline" size="icon" type="button" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-5 w-5 md:h-6 md:w-6" /></Button>
+                            </div>
                         </div>
-                        <div className="flex gap-2">
+                        
+                        <div className="space-y-3 text-left">
+                            <Label htmlFor="service" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Catalog</Label>
                             <Controller
-                                name="clientId"
+                                name="serviceId"
                                 control={control}
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger id="client" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                            {selectedClient ? (
-                                                <div className="flex items-center gap-3">
-                                                    <div className="relative shrink-0">
-                                                        <Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl">
-                                                            <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                                                            <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                        </Avatar>
-                                                        {(selectedClient.activeMembershipId || selectedClient.subscription?.membershipId) && (
-                                                            <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                                <Award className="w-2 h-2" />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <span className="uppercase tracking-tight text-[11px] md:text-sm truncate">{selectedClient.name}</span>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <SelectValue placeholder="SEARCH ROSTER..." />
-                                            )}
+                                        <SelectTrigger id="service" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                            <SelectValue placeholder="SELECT SERVICE..." />
                                         </SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {(clients || []).map(c => {
-                                                const isMem = !!(c.activeMembershipId || c.subscription?.membershipId);
+                                            {(services || []).filter(s => s.type === 'service').map(s => {
+                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
                                                 return (
-                                                    <SelectItem key={c.id} value={c.id} className="rounded-xl">
+                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl">
                                                         <div className="flex items-center w-full gap-3 py-1">
-                                                            <div className="relative shrink-0">
-                                                                <Avatar className="h-8 w-8 border shadow-sm rounded-xl">
-                                                                    <AvatarImage src={c.avatarUrl} className="object-cover" />
-                                                                    <AvatarFallback className="font-black text-xs">{(c.name || 'C')?.charAt(0)}</AvatarFallback>
-                                                                </Avatar>
-                                                                {isMem && (
-                                                                    <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background">
-                                                                        <Award className="w-2 h-2" />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <span className="flex-1 font-bold uppercase tracking-tight">{c.name}</span>
-                                                            {isMem && (
-                                                                <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[7px] font-black uppercase tracking-widest shrink-0">Member</Badge>
+                                                            <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
+                                                            {isMembershipPerk && (
+                                                                <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
+                                                                    <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
+                                                                </Badge>
                                                             )}
                                                         </div>
                                                     </SelectItem>
@@ -487,175 +523,142 @@ const AddAppointmentForm = ({
                                     </Select>
                                 )}
                             />
-                            <Button variant="outline" size="icon" type="button" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-5 w-5 md:h-6 md:w-6" /></Button>
                         </div>
                     </div>
-                    
-                    <div className="space-y-3 text-left">
-                        <Label htmlFor="service" className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Catalog</Label>
+
+                    <div className="space-y-6 pt-6 border-t border-dashed text-left">
+                        <div className="space-y-1">
+                            <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
+                                <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                                Provider Assignment
+                            </h3>
+                            <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-8 md:ml-9">Select a specific pro or use smart rotation logic.</p>
+                        </div>
+                        
                         <Controller
-                            name="serviceId"
+                            name="staffId"
                             control={control}
                             render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger id="service" className="h-12 md:h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                        <SelectValue placeholder="SELECT SERVICE..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {(services || []).filter(s => s.type === 'service').map(s => {
-                                            const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
-                                            return (
-                                                <SelectItem key={s.id} value={s.id} className="rounded-xl">
-                                                    <div className="flex items-center w-full gap-3 py-1">
-                                                        <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
-                                                        {isMembershipPerk && (
-                                                            <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
-                                                                <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
-                                                            </Badge>
-                                                        )}
-                                                    </div>
-                                                </SelectItem>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
+                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4" disabled={role==='staff'}>
+                                    <StaffSelectionCard 
+                                        staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
+                                        pricingTiers={pricingTiers || []} 
+                                        isSelected={field.value === 'any'}
+                                    />
+                                    {(staff || []).map(s => (
+                                        <StaffSelectionCard 
+                                            key={s.id} 
+                                            staff={s} 
+                                            pricingTiers={pricingTiers || []} 
+                                            isSelected={field.value === s.id}
+                                        />
+                                    ))}
+                                </RadioGroup>
                             )}
                         />
-                    </div>
-                </div>
 
-                <div className="space-y-6 pt-6 border-t border-dashed">
-                    <div className="space-y-1">
-                        <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                            <Users className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                            Provider Assignment
-                        </h3>
-                        <p className="text-[8px] md:text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-8 md:ml-9">Select a specific pro or use smart rotation logic.</p>
-                    </div>
-                    
-                    <Controller
-                        name="staffId"
-                        control={control}
-                        render={({ field }) => (
-                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4" disabled={role==='staff'}>
-                                <StaffSelectionCard 
-                                    staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
-                                    pricingTiers={pricingTiers || []} 
-                                    isSelected={field.value === 'any'}
-                                />
-                                {(staff || []).map(s => (
-                                    <StaffSelectionCard 
-                                        key={s.id} 
-                                        staff={s} 
-                                        pricingTiers={pricingTiers || []} 
-                                        isSelected={field.value === s.id}
-                                    />
-                                ))}
-                            </RadioGroup>
-                        )}
-                    />
-
-                    <AnimatePresence>
-                        {staffId === 'any' && availableTiersForService.length > 0 && (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pt-6 border-t-2 border-dashed">
-                                <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                    <Sparkles className="w-3 h-3" /> Tier Routing Preference
-                                </Label>
-                                <Controller
-                                    name="selectedTierId"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-2">
-                                            <label htmlFor="tier-any-plan" className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
-                                                <div className="flex items-center gap-3">
-                                                    <RadioGroupItem value="any" id="tier-any-plan" />
-                                                    <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">First Available (Any Tier)</span>
-                                                </div>
-                                            </label>
-                                            {availableTiersForService.map(tier => (
-                                                <label key={tier.tierId} htmlFor={`tier-p-${tier.tierId}`} className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
+                        <AnimatePresence>
+                            {staffId === 'any' && availableTiersForService.length > 0 && (
+                                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pt-6 border-t-2 border-dashed">
+                                    <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                        <Sparkles className="w-3 h-3" /> Tier Routing Preference
+                                    </Label>
+                                    <Controller
+                                        name="selectedTierId"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-2">
+                                                <label htmlFor="tier-any-plan" className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
                                                     <div className="flex items-center gap-3">
-                                                        <RadioGroupItem value={tier.tierId} id={`tier-p-${tier.tierId}`} />
-                                                        <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">{tier.name}</span>
+                                                        <RadioGroupItem value="any" id="tier-any-plan" />
+                                                        <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">First Available (Any Tier)</span>
                                                     </div>
-                                                    <span className="font-black text-primary text-[10px] md:text-xs font-mono">${tier.price.toFixed(2)}</span>
                                                 </label>
-                                            ))}
-                                        </RadioGroup>
-                                    )}
-                                />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-
-                <div className="space-y-6 pt-6 border-t border-dashed">
-                    <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                        <CalendarCheck className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                        Timing
-                    </h3>
-                    <div className="space-y-3 text-left">
-                        <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
-                        <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
-                            <div className="flex justify-between items-center px-2">
-                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                                <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
-                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
-                            </div>
-                            <div className="grid grid-cols-7 gap-1.5 md:gap-3">
-                                {weekDays.map(day => (
-                                    <button 
-                                        key={day.toISOString()} 
-                                        onClick={() => setValue('date', day)} 
-                                        disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
-                                        className={cn(
-                                            "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
-                                            isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
-                                            (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
-                                        )} 
-                                        type="button"
-                                    >
-                                        <span className="text-[8px] md:text-[10px] uppercase font-black opacity-60 mb-0.5 md:mb-1">{format(day, 'EEE')}</span>
-                                        <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 md:gap-3 pt-6 md:pt-8 border-t-2 border-dashed border-white/50">
-                                {timeSlots.map(time => (
-                                    <Button 
-                                        key={time} 
-                                        variant={startTime === time ? 'default' : 'outline'} 
-                                        onClick={() => setValue('startTime', time)} 
-                                        type="button"
-                                        className={cn(
-                                            "h-10 md:h-14 font-black uppercase text-[10px] md:text-xs tracking-widest rounded-xl md:rounded-2xl border-2 transition-all", 
-                                            startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                                {availableTiersForService.map(tier => (
+                                                    <label key={tier.tierId} htmlFor={`tier-p-${tier.tierId}`} className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
+                                                        <div className="flex items-center gap-3">
+                                                            <RadioGroupItem value={tier.tierId} id={`tier-p-${tier.tierId}`} />
+                                                            <span className="text-[10px] md:text-[11px] font-black uppercase tracking-tight">{tier.name}</span>
+                                                        </div>
+                                                        <span className="font-black text-primary text-[10px] md:text-xs font-mono">${tier.price.toFixed(2)}</span>
+                                                    </label>
+                                                ))}
+                                            </RadioGroup>
                                         )}
-                                    >
-                                        {format(timeStringToDate(time, new Date()), 'h:mm a')}
-                                    </Button>
-                                ))}
-                                {timeSlots.length === 0 && (<div className="col-span-full text-center text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-10 md:py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
+                                    />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-dashed">
+                        <h3 className="text-base md:text-lg font-black uppercase tracking-tight flex items-center gap-3">
+                            <CalendarCheck className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                            Timing
+                        </h3>
+                        <div className="space-y-3 text-left">
+                            <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
+                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
+                                <div className="flex justify-between items-center px-2">
+                                    <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                                    <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
+                                    <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-4 h-4 md:w-5 md:h-5" /></Button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-1.5 md:gap-3">
+                                    {weekDays.map(day => (
+                                        <button 
+                                            key={day.toISOString()} 
+                                            onClick={() => setValue('date', day)} 
+                                            disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)} 
+                                            className={cn(
+                                                "flex flex-col items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl border-2 transition-all aspect-square", 
+                                                isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", 
+                                                (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed"
+                                            )} 
+                                            type="button"
+                                        >
+                                            <span className="text-[8px] md:text-[10px] uppercase font-black opacity-60 mb-0.5 md:mb-1">{format(day, 'EEE')}</span>
+                                            <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 md:gap-3 pt-6 md:pt-8 border-t-2 border-dashed border-white/50">
+                                    {timeSlots.map(time => (
+                                        <Button 
+                                            key={time} 
+                                            variant={startTime === time ? 'default' : 'outline'} 
+                                            onClick={() => setValue('startTime', time)} 
+                                            type="button"
+                                            className={cn(
+                                                "h-10 md:h-14 font-black uppercase text-[10px] md:text-xs tracking-widest rounded-xl md:rounded-2xl border-2 transition-all", 
+                                                startTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
+                                            )}
+                                        >
+                                            {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                        </Button>
+                                    ))}
+                                    {timeSlots.length === 0 && (<div className="col-span-full text-center text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 py-10 md:py-12 border-2 border-dashed rounded-[2rem]">No Availability</div>)}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-                    <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
-                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
-                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
-                            This manual override results in a schedule conflict. Force this record into the agenda?
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
-                        <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-10 md:h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </form>
+                <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
+                    <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                        <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
+                            <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
+                            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
+                                This manual override results in a schedule conflict. Force this record into the agenda?
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
+                            <Button onClick={handleSubmit(confirmAndSubmit)} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Book Anyway</Button>
+                            <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </form>
+        </FormProvider>
     )
 }
 
@@ -667,7 +670,6 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   const dialogDescription = "Manually reserve a studio session for your guest.";
   
   const FormContent = <AddAppointmentForm 
-    key={formKey}
     onConfirm={onConfirm} 
     client={client} 
     appointmentToRebook={appointmentToRebook}

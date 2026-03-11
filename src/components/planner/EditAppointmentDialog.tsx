@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -528,7 +527,7 @@ const EditAppointmentForm = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                        <Button onClick={() => { handleLocalSubmit({} as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30">Acknowledge & Force</Button>
+                        <Button onClick={(e) => { handleLocalSubmit(e as any); setShowConfirmation(false); }} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/30">Acknowledge & Force</Button>
                         <AlertDialogCancel onClick={() => setShowConfirmation(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[9px] md:text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -569,7 +568,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
         </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="flex w-full gap-4">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
             <Button onClick={() => {
                 const form = document.getElementById('edit-appointment-form') as HTMLFormElement;
                 if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));

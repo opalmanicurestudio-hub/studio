@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -270,7 +269,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
     );
 
     return (
-        <div className="space-y-12">
+        <div className="space-y-12 text-left">
             <div className="space-y-8">
                 <SectionHeader icon={User} title="Primary Identity" step={1} />
                  <div className="flex flex-col sm:flex-row items-center gap-8 p-6 rounded-[2rem] border-2 bg-muted/5">
