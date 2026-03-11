@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -221,8 +222,8 @@ export default function ClientsPage() {
     let totalBalanceGain = 0;
 
     for (const secondary of secondaryClients) {
-        totalLtvGain += (secondary.lifetimeValue || 0);
-        totalBalanceGain += (secondary.outstandingBalance || 0);
+        totalLtvGain += Number(secondary.lifetimeValue || 0);
+        totalBalanceGain += Number(secondary.outstandingBalance || 0);
 
         // 1. Find all appointments for this secondary client
         const aptsRef = collection(firestore, `tenants/${tenantId}/appointments`);
@@ -273,7 +274,7 @@ export default function ClientsPage() {
     });
     
     if (owesBalanceOnly) {
-        clientsToFilter = clientsToFilter.filter(c => (c.outstandingBalance || 0) > 0);
+        clientsToFilter = clientsToFilter.filter(c => Number(c.outstandingBalance || 0) > 0);
     }
 
     if (lastSeenFilter !== 'all') {
@@ -329,7 +330,7 @@ export default function ClientsPage() {
       client.phone,
       (client.lifetimeValue || 0).toString(),
       format(new Date(client.lastAppointment), 'yyyy-MM-dd'),
-      (client.outstandingBalance || 0).toFixed(2)
+      Number(client.outstandingBalance || 0).toFixed(2)
     ]);
 
     const csvContent = [
@@ -369,8 +370,8 @@ export default function ClientsPage() {
             return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
-        const totalRevenue = filteredClients.reduce((acc, c) => acc + (c.lifetimeValue || 0), 0);
-        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + (c.outstandingBalance || 0), 0);
+        const totalRevenue = filteredClients.reduce((acc, c) => acc + Number(c.lifetimeValue || 0), 0);
+        const totalPendingDebt = filteredClients.reduce((acc, c) => acc + Number(c.outstandingBalance || 0), 0);
 
         const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);

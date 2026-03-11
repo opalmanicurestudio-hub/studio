@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -139,7 +140,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                             <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p>
                                 <div className="flex justify-between items-baseline">
-                                    <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${fee.toFixed(2)}</p>
+                                    <p className="text-4xl font-black text-destructive tracking-tighter font-mono">${Number(fee).toFixed(2)}</p>
                                     <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-destructive/20 text-destructive">OVERHEAD RECOVERY</Badge>
                                 </div>
                                 <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed pt-2 border-t border-destructive/10">This fee has been added to your dossier. Settle now to clear your account and rebook immediately.</p>
@@ -151,7 +152,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                         <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4"><CreditCard className="w-8 h-8 text-primary" /></div>
                         <div className="space-y-2">
                             <h3 className="text-xl font-black uppercase tracking-tighter">Settle Balance</h3>
-                            <p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${fee?.toFixed(2)}</p>
+                            <p className="text-xs font-bold uppercase tracking-widest opacity-60">Authorize ${Number(fee).toFixed(2)}</p>
                         </div>
                         <div className="space-y-4 text-left">
                             <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" /></div>
@@ -511,12 +512,12 @@ export default function CheckInPage() {
         <ViewContainer>
             <ViewHeader title="Identity Check" subtitle="Verify your session" icon={Fingerprint} />
             <CardContent className="p-8 md:p-10 space-y-10">
-                {client.outstandingBalance && client.outstandingBalance > 0 && (
+                {Number(client.outstandingBalance || 0) > 0 && (
                     <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2.5rem] p-6 shadow-2xl shadow-destructive/10">
                         <Wallet className="h-6 w-6 text-destructive" />
                         <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Arrears Alert</AlertTitle>
                         <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
-                            Account balance of <strong className="text-lg tracking-tighter text-destructive">${client.outstandingBalance.toFixed(2)}</strong> detected. Settle with your professional today.
+                            Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.
                         </AlertDescription>
                     </Alert>
                 )}

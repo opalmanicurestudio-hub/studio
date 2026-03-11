@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -1160,6 +1161,8 @@ function POSPage() {
             return 0;
         });
     }, [selectedAptsData, allClientOptions]);
+
+    const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
 
     const checkoutHubProps = {
         cart: retailItems, 

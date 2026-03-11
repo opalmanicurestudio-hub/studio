@@ -132,7 +132,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 )}
                 {client.intel?.hasIncidents && (
                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-500/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div>
+                        <div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-purple-600 uppercase tracking-widest">Incident History</span>
                     </div>
                 )}
@@ -166,7 +166,7 @@ const AppointmentHistoryCard = ({
   appointment: any;
   onRebook: (appointment: Appointment) => void;
 }) => {
-  const total = (appointment.revenue || appointment.service?.price || 0) + (appointment.tipAmount || 0);
+  const total = Number((appointment.revenue || appointment.service?.price || 0)) + Number(appointment.tipAmount || 0);
   return (
     <Card className="flex flex-col border-2 rounded-[1.5rem] shadow-sm overflow-hidden group hover:border-primary/20 transition-all bg-white">
       <CardContent className="p-5 space-y-4 flex-1">
@@ -219,7 +219,7 @@ const LoyaltyStatusCard = ({ client, appointments, discounts }: { client: Client
 
     const rewardValue = loyaltyDiscount.type === 'percentage' 
         ? `${loyaltyDiscount.value}% off` 
-        : `$${loyaltyDiscount.value.toFixed(2)} off`;
+        : `$${Number(loyaltyDiscount.value).toFixed(2)} off`;
 
     return (
         <Card className="border-2 rounded-[2rem] shadow-xl overflow-hidden bg-white">
@@ -579,20 +579,20 @@ export default function ClientDetailPage() {
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
                                 <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
                                 <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1">Lifetime Yield</p>
-                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${(client.lifetimeValue || 0).toFixed(2)}</p>
+                                <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none">${Number(client.lifetimeValue || 0).toFixed(2)}</p>
                             </div>
                             
                             <div className="grid grid-cols-1 gap-4">
                                 <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner">
                                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
-                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${(client.walletCredit || 0).toFixed(2)}</p>
+                                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${Number(client.walletCredit || 0).toFixed(2)}</p>
                                 </div>
                                 <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", (client.outstandingBalance || 0) > 0 ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <div className="flex justify-between items-start">
                                         <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
                                         {(client.outstandingBalance || 0) > 0 && <Button variant="ghost" size="icon" onClick={() => setIsNoticePreviewOpen(true)} className="h-6 w-6 -mt-1 -mr-1 text-destructive hover:bg-destructive/10"><Send className="w-3.5 h-3.5"/></Button>}
                                     </div>
-                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${(client.outstandingBalance || 0).toFixed(2)}</p>
+                                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                                 </div>
                             </div>
                         </CardContent>
