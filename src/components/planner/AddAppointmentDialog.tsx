@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -59,7 +59,8 @@ import {
   Star, 
   Sparkles, 
   Wallet, 
-  Check 
+  Check,
+  ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event, InventoryItem, PricingTier, getServicePrice } from '@/lib/data';
@@ -77,11 +78,12 @@ import { useInventory } from '@/context/InventoryContext';
 import { collection, query, where } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val?.toDate === 'function') return val.toDate();
     if (typeof val === 'string') {
         try {
             return parseISO(val);
@@ -89,9 +91,8 @@ const safeDate = (val: any): Date => {
             return new Date(val);
         }
     }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
 
@@ -107,33 +108,6 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     return d;
 }
 
-const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
-    const isAnyStaff = staff.id === 'any';
-    return (
-        <label htmlFor={`staff-select-card-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-40 grayscale-[0.5]")}>
-            <div className={cn(
-                'relative transition-all duration-300 rounded-2xl border-2 p-4 flex flex-col items-center gap-3', 
-                isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30', 
-                disabled && 'bg-muted/50 border-dashed'
-            )}>
-                <Avatar className={cn("w-16 h-16 border-4 shadow-sm transition-transform duration-500", isSelected ? "border-primary scale-110" : "border-background")}>
-                    {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
-                    <AvatarFallback className="text-muted-foreground bg-muted font-black uppercase text-xs">
-                        {isAnyStaff ? <Users className="w-8 h-8"/> : (staff.name || 'S').charAt(0)}
-                    </AvatarFallback>
-                </Avatar>
-                <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name || 'Staff'}</p>
-                <RadioGroupItem value={staff.id} id={`staff-select-card-${staff.id}`} className="sr-only" disabled={disabled} />
-                {isSelected && (
-                    <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
-                        <Check className="w-3 h-3" />
-                    </div>
-                )}
-            </div>
-        </label>
-    );
-};
-
 const AddAppointmentForm = ({ 
     onConfirm,
     client: initialClient,
@@ -144,9 +118,10 @@ const AddAppointmentForm = ({
     const { selectedTenant, role } = useTenant();
     const tenantId = selectedTenant?.id;
     
-    const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
-    const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
+    const { data: clients } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
+    const { data: services } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
     const { data: allStaff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
+    const { data: pricingTiers } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/pricingTiers`) : null, [firestore, tenantId]));
 
     const { scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
@@ -180,7 +155,8 @@ const AddAppointmentForm = ({
         defaultValues: {
             clientId: '',
             serviceId: '',
-            staffId: '',
+            staffId: 'any',
+            selectedTierId: 'any',
             date: new Date(),
             startTime: '',
             addOnIds: [] as string[],
@@ -196,12 +172,13 @@ const AddAppointmentForm = ({
         if (staff && !staffLoading) {
             const staffDefault = (role === 'staff' && user)
                 ? user.uid
-                : (appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''));
+                : (appointmentToRebook ? (appointmentToRebook.staffId || 'any') : 'any');
 
             reset({
                 clientId: initialClient?.id || appointmentToRebook?.clientId || '',
                 serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
                 staffId: staffDefault,
+                selectedTierId: 'any',
                 date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
                 startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
                 addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
@@ -222,6 +199,7 @@ const AddAppointmentForm = ({
     const clientId = watch('clientId');
     const serviceId = watch('serviceId');
     const staffId = watch('staffId');
+    const selectedTierId = watch('selectedTierId');
     const date = watch('date');
     const startTime = watch('startTime');
     const addOnIds = watch('addOnIds');
@@ -235,6 +213,22 @@ const AddAppointmentForm = ({
         if (!selectedClient || (!selectedClient.activeMembershipId && !selectedClient.subscription?.membershipId) || !memberships) return null;
         return memberships.find(m => m.id === (selectedClient.activeMembershipId || selectedClient.subscription?.membershipId));
     }, [selectedClient, memberships]);
+
+    const qualifiedStaff = useMemo(() => {
+        if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff;
+        return staff.filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
+    }, [selectedService, staff]);
+
+    const availableTiersForService = useMemo(() => {
+        if (!selectedService?.serviceTiers || selectedService.serviceTiers.length === 0 || !pricingTiers) return [];
+        const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
+        return selectedService.serviceTiers
+            .filter(st => tiersWithStaff.has(st.tierId))
+            .map(st => ({
+                ...st,
+                name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier'
+            }));
+    }, [selectedService, qualifiedStaff, pricingTiers]);
 
     const handleAddOnsChange = (newAddOns: Service[]) => {
         setValue('addOnIds', newAddOns.map(s => s.id));
@@ -251,51 +245,61 @@ const AddAppointmentForm = ({
         if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(date, 'eeee').toLowerCase();
-        const selectedStaffMember = staff.find(s => s.id === staffId);
-        let workingHours;
-        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
-        if (staffDaySchedule) workingHours = staffDaySchedule;
-        else workingHours = publicScheduleProfile?.week?.[dayName];
         
-        if (!workingHours || !workingHours.enabled) return [];
-        const openT = timeStringToDate(workingHours.start, date);
-        const closeT = timeStringToDate(workingHours.end, date);
-        const busyIntervals: { start: Date, end: Date }[] = [];
+        let staffToAudit = staffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === staffId);
+        if (staffId === 'any' && selectedTierId !== 'any') {
+            staffToAudit = staffToAudit.filter(s => s.pricingTierId === selectedTierId);
+        }
 
-        (appointments || []).filter(apt => {
-            if (!isSameDay(apt.startTime, date)) return false;
-            if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
-            return true;
-        }).forEach(apt => {
-            const svc = services.find(s => s.id === apt.serviceId);
-            busyIntervals.push({ start: addMinutes(apt.startTime, -(svc?.padBefore || 0)), end: addMinutes(apt.endTime, (svc?.padAfter || 0)) });
+        const options: Set<string> = new Set();
+        
+        staffToAudit.forEach(staffMember => {
+            let workingHours;
+            const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
+            if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
+            else if (staffDaySchedule && !staffDaySchedule.enabled) return;
+            else workingHours = publicScheduleProfile?.week?.[dayName];
+            
+            if (!workingHours || !workingHours.enabled) return;
+            const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
+            const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+            const busyIntervals: { start: Date, end: Date }[] = [];
+
+            appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
+                const aptService = services.find(s => s.id === apt.serviceId);
+                const padBefore = aptService?.padBefore || 0;
+                const padAfter = aptService?.padAfter || 0;
+                busyIntervals.push({ start: addMinutes(apt.startTime, -padBefore), end: addMinutes(apt.endTime, padAfter) });
+            });
+
+            events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
+                busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) });
+            });
+
+            let currentTime = dayStartWithBusinessHours;
+            const now = new Date();
+            if (isToday(date)) {
+                const minSinceStart = (now.getHours() * 60) + now.getMinutes();
+                const busStartMin = (currentTime.getHours() * 60) + currentTime.getMinutes();
+                const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
+                if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
+            }
+            
+            while (currentTime < dayEndWithBusinessHours) {
+                const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
+                if (potentialEnd > dayEndWithBusinessHours) break;
+                const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
+                
+                const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
+
+                if (!isOverlapping && isStaffActiveForSameDay) {
+                    options.add(format(currentTime, 'HH:mm'));
+                }
+                currentTime = addMinutes(currentTime, bookingInterval);
+            }
         });
-
-        (events || []).filter(evt => {
-            if (!isSameDay(evt.startTime, date) || evt.type !== 'blocked') return false;
-            return !evt.staffId || evt.staffId === 'all' || (staffId !== 'any' && evt.staffId === staffId);
-        }).forEach(evt => { busyIntervals.push({ start: evt.startTime, end: evt.endTime }); });
-
-        const options: string[] = [];
-        let currentTime = openT;
-        const now = new Date();
-        if (isToday(date) && now > openT) {
-            const minSinceStart = (now.getHours() * 60) + now.getMinutes();
-            const busStartMin = (openT.getHours() * 60) + openT.getMinutes();
-            const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
-            if (skip > 0) currentTime = addMinutes(openT, skip * bookingInterval);
-        }
-        
-        while (currentTime < closeT) {
-            const potentialEnd = addMinutes(currentTime, selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0));
-            if (potentialEnd > closeT) break;
-            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
-            if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
-            currentTime = addMinutes(currentTime, bookingInterval);
-        }
-        return options;
-    }, [date, staffId, selectedService, staff, appointments, events, publicScheduleProfile, services, appointmentToRebook]);
+        return Array.from(options).sort();
+    }, [date, staffId, selectedTierId, qualifiedStaff, selectedService, staff, appointments, events, publicScheduleProfile, services]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime || !services || !appointments) {
@@ -309,9 +313,15 @@ const AddAppointmentForm = ({
         const endDateTime = addMinutes(startDateTime, totalDuration);
         const newInterval = { start: startDateTime, end: endDateTime };
 
+        if (staffId === 'any') {
+            setIsOverlapping(false);
+            setClashingItem(null);
+            return;
+        }
+
         const clashApt = appointments.find(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
-            if (staffId && staffId !== 'any' && apt.staffId !== staffId) return false;
+            if (staffId && apt.staffId !== staffId) return false;
             return areIntervalsOverlapping(newInterval, { start: apt.startTime, end: apt.endTime }, { inclusive: false });
         });
 
@@ -324,7 +334,7 @@ const AddAppointmentForm = ({
 
         const clashEvt = events.find(evt => {
             if (evt.type !== 'blocked') return false;
-            if (evt.staffId && evt.staffId !== 'all' && staffId !== 'any' && evt.staffId === staffId) return false;
+            if (evt.staffIds && !evt.staffIds.includes('all') && !evt.staffIds.includes(staffId)) return false;
             return areIntervalsOverlapping(newInterval, { start: evt.startTime, end: evt.endTime }, { inclusive: false });
         });
 
@@ -342,14 +352,63 @@ const AddAppointmentForm = ({
         const [hours, minutes] = data.startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
         const service = services.find(s => s.id === data.serviceId);
-        const endDateTime = addMinutes(startDateTime, service?.duration || 0);
+        if (!service) return;
+        
+        const endDateTime = addMinutes(startDateTime, service.duration);
         const allServicesInApt = [service, ...selectedAddOns].filter((s): s is Service => !!s);
         const allRequiredResourceIds = [...new Set(allServicesInApt.flatMap(s => s.requiredResourceIds || []))];
+
+        let finalStaffId = data.staffId;
+        
+        // FAIR PLAY ROTATION LOGIC
+        if (finalStaffId === 'any') {
+            let candidates = qualifiedStaff.filter(s => {
+                if (data.selectedTierId !== 'any' && s.pricingTierId !== data.selectedTierId) return false;
+                if (isToday(startDateTime) && (!s.active || s.onBreak)) return false;
+                
+                const dayName = format(startDateTime, 'eeee').toLowerCase();
+                const sched = s.availability?.week?.[dayName as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[dayName];
+                if (!sched?.enabled) return false;
+                
+                const openT = timeStringToDate(sched.start, startDateTime);
+                const closeT = timeStringToDate(sched.end, startDateTime);
+                if (startDateTime < openT || endDateTime > closeT) return false;
+
+                const isAptOverlapping = appointments.some(apt => 
+                    apt.staffId === s.id && 
+                    apt.status !== 'cancelled' && 
+                    areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false })
+                );
+                if (isAptOverlapping) return false;
+
+                const isEventOverlapping = events.some(evt => 
+                    evt.type === 'blocked' && 
+                    (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(s.id)) && 
+                    areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false })
+                );
+                if (isEventOverlapping) return false;
+
+                return true;
+            });
+
+            if (candidates.length > 0) {
+                // Sort by least recently served (Fair Play)
+                candidates.sort((a, b) => {
+                    const timeA = a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
+                    const timeB = b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
+                    return timeA - timeB;
+                });
+                finalStaffId = candidates[0].id;
+            } else {
+                toast({ variant: 'destructive', title: 'Operational Conflict', description: 'No qualified professionals are available for this specific window and tier.' });
+                return;
+            }
+        }
 
         onConfirm({
             clientId: data.clientId,
             serviceId: data.serviceId,
-            staffId: data.staffId,
+            staffId: finalStaffId,
             startTime: startDateTime,
             endTime: endDateTime,
             status: 'confirmed',
@@ -360,7 +419,10 @@ const AddAppointmentForm = ({
     }
     
     const handleSaveAttempt = (data: any) => {
-        if (!data.clientId || !data.serviceId || !data.startTime) return;
+        if (!data.clientId || !data.serviceId || !data.startTime) {
+            toast({ variant: 'destructive', title: 'Incomplete Protocol', description: 'Ensure client, treatment, and timing are specified.' });
+            return;
+        }
         if (isOverlapping) setShowConfirmation(true);
         else confirmAndSubmit(data);
     };
@@ -373,20 +435,9 @@ const AddAppointmentForm = ({
                         <Users className="w-6 h-6 text-primary" />
                         Engagement
                     </h3>
-                    {selectedClient && (selectedClient.outstandingBalance || 0) > 0 && (
-                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                            <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-[2rem] p-6 shadow-xl shadow-destructive/5" style={{ '--primary': '0 84.2% 60.2%' } as any}>
-                                <Wallet className="h-6 w-6" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Balance Detected</AlertTitle>
-                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">
-                                    Account balance of <strong>${selectedClient.outstandingBalance!.toFixed(2)}</strong> found. Settle at POS to clear.
-                                </AlertDescription>
-                            </Alert>
-                        </motion.div>
-                    )}
-                    <div className="space-y-3">
+                    <div className="space-y-3 text-left">
                         <div className="flex items-center justify-between px-1">
-                            <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client Rolodex</Label>
+                            <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Client Dossier</Label>
                             {activeMembership && (
                                 <Badge className="bg-indigo-600 text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
                                     <Award className="mr-1 h-3 w-3" /> {activeMembership.name}
@@ -421,7 +472,7 @@ const AddAppointmentForm = ({
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <SelectValue placeholder="Select a client" />
+                                                <SelectValue placeholder="SEARCH ROSTER..." />
                                             )}
                                         </SelectTrigger>
                                         <SelectContent className="rounded-2xl border-2 shadow-2xl">
@@ -456,98 +507,103 @@ const AddAppointmentForm = ({
                             <Button variant="outline" size="icon" type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0"><PlusCircle className="h-6 w-6" /></Button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                            <Label htmlFor="staff" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Assigned Professional</Label>
-                            <Controller
-                                name="staffId"
-                                control={control}
-                                render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value} disabled={role==='staff'}>
-                                        <SelectTrigger id="staff" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                            {selectedStaff ? (
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl shrink-0">
-                                                        <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
-                                                        <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(selectedStaff.name || 'S')?.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span className="uppercase tracking-tight text-xs md:text-sm truncate">{(selectedStaff.name || 'Staff').split(' ')[0]}</span>
-                                                </div>
-                                            ) : (
-                                                <SelectValue placeholder="Professional" />
-                                            )}
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {(role === 'owner' || role === 'admin' ? (allStaff || []) : (allStaff || []).filter(s => s.id === user?.uid)).map(s => (
+                    
+                    <div className="space-y-3 text-left">
+                        <Label htmlFor="service" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Catalog</Label>
+                        <Controller
+                            name="serviceId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger id="service" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
+                                        <SelectValue placeholder="SELECT SERVICE..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                        {(services || []).filter(s => s.type === 'service').map(s => {
+                                            const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
+                                            return (
                                                 <SelectItem key={s.id} value={s.id} className="rounded-xl">
-                                                    <div className="flex items-center gap-3 py-1">
-                                                        <Avatar className="w-8 h-8 border shadow-sm rounded-xl">
-                                                            <AvatarImage src={s.avatarUrl} className="object-cover" />
-                                                            <AvatarFallback className="font-black text-xs">{(s?.name || 'S')?.charAt(0)}</AvatarFallback>
-                                                        </Avatar>
-                                                        <span className="font-bold uppercase tracking-tight">{s?.name || 'Unknown Staff'}</span>
+                                                    <div className="flex items-center w-full gap-3 py-1">
+                                                        <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
+                                                        {isMembershipPerk && (
+                                                            <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
+                                                                <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
+                                                            </Badge>
+                                                        )}
                                                     </div>
                                                 </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                            />
-                        </div>
-                        <div className="space-y-3">
-                            <Label htmlFor="service" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Treatment Menu</Label>
-                            <Controller
-                                name="serviceId"
-                                control={control}
-                                render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger id="service" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-bold">
-                                            <SelectValue placeholder="Select service" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {(services || []).filter(s => s.type === 'service').map(s => {
-                                                const isMembershipPerk = activeMembership?.includedServices?.some(perk => perk.id === s.id);
-                                                return (
-                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl">
-                                                        <div className="flex items-center w-full gap-3 py-1">
-                                                            <span className="flex-1 font-bold uppercase tracking-tight">{s.name}</span>
-                                                            {isMembershipPerk && (
-                                                                <Badge className="bg-primary text-white border-none h-5 px-2 text-[8px] font-black uppercase tracking-widest">
-                                                                    <Star className="mr-1 h-2.5 w-2.5 fill-current" /> Perk
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                            />
-                        </div>
+                                            )
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        />
                     </div>
                 </div>
 
                 <div className="space-y-6 pt-6 border-t border-dashed">
-                    <div className="flex items-center justify-between">
+                    <div className="space-y-1">
                         <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
-                            <PlusCircle className="w-6 h-6 text-primary" />
-                            Add-ons
+                            <Users className="w-6 h-6 text-primary" />
+                            Provider Assignment
                         </h3>
-                        <Button variant="ghost" onClick={() => setIsAddOnSelectorOpen(true)} type="button" className="h-auto p-0 text-[10px] font-black uppercase tracking-[0.2em] text-primary underline">Browse Extras</Button>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-9">Select a specific pro or use smart rotation logic.</p>
                     </div>
-                    {selectedAddOns.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-2">
-                            {selectedAddOns.map(item => (
-                                <div key={item.id} className="flex items-center justify-between p-4 rounded-[1.25rem] bg-muted/20 border-2 transition-all hover:bg-muted/30">
-                                    <span className="text-xs font-black uppercase tracking-tight text-slate-700">{item.name}</span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="w-4 h-4" /></Button>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="p-8 text-center text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/40 border-4 border-dashed rounded-[2rem]">No Add-ons Selected</div>
-                    )}
+                    
+                    <Controller
+                        name="staffId"
+                        control={control}
+                        render={({ field }) => (
+                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 md:grid-cols-3 gap-4" disabled={role==='staff'}>
+                                <StaffSelectionCard 
+                                    staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
+                                    pricingTiers={pricingTiers || []} 
+                                    isSelected={field.value === 'any'}
+                                />
+                                {(qualifiedStaff || []).map(s => (
+                                    <StaffSelectionCard 
+                                        key={s.id} 
+                                        staff={s} 
+                                        pricingTiers={pricingTiers || []} 
+                                        isSelected={field.value === s.id}
+                                    />
+                                ))}
+                            </RadioGroup>
+                        )}
+                    />
+
+                    <AnimatePresence>
+                        {staffId === 'any' && availableTiersForService.length > 0 && (
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4 pt-6 border-t-2 border-dashed">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <Sparkles className="w-3 h-3" /> Tier Routing Preference
+                                </Label>
+                                <Controller
+                                    name="selectedTierId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <RadioGroup value={field.value} onValueChange={field.onChange} className="grid grid-cols-1 gap-2">
+                                            <label htmlFor="tier-any-plan" className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
+                                                <div className="flex items-center gap-3">
+                                                    <RadioGroupItem value="any" id="tier-any-plan" />
+                                                    <span className="text-[11px] font-black uppercase tracking-tight">First Available (Any Tier)</span>
+                                                </div>
+                                            </label>
+                                            {availableTiersForService.map(tier => (
+                                                <label key={tier.tierId} htmlFor={`tier-p-${tier.tierId}`} className="flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 shadow-sm">
+                                                    <div className="flex items-center gap-3">
+                                                        <RadioGroupItem value={tier.tierId} id={`tier-p-${tier.tierId}`} />
+                                                        <span className="text-[11px] font-black uppercase tracking-tight">{tier.name}</span>
+                                                    </div>
+                                                    <span className="font-black text-primary text-xs font-mono">${tier.price.toFixed(2)}</span>
+                                                </label>
+                                            ))}
+                                        </RadioGroup>
+                                    )}
+                                />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 <div className="space-y-6 pt-6 border-t border-dashed">
@@ -555,7 +611,7 @@ const AddAppointmentForm = ({
                         <CalendarCheck className="w-6 h-6 text-primary" />
                         Timing
                     </h3>
-                    <div className="space-y-3">
+                    <div className="space-y-3 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
                         <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner">
                             <div className="flex justify-between items-center px-2">
@@ -600,101 +656,14 @@ const AddAppointmentForm = ({
                             </div>
                         </div>
                     </div>
-                    {isOverlapping && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                            <Alert variant="destructive" className="mt-2 border-4 border-destructive bg-destructive/5 rounded-[2rem] p-6 shadow-2xl" style={{ '--primary': '0 84.2% 60.2%' } as any}>
-                                <AlertTriangle className="h-6 w-6" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tighter mb-2">Clash Warning</AlertTitle>
-                                <AlertDescription className="space-y-3 pt-1">
-                                    <p className="text-xs font-bold leading-relaxed opacity-80 uppercase">The selected window overlaps with another session.</p>
-                                    {clashingItem && (
-                                        <div className="pt-3 border-t border-destructive/20">
-                                            <p className="font-black text-xs uppercase tracking-tight">{clashingItem.details}</p>
-                                            <p className="text-[10px] font-black opacity-60 mt-1 uppercase tracking-widest">{clashingItem.time}</p>
-                                        </div>
-                                    )}
-                                </AlertDescription>
-                            </Alert>
-                        </motion.div>
-                    )}
-                </div>
-
-                <div className="space-y-6 pt-6 border-t border-dashed">
-                    <Controller
-                        name="isRecurring"
-                        control={control}
-                        render={({ field }) => (
-                            <div className="flex items-center justify-between p-6 border-2 rounded-[2rem] bg-primary/[0.03] border-primary/10 shadow-sm">
-                                <div className="space-y-1">
-                                    <Label htmlFor="is-recurring" className="text-lg font-black uppercase tracking-tight">Recurring Schedule</Label>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Automate future appointments</p>
-                                </div>
-                                <Switch id="is-recurring" checked={field.value} onCheckedChange={field.onChange} className="scale-125" />
-                            </div>
-                        )}
-                    />
-                    <AnimatePresence>
-                        {watch('isRecurring') && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                                <Card className="bg-muted/10 border-2 rounded-[2rem] shadow-inner mt-2">
-                                    <CardContent className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <Controller
-                                            name="recurrence.frequency"
-                                            control={control}
-                                            render={({ field }) => (
-                                                <div className="space-y-3">
-                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Frequency</Label>
-                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                        <SelectTrigger className="h-14 rounded-2xl border-2 font-bold bg-background"><SelectValue /></SelectTrigger>
-                                                        <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                                            <SelectItem value="weekly" className="font-bold">Weekly</SelectItem>
-                                                            <SelectItem value="bi-weekly" className="font-bold">Bi-Weekly</SelectItem>
-                                                            <SelectItem value="every-3-weeks" className="font-bold">Every 3 Weeks</SelectItem>
-                                                            <SelectItem value="every-4-weeks" className="font-bold">Every 4 Weeks</SelectItem>
-                                                            <SelectItem value="monthly" className="font-bold">Monthly</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            )}
-                                        />
-                                        <Controller
-                                            name="recurrence.endDate"
-                                            control={control}
-                                            render={({ field }) => (
-                                                <div className="space-y-3">
-                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">End Date</Label>
-                                                    <input 
-                                                        type="date" 
-                                                        value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
-                                                        onChange={(e) => {
-                                                            const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
-                                                            field.onChange(d);
-                                                        }}
-                                                        className="w-full h-14 rounded-2xl border-2 bg-background px-4 font-black text-lg focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
-                                                    />
-                                                </div>
-                                            )}
-                                        />
-                                    </CardContent>
-                                </Card>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
                 </div>
             </div>
-            <SelectAddOnsDialog 
-                open={isAddOnSelectorOpen} 
-                onOpenChange={setIsAddOnSelectorOpen} 
-                allAddOns={(services || []).filter(s => s.type === 'addon')} 
-                initialSelected={selectedAddOns} 
-                onSelect={handleAddOnsChange} 
-            />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
-                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Overlap</AlertDialogTitle>
-                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
-                            This time slot overlaps with {clashingItem?.details || 'an existing item'}. Force this booking?
+                        <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Logic Violation</AlertDialogTitle>
+                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
+                            This manual override results in a schedule conflict. Force this record into the agenda?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
@@ -712,7 +681,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   const formKey = useMemo(() => appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${client?.id || 'fresh'}`, [appointmentToRebook, client]);
 
   const dialogTitle = "New Session";
-  const dialogDescription = "Reserve a studio session for your guest.";
+  const dialogDescription = "Manually reserve a studio session for your guest.";
   
   const FormContent = <AddAppointmentForm 
     key={formKey}
@@ -750,7 +719,7 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
          <DialogHeader className="p-10 pb-6 border-b bg-muted/5 text-left">
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
