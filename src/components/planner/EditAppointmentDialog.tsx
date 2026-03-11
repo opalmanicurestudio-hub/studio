@@ -66,7 +66,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client, type Service, type Appointment, type InventoryItem, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, startOfWeek } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -80,9 +80,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+    if (typeof val === 'string') {
+        try {
+            return parseISO(val);
+        } catch {
+            return new Date(val);
+        }
+    }
+    if (typeof val === 'object' && 'seconds' in val) {
+        return new Date(val.seconds * 1000);
+    }
     return new Date(val);
 };
 
@@ -145,7 +152,6 @@ const EditAppointmentForm = ({
     const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [clashingItem, setClashingItem] = useState<any | null>(null);
-    const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
     const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
@@ -173,9 +179,9 @@ const EditAppointmentForm = ({
         if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(date, 'eeee').toLowerCase();
-        
+        const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
         let workingHours;
-        const staffDaySchedule = selectedStaff?.availability?.week?.[dayName as keyof typeof selectedStaff.availability.week];
+        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
         if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
         else workingHours = publicScheduleProfile?.week?.[dayName];
         

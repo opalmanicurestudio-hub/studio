@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -294,7 +293,6 @@ export default function ReportsPage() {
         };
     });
 
-    // --- SMART RECONCILIATION LOGIC ---
     const activeBusinessProfile = (businessProfiles || []).find((p: any) => p.isActive);
     const reconciliationCategories = [
         { label: 'Facility & Rent', icon: Building, color: 'text-blue-600', match: ['rent', 'facility', 'lease', 'mortgage', 'housing'] },
@@ -514,7 +512,7 @@ export default function ReportsPage() {
                                 {cat.foundationItems.map((b: any, idx: number) => (
                                     <div key={idx} className="flex justify-between text-[10px] font-bold uppercase text-slate-600 px-2 py-1">
                                         <span>{b.title}</span>
-                                        <span className="font-mono opacity-60">${((b.amount / 30.44) * (daysInPeriod)).toFixed(2)}</span>
+                                        <span className="font-mono opacity-60">${((b.amount / 30.44) * (differenceInDays(effectiveTo, effectiveFrom) + 1)).toFixed(2)}</span>
                                     </div>
                                 ))}
                                 <div className="flex justify-between text-[10px] font-black uppercase bg-primary/5 p-2 rounded-lg mt-2 text-primary">
@@ -588,7 +586,7 @@ export default function ReportsPage() {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] font-black text-primary tracking-tighter">${data.stats.yieldPerHour.toFixed(0)}/hr</p>
+                                <p className="text-[10px] font-black text-primary tracking-tighter">${(data.stats.yieldPerHour || 0).toFixed(0)}/hr</p>
                                 <p className="text-[7px] font-bold uppercase opacity-40">Yield Density</p>
                             </div>
                         </CardHeader>
@@ -633,7 +631,7 @@ export default function ReportsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {absorbedLedger.length > 0 ? absorbedLedger.map(entry => (
+                                {analyticsData.absorbedLedger.length > 0 ? analyticsData.absorbedLedger.map(entry => (
                                     <TableRow key={entry.id} className="hover:bg-destructive/[0.01]">
                                         <TableCell className="p-6 text-left">
                                             <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
