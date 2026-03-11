@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -63,25 +64,20 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
   </Card>
 );
 
-const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge' | 'waive' | 'cancel', finalFee: number) => void }) => {
+const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }: { open: boolean, onOpenChange: (open: boolean) => void, data: any, staff: Staff[], onResolve: (action: 'charge_cancel' | 'charge_accommodate' | 'waive_accommodate' | 'decline_void', finalFee: number) => void }) => {
     const [pin, setPin] = useState('');
-    const [shouldRoundUp, setShouldRoundUp] = useState(false);
     const { toast } = useToast();
 
-    const baseFee = data?.fee || 0;
-    const finalFee = shouldRoundUp ? Math.ceil(baseFee) : baseFee;
-
-    const handleAction = (action: 'charge' | 'waive' | 'cancel') => {
-        if (action !== 'cancel') {
+    const handleAction = (action: 'charge_cancel' | 'charge_accommodate' | 'waive_accommodate' | 'decline_void') => {
+        if (action === 'waive_accommodate') {
             const authorized = staff.find(s => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
             if (!authorized) {
-                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required.' });
+                toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required to waive protocol fees.' });
                 return;
             }
         }
-        onResolve(action, finalFee);
+        onResolve(action, data.fee);
         setPin('');
-        setShouldRoundUp(false);
     };
 
     if (!data) return null;
@@ -92,45 +88,68 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                 <DialogHeader className="p-6 pb-8 border-b bg-muted/5 text-left">
                     <div className="flex items-center gap-3 mb-2">
                         <AlertTriangle className="w-5 h-5 text-destructive" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Policy Intervention</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Protocol Intervention</span>
                     </div>
                     <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Status Resolution</DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Guest: {data.appointment.clientName}</DialogDescription>
                 </DialogHeader>
-                <div className="p-6 md:p-8 space-y-6 md:space-y-8">
-                    <div className="p-5 md:p-6 rounded-[2rem] bg-amber-500/5 border-2 border-amber-500/10 text-center space-y-2 md:space-y-4 shadow-inner">
-                        <p className="text-[9px] font-black uppercase text-amber-600/60 tracking-widest">Calculated Delay Fee</p>
-                        <p className="text-3xl md:text-5xl font-black text-amber-600 tracking-tighter font-mono">${finalFee.toFixed(2)}</p>
-                        <div className="pt-3 border-t border-amber-500/10 space-y-1">
-                            <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m Delay</p>
+                <div className="p-6 md:p-8 space-y-8">
+                    <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2 shadow-inner">
+                        <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Protocol Recovery Fee</p>
+                        <p className="text-4xl md:text-6xl font-black text-destructive tracking-tighter font-mono">${Math.ceil(data.fee).toFixed(2)}</p>
+                        <div className="pt-3 border-t border-destructive/10">
+                            <p className="text-[10px] font-bold text-slate-600 uppercase">Penalty for +{data.minutes}m delay</p>
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-transparent bg-muted/10 shadow-inner">
-                        <div className="space-y-0.5 text-left">
-                            <Label htmlFor="round-up-late" className="text-xs font-black uppercase tracking-tight cursor-pointer">Round Up Fee</Label>
-                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">To nearest dollar</p>
+                    <div className="grid grid-cols-1 gap-3">
+                        <Button 
+                            variant="destructive" 
+                            className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-destructive/20"
+                            onClick={() => handleAction('charge_cancel')}
+                        >
+                            <DollarSign className="w-4 h-4 mr-2" /> Charge & Cancel
+                        </Button>
+                        <Button 
+                            className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg"
+                            onClick={() => handleAction('charge_accommodate')}
+                        >
+                            <Clock className="w-4 h-4 mr-2" /> Charge & Accommodate
+                        </Button>
+                        
+                        <div className="space-y-3 pt-4 border-t border-dashed">
+                            <div className="flex items-center justify-between px-1">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Manager Override</Label>
+                                <ShieldCheck className="w-3 h-3 text-primary opacity-40" />
+                            </div>
+                            <div className="flex gap-2">
+                                <Input 
+                                    type="password" 
+                                    placeholder="PIN" 
+                                    maxLength={4}
+                                    value={pin}
+                                    onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                                    className="h-14 rounded-2xl border-2 text-center text-xl font-black tracking-[0.5em] w-32 bg-muted/5 shadow-inner"
+                                />
+                                <Button 
+                                    variant="outline" 
+                                    className="h-14 rounded-2xl border-2 flex-1 font-black uppercase text-[10px] tracking-widest"
+                                    onClick={() => handleAction('waive_accommodate')}
+                                >
+                                    Waive & Accommodate
+                                </Button>
+                            </div>
                         </div>
-                        <Switch id="round-up-late" checked={shouldRoundUp} onCheckedChange={setShouldRoundUp} />
-                    </div>
 
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Manager Authorization</Label>
-                        <Input 
-                            type="password" 
-                            placeholder="ENTER 4-DIGIT PIN" 
-                            maxLength={4}
-                            value={pin}
-                            onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                            className="h-12 md:h-14 rounded-2xl border-2 text-center text-xl md:text-2xl font-black tracking-[0.5em] shadow-inner bg-muted/5"
-                        />
+                        <Button 
+                            variant="ghost" 
+                            className="h-10 font-bold uppercase text-[9px] text-muted-foreground hover:text-destructive"
+                            onClick={() => handleAction('decline_void')}
+                        >
+                            Void Protocol without Penalty
+                        </Button>
                     </div>
                 </div>
-                <DialogFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5 flex flex-col gap-2 md:gap-3">
-                    <Button onClick={() => handleAction('charge')} className="w-full h-12 md:h-16 rounded-2xl text-xs md:text-lg font-black uppercase shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:bg-primary/90">Charge Late Fee & Accommodate</Button>
-                    <Button variant="outline" onClick={() => handleAction('waive')} className="w-full h-10 md:h-14 rounded-2xl font-black uppercase text-[10px] md:text-xs tracking-widest border-2">Waive Fee & Accommodate</Button>
-                    <Button variant="ghost" onClick={() => handleAction('cancel')} className="w-full font-bold uppercase text-[9px] md:text-[10px] tracking-widest text-destructive">Decline & Cancel Session</Button>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
@@ -187,7 +206,7 @@ function POSPage() {
             .filter(apt => apt.status === 'ready_for_checkout')
             .map(apt => {
                 const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === apt.serviceId);
+                const service = services.find(s => s.id === id);
                 const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
                 const staffMember = staff.find(s => s.id === apt.staffId);
                 return { 
@@ -639,23 +658,40 @@ function POSPage() {
         toast({ title: "Status Updated" });
     };
 
-    const handleResolvePolicyEnforcement = async (action: 'charge' | 'waive' | 'cancel', finalFee: number) => {
+    const handleResolvePolicyEnforcement = async (action: 'charge_cancel' | 'charge_accommodate' | 'waive_accommodate' | 'decline_void', finalFee: number) => {
         if (!policyEnforcementData || !firestore || !tenantId) return;
         const { appointment: apt, reason, id, isWalkIn, minutes } = policyEnforcementData;
         const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-        const fee = finalFee;
+        const fee = Math.ceil(finalFee);
         
         const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
         
-        if (action === 'cancel') {
+        if (action === 'charge_cancel') {
             batch.update(docRef, { 
                 checkInStatus: 'auto_cancelled', 
                 status: 'cancelled', 
                 lateTimeMinutes: minutes, 
                 cancellationReason: reason,
+                cancellationFeeApplied: fee,
+                cancellationPaymentStatus: 'paid'
             });
-            toast({ title: "Session Voided", description: "Appointment cancelled due to policy enforcement." });
-        } else if (action === 'charge') {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { 
+                date: now, 
+                description: `Late Protocol Fee: ${apt.clientName}`, 
+                clientOrVendor: apt.clientName || 'Client', 
+                clientId: apt.clientId, 
+                type: 'income', 
+                context: 'Business', 
+                category: 'Cancellation Fee', 
+                amount: fee, 
+                paymentMethod: 'Card on File', 
+                hasReceipt: false, 
+                appointmentId: id,
+                staffId: apt.staffId 
+            });
+            toast({ title: "Fee Charged & Voided", description: "Payment processed and session terminated." });
+        } else if (action === 'charge_accommodate') {
             batch.update(docRef, { 
                 checkInStatus: 'running_late', 
                 lateTimeMinutes: minutes,
@@ -666,22 +702,30 @@ function POSPage() {
                     outstandingBalance: increment(fee), 
                     unpaidFees: arrayUnion({ 
                         feeId: nanoid(), 
-                        appointmentId: apt.id, 
+                        appointmentId: id, 
                         appointmentDate: safeDate(apt.startTime).toISOString(), 
                         feeAmount: fee, 
                         reason: `Late Arrival Penalty: +${minutes}m (Accommodated)` 
                     }) 
                 });
             }
-            toast({ title: "Protocol Enforced", description: "Guest accommodated and late fee applied to dossier." });
-        } else {
+            toast({ title: "Charged & Restored", description: "Fee added to dossier and session resumed." });
+        } else if (action === 'waive_accommodate') {
             batch.update(docRef, { 
                 checkInStatus: 'running_late', 
                 lateTimeMinutes: minutes,
                 status: 'confirmed',
                 cancellationFeeWaived: true
             });
-            toast({ title: "Protocol Waived", description: "Guest restored to active schedule without penalty." });
+            toast({ title: "Protocol Waived", description: "Guest restored without penalty." });
+        } else {
+            batch.update(docRef, { 
+                checkInStatus: 'auto_cancelled', 
+                status: 'cancelled', 
+                lateTimeMinutes: minutes, 
+                cancellationReason: reason,
+            });
+            toast({ title: "Session Voided", description: "Appointment cancelled without penalty." });
         }
 
         await batch.commit();
@@ -1314,7 +1358,7 @@ function POSPage() {
                 service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
                 tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
                 onStartService={handleStartService}
-                onFinishService={handleSendToFrontDesk}
+                onFinishService={handleFinishService}
                 onEdit={() => {}}
                 onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
                 onCancel={handleCancelAction}
