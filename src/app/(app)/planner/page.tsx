@@ -7,7 +7,7 @@ import { type Appointment, type Event, type Staff, type Resource, type Membershi
 import { type BillInstance, type BillDefinition, type Transaction } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
-import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -209,13 +209,6 @@ function PlannerPageContent() {
     return { weeklyRevenue: revenue, projectedRevenue: projected, weeklyBreakEven, weeklyNetProfit: revenue - weeklyBreakEven, absorbedCosts: absorbed + waivedTotal };
   }, [transactions, appointments, services, currentDate, selectedTenant]);
 
-  const billInstancesWithDefinitions = useMemo(() => {
-    if (!billInstances || !billDefinitions) return [];
-    const today = startOfDay(new Date());
-    return billInstances.filter(i => { const d = safeDate(i.dueDate); return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7); })
-        .map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
-  }, [billInstances, billDefinitions]);
-
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
     const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
@@ -406,7 +399,7 @@ function PlannerPageContent() {
     const finalInstanceId = isVirtual ? doc(collection(firestore, 'tenants', tenantId, 'billInstances')).id : selectedBill.id;
     if (isVirtual) batch.set(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { id: finalInstanceId, billDefinitionId: selectedBill.billDefinitionId, dueDate: selectedBill.dueDate, amountDue: newAmountDue, amountPaid: newAmountPaid, status: newStatus });
     else batch.update(doc(firestore, 'tenants', tenantId, 'billInstances', finalInstanceId), { amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus });
-    batch.set(doc(collection(firestore, 'tenants', tenantId, 'transactions')), { date: paymentData.date.toISOString(), description: `Payment for ${selectedBill.definition.name}`, clientOrVendor: selectedBill.definition.name, type: 'payment', context: 'Business', category: selectedBill.definition.category, amount: paymentData.amount, paymentMethod: paymentData.paymentMethod, hasReceipt: !!paymentData.receiptUrl, receiptUrl: paymentData.receiptUrl, relatedBillInstanceId: finalInstanceId });
+    batch.set(doc(collection(firestore, 'tenants', tenantId, 'transactions')), { date: paymentData.date.toISOString(), description: `Payment for ${selectedBill.definition.name}`, clientOrVendor: selectedBill.definition.name, type: 'payment', context: 'Business', category: 'Rent & Facility', amount: paymentData.amount, paymentMethod: paymentData.paymentMethod, hasReceipt: !!paymentData.receiptUrl, receiptUrl: paymentData.receiptUrl, relatedBillInstanceId: finalInstanceId });
     batch.commit().then(() => { toast({ title: "Payment Logged" }); });
     setSelectedBill(null);
   };
@@ -499,17 +492,24 @@ function PlannerPageContent() {
     });
 };
 
+  const billInstancesWithDefinitions = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
+    const today = startOfDay(new Date());
+    return billInstances.filter(i => { const d = safeDate(i.dueDate); return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7); })
+        .map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
+  }, [billInstances, billDefinitions]);
+
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-white">
       <AppHeader />
-      <div className="p-3 sm:p-4 md:p-8 border-b bg-white/50 backdrop-blur-xl">
-            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-10">
+      <div className="p-3 sm:p-4 md:py-4 md:px-8 border-b bg-white/50 backdrop-blur-xl">
+            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-4">
                 <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5 text-left">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
-                        <p className="hidden sm:block text-[10px] sm:text-xs text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
+                        <h1 className="text-2xl sm:text-3xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
+                        <p className="hidden sm:block text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3">
                         {(role === 'owner' || role === 'admin') && (
@@ -526,11 +526,11 @@ function PlannerPageContent() {
                 </div>
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
-                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
+                    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:py-2 bg-muted/30 rounded-2xl sm:rounded-3xl border-2 border-muted shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide justify-between sm:justify-start">
                         <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
-                        <div className="px-2 sm:px-4 text-center min-w-[110px] sm:min-w-[140px]">
+                        <div className="px-2 sm:px-2 text-center min-w-[110px] sm:min-w-[140px]">
                             <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5 sm:mb-1">{format(currentDate, 'MMMM yyyy')}</p>
-                            <p className="text-sm sm:text-lg font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
+                            <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
                         </div>
                         <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl hover:bg-white shadow-sm shrink-0" onClick={() => setCurrentDate(addDays(currentDate, 1))}><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
                         <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8 sm:h-10 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest border-2 border-white shadow-sm bg-white/50 shrink-0">Today</Button>
@@ -547,7 +547,7 @@ function PlannerPageContent() {
                 <ScrollArea className="w-full">
                     <div className="flex w-full gap-1.5 sm:gap-2 px-1 pb-2">
                         {weekDays.map(day => (
-                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-4 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-4 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
+                            <button key={day.toISOString()} onClick={() => setCurrentDate(day)} className={cn("flex-1 py-2 sm:py-2 min-w-[48px] sm:min-w-[80px] rounded-2xl sm:rounded-3xl transition-all border-2 sm:border-2 flex flex-col items-center gap-0.5 sm:gap-1", isSameDay(day, currentDate) ? "bg-primary border-primary shadow-2xl shadow-primary/20 -translate-y-0.5 sm:-translate-y-1" : "bg-muted/50 border-transparent hover:bg-muted hover:scale-105")}>
                                 <p className={cn("text-[8px] sm:text-[10px] font-black uppercase tracking-widest", isSameDay(day, currentDate) ? "text-white/60" : "text-muted-foreground/60")}>{format(day, 'EEE')}</p>
                                 <p className={cn("text-base sm:text-2xl font-black tracking-tighter", isSameDay(day, currentDate) ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
                             </button>
