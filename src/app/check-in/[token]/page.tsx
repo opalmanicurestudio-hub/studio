@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, ChevronLeft, ChevronRight, TicketIcon, User as UserIcon, Activity, CheckCircle, Wallet, CheckCircle2, Sparkles, Zap, Calendar as CalendarIcon, ShieldCheck, Ban, XCircle, ShoppingCart, Fingerprint, Star, ArrowRight } from 'lucide-react';
 import { format, parseISO, addMinutes, areIntervalsOverlapping, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, addDays, isToday, parse } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
