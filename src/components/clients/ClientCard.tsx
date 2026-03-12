@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -36,11 +37,11 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
     }, [client.lastAppointment]);
     
     const getInitials = (name: string) => {
-        const parts = name.split(' ');
+        const parts = (name || 'G').split(' ');
         if (parts.length > 1 && parts[parts.length - 1]) {
             return (parts[0][0] + (parts[parts.length - 1][0]).toUpperCase()).toUpperCase();
         }
-        return name.substring(0, 2).toUpperCase();
+        return (name || 'G').substring(0, 2).toUpperCase();
     };
 
     const hasDebt = Number(client.outstandingBalance || 0) > 0;

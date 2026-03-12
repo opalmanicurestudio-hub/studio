@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -157,6 +158,7 @@ function POSPage() {
     const tenantId = selectedTenant?.id;
     const router = useRouter();
     const isMobile = useIsMobile();
+    const searchParams = useSearchParams();
 
     const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -252,6 +254,30 @@ function POSPage() {
         });
         return (clients || []).filter(c => clientIds.has(c.id));
     }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+
+    // Handle Deep-Linked Arrears Settlement
+    useEffect(() => {
+        const payerId = searchParams.get('payer_id');
+        const action = searchParams.get('action');
+        
+        if (payerId && clients && clients.length > 0) {
+            const targetClient = clients.find(c => c.id === payerId);
+            if (targetClient) {
+                setSelectedClientId(payerId);
+                if (action === 'settle' && targetClient.unpaidFees) {
+                    const feeIds = targetClient.unpaidFees.map(f => f.feeId);
+                    const nextAdjustments = new Set<string>();
+                    feeIds.forEach(id => nextAdjustments.add(id));
+                    onApplyAdjustmentToggle(nextAdjustments);
+                    
+                    if (targetClient.cardOnFile?.token) {
+                        setPaymentTab('card_on_file');
+                    }
+                    toast({ title: "Settlement Staged", description: `Pre-populated ${feeIds.length} unpaid fees from ${targetClient.name}'s dossier.` });
+                }
+            }
+        }
+    }, [searchParams, clients, toast]);
 
     const handleSelectAppointment = useCallback((id: string) => {
         const nextIds = new Set(selectedAppointmentIds);
@@ -657,6 +683,18 @@ function POSPage() {
         batch.commit().then(() => { toast({ title: allComplete ? "Service Finished" : "Part Completed" }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); });
     };
 
+    const onApplyAdjustmentToggle = (ids: string | Set<string>, apply: boolean = true) => {
+        setAppliedAdjustments(prev => {
+            const next = new Set(prev);
+            if (typeof ids === 'string') {
+                apply ? next.add(ids) : next.delete(ids);
+            } else {
+                ids.forEach(id => apply ? next.add(id) : next.delete(id));
+            }
+            return next;
+        });
+    };
+
     const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number}) => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
@@ -758,7 +796,6 @@ function POSPage() {
         } finally { setIsSubmitting(false); }
     };
 
-    const onApplyAdjustmentToggle = (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; });
     const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     const checkoutHubProps = {
@@ -770,7 +807,7 @@ function POSPage() {
         subtotal, tax, total, tipAmount, setTipAmount, onCheckout: handleCheckout,
         appliedDiscountCodes, setAppliedDiscountCodes, discount, membershipDiscount,
         isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
-        appliedAdjustments, onApplyAdjustmentToggle: (id: string, apply: boolean) => onApplyAdjustmentToggle(id, apply),
+        appliedAdjustments, onApplyAdjustmentToggle: (ids: any, apply?: boolean) => onApplyAdjustmentToggle(ids, apply),
         redeemedOffer, setRedeemedOffer, memberships: memberships || [], packages: packages || [],
         allowStacking: selectedTenant?.allowDiscountStacking || false, showTitle: false,
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),

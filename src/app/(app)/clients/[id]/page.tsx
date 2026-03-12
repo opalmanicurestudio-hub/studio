@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -53,7 +54,9 @@ import {
     Activity,
     TicketIcon,
     CreditCard,
-    Lock
+    Lock,
+    Zap,
+    X
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -79,10 +82,18 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, arrayUnion, query, where, writeBatch, increment, arrayRemove } from 'firebase/firestore';
 import type { Client, Appointment, Service, Staff, Discount, Membership, Package, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
+import { 
+    Dialog, 
+    DialogContent, 
+    DialogHeader, 
+    DialogTitle, 
+    DialogDescription, 
+    DialogFooter 
+} from '@/components/ui/dialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -211,7 +222,8 @@ export default function ClientDetailPage() {
   
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
-  const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
+  const [isQuickSettleOpen, setIsQuickSettleOpen] = useState(false);
+  const [isSettleProcessing, setIsSettleProcessing] = useState(false);
 
   const appointmentsForThisClient = useMemo(() => (allAppointments || []).filter(apt => apt.clientId === clientId).map(apt => ({ ...apt, service: services.find(s => s.id === apt.serviceId) })), [clientId, allAppointments, services]);
   const clientTransactions = useMemo(() => (allTransactions || []).filter(t => t.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allTransactions]);
@@ -222,6 +234,51 @@ export default function ClientDetailPage() {
     return (!mId || !memberships) ? null : memberships.find(m => m.id === mId);
   }, [client, memberships]);
 
+  const handleQuickSettle = async () => {
+    if (!client || !firestore || !tenantId) return;
+    setIsSettleProcessing(true);
+    
+    const batch = writeBatch(firestore);
+    const amount = Number(client.outstandingBalance || 0);
+    const now = new Date().toISOString();
+
+    // 1. Log Transaction
+    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+    batch.set(txnRef, {
+        id: txnRef.id,
+        date: now,
+        description: "Dossier Settlement (Quick Settle)",
+        clientOrVendor: client.name,
+        clientId: client.id,
+        type: 'income',
+        context: 'Business',
+        category: 'Fee Recovery',
+        amount: amount,
+        paymentMethod: 'Card on File',
+        paymentMethodIdentifier: `${client.cardOnFile?.brand} •••• ${client.cardOnFile?.last4}`,
+        hasReceipt: false,
+    });
+
+    // 2. Clear Balance and Unpaid Fees
+    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+    batch.update(clientRef, {
+        outstandingBalance: 0,
+        unpaidFees: [],
+        lifetimeValue: increment(amount)
+    });
+
+    try {
+        await batch.commit();
+        toast({ title: "Account Reconciled", description: `Successfully charged ${client.cardOnFile?.brand} for $${amount.toFixed(2)}.` });
+        setIsQuickSettleOpen(false);
+    } catch (e) {
+        console.error(e);
+        toast({ variant: 'destructive', title: "Process Failed" });
+    } finally {
+        setIsSettleProcessing(false);
+    }
+  };
+
   if (isUserLoading || isTenantLoading || clientLoading) {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
@@ -229,6 +286,9 @@ export default function ClientDetailPage() {
 
   const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
+
+  const hasDebt = Number(client.outstandingBalance || 0) > 0;
+  const hasCardOnFile = !!client.cardOnFile?.token;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -397,7 +457,7 @@ export default function ClientDetailPage() {
                                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
                                     <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${Number(client.walletCredit || 0).toFixed(2)}</p>
                                 </div>
-                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", Number(client.outstandingBalance || 0) > 0 ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
+                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
                                     <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                                 </div>
@@ -431,14 +491,75 @@ export default function ClientDetailPage() {
                                 )}
                             </div>
                         </CardContent>
-                        <CardFooter className="p-6 pt-0">
-                            <Button disabled={!client.outstandingBalance || Number(client.outstandingBalance) === 0} className="w-full h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] md:text-xs shadow-xl shadow-primary/20" asChild><Link href={`/pos?payer_id=${client.id}&action=settle`}>Settle Arrears POS</Link></Button>
+                        <CardFooter className="p-6 pt-0 flex flex-col gap-3">
+                            {hasDebt && hasCardOnFile && (
+                                <Button 
+                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white"
+                                    onClick={() => setIsQuickSettleOpen(true)}
+                                >
+                                    <Zap className="mr-2 h-4 w-4" /> Charge Card on File
+                                </Button>
+                            )}
+                            <Button 
+                                disabled={!hasDebt} 
+                                variant="outline"
+                                className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs border-2" 
+                                asChild
+                            >
+                                <Link href={`/pos?payer_id=${client.id}&action=settle`}>
+                                    Initialize POS Settlement
+                                </Link>
+                            </Button>
                         </CardFooter>
                     </Card>
                 </div>
             </div>
       </main>
+      
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), data); toast({ title: "Profile Updated" }); }} />
+
+      <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
+        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl">
+            <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
+                <div className="flex items-center gap-3 mb-2">
+                    <ShieldCheck className="w-5 h-5 text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Strategic Settlement</span>
+                </div>
+                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Confirm Vault Charge</DialogTitle>
+                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
+            </DialogHeader>
+            <div className="p-8 space-y-8">
+                <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-2xl shadow-primary/5">
+                    <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest">Total Arrears Balance</p>
+                    <p className="text-5xl font-black text-primary tracking-tighter font-mono">${Number(client.outstandingBalance).toFixed(2)}</p>
+                </div>
+                <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</p>
+                    <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4">
+                        <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
+                        <div className="text-left">
+                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile?.brand} •••• {client.cardOnFile?.last4}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase">Authorized Vault Access</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3 text-left">
+                    <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
+                    <p className="text-[10px] font-bold text-slate-600 leading-relaxed uppercase tracking-tight">This will instantly clear the client's unpaid fees and create a verified revenue record in the studio ledger.</p>
+                </div>
+            </div>
+            <DialogFooter className="p-8 pt-0 flex flex-col gap-3">
+                <Button 
+                    className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30"
+                    onClick={handleQuickSettle}
+                    disabled={isSettleProcessing}
+                >
+                    {isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}
+                </Button>
+                <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
