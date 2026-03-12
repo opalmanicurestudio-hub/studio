@@ -78,7 +78,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
-import type { Client, Appointment, Service, Staff, Discount, Membership, Redemption } from '@/lib/data';
+import type { Client, Appointment, Service, Staff, Discount, Membership, Package, Redemption } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Progress } from '@/components/ui/progress';
 

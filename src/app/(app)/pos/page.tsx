@@ -174,16 +174,12 @@ function POSPage() {
     const [isOverrideOpen, setIsOverrideOpen] = useState(false);
     const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
     const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
-    const [isPinAuthOpen, setIsPinAuthOpen] = useState(false);
     const [isCartCollapsed, setIsCartCollapsed] = useState(false);
 
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
     const [appointmentToReview, setAppointmentToReview] = useState<Appointment | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
-    const [authPin, setAuthPin] = useState('');
-    const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
-
     const [assignmentMode, setAssignmentMode] = useState<'fair_play' | 'ordered_list'>('ordered_list');
     const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
@@ -216,6 +212,48 @@ function POSPage() {
             }).filter((a): a is any => !!(a.client && a.service));
     }, [appointmentsFromInventory, clients, services, staff]);
 
+    const kpiData = useMemo(() => {
+        const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+
+        const walkInsToday = (walkIns || []).filter(w => {
+            const checkInDate = safeDate(w.checkInTime);
+            return checkInDate >= todayStart && checkInDate <= todayEnd;
+        });
+
+        const completedWalkIns = walkInsToday.filter(w => (w.status === 'completed' || w.status === 'servicing') && w.serviceStartTime);
+        const waitTimes = completedWalkIns.map(w => differenceInMinutes(safeDate(w.serviceStartTime), safeDate(w.checkInTime)));
+        const avgWaitTime = waitTimes.length > 0 ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length : 0;
+
+        const convertedCount = walkInsToday.filter(w => ['servicing', 'completed', 'ready_for_checkout'].includes(w.status)).length;
+        const walkInConversionRate = walkInsToday.length > 0 ? (convertedCount / walkInsToday.length) * 100 : 0;
+
+        const dailyTransactions = (transactions || []).filter(t => {
+            const d = safeDate(t.date);
+            return d >= todayStart && d <= todayEnd && t.type === 'income';
+        });
+        const totalDailyGrossRevenue = dailyTransactions.reduce((acc, t) => acc + t.amount, 0);
+
+        return {
+            avgWaitTime,
+            walkInConversionRate,
+            totalWalkIns: walkInsToday.length,
+            totalDailyGrossRevenue
+        };
+    }, [walkIns, transactions]);
+
+    const payerOptions = useMemo(() => {
+        if (selectedAppointmentIds.size === 0) return clients || [];
+        const clientIds = new Set<string>();
+        selectedAppointmentIds.forEach(aptId => {
+          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+          if (apt?.client?.id) {
+            clientIds.add(apt.client.id);
+          }
+        });
+        return (clients || []).filter(c => clientIds.has(c.id));
+    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+
     const handleSelectAppointment = useCallback((id: string) => {
         const nextIds = new Set(selectedAppointmentIds);
         let nextClientId = selectedClientId;
@@ -240,17 +278,6 @@ function POSPage() {
             .map(id => readyForCheckoutAppointments.find(a => a.id === id))
             .filter(Boolean) as any[]
     , [selectedAppointmentIds, readyForCheckoutAppointments]);
-
-    const payerOptions = useMemo(() => {
-        const clientIds = new Set<string>();
-        selectedAppointmentIds.forEach(aptId => {
-          const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
-          if (apt?.client?.id) {
-            clientIds.add(apt.client.id);
-          }
-        });
-        return (clients || []).filter(c => clientIds.has(c.id));
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
 
     const subtotal = useMemo(() => {
         const servicesSub = selectedAptsData.reduce((acc, data) => {
@@ -439,7 +466,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: selectedAppointment.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -732,6 +759,9 @@ function POSPage() {
         } finally { setIsSubmitting(false); }
     };
 
+    const onApplyAdjustmentToggle = (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; });
+    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
+
     const checkoutHubProps = {
         cart: retailItems, onCartChange: setRetailItems,
         appointmentsData: selectedAptsData, onSelectAppointment: handleSelectAppointment,
@@ -747,9 +777,6 @@ function POSPage() {
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => onWaiveFeeToggle(id, waive, authorizerId, reason),
         tipAllocations, setTipAllocations,
     };
-
-    const onApplyAdjustmentToggle = (id: string, apply: boolean) => setAppliedAdjustments(prev => { const next = new Set(prev); apply ? next.add(id) : next.delete(id); return next; });
-    const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
 
     useEffect(() => {
         let html5QrCode: Html5Qrcode | undefined;
@@ -827,7 +854,6 @@ function POSPage() {
             {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid, res) => { const appointmentRef = doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id); updateDocumentNonBlocking(appointmentRef, { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
-            <Dialog open={isPinAuthOpen} onOpenChange={setIsPinAuthOpen}><DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl"><DialogHeader><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Authorize Action</DialogTitle></DialogHeader><div className="py-10 flex flex-col items-center gap-6"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Admin PIN Required</Label><Input type="password" value={authPin} onChange={e => setAuthPin(e.target.value)} maxLength={4} className="text-center text-4xl font-black h-20 w-48 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" /></div><DialogFooter className="p-6 pt-0"><Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl" onClick={() => { const target = (staff || []).find(s => s.pin === authPin); if (target && pendingStatusAction) { const { staffId, action } = pendingStatusAction; const staffDocRef = doc(firestore!, 'tenants', tenantId!, 'staff', staffId); const now = new Date().toISOString(); let staffUpdate: Partial<Staff> = {}; let logEntry: any = { staffId, type: action, timestamp: now }; switch (action) { case 'clock_in': staffUpdate = { active: true }; break; case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break; case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break; case 'break_end': if(target.breakStartTime) logEntry.durationMinutes = differenceInMinutes(parseISO(now), parseISO(target.breakStartTime)); staffUpdate = { onBreak: false, breakStartTime: deleteField() as any }; break; } addDocumentNonBlocking(collection(firestore!, 'tenants', tenantId!, 'activityLogs'), logEntry); setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true }); setIsPinAuthOpen(false); setAuthPin(''); setPendingStatusAction(null); } else toast({ variant: 'destructive', title: 'Invalid PIN' }); }}>Confirm Authorization</Button></DialogFooter></DialogContent></Dialog>
             <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}><DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl"><DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left"><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Scan Terminal</DialogTitle><DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Authenticate asset codes or session tickets.</DialogDescription></DialogHeader><div className="p-10 relative"><div id="qr-reader-pos" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" /><div className="absolute inset-10 flex items-center justify-center pointer-events-none"><div className="w-2/3 h-1/2 border-4 border-primary rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" /></div></div><DialogFooter className="p-6 pt-4 border-t bg-muted/5"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-xs">Close Scanner</Button></DialogFooter></DialogContent></Dialog>
             <PolicyEnforcementDialog open={!!policyEnforcementData} onOpenChange={() => setPolicyEnforcementData(null)} data={policyEnforcementData} staff={staff || []} onResolve={handleResolvePolicyEnforcement} />
         </div>

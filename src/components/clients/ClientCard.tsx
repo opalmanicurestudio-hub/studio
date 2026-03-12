@@ -175,7 +175,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 </div>
                 <Button variant="ghost" asChild className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:bg-primary/5 hover:text-primary transition-all group/btn">
                     <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}>
-                        View Record <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover/btn:translate-x-1" />
+                        View Record <ArrowRight className="ml-2 h-3 w-3 transition-transform group-hover:btn:translate-x-1" />
                     </Link>
                 </Button>
             </div>
