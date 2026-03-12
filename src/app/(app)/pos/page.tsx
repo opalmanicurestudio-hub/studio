@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -862,7 +861,7 @@ function POSPage() {
         });
     };
 
-    const handleCheckout = async () => {
+    const handleCheckout = async (paymentData: {paymentMethod: string, amountTendered: number}) => {
         if (!selectedClientId || !firestore || !tenantId) return;
         setIsSubmitting(true);
 
@@ -878,7 +877,8 @@ function POSPage() {
             
             const checkoutState = apt.checkoutState || {};
             const overrides = checkoutState.serviceStaffOverrides || {};
-            const additional = !waivedAppointmentFees.has(apt.id) ? (checkoutState.additionalCharge || 0) : 0;
+            const isWaived = waivedAppointmentFees.has(apt.id);
+            const additional = !isWaived ? (checkoutState.additionalCharge || 0) : 0;
 
             const formula = checkoutState.formula || [];
             formula.forEach(item => {
@@ -944,7 +944,7 @@ function POSPage() {
                 context: 'Business',
                 category: 'Service Revenue',
                 amount: mainPartRevenue,
-                paymentMethod: paymentTab,
+                paymentMethod: paymentData.paymentMethod,
                 staffId: mainStaffId,
                 appointmentId: apt.id,
                 hasReceipt: true
@@ -967,7 +967,7 @@ function POSPage() {
                     context: 'Business',
                     category: 'Service Revenue',
                     amount: addonPrice,
-                    paymentMethod: paymentTab,
+                    paymentMethod: paymentData.paymentMethod,
                     staffId: addonStaffId,
                     appointmentId: apt.id,
                     hasReceipt: true
@@ -976,7 +976,7 @@ function POSPage() {
 
             batch.update(appointmentRef, { 
                 status: 'completed', 
-                revenue: totalLtvIncrease, // Total for this specific appointment
+                revenue: totalLtvIncrease, 
                 actualEndTime: now
             });
 
@@ -1006,7 +1006,7 @@ function POSPage() {
                 context: 'Business',
                 category: 'Retail',
                 amount: item.price * item.quantity,
-                paymentMethod: paymentTab,
+                paymentMethod: paymentData.paymentMethod,
                 hasReceipt: true
             });
             
@@ -1023,6 +1023,41 @@ function POSPage() {
             });
         });
         totalLtvIncrease += retailTotalValue;
+
+        // Clear settled adjustments from unpaid fees
+        if (selectedClient && appliedAdjustments.size > 0) {
+            const currentUnpaid = selectedClient.unpaidFees || [];
+            const remainingUnpaid = currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId));
+            const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => {
+                const fee = currentUnpaid.find(f => f.feeId === id);
+                return sum + (fee?.feeAmount || 0);
+            }, 0);
+
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
+            batch.update(clientDocRef, {
+                unpaidFees: remainingUnpaid,
+                outstandingBalance: increment(-settledTotal)
+            });
+
+            appliedAdjustments.forEach(id => {
+                const fee = currentUnpaid.find(f => f.feeId === id);
+                if (fee) {
+                    const adjTxnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                    batch.set(adjTxnRef, {
+                        date: now,
+                        description: `Debt Settlement: ${fee.reason}`,
+                        clientOrVendor: selectedClient.name,
+                        clientId: selectedClientId,
+                        type: 'income',
+                        context: 'Business',
+                        category: 'Fee Recovery',
+                        amount: fee.feeAmount,
+                        paymentMethod: paymentData.paymentMethod,
+                        hasReceipt: false
+                    });
+                }
+            });
+        }
 
         if (selectedClient) {
             const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
@@ -1046,7 +1081,7 @@ function POSPage() {
                     type: redeemedOffer.type,
                     offeringId: redeemedOffer.id,
                     offeringName: offeringName,
-                    serviceId: redeemedOffer.id, // The ID of the item being redeemed
+                    serviceId: redeemedOffer.id, 
                     serviceName: redeemedSvc?.name || 'Service',
                     date: now,
                     staffId: currentUser?.uid
@@ -1085,7 +1120,7 @@ function POSPage() {
                     context: 'Business',
                     category: 'Tips',
                     amount: amount,
-                    paymentMethod: paymentTab,
+                    paymentMethod: paymentData.paymentMethod,
                     staffId: staffId,
                     hasReceipt: true
                 });
@@ -1126,42 +1161,6 @@ function POSPage() {
         }
     };
 
-    const handleScan = useCallback((data: string) => {
-        if (!inventory) return;
-        
-        const matchedProduct = inventory.find(p => p.sku === data || p.id === data);
-        if (matchedProduct) {
-            handleAddToCart(matchedProduct);
-            toast({ title: "Product Added" });
-            setIsScannerOpen(false);
-            return;
-        }
-
-        if (data.startsWith('clarityflow://checkout/')) {
-            const appointmentId = data.split('/').pop();
-            if (appointmentId && readyForCheckoutAppointments.some(a => a.id === appointmentId)) {
-                handleSelectAppointment(appointmentId);
-                toast({ title: "Ticket Loaded" });
-                setIsScannerOpen(false);
-            }
-        }
-    }, [inventory, readyForCheckoutAppointments, handleAddToCart, handleSelectAppointment, toast]);
-
-    const allClientOptions = clients || [];
-
-    const payerOptionsList = useMemo(() => {
-        if (!allClientOptions) return [];
-        const involvedClientIds = new Set(selectedAptsData.map(a => a.client?.id).filter(Boolean));
-        
-        return [...allClientOptions].sort((a, b) => {
-            const aInvolved = involvedClientIds.has(a.id);
-            const bInvolved = involvedClientIds.has(b.id);
-            if (aInvolved && !bInvolved) return -1;
-            if (!aInvolved && bInvolved) return 1;
-            return 0;
-        });
-    }, [selectedAptsData, allClientOptions]);
-
     const [isPayerDialogOpen, setIsPayerDialogOpen] = useState(false);
 
     const checkoutHubProps = {
@@ -1169,9 +1168,9 @@ function POSPage() {
         onCartChange: setRetailItems,
         appointmentsData: selectedAptsData,
         onSelectAppointment: handleSelectAppointment, 
-        clients: allClientOptions, 
+        clients: clients || [], 
         isGroupCheckout: selectedAppointmentIds.size > 1,
-        payerOptions: payerOptionsList,
+        payerOptions: payerOptions || [],
         selectedClientId, 
         setSelectedClientId, 
         onAddClientClick: () => setIsAddClientOpen(true), 

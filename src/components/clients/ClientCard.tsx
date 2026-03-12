@@ -42,7 +42,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
         return name.substring(0, 2).toUpperCase();
     };
 
-    const hasDebt = (client.outstandingBalance || 0) > 0;
+    const hasDebt = Number(client.outstandingBalance || 0) > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
 
     return (
@@ -88,12 +88,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${(client.lifetimeValue || 0).toFixed(2)}</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${Number(client.lifetimeValue || 0).toFixed(2)}</p>
                     </div>
                     {hasDebt ? (
                         <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1">
                             <p className="text-[9px] font-black uppercase tracking-widest text-destructive/60">Arrears</p>
-                            <p className="text-xl font-black font-mono tracking-tighter text-destructive">${client.outstandingBalance?.toFixed(2)}</p>
+                            <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                         </div>
                     ) : (
                         <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-right">
@@ -111,19 +111,19 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                             {client.intel?.hasIncidents && (
                                 <Tooltip>
                                     <TooltipTrigger><ShieldAlert className="w-4 h-4 text-purple-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Incidents on file</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Incidents on file</TooltipContent>
                                 </Tooltip>
                             )}
                             {client.medicalNotes && (
                                 <Tooltip>
                                     <TooltipTrigger><ShieldPlus className="w-4 h-4 text-red-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Medical Alert</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Medical Alert</TooltipContent>
                                 </Tooltip>
                             )}
                             {client.allergyNotes && (
                                 <Tooltip>
                                     <TooltipTrigger><AlertTriangle className="w-4 h-4 text-orange-500 opacity-60 hover:opacity-100" /></TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest border-2">Allergy Alert</TooltipContent>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Allergy Alert</TooltipContent>
                                 </Tooltip>
                             )}
                         </div>
