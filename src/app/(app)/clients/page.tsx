@@ -328,7 +328,7 @@ export default function ClientsPage() {
       client.name,
       client.email,
       client.phone,
-      (client.lifetimeValue || 0).toString(),
+      Number(client.lifetimeValue || 0).toString(),
       format(new Date(client.lastAppointment), 'yyyy-MM-dd'),
       Number(client.outstandingBalance || 0).toFixed(2)
     ]);
@@ -375,7 +375,7 @@ export default function ClientsPage() {
 
         const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
         const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
-        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + (Number(t.tipAmount) || 0), 0);
 
         const completedApts = (appointments || []).filter(a => a.status === 'completed' && filteredClientIds.has(a.clientId));
 
@@ -632,7 +632,7 @@ export default function ClientsPage() {
                       </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-                      <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>
+                      <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>
                       <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
                   </AlertDialogFooter>
               </AlertDialogContent>

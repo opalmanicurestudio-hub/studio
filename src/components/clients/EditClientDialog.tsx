@@ -535,7 +535,8 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
         reset({
             name: client.name,
             email: client.email,
-            phone: client.phone,
+            // CRITICAL FIX: Strip spaces from phone number to prevent react-phone-number-input console error
+            phone: client.phone ? client.phone.replace(/\s/g, '') : '',
             avatarUrl: client.avatarUrl,
             birthday: client.birthday ? parseISO(client.birthday) : undefined,
             address: client.address || {},

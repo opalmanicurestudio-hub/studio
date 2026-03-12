@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -108,7 +109,7 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
 );
 
 const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: number, onSettle?: () => void }) => {
-    const [step, setStep] = useState<'info' | 'payment'>(fee && fee > 0 ? 'info' : 'info');
+    const [step, setStep] = useState<'info' | 'payment'>(fee && Number(fee) > 0 ? 'info' : 'info');
 
     return (
         <ViewContainer>
@@ -123,7 +124,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                             <p className="font-black text-xl uppercase tracking-tight text-slate-900">Session Voided</p>
                             <p className="text-sm font-medium text-slate-500 leading-relaxed">This appointment has been cancelled due to policy violation (late notice or scheduling conflict).</p>
                         </div>
-                        {fee && fee > 0 && (
+                        {fee && Number(fee) > 0 && (
                             <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 space-y-2 shadow-inner text-left">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-destructive/60">Outstanding Protocol Fee</p>
                                 <div className="flex justify-between items-baseline">
@@ -149,11 +150,11 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                 )}
             </CardContent>
             <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-                {fee && fee > 0 && step === 'info' ? (
+                {fee && Number(fee) > 0 && step === 'info' ? (
                     <Button onClick={() => setStep('payment')} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30 group">
                         Settle & Rebook <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" />
                     </Button>
-                ) : fee && fee > 0 && step === 'payment' ? (
+                ) : fee && Number(fee) > 0 && step === 'payment' ? (
                     <Button onClick={onSettle} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/30">Authorize Payment</Button>
                 ) : (
                     tenantId && (
@@ -257,15 +258,20 @@ export default function CheckInPage() {
     const handleSettleFee = async () => {
         if (!appointment || !firestore || !tenantId || !client) return;
         const batch = writeBatch(firestore);
-        const fee = appointment.cancellationFeeApplied || 0;
+        const fee = Number(appointment.cancellationFeeApplied || 0);
         const feeRecord = client.unpaidFees?.find(f => f.appointmentId === appointment.id);
+        
         batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: new Date().toISOString(), description: `Late Protocol Fee: ${client.name}`, clientOrVendor: client.name, clientId: appointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card (Mobile)', hasReceipt: false, appointmentId: appointment.id });
+        
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, appointment.clientId);
         batch.update(clientRef, { outstandingBalance: increment(-fee) });
         if (feeRecord) batch.update(clientRef, { unpaidFees: arrayRemove(feeRecord) });
+        
         batch.update(doc(firestore, 'appointmentCheckIns', token), { cancellationPaymentStatus: 'paid' });
+        
         await batch.commit();
-        toast({ title: "Account Reconciled" }); router.push(`/book/${tenantId}`);
+        toast({ title: "Account Reconciled" }); 
+        router.push(`/book/${tenantId}`);
     };
 
     const handleSubmitReview = async (rating: number, text: string) => {
