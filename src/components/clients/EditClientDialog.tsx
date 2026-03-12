@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -56,7 +57,9 @@ import {
   FileText,
   Clock,
   Edit,
-  ArrowRight
+  ArrowRight,
+  CreditCard,
+  Lock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Client } from '@/lib/data';
@@ -67,6 +70,7 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { format, parseISO } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
 import { useInventory } from '@/context/InventoryContext';
+import { nanoid } from 'nanoid';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -107,6 +111,13 @@ const clientSchema = z.object({
       name: z.string().optional(),
       relationship: z.string().optional(),
       phone: z.string().optional(),
+  }).optional(),
+  cardOnFile: z.object({
+      brand: z.string().optional(),
+      last4: z.string().optional(),
+      expiryMonth: z.coerce.number().optional(),
+      expiryYear: z.coerce.number().optional(),
+      token: z.string().optional(),
   }).optional(),
 });
 
@@ -256,12 +267,12 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
         }
     }, [birthDay, birthMonth, birthYear, setValue]);
 
-    const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number }) => (
+    const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
         <div className="flex items-center gap-4 mb-6">
             <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
                 <Icon className="w-5 h-5" />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 text-left">
                 <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
                 <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
             </div>
@@ -289,23 +300,23 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         )}
                     />
                     <div className="flex-1 space-y-4 w-full">
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label htmlFor="full-name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
                             <Input id="full-name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base" />
                             {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label htmlFor="email-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Secure Email</Label>
                             <Input id="email-edit" type="email" placeholder="ALEX@EXAMPLE.COM" {...register('email')} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         </div>
                     </div>
                 </div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
                         <PhoneInput name="phone" label="" placeholder="(555) 000-0000" className="h-12 rounded-xl border-2 font-black text-lg" />
                     </div>
-                     <div className="space-y-1.5">
+                     <div className="space-y-1.5 text-left">
                         <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Birth Milestone</Label>
                         <div className="grid grid-cols-3 gap-2">
                             <Select value={birthMonth} onValueChange={setBirthMonth}>
@@ -343,18 +354,56 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
             </div>
 
             <div className="space-y-8">
+                <SectionHeader icon={CreditCard} title="Vaulted Payments" step="Vault" />
+                <div className="p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-8 shadow-inner">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <Lock className="w-5 h-5 text-primary opacity-40" />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">PCI Compliant Archive</span>
+                        </div>
+                        <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-white border-2">Card on File</Badge>
+                    </div>
+                    
+                    <div className="space-y-6">
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Simulated Card Entry</Label>
+                            <div className="relative">
+                                <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                                <Input placeholder="•••• •••• •••• 4242" className="h-14 pl-12 rounded-2xl border-2 font-mono text-lg bg-white shadow-sm" {...register('cardOnFile.last4')} onChange={e => {
+                                    const val = e.target.value.slice(-4);
+                                    setValue('cardOnFile.last4', val);
+                                    setValue('cardOnFile.brand', 'Visa');
+                                    setValue('cardOnFile.token', 'sim_tok_' + nanoid(10));
+                                }} />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry Month</Label>
+                                <Input type="number" placeholder="MM" {...register('cardOnFile.expiryMonth')} className="h-12 rounded-xl border-2 font-bold text-center" />
+                            </div>
+                            <div className="space-y-2 text-left">
+                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry Year</Label>
+                                <Input type="number" placeholder="YYYY" {...register('cardOnFile.expiryYear')} className="h-12 rounded-xl border-2 font-bold text-center" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-8">
                 <SectionHeader icon={Home} title="Domicile" step={2} />
                 <div className="space-y-4 p-6 rounded-[2rem] border-2 bg-muted/5">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label htmlFor="street-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Street Address</Label>
                         <Input id="street-edit" placeholder="123 AVENUE OF THE STARS" {...register('address.street')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">City</Label>
                             <Input placeholder="CITY" {...register('address.city')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                             <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">State</Label>
                             <Input placeholder="STATE" {...register('address.state')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                         </div>
@@ -365,15 +414,15 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
             <div className="space-y-8">
                 <SectionHeader icon={Heart} title="Emergency Data" step={3} />
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2rem] border-2 bg-muted/5">
-                     <div className="space-y-1.5">
+                     <div className="space-y-1.5 text-left">
                         <Label htmlFor="emergency-name-edit" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Contact Name</Label>
                         <Input id="emergency-name-edit" placeholder="CONTACT NAME" {...register('emergencyContact.name')} className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Contact Phone</Label>
                         <PhoneInput name="phone" label="" className="h-12 rounded-xl border-2" />
                     </div>
-                    <div className="space-y-1.5 sm:col-span-2">
+                    <div className="space-y-1.5 sm:col-span-2 text-left">
                         <Label htmlFor="emergency-relationship-edit" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Relationship</Label>
                         <Controller
                             name="emergencyContact.relationship"
@@ -398,7 +447,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
              <div className="space-y-8">
                 <SectionHeader icon={Gift} title="Growth Intel" step={4} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                         <Label htmlFor="referral-source-edit" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Discovery Source</Label>
                         <Controller
                             name="intel.referralSource"
@@ -423,7 +472,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             name="referringClientId"
                             control={control}
                             render={({ field }) => (
-                                <div className="space-y-1.5">
+                                <div className="space-y-1.5 text-left">
                                     <Label htmlFor="referring-client-edit" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Referring Guest</Label>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <SelectTrigger id="referring-client-edit" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
@@ -493,6 +542,7 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
             emergencyContact: client.emergencyContact || {},
             notes: client.notes || {},
             intel: client.intel || {},
+            cardOnFile: client.cardOnFile || {},
         });
     }
   }, [open, client, reset]);

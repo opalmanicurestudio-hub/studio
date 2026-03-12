@@ -136,6 +136,14 @@ export type Redemption = {
     isForfeit?: boolean;
 };
 
+export type CardOnFile = {
+    brand: string;
+    last4: string;
+    expiryMonth: number;
+    expiryYear: number;
+    token: string; // Simulated token
+};
+
 export type Client = {
   id: string;
   name: string;
@@ -165,6 +173,7 @@ export type Client = {
     perkLastUsed?: string;
     perkUsage?: { [itemId: string]: number };
   };
+  cardOnFile?: CardOnFile;
   activePackages?: {
     packageId: string;
     sessionsRemaining: number;

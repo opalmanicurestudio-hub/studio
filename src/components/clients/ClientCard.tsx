@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -13,7 +14,8 @@ import {
   Wallet,
   FileText,
   DollarSign,
-  ArrowRight
+  ArrowRight,
+  Lock
 } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
@@ -44,6 +46,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
 
     const hasDebt = Number(client.outstandingBalance || 0) > 0;
     const isMember = !!(client.activeMembershipId || client.subscription);
+    const hasCardOnFile = !!client.cardOnFile?.token;
 
     return (
         <Card className={cn(
@@ -73,9 +76,19 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                                 </div>
                             )}
                         </div>
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 text-left">
                             <div className="flex items-center gap-2 mb-1">
                                 <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{client.name}</p>
+                                {hasCardOnFile && (
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger>
+                                                <Lock className="w-3.5 h-3.5 text-primary opacity-40" />
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Secure Card on File</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                )}
                             </div>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{client.status === 'active' ? 'Registered' : client.status}</p>
@@ -86,12 +99,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all">
+                    <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
                         <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${Number(client.lifetimeValue || 0).toFixed(2)}</p>
                     </div>
                     {hasDebt ? (
-                        <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1">
+                        <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1 text-left">
                             <p className="text-[9px] font-black uppercase tracking-widest text-destructive/60">Arrears</p>
                             <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                         </div>

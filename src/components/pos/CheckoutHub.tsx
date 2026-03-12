@@ -39,7 +39,8 @@ import {
     Scan as ScanIcon,
     ArrowRight,
     Star,
-    Check
+    Check,
+    Lock
 } from 'lucide-react';
 import { type Appointment, type Service, type Client, type Staff, type Membership, type Package, getServicePrice } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -207,6 +208,7 @@ export const CheckoutHub = ({
     
     const isMember = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
     const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
+    const hasCardOnFile = !!selectedClient?.cardOnFile?.token;
 
     const filteredPayerOptions = useMemo(() => {
         const listToFilter = payerOptions || [];
@@ -753,9 +755,10 @@ export const CheckoutHub = ({
                 </div>
 
                 <div className="space-y-3 md:space-y-4 pt-6">
-                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-3 gap-2 md:gap-3">
+                    <RadioGroup value={paymentTab} onValueChange={setPaymentTab} className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
                         <div><RadioGroupItem value="cash" id="hub-pay-cash" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-cash" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><Banknote className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Cash</RadioLabel></div>
                         <div><RadioGroupItem value="card" id="hub-pay-card" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-card" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><CreditCard className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Card</RadioLabel></div>
+                        <div><RadioGroupItem value="card_on_file" id="hub-pay-cof" className="peer sr-only" disabled={!hasCardOnFile}/><RadioLabel htmlFor="hub-pay-cof" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm", !hasCardOnFile && "opacity-40 grayscale")}><ShieldCheck className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Vaulted</RadioLabel></div>
                         <div><RadioGroupItem value="scan" id="hub-pay-scan" className="peer sr-only" /><RadioLabel htmlFor="hub-pay-scan" className="flex flex-col items-center justify-center rounded-2xl border-2 border-muted bg-white p-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/[0.03] peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 md:h-20 shadow-sm"><ScanIcon className="mb-1 h-5 w-5 md:h-6 md:w-6 opacity-40" />Scan</RadioLabel></div>
                     </RadioGroup>
 

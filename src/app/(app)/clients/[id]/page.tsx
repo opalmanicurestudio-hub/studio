@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -51,7 +52,9 @@ import {
     CheckCircle2,
     TrendingUp,
     Activity,
-    TicketIcon
+    TicketIcon,
+    CreditCard,
+    Lock
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -336,7 +339,7 @@ export default function ClientDetailPage() {
                                                     <p className="font-black text-sm uppercase tracking-tight text-destructive">{fee.reason}</p>
                                                     <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Incurred {format(safeDate(fee.appointmentDate), 'MMM d, yyyy')}</p>
                                                 </div>
-                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(fee.feeAmount).toFixed(2)}</p>
+                                                <p className="text-xl font-black font-mono tracking-tighter text-destructive">${Number(fee.feeAmount || 0).toFixed(2)}</p>
                                             </div>
                                         ))}
                                     </div>
@@ -374,7 +377,7 @@ export default function ClientDetailPage() {
                 <div className="lg:col-span-1 space-y-8">
                     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
                         <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
-                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Intel</CardTitle>
+                            <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Financial Vault</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6 space-y-6">
                             <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group">
@@ -392,6 +395,34 @@ export default function ClientDetailPage() {
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
                                     <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                                 </div>
+                            </div>
+
+                            <Separator className="border-dashed" />
+
+                            <div className="space-y-4">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2">
+                                    <Lock className="w-3 h-3" /> Secure Card on File
+                                </p>
+                                {client.cardOnFile ? (
+                                    <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-white rounded-lg shadow-sm border border-primary/10">
+                                                <CreditCard className="w-5 h-5 text-primary" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-tighter text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p>
+                                                <p className="text-[8px] font-bold text-muted-foreground uppercase">Exp: {client.cardOnFile.expiryMonth}/{client.cardOnFile.expiryYear}</p>
+                                            </div>
+                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5">
+                                            <RefreshCw className="w-3.5 h-3.5" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all">
+                                        <PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Vault Security Card
+                                    </Button>
+                                )}
                             </div>
                         </CardContent>
                         <CardFooter className="p-6 pt-0">

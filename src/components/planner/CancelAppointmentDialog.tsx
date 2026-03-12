@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -32,7 +33,9 @@ import {
   Info,
   Ban,
   ArrowRight,
-  DollarSign
+  DollarSign,
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
@@ -67,10 +70,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const cardOnFile = { brand: 'Visa', last4: '4242' };
-
   const service = useMemo(() => services?.find(s => s.id === appointment.serviceId), [services, appointment.serviceId]);
   const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [clients, appointment.clientId]);
+
+  const hasCardOnFile = !!client?.cardOnFile?.token;
 
   const activeOffer = useMemo(() => {
     if (!client) return null;
@@ -123,6 +126,13 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   }, [reason, isLateCancellation, dynamicFees]);
 
   const feeAmount = shouldRoundUp ? Math.ceil(baseFeeAmount) : baseFeeAmount;
+
+  // Auto-switch payment method if no card on file
+  useEffect(() => {
+    if (!hasCardOnFile && paymentMethod === 'card_on_file') {
+        setPaymentMethod('add_to_balance');
+    }
+  }, [hasCardOnFile, paymentMethod]);
 
   const handleAction = async () => {
     setIsSubmitting(true);
@@ -273,12 +283,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                     </div>
                                 </div>
                                 <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-2 gap-3">
-                                    <label htmlFor="pay-card" className="cursor-pointer flex-1 h-full">
-                                        <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" />
+                                    <label htmlFor="pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
+                                        <RadioGroupItem value="card_on_file" id="pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
                                         <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:shadow-lg", paymentMethod === 'card_on_file' ? "border-primary" : "border-border bg-white")}>
-                                            <CreditCard className={cn("w-6 h-6 mb-2 transition-colors", paymentMethod === 'card_on_file' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                                            {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-2 text-primary" /> : <Lock className="w-6 h-6 mb-2 text-slate-400" />}
                                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 leading-none">Card on File</span>
-                                            <span className="text-[8px] text-primary/60 font-black uppercase mt-2 tracking-tighter">Visa •••• {cardOnFile.last4}</span>
+                                            {hasCardOnFile ? (
+                                                <span className="text-[8px] text-primary/60 font-black uppercase mt-2 tracking-tighter">{client?.cardOnFile?.brand} •••• {client?.cardOnFile?.last4}</span>
+                                            ) : (
+                                                <span className="text-[8px] text-muted-foreground font-bold uppercase mt-2 opacity-60">No Vaulted Card</span>
+                                            )}
                                         </div>
                                     </label>
                                     <label htmlFor="pay-balance" className="cursor-pointer flex-1 h-full">
@@ -300,7 +314,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
             <Button 
                 onClick={handleAction} 
-                className="w-full h-16 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/30 transition-all active:scale-95 group"
+                className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 transition-all active:scale-95 group"
                 disabled={isSubmitting}
             >
                 {isSubmitting ? (
