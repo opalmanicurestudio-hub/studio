@@ -89,6 +89,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   onReschedule,
   onRebook,
   onBookNewForClient,
+  onPrintTicket,
   onOverride,
   onWaiveFee,
 }) => {
@@ -416,7 +417,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         Accounting Alert
                       </AlertTitle>
                       <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
-                        Client owes <strong>${client.outstandingBalance.toFixed(2)}</strong>. Settle at checkout.
+                        Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.
                       </AlertDescription>
                     </Alert>
                   </motion.div>

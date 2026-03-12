@@ -56,7 +56,8 @@ import {
     CreditCard,
     Lock,
     Zap,
-    X
+    X,
+    Info
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -94,6 +95,7 @@ import {
     DialogDescription, 
     DialogFooter 
 } from '@/components/ui/dialog';
+import { type Transaction } from '@/lib/financial-data';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -115,7 +117,7 @@ const safeDate = (val: any): Date => {
 const getInitials = (name: string) => {
     if (!name) return '?';
     const parts = name.split(' ');
-    if (parts.length > 1) {
+    if (parts.length > 1 && parts[parts.length-1]) {
         return (parts[0][0] + (parts[parts.length - 1][0] || '')).toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -491,6 +492,57 @@ function PlannerPageContent() {
         setIsDetailsOpen(false);
     });
 };
+
+  const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: Record<string, any>) => {
+    if (!firestore || !tenantId || !selectedAppointment) return;
+
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    const currentCheckoutState = selectedAppointment.checkoutState || {};
+    const nextStaffOverrides = { ...(currentCheckoutState.serviceStaffOverrides || {}) };
+    const nextConcurrentIds = [...(currentCheckoutState.concurrentServiceIds || [])];
+
+    const batch = writeBatch(firestore);
+    const now = new Date().toISOString();
+
+    selectedAddOns.forEach((s) => {
+      const config = configs[s.id];
+      if (config) {
+        nextStaffOverrides[s.id] = config.staffId;
+        if (config.isConcurrent) {
+          nextConcurrentIds.push(s.id);
+        }
+
+        // DISPATCH NOTIFICATION
+        const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+        batch.set(notificationRef, {
+            id: notificationRef.id,
+            userId: config.staffId,
+            type: 'new_part_added',
+            message: `New Part Added: You've been assigned to '${s.name}' for ${selectedAppointment.clientName || 'Guest'} at ${format(safeDate(selectedAppointment.startTime), 'h:mm a')}.`,
+            link: '/planner',
+            createdAt: now,
+            read: false,
+        });
+      }
+    });
+
+    batch.update(appointmentRef, {
+      addOnIds: selectedAddOns.map(s => s.id),
+      checkoutState: {
+        ...currentCheckoutState,
+        serviceStaffOverrides: nextStaffOverrides,
+        concurrentServiceIds: Array.from(new Set(nextConcurrentIds)),
+      },
+    });
+
+    batch.commit().then(() => {
+        toast({
+            title: 'Appointment Refined',
+            description: 'New parts have been added and team members notified.',
+        });
+        setIsAddAndConfigureOpen(false);
+    });
+  };
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];

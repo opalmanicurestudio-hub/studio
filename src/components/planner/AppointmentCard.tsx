@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -35,6 +36,7 @@ import { type Appointment, type Client, type Service, Resource, type Transaction
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -57,7 +59,7 @@ export function AppointmentCard({
   onViewDetails,
   onFinishService,
 }: any) {
-  const { services, clients } = useInventory();
+  const { services, clients, staff } = useInventory();
   const { toast } = useToast();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
@@ -145,6 +147,14 @@ export function AppointmentCard({
   const isMember = !!(client.activeMembershipId || client.subscription);
   const hasPackage = (client.activePackages?.length || 0) > 0;
 
+  const involvedStaff = useMemo(() => {
+    const ids = new Set<string>();
+    if (appointment.staffId) ids.add(appointment.staffId);
+    const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
+    Object.values(overrides).forEach((sid: any) => { if (sid && typeof sid === 'string') ids.add(sid); });
+    return staff.filter((s: Staff) => ids.has(s.id));
+  }, [appointment, staff]);
+
   return (
     <div className="flex flex-col h-full w-full group">
       {service.padBefore > 0 && <div style={{ height: `${(service.padBefore / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
@@ -171,17 +181,37 @@ export function AppointmentCard({
                 <p className="font-black uppercase tracking-tight text-[10px] sm:text-[11px] text-slate-900 truncate leading-none mb-0.5 sm:mb-1">{client.name}</p>
                 <p className="text-[8px] sm:text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate opacity-60">{service.name}</p>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></Button></DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
-                {appointment.status === 'servicing' && <DropdownMenuItem onClick={() => onFinishService(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
-                {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={() => onCompleteClick(appointment)} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
-                <DropdownMenuItem onClick={() => onReschedule(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopyCheckInLink} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onDelete(appointment.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+                <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}><MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1">
+                    {appointment.status === 'servicing' && <DropdownMenuItem onClick={() => onFinishService(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
+                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onClick={() => onCompleteClick(appointment)} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
+                    <DropdownMenuItem onClick={() => onReschedule(appointment)} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleCopyCheckInLink} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onDelete(appointment.id)} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+                </DropdownMenuContent>
+                </DropdownMenu>
+                
+                {involvedStaff.length > 1 && (
+                    <div className="flex -space-x-2">
+                        {involvedStaff.map(s => (
+                            <TooltipProvider key={s.id}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Avatar className="h-4 w-4 sm:h-5 sm:w-5 border-2 border-background shadow-sm">
+                                            <AvatarImage src={s.avatarUrl} className="object-cover" />
+                                            <AvatarFallback className="text-[6px] sm:text-[7px] font-black">{(s.name || 'S')[0]}</AvatarFallback>
+                                        </Avatar>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[8px] tracking-widest">{s.name}</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ))}
+                    </div>
+                )}
+            </div>
           </div>
 
           {appointment.status === 'servicing' && elapsedTime && (
