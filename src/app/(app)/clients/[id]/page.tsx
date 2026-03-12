@@ -127,7 +127,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                 {client.intel?.hasIncidents && (
                      <div className="flex items-center gap-3">
                         <div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div>
-                        <span className="text-[10px] md:text-xs font-black text-purple-600 uppercase tracking-widest">Incident History</span>
+                        <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600">Incident History</span>
                     </div>
                 )}
                 {client.medicalNotes && (

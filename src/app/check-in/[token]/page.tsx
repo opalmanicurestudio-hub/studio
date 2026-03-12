@@ -93,7 +93,7 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
         <ViewHeader title="Complete" subtitle="Session Finished" icon={CheckCircle2} />
         <CardContent className="p-10 text-center space-y-8">
             <div className="w-24 h-24 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 -rotate-6">
-                <CheckCircle2 className="w-12 h-12 text-green-500 rotate-6" />
+                <CheckCircle2 className="w-14 h-14 text-green-500 rotate-6" />
             </div>
             <div className="space-y-2">
                 <p className="font-black text-xl uppercase tracking-tight text-slate-900">Thank You!</p>
@@ -189,6 +189,8 @@ const ReviewFormView = ({ onSubmit, onCancel, serviceName, staffName }: { onSubm
         </ViewContainer>
     );
 };
+
+const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);
 
 export default function CheckInPage() {
     const params = useParams();
@@ -349,7 +351,3 @@ export default function CheckInPage() {
         </ViewContainer>
     );
 }
-
-const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);
-
-const ReviewSubmittedViewNoProps = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);
