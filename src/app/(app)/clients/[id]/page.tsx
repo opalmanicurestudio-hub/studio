@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -330,7 +329,7 @@ export default function ClientDetailPage() {
 
                         <TabsContent value="ledger" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                             <div className="space-y-4">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1">Unpaid Protocol Fees</h3>
+                                <h3 className="text-10px font-black uppercase tracking-widest text-destructive ml-1">Unpaid Protocol Fees</h3>
                                 {client.unpaidFees && client.unpaidFees.length > 0 ? (
                                     <div className="grid gap-3">
                                         {client.unpaidFees.map((fee) => (
@@ -349,7 +348,7 @@ export default function ClientDetailPage() {
                             <Separator className="border-dashed" />
 
                             <div className="space-y-4">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
+                                <h3 className="text-10px font-black uppercase tracking-widest text-primary ml-1">Certified Redemptions & Waivers</h3>
                                 <div className="grid gap-3">
                                     {clientRedemptions.map(r => (
                                         <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
@@ -391,7 +390,7 @@ export default function ClientDetailPage() {
                                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Store Credit</p>
                                     <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono">${Number(client.walletCredit || 0).toFixed(2)}</p>
                                 </div>
-                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", (client.outstandingBalance || 0) > 0 ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
+                                <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all", Number(client.outstandingBalance || 0) > 0 ? "bg-destructive/5 border-destructive/20 text-destructive animate-in pulse duration-1000" : "bg-muted/20 border-transparent")}>
                                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60">Account Arrears</p>
                                     <p className="text-xl md:text-2xl font-black tracking-tighter font-mono">${Number(client.outstandingBalance || 0).toFixed(2)}</p>
                                 </div>
@@ -426,7 +425,7 @@ export default function ClientDetailPage() {
                             </div>
                         </CardContent>
                         <CardFooter className="p-6 pt-0">
-                            <Button disabled={!client.outstandingBalance || client.outstandingBalance === 0} className="w-full h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] md:text-xs shadow-xl shadow-primary/20" asChild><Link href={`/pos?payer_id=${client.id}&action=settle`}>Settle Arrears POS</Link></Button>
+                            <Button disabled={!client.outstandingBalance || Number(client.outstandingBalance) === 0} className="w-full h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] md:text-xs shadow-xl shadow-primary/20" asChild><Link href={`/pos?payer_id=${client.id}&action=settle`}>Settle Arrears POS</Link></Button>
                         </CardFooter>
                     </Card>
                 </div>

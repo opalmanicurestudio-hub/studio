@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -117,7 +116,7 @@ const PolicyEnforcementDialog = ({ open, onOpenChange, data, staff, onResolve }:
                         <div className="space-y-3 pt-4 border-t border-dashed">
                             <div className="flex items-center justify-between px-1">
                                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Manager Override</Label>
-                                <ShieldCheck className="w-3 h-3 text-primary opacity-40" />
+                                <ShieldCheck className="w-3 h-3 text-primary" />
                             </div>
                             <div className="flex gap-2">
                                 <Input 

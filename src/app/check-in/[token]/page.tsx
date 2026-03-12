@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -231,6 +230,12 @@ export default function CheckInPage() {
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
         if (lateMinutes !== undefined) updateData.lateTimeMinutes = lateMinutes;
         const batch = writeBatch(firestore);
+        
+        let estArrival: string | undefined;
+        if (lateMinutes) {
+            estArrival = format(addMinutes(safeDate(appointment.startTime), lateMinutes), 'h:mm a');
+        }
+
         if (newStatus === 'running_late' && lateMinutes && lateMinutes > grace) {
             const totalDur = (service?.duration || 60) + (service?.padBefore || 0) + (service?.padAfter || 0);
             let hasConflict = false;
@@ -249,8 +254,20 @@ export default function CheckInPage() {
         }
         batch.update(doc(firestore, 'appointmentCheckIns', token), updateData);
         if (appointment.staffId) {
-            const labels = { on_my_way: 'is on their way', arrived: 'has arrived', running_late: `is running ${lateMinutes} minutes late`, auto_cancelled: 'appointment was auto-cancelled due to lateness' };
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { userId: appointment.staffId, type: 'client_movement', message: `${client?.name || appointment.clientName} ${labels[newStatus as keyof typeof labels] || 'updated status'}.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
+            const statusLabels: Record<string, string> = { 
+                on_my_way: 'is on their way', 
+                arrived: 'has arrived', 
+                running_late: `is running ${lateMinutes}m late (Est. arrival: ${estArrival})`, 
+                auto_cancelled: 'appointment was auto-cancelled due to lateness' 
+            };
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/notifications`)), { 
+                userId: appointment.staffId, 
+                type: 'client_movement', 
+                message: `${client?.name || appointment.clientName} ${statusLabels[newStatus as keyof typeof statusLabels] || 'updated status'}.`, 
+                link: '/planner', 
+                createdAt: new Date().toISOString(), 
+                read: false 
+            });
         }
         batch.commit().then(() => setCurrentStatus(newStatus));
     };
@@ -334,3 +351,5 @@ export default function CheckInPage() {
 }
 
 const ReviewSubmittedView = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);
+
+const ReviewSubmittedViewNoProps = ({ onDone }: { onDone: () => void }) => (<ViewContainer><ViewHeader title="Success" subtitle="Review Authenticated" icon={CheckCircle2} /><CardContent className="p-10 text-center space-y-6"><div className="w-24 h-24 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6"><Sparkles className="w-12 h-12 text-primary -rotate-6" /></div><div className="space-y-2"><p className="font-black text-xl uppercase tracking-tight text-slate-900">Contribution Logged</p><p className="text-sm font-medium text-slate-500 leading-relaxed text-center">Your feedback has been recorded and will help us continue providing excellence.</p></div></CardContent><CardFooter className="p-8 pt-0"><Button onClick={onDone} className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">Return</Button></CardFooter></ViewContainer>);

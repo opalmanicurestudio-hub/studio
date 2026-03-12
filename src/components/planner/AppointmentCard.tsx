@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { format, differenceInMinutes, parseISO, differenceInSeconds, isSameMonth } from 'date-fns';
+import { format, differenceInMinutes, parseISO, differenceInSeconds, isSameMonth, addMinutes } from 'date-fns';
 import {
   Award,
   MoreHorizontal,
@@ -18,6 +18,7 @@ import {
   Square,
   Sparkles,
   Repeat,
+  AlertTriangle
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -108,15 +109,35 @@ export function AppointmentCard({
   const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
   const currentStatus = statusDisplay[cardStatus];
 
+  const estimatedArrival = useMemo(() => {
+      if (appointment.checkInStatus === 'running_late' && appointment.lateTimeMinutes) {
+          return format(addMinutes(safeDate(appointment.startTime), appointment.lateTimeMinutes), 'h:mm a');
+      }
+      return null;
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
+
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
     switch (appointment.checkInStatus) {
         case 'arrived': return <Badge className="bg-green-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><MapPin className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />HERE</Badge>;
-        case 'running_late': return <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse">+{appointment.lateTimeMinutes}M</Badge>;
+        case 'running_late': return (
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm animate-pulse cursor-help">
+                            <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />+{appointment.lateTimeMinutes}M
+                        </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                        Est. Arrival: {estimatedArrival}
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+        );
         case 'on_my_way': return <Badge className="bg-blue-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm"><Car className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />EN ROUTE</Badge>;
         default: return null;
     }
-  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status]);
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
 
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   const totalDuration = service.duration + totalPadding;
@@ -125,7 +146,7 @@ export function AppointmentCard({
   const hasPackage = (client.activePackages?.length || 0) > 0;
 
   return (
-    <div style={style} className="flex flex-col h-full w-full group">
+    <div className="flex flex-col h-full w-full group">
       {service.padBefore > 0 && <div style={{ height: `${(service.padBefore / totalDuration) * 100}%` }} className="bg-muted/10 rounded-t-xl bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,rgba(0,0,0,0.05)_4px,rgba(0,0,0,0.05)_5px)]" />}
       <div style={{ height: `${(service.duration / totalDuration) * 100}%` }} className="min-h-fit flex-1">
         <Card 
@@ -172,7 +193,12 @@ export function AppointmentCard({
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
             <div className="flex items-center gap-1 sm:gap-1.5">
                 <div className={cn("w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
-                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">{format(safeDate(appointment.startTime), 'h:mm a')}</p>
+                <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">
+                    {appointment.checkInStatus === 'running_late' && estimatedArrival 
+                        ? `EST: ${estimatedArrival}` 
+                        : format(safeDate(appointment.startTime), 'h:mm a')
+                    }
+                </p>
             </div>
             {appointment.status === 'ready_for_checkout' && (
                 <Button size="xs" className="h-4 sm:h-5 px-1.5 sm:px-2 bg-primary text-white border-none font-black text-[7px] sm:text-[8px] uppercase tracking-widest shadow-lg shadow-primary/20 rounded-lg animate-bounce" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
