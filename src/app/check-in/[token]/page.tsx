@@ -313,7 +313,7 @@ export default function CheckInPage() {
             <ViewHeader title="Identity Check" subtitle="Verify your session" icon={Fingerprint} />
             <CardContent className="p-8 md:p-10 space-y-10">
                 {Number(client.outstandingBalance || 0) > 0 && (
-                    <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2.5rem] p-6 shadow-2xl shadow-destructive/10">
+                    <Alert variant="destructive" className="bg-destructive/5 border-destructive border-4 rounded-[2rem] p-6 shadow-2xl shadow-destructive/10">
                         <Wallet className="h-6 w-6 text-destructive" />
                         <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Arrears Alert</AlertTitle>
                         <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase">Account balance of <strong className="text-lg tracking-tighter text-destructive">${Number(client.outstandingBalance).toFixed(2)}</strong> detected. Settle with your professional today.</AlertDescription>

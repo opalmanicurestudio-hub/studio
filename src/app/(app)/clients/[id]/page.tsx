@@ -137,7 +137,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                     </div>
                 )}
                 {client.allergyNotes && (
-                     <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3">
                         <div className="p-2 bg-orange-500/10 rounded-xl border border-orange-500/20 text-orange-600"><AlertTriangle className="w-4 h-4" /></div>
                         <span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy Warning</span>
                     </div>

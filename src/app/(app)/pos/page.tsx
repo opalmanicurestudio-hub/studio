@@ -549,7 +549,7 @@ function POSPage() {
                     const theoreticalEnd = addMinutes(theoreticalStart, fullSessionBlock);
                     const nextApt = (appointmentsFromInventory || [])
                         .filter(a => a.staffId === staffId && a.id !== apt.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > safeDate(apt.startTime))
-                        .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
+                        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())[0];
                     if (nextApt) {
                         const nextService = (services || []).find(s => s.id === nextApt.serviceId);
                         const nextStartWithPad = subMinutes(safeDate(nextApt.startTime), nextService?.padBefore || 0);

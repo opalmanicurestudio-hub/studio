@@ -216,7 +216,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     <div className="grid gap-4">
                         {willForfeit && activeOffer && (
                             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-6 rounded-[2rem] border-4 border-primary bg-primary/5 shadow-2xl shadow-primary/5 space-y-4 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-5"><ShieldAlert className="w-12 h-12 text-primary" /></div>
+                                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><ShieldAlert className="w-12 h-12 text-primary" /></div>
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-primary rounded-xl shadow-lg shadow-primary/20">
                                         {activeOffer.type === 'membership' ? <Award className="w-5 h-5 text-white" /> : <Repeat className="w-5 h-5 text-white" />}

@@ -80,6 +80,7 @@ import { Separator } from '../ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
+import { Textarea } from '@/components/ui/textarea';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -561,7 +562,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
 
   return (
     <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-2xl max-h-[90dvh]")}>
+      <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[90dvh]")}>
          <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2">
                 <Sparkles className="w-5 h-5 text-primary" />
