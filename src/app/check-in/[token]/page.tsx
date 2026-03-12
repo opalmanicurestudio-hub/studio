@@ -19,7 +19,6 @@ import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUni
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
-import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
@@ -101,7 +100,7 @@ const ThankYouView = ({ tenantId, onLeaveReview }: { tenantId: string, onLeaveRe
             </div>
         </CardContent>
         <CardFooter className="p-8 pt-0 flex flex-col gap-3">
-            <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><Link href={`/book/${tenantId}`}>Book Next Session</Link></Button>
+            <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20"><a href={`/book/${tenantId}`}>Book Next Session</a></Button>
             <Button variant="ghost" onClick={onLeaveReview} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Leave a Review</Button>
         </CardFooter>
     </ViewContainer>
@@ -158,7 +157,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                 ) : (
                     tenantId && (
                         <Button asChild className="w-full h-14 rounded-2xl text-lg font-black uppercase shadow-xl shadow-primary/20">
-                            <Link href={`/book/${tenantId}`}>Secure New Window</Link>
+                            <a href={`/book/${tenantId}`}>Secure New Window</a>
                         </Button>
                     )
                 )}
@@ -167,7 +166,7 @@ const CancelledView = ({ tenantId, fee, onSettle }: { tenantId?: string, fee?: n
                 )}
                 {step === 'info' && (
                     <Button asChild variant="ghost" className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground">
-                        <Link href="/">Return to Homepage</Link>
+                        <a href="/">Return to Homepage</a>
                     </Button>
                 )}
             </CardFooter>

@@ -263,11 +263,18 @@ export default function ClientDetailPage() {
                             </div>
                         </div>
                         <div className="flex flex-wrap justify-center sm:justify-start gap-x-8 gap-y-4 pt-2">
-                            <div className="space-y-1">
-                                <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
-                                <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate max-w-[200px]">{client.email}</a>
-                                <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
-                            </div>
+                            {isOwnerOrAdmin ? (
+                                <div className="space-y-1">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
+                                    <a href={`mailto:${client.email}`} className="text-xs md:text-sm font-black uppercase tracking-tight text-primary hover:underline block truncate max-w-[200px]">{client.email}</a>
+                                    <p className="text-xs md:text-sm font-black tracking-tight text-slate-700">{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Verified Contact</p>
+                                    <p className="text-xs md:text-sm font-black uppercase tracking-tight text-muted-foreground italic">Contact Restricted</p>
+                                </div>
+                            )}
                             <div className="space-y-1">
                                 <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Session Discovery</p>
                                 <p className="text-xs md:text-sm font-black uppercase tracking-tight text-slate-700">{client.intel?.referralSource || 'Unknown'}</p>
@@ -353,7 +360,7 @@ export default function ClientDetailPage() {
                                     {clientRedemptions.map(r => (
                                         <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
                                             <div className="flex items-center gap-4">
-                                                <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : "bg-indigo-500/10 text-indigo-600")}>
+                                                <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.type === 'membership' ? "bg-indigo-500/10 text-indigo-600" : "bg-teal-500/10 text-teal-600")}>
                                                     {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : <TicketIcon className="w-4 h-4" />}
                                                 </div>
                                                 <div className="min-w-0">

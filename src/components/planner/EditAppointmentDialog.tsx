@@ -32,7 +32,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -80,6 +79,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Separator } from '../ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { useTenant } from '@/context/TenantContext';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -140,8 +140,11 @@ const EditAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { inventory, staff, appointments, events, scheduleProfiles } = useInventory();
+    const { selectedTenant, role } = useTenant();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const { toast } = useToast();
+
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [selectedStaffId, setSelectedStaffId] = useState<string>(appointment.staffId || '');
@@ -315,7 +318,7 @@ const EditAppointmentForm = ({
 
     return (
         <div id="edit-appointment-form-container">
-            <form id="edit-appointment-form" onSubmit={handleLocalSubmit} className="space-y-10 py-4">
+            <div className="space-y-10 py-4">
                 <div className="space-y-6">
                     <SectionHeader icon={User} title="Engagement" />
                     <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden">
@@ -326,18 +329,24 @@ const EditAppointmentForm = ({
                             </Avatar>
                             <div className="min-w-0 flex-1">
                                 <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
-                                <div className="flex flex-col gap-1 mt-2">
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
-                                        <Mail className="w-3 h-3 opacity-40" />
-                                        {client.email || 'No email on record'}
-                                    </p>
-                                    {client.phone && (
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
-                                            <Phone className="w-3 h-3 opacity-40" />
-                                            {formatPhoneNumber(client.phone)}
-                                        </p>
-                                    )}
-                                </div>
+                                {isOwnerOrAdmin ? (
+                                    <div className="flex flex-col gap-1 mt-2">
+                                        {client.email && (
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
+                                                <Mail className="w-3 h-3 opacity-40" />
+                                                {client.email}
+                                            </p>
+                                        )}
+                                        {client.phone && (
+                                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-2">
+                                                <Phone className="w-3 h-3 opacity-40" />
+                                                {formatPhoneNumber(client.phone)}
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-[9px] text-muted-foreground italic pt-2 font-black uppercase tracking-widest opacity-40">Contact Restricted</p>
+                                )}
                             </div>
                         </CardContent>
                     </Card>
@@ -436,7 +445,7 @@ const EditAppointmentForm = ({
                     <SectionHeader icon={CalendarCheck} title="Timing" />
                     <div className="space-y-3 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Schedule Picker</Label>
-                        <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-8 shadow-inner">
+                        <div className="rounded-[2.5rem] border-2 bg-muted/10 p-4 md:p-6 space-y-6 md:space-y-8 shadow-inner">
                             <div className="flex justify-between items-center px-2">
                                 <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))} type="button" className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-4 h-4 md:w-5 md:h-5" /></Button>
                                 <span className="font-black uppercase tracking-widest text-xs md:text-sm">{format(date, 'MMMM yyyy')}</span>
@@ -502,7 +511,7 @@ const EditAppointmentForm = ({
                     <Label htmlFor="notes-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Protocol Notes</Label>
                     <Textarea id="notes-edit" value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="Specific strategic notes for this session..." className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
                 </div>
-            </form>
+            </div>
 
             <BrowseProductsDialog
                 open={isProductBrowserOpen}
