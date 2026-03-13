@@ -777,6 +777,8 @@ export type TillSession = {
     openingFloat: number;
     expectedCash: number;
     actualCash?: number;
+    cashToDeposit?: number;
+    nextDayFloat?: number;
     discrepancy?: number;
     openingDenominations: TillDenominations;
     closingDenominations?: TillDenominations;

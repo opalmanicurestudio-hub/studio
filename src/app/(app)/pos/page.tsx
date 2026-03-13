@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
@@ -495,7 +496,7 @@ function POSPage() {
 
         if (data.chargeFee && data.feeAmount > 0) {
             if (data.paymentMethod === 'card_on_file') {
-                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId });
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: fee, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: id, staffId: apt.staffId });
             } else if (data.paymentMethod === 'add_to_balance') {
                 batch.update(clientRef, { unpaidFees: arrayUnion({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId }), outstandingBalance: increment(data.feeAmount) });
             }
@@ -688,12 +689,12 @@ function POSPage() {
     };
 
     const onApplyAdjustmentToggle = (ids: string | Set<string>, apply: boolean = true) => {
-        setAppliedAdjustments(prev => {
+        setAppliedAdjustments((prev: Set<string>) => {
             const next = new Set(prev);
             if (typeof ids === 'string') {
                 apply ? next.add(ids) : next.delete(ids);
             } else {
-                ids.forEach(id => apply ? next.add(id) : next.delete(id));
+                ids.forEach((id: string) => apply ? next.add(id) : next.delete(id));
             }
             return next;
         });
@@ -716,7 +717,7 @@ function POSPage() {
             const isWaived = waivedAppointmentFees.has(apt.id);
             const additional = !isWaived ? (checkoutState.additionalCharge || 0) : 0;
             const formula = checkoutState.formula || [];
-            formula.forEach(item => {
+            formula.forEach((item: any) => {
                 const product = (inventory || []).find(p => p.id === item.id);
                 if (!product) return;
                 const productRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
@@ -748,7 +749,7 @@ function POSPage() {
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += mainPartRevenue;
 
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Service Revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true });
-            addOnServices.forEach(addon => {
+            addOnServices.forEach((addon: any) => {
                 const addonStaffId = overrides[addon.id] || apt.staffId;
                 const addonStaffMember = (staff || []).find(s => s.id === addonStaffId);
                 const isAddonRedeemed = redeemedOffer?.id === addon.id;
@@ -794,16 +795,15 @@ function POSPage() {
             batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id), updates);
         }
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
-            if (amount > 0) {
+            if ((amount as number) > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: 'Gratuity', clientOrVendor: selectedClient?.name || 'Client', clientId: selectedClientId, type: 'income', context: 'Business', category: 'Tips', amount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true });
-                if (paymentData.paymentMethod === 'cash') totalCashIncrease += amount;
+                if (paymentData.paymentMethod === 'cash') totalCashIncrease += (amount as number);
             }
         });
         if (discount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: selectedClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discount, paymentMethod: 'Internal', hasReceipt: false });
         }
 
-        // Apply cash increase to active till if payment was cash
         if (paymentData.paymentMethod === 'cash' && activeTill) {
             batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), { expectedCash: increment(totalCashIncrease + tax) });
         }
@@ -833,32 +833,29 @@ function POSPage() {
 
     const handleCloseTill = async (data: any) => {
         if (!firestore || !tenantId || !activeTill) return;
-        const discrepancy = data.actualCash - activeTill.expectedCash;
         const updates: Partial<TillSession> = {
             status: 'closed',
             closedAt: new Date().toISOString(),
-            discrepancy,
             ...data
         };
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), updates);
         
-        // Log discrepancy in ledger if it exists
-        if (Math.abs(discrepancy) > 0.01) {
+        if (Math.abs(data.discrepancy) > 0.01) {
             const txn: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
-                description: `Till Discrepancy: ${discrepancy > 0 ? 'Overage' : 'Shortage'}`,
+                description: `Till Discrepancy: ${data.discrepancy > 0 ? 'Overage' : 'Shortage'}`,
                 clientOrVendor: 'Internal Audit',
-                type: discrepancy > 0 ? 'income' : 'expense',
+                type: data.discrepancy > 0 ? 'income' : 'expense',
                 context: 'Business',
                 category: 'Audit Adjustment',
-                amount: Math.abs(discrepancy),
+                amount: Math.abs(data.discrepancy),
                 paymentMethod: 'Till Internal',
                 hasReceipt: false,
             };
             addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), txn);
         }
 
-        toast({ title: "Till Reconciled", description: discrepancy === 0 ? "Drawer balanced perfectly." : `Discrepancy of $${discrepancy.toFixed(2)} recorded.` });
+        toast({ title: "Till Reconciled" });
     };
 
     const onWaiveFeeToggle = (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); };
