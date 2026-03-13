@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -41,6 +40,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
+import { format, parseISO } from 'date-fns';
 
 const denominations = [
     { key: 'bills_100', label: '$100', val: 100, icon: Banknote },
@@ -226,7 +226,7 @@ export const TillManagement = ({
                         <div className="grid grid-cols-2 gap-3">
                             {step === 'count' ? (
                                 <>
-                                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel</Button>
+                                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
                                     <Button onClick={() => setStep('verify')} disabled={total <= 0} className="h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">
                                         Next: Identity Verify <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                                     </Button>
